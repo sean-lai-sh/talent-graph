@@ -242,28 +242,59 @@ Judge reliability `p_u`, judge bias `b_u`, clique/correlation discount `ρ`,
 opportunity adjustment `R*`, bandits/exploration policy, GNNs, LLM-as-judge.
 The types exist as placeholders so the DB can be shaped for them later.
 
+## 11a. Durable updates: changing weights without destroying the graph
+
+The weights, thresholds, and eventually the model form *will* change. A graph
+carrying months of observations and real decisions must survive that without a
+silent reshuffle. Mechanism (issue #15):
+
+1. **Raw observations are immutable and sufficient.** Scores are never stored
+   on `Person`; everything is derived and reproducible from raw data + a spec.
+   Recomputing is cheap. The cost we control is *semantic drift*.
+2. **Models are versioned data.** `ModelSpec` objects (`src/models/spec.ts`,
+   append-only `registry.ts`) hold every weight, multiplier, λ and threshold
+   with a semver. Math functions take a spec; defaults come from `CURRENT_SPECS`.
+3. **Every run is recorded.** `ModelRun` stores spec version + parameters +
+   input hash + outputs, so any historical number can be reproduced exactly.
+4. **Changes are measured before they are shown.** `analysis/drift.ts` compares
+   two runs on the same data: Kendall τ, Spearman, top-K Jaccard, percentile
+   shift distribution, people crossing the insufficient-evidence boundary,
+   largest movers, and a `stable / review / breaking` verdict with documented
+   heuristic thresholds. `bun run drift` prints it; a PR checkbox requires it.
+5. **Transitions are gradual.** Bradley–Terry accepts a previous run as a
+   warm start and an optional anchor prior `κ·Σ(θ_i − θ_i^prev)²` (κ = 0 ⇒
+   plain fit). Display-layer blending `(1−α)·old + α·new` with a scheduled α is
+   available for rollout, always labelled, with both raw runs retained.
+6. **Decisions keep their provenance.** `PredictionSnapshot` freezes the
+   numbers a decision was made on, tied to `ModelRun` ids, so later spec
+   versions never rewrite history.
+
+Anchoring and blending are engineering continuity devices, not theory; they
+are documented in README, not in `docs/theory/main.tex`.
+
 ## 12. Work breakdown → GitHub issues
 
 Each issue in `docs/issues/` is a self-contained brief for a cloud coding
 agent: goal, files to touch, exact formulas, acceptance tests, and what not
 to do. Ordering:
 
-| # | Issue | Depends on |
-|---|---|---|
-| 1 | Scaffold: bun, tsconfig, biome, CI, README skeleton | — |
-| 2 | Domain types, constants, validation | 1 |
-| 3 | V0 referral strength + Referral Signal + explanation | 2 |
-| 4 | Referral graph utilities | 2 |
-| 5 | Stable logistic helpers + connected components | 2 |
-| 6 | Bradley–Terry fit (regularised, normalised, per-component) | 5 |
-| 7 | Percentiles, capability vector, insufficient-evidence states | 6 |
-| 8 | Comparison selection heuristic | 7 |
-| 9 | Referral percentile + under-recognition gap | 3, 7 |
-| 10 | Seeded synthetic dataset with personas A–F | 2 |
-| 11 | ModelRun record + config (Doppler-backed tunables) | 6 |
-| 12 | Demo script + dashboard summaries | 3, 7, 9, 10 |
-| 13 | Invariant tests + README math/limitations/roadmap | all |
-| 14 | LaTeX CI build job + theory-sync check | 1 |
+| # | GH | Issue | Depends on |
+|---|---|---|---|
+| 1 | #14 | Scaffold: bun, tsconfig, biome, CI, README skeleton | — |
+| 2 | #1 | Domain types, constants, validation | 1 |
+| 3 | #2 | V0 referral strength + Referral Signal + explanation | 2 |
+| 4 | #3 | Referral graph utilities | 2 |
+| 5 | #4 | Stable logistic helpers + connected components | 2 |
+| 6 | #5 | Bradley–Terry fit (regularised, normalised, per-component) | 5 |
+| 7 | #6 | Percentiles, capability vector, insufficient-evidence states | 6 |
+| 8 | #7 | Comparison selection heuristic | 7 |
+| 9 | #8 | Referral percentile + under-recognition gap | 3, 7 |
+| 10 | #9 | Seeded synthetic dataset with personas A–F | 2 |
+| 11 | #10 | ModelRun record + config (Doppler-backed tunables) | 6 |
+| 12 | #11 | Demo script + dashboard summaries | 3, 7, 9, 10 |
+| 13 | #12 | Invariant tests + README math/limitations/roadmap | all |
+| 14 | #13 | LaTeX CI build job + theory-sync check | 1 |
+| 15 | #15 | Durable updates: versioned specs, drift report, anchored refit, blending | 2, 6, 11 |
 
 Phase A = issues 1–2. Phase B (V0) = 3, 4, 10. Phase C (V1) = 5–9, 11–12.
-Closeout = 13–14.
+Closeout = 13–14. Cross-cutting = 15 (land after 6 and 11, before 12–13).
