@@ -24,13 +24,16 @@ export function createPredictionSnapshot(input: CreateSnapshotInput): Prediction
   }
   const values = Object.freeze({ ...input.values });
   const modelRunIds = Object.freeze([...input.modelRunIds]) as string[];
-  const id = `snap:${input.personId}:${hashInputs({ modelRunIds, values, at: input.now }).slice(0, 16)}`;
+  // Object.freeze does not freeze a Date's internal time value, so keep a
+  // private copy rather than the caller's mutable instance.
+  const createdAt = new Date(input.now.getTime());
+  const id = `snap:${input.personId}:${hashInputs({ modelRunIds, values, at: createdAt }).slice(0, 16)}`;
   return Object.freeze({
     id,
     personId: input.personId,
     modelRunIds,
     values,
     decision: input.decision ?? null,
-    createdAt: input.now,
+    createdAt,
   });
 }

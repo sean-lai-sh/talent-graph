@@ -8,6 +8,8 @@
  */
 
 import type { EvidenceType, Person, PersonStatus, Referral } from "../domain/types.ts";
+import { CURRENT_SPECS } from "../models/registry.ts";
+import type { ReferralSignalSpec } from "../models/spec.ts";
 import type { ReferralSignalResult } from "../scoring/referralSignal.ts";
 import { referralStrength } from "../scoring/referralStrength.ts";
 
@@ -170,14 +172,23 @@ export function filterGraph(g: ReferralGraph, f: GraphFilter): ReferralGraph {
   return buildReferralGraph(people, referrals);
 }
 
-/** Directed edge list with R_uv as weight, for export or a future renderer. */
+/**
+ * Directed edge list with R_uv as weight, for export or a future renderer.
+ * Pass the spec a historical run used to reproduce its weights exactly;
+ * the default is the current spec.
+ */
 export function toEdgeList(
   g: ReferralGraph,
+  spec: ReferralSignalSpec = CURRENT_SPECS.referral_signal,
 ): Array<{ source: string; target: string; weight: number }> {
   const edges: Array<{ source: string; target: string; weight: number }> = [];
   for (const list of g.out.values()) {
     for (const r of list) {
-      edges.push({ source: r.referrerId, target: r.candidateId, weight: referralStrength(r) });
+      edges.push({
+        source: r.referrerId,
+        target: r.candidateId,
+        weight: referralStrength(r, spec),
+      });
     }
   }
   return edges;

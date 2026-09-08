@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { EVIDENCE_MULTIPLIER, REFERRAL_WEIGHTS } from "../src/domain/constants.ts";
+import type { Referral } from "../src/domain/types.ts";
 import {
   BRADLEY_TERRY_V1_0_0,
   CURRENT_SPECS,
+  deepFreeze,
   getSpec,
   isRegisteredSpec,
   REFERRAL_SIGNAL_V0_1_0,
@@ -10,6 +12,21 @@ import {
   specVersions,
 } from "../src/models/registry.ts";
 import { type BradleyTerrySpec, specId, validateSpec } from "../src/models/spec.ts";
+import { referralStrength } from "../src/scoring/referralStrength.ts";
+
+const T0 = new Date("2026-01-01T00:00:00.000Z");
+const FIRSTHAND: Referral = {
+  id: "r-1",
+  referrerId: "u",
+  candidateId: "v",
+  conviction: 5,
+  confidence: 3,
+  relationshipDepth: 1,
+  evidenceType: "firsthand_work",
+  evidenceText: "Shipped it together.",
+  createdAt: T0,
+  updatedAt: T0,
+};
 
 describe("validateSpec", () => {
   test("accepts every registered spec", () => {
@@ -96,5 +113,53 @@ describe("registry", () => {
   test("registered specs are frozen", () => {
     expect(Object.isFrozen(REFERRAL_SIGNAL_V0_1_0)).toBe(true);
     expect(Object.isFrozen(SPEC_HISTORY)).toBe(true);
+  });
+
+  test("registered specs are deep-frozen: nested weights cannot be mutated", () => {
+    // Before deep freezing, this assignment silently changed the registry while
+    // isRegisteredSpec kept comparing the (now mutated) object to itself.
+    const before = referralStrength(FIRSTHAND);
+    expect(() => {
+      CURRENT_SPECS.referral_signal.weights.conviction = 0;
+    }).toThrow(TypeError);
+    expect(CURRENT_SPECS.referral_signal.weights.conviction).toBe(REFERRAL_WEIGHTS.conviction);
+    expect(referralStrength(FIRSTHAND)).toBe(before);
+    expect(isRegisteredSpec(CURRENT_SPECS.referral_signal)).toBe(true);
+  });
+
+  test("every nested object of every registered spec is frozen", () => {
+    for (const spec of SPEC_HISTORY) {
+      expect(Object.isFrozen(spec)).toBe(true);
+      for (const value of Object.values(spec)) {
+        if (value !== null && typeof value === "object") expect(Object.isFrozen(value)).toBe(true);
+      }
+    }
+    expect(Object.isFrozen(REFERRAL_SIGNAL_V0_1_0.weights)).toBe(true);
+    expect(Object.isFrozen(REFERRAL_SIGNAL_V0_1_0.evidenceMultiplier)).toBe(true);
+    expect(Object.isFrozen(CURRENT_SPECS)).toBe(true);
+    expect(() => {
+      (SPEC_HISTORY as unknown[]).push({});
+    }).toThrow(TypeError);
+  });
+});
+
+describe("deepFreeze", () => {
+  test("freezes nested objects and arrays and returns the same reference", () => {
+    const value = { a: { b: [{ c: 1 }] }, d: 2 };
+    const frozen = deepFreeze(value);
+    expect(frozen).toBe(value);
+    expect(Object.isFrozen(frozen)).toBe(true);
+    expect(Object.isFrozen(frozen.a)).toBe(true);
+    expect(Object.isFrozen(frozen.a.b)).toBe(true);
+    expect(Object.isFrozen(frozen.a.b[0])).toBe(true);
+    expect(() => {
+      (frozen.a.b[0] as { c: number }).c = 9;
+    }).toThrow(TypeError);
+  });
+
+  test("passes primitives and null through", () => {
+    expect(deepFreeze(3)).toBe(3);
+    expect(deepFreeze("s")).toBe("s");
+    expect(deepFreeze(null)).toBeNull();
   });
 });

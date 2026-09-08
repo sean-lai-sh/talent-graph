@@ -18,8 +18,23 @@ import {
   specId,
 } from "./spec.ts";
 
+/**
+ * Recursively freeze a plain object/array graph. `Object.freeze` is shallow,
+ * so a registered spec's nested `weights` would otherwise stay mutable and
+ * `isRegisteredSpec` (which compares a spec to its registry entry) could not
+ * catch the drift. Functions, Dates, Maps and other exotic objects are left
+ * alone; specs contain none.
+ */
+export function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const key of Reflect.ownKeys(value as object)) {
+    deepFreeze((value as Record<PropertyKey, unknown>)[key]);
+  }
+  return Object.freeze(value);
+}
+
 /** V0 Referral Signal as specified in the MVP prompt (PLAN.md §4). */
-export const REFERRAL_SIGNAL_V0_1_0: ReferralSignalSpec = Object.freeze({
+export const REFERRAL_SIGNAL_V0_1_0: ReferralSignalSpec = deepFreeze({
   kind: "referral_signal",
   version: "0.1.0",
   weights: { ...REFERRAL_WEIGHTS },
@@ -32,7 +47,7 @@ export const REFERRAL_SIGNAL_V0_1_0: ReferralSignalSpec = Object.freeze({
  * that keeps single-comparison nodes near 0 on the seed data; it is **not**
  * theoretically optimal and has not been tuned against outcomes.
  */
-export const BRADLEY_TERRY_V1_0_0: BradleyTerrySpec = Object.freeze({
+export const BRADLEY_TERRY_V1_0_0: BradleyTerrySpec = deepFreeze({
   kind: "bradley_terry",
   version: "1.0.0",
   regularization: 0.1,
@@ -45,13 +60,13 @@ export const BRADLEY_TERRY_V1_0_0: BradleyTerrySpec = Object.freeze({
 });
 
 /** Every spec version ever shipped. Append only. */
-export const SPEC_HISTORY: readonly ModelSpec[] = Object.freeze([
+export const SPEC_HISTORY: readonly ModelSpec[] = deepFreeze([
   REFERRAL_SIGNAL_V0_1_0,
   BRADLEY_TERRY_V1_0_0,
 ]);
 
 /** The version used when a caller does not pass a spec explicitly. */
-export const CURRENT_SPECS: { readonly [K in ModelSpecKind]: SpecOfKind<K> } = Object.freeze({
+export const CURRENT_SPECS: { readonly [K in ModelSpecKind]: SpecOfKind<K> } = deepFreeze({
   referral_signal: REFERRAL_SIGNAL_V0_1_0,
   bradley_terry: BRADLEY_TERRY_V1_0_0,
 });

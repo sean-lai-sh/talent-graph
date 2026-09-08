@@ -158,6 +158,40 @@ describe("computeReferralSignal", () => {
     expect(all.get("w")?.signal).toBe(0);
   });
 
+  test("rejects a spec whose weights do not sum to 1", () => {
+    const bad = {
+      ...REFERRAL_SIGNAL_V0_1_0,
+      version: "0.9.9",
+      weights: { conviction: 1, confidence: 1, relationshipDepth: 1 },
+    };
+    expect(() => computeReferralSignal("v", [referral()], { spec: bad })).toThrow(/sum to 1/);
+  });
+
+  test("each contributing entry carries the breakdown under the spec used", () => {
+    const spec = {
+      ...REFERRAL_SIGNAL_V0_1_0,
+      version: "0.9.1",
+      evidenceMultiplier: { ...REFERRAL_SIGNAL_V0_1_0.evidenceMultiplier, firsthand_work: 0.25 },
+    };
+    const rs = [referral(), referral({ conviction: 3 }), referral({ evidenceType: "reputation" })];
+    const res = computeReferralSignal("v", rs, { spec });
+    expect(res.contributing).toHaveLength(3);
+    for (const c of res.contributing) {
+      expect(c.breakdown.strength).toBe(c.strength);
+      expect(c.breakdown.multiplier).toBe(spec.evidenceMultiplier[c.referral.evidenceType]);
+      expect(c.breakdown.weights).toEqual(spec.weights);
+    }
+    const firsthand = res.contributing.filter((c) => c.referral.evidenceType === "firsthand_work");
+    expect(firsthand).toHaveLength(2);
+    for (const c of firsthand) expect(c.breakdown.multiplier).toBe(0.25);
+    // The custom multiplier is what the default spec would not have produced.
+    const plain = computeReferralSignal("v", rs);
+    const plainFirsthand = plain.contributing.find(
+      (c) => c.referral.evidenceType === "firsthand_work",
+    );
+    expect(plainFirsthand?.breakdown.multiplier).toBe(1);
+  });
+
   test("the signature accepts referrals only (no evaluations, no comparisons)", () => {
     // Type-level: computeReferralSignal takes (personId, Referral[], opts?). If a
     // future change adds an evaluation parameter this arity assertion fails.

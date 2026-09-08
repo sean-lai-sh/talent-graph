@@ -36,7 +36,7 @@ describe("createPredictionSnapshot", () => {
     expect(snap.values.referralSignal).toBe(values.referralSignal);
     expect(snap.modelRunIds).toEqual([signals.id, caps.id]);
     expect(snap.decision).toBe("invite to interview");
-    expect(snap.createdAt).toBe(NOW);
+    expect(snap.createdAt).toEqual(NOW);
     expect(snap.id.startsWith("snap:p-cleo:")).toBe(true);
     expect(Object.isFrozen(snap)).toBe(true);
     expect(Object.isFrozen(snap.values)).toBe(true);
@@ -48,6 +48,24 @@ describe("createPredictionSnapshot", () => {
     values.x = 99;
     expect(snap.values.x).toBe(1);
     expect(snap.decision).toBeNull();
+  });
+
+  test("copies `now` so mutating the caller's Date does not move createdAt or id", () => {
+    const now = new Date("2026-05-01T00:00:00.000Z");
+    const snap = createPredictionSnapshot({ personId: "p", modelRunIds: ["r"], values: {}, now });
+    const id = snap.id;
+    now.setFullYear(1999);
+    expect(snap.createdAt.toISOString()).toBe("2026-05-01T00:00:00.000Z");
+    expect(snap.createdAt).not.toBe(now);
+    expect(snap.id).toBe(id);
+    // The id is derived from the copied timestamp, so an identical input reproduces it.
+    const again = createPredictionSnapshot({
+      personId: "p",
+      modelRunIds: ["r"],
+      values: {},
+      now: new Date("2026-05-01T00:00:00.000Z"),
+    });
+    expect(again.id).toBe(id);
   });
 
   test("requires at least one model run id", () => {

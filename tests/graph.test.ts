@@ -10,6 +10,7 @@ import {
   referrersOf,
   toEdgeList,
 } from "../src/graph/referralGraph.ts";
+import { REFERRAL_SIGNAL_V0_1_0 } from "../src/models/registry.ts";
 import { computeAllReferralSignals } from "../src/scoring/referralSignal.ts";
 import { referralStrength } from "../src/scoring/referralStrength.ts";
 
@@ -113,6 +114,30 @@ describe("referral graph", () => {
       const r = referrals.find((x) => x.referrerId === e.source && x.candidateId === e.target);
       expect(e.weight).toBe(referralStrength(r as Referral));
     }
+  });
+
+  test("toEdgeList scores with the supplied spec, not always the current one", () => {
+    const historical = {
+      ...REFERRAL_SIGNAL_V0_1_0,
+      version: "0.0.1",
+      evidenceMultiplier: { ...REFERRAL_SIGNAL_V0_1_0.evidenceMultiplier, firsthand_work: 0.1 },
+    };
+    const current = toEdgeList(g);
+    const old = toEdgeList(g, historical);
+    expect(old).toHaveLength(current.length);
+    const key = (e: { source: string; target: string }) => `${e.source}->${e.target}`;
+    for (const e of old) {
+      const r = referrals.find((x) => key(e) === `${x.referrerId}->${x.candidateId}`) as Referral;
+      expect(e.weight).toBe(referralStrength(r, historical));
+      const c = current.find((x) => key(x) === key(e)) as { weight: number };
+      if (r.evidenceType === "firsthand_work") {
+        expect(e.weight).not.toBe(c.weight);
+        expect(e.weight).toBeCloseTo(c.weight * 0.1, 12);
+      } else {
+        expect(e.weight).toBe(c.weight);
+      }
+    }
+    expect(old.some((e, i) => e.weight !== current[i]?.weight)).toBe(true);
   });
 
   test("referrals with unknown endpoints are dropped", () => {
