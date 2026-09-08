@@ -191,7 +191,7 @@ non-insufficient BT estimate on k). Returned with an explicit
 ## 8. Seed data
 
 Deterministic (seeded PRNG, e.g. mulberry32), ~32 people, ~50 referrals,
-~140 comparisons across all 7 dimensions, including the required personas:
+~160 comparisons across all 7 dimensions, including the required personas:
 
 | Persona | Referral Signal | Pairwise capability |
 |---|---|---|
