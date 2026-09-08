@@ -144,6 +144,21 @@ export function validateSpec(spec: ModelSpec): SpecValidationResult {
   return errors.length === 0 ? { ok: true } : { ok: false, errors };
 }
 
+/**
+ * Throw on an invalid spec. Called once at each public scoring/inference
+ * entry point so a corrupt spec (weights not summing to 1, λ = NaN, …) can
+ * never stamp a version onto a result.
+ */
+export function assertSpec<S extends ModelSpec>(spec: S): S {
+  const result = validateSpec(spec);
+  if (!result.ok) {
+    throw new Error(
+      `invalid ${spec.kind} spec ${String(spec.version)}: ${result.errors.join("; ")}`,
+    );
+  }
+  return spec;
+}
+
 /** Stable identifier for a spec, used in ModelRun records and drift reports. */
 export function specId(spec: ModelSpec): string {
   return `${spec.kind}@${spec.version}`;

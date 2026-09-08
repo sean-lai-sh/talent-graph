@@ -14,8 +14,8 @@
 import { FIRSTHAND_EVIDENCE_TYPES } from "../domain/constants.ts";
 import type { EvidenceType, Person, Referral } from "../domain/types.ts";
 import { CURRENT_SPECS } from "../models/registry.ts";
-import type { ReferralSignalSpec } from "../models/spec.ts";
-import { referralStrength } from "./referralStrength.ts";
+import { assertSpec, type ReferralSignalSpec } from "../models/spec.ts";
+import { type ReferralStrengthBreakdown, referralStrengthBreakdown } from "./referralStrength.ts";
 
 export const REFERRAL_SIGNAL_EXPLANATION =
   "Referral Signal summarizes the current strength of referral evidence. It is not an objective measure of ability.";
@@ -24,6 +24,11 @@ export interface ContributingReferral {
   referral: Referral;
   /** R_uv */
   strength: number;
+  /**
+   * Every intermediate of R_uv under the spec that produced this result, so
+   * explanations never have to re-derive it with a possibly different spec.
+   */
+  breakdown: ReferralStrengthBreakdown;
 }
 
 export interface ReferralSignalResult {
@@ -67,14 +72,17 @@ export function computeReferralSignal(
   referrals: readonly Referral[],
   opts: ReferralSignalOptions = {},
 ): ReferralSignalResult {
-  const spec = opts.spec ?? CURRENT_SPECS.referral_signal;
+  const spec = assertSpec(opts.spec ?? CURRENT_SPECS.referral_signal);
   const topK = opts.topK ?? spec.topK;
 
   // Defensive: a self-referral should already be rejected by validateReferral.
   const incoming = referrals.filter((r) => r.candidateId === personId && r.referrerId !== personId);
 
   const scored = incoming
-    .map((referral) => ({ referral, strength: referralStrength(referral, spec) }))
+    .map((referral) => {
+      const breakdown = referralStrengthBreakdown(referral, spec);
+      return { referral, strength: breakdown.strength, breakdown };
+    })
     .sort(compareContributing);
 
   const contributing = scored.slice(0, topK);
