@@ -6,7 +6,12 @@
  * are sufficient to reproduce any historical number exactly.
  */
 
-import type { Person, Referral } from "./domain/types.ts";
+import type { Comparison, Person, Referral } from "./domain/types.ts";
+import {
+  type CapabilityOptions,
+  type CapabilityRun,
+  computeCapabilityVectors,
+} from "./inference/capabilityVector.ts";
 import { CURRENT_SPECS } from "./models/registry.ts";
 import type { ModelSpec } from "./models/spec.ts";
 import {
@@ -89,6 +94,33 @@ export function runReferralSignals(
     spec.version,
     { spec, topK: opts.topK ?? spec.topK },
     { people: people.map((p) => p.id), referrals },
+    outputs,
+    now,
+  );
+}
+
+/** Relative Capability Estimates for everyone, wrapped in a ModelRun. */
+export function runCapabilityVectors(
+  people: readonly Person[],
+  comparisons: readonly Comparison[],
+  now: Date,
+  opts: CapabilityOptions = {},
+): ModelRun<CapabilityRun> {
+  const spec: ModelSpec = opts.spec ?? CURRENT_SPECS.bradley_terry;
+  const outputs = computeCapabilityVectors(people, comparisons, opts);
+  const { previous, ...rest } = opts;
+  return createModelRun(
+    "bradley_terry_v1",
+    spec.version,
+    {
+      spec,
+      ...rest,
+      minComparisons: outputs.options.minComparisons,
+      minOpponents: outputs.options.minOpponents,
+      tieHandling: outputs.options.tieHandling,
+      anchored: previous !== undefined,
+    },
+    { people: people.map((p) => p.id), comparisons },
     outputs,
     now,
   );

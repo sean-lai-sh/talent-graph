@@ -103,9 +103,9 @@ export const PERSONAS: readonly Persona[] = [
     bio: "Quiet; almost nobody has heard of her.",
     referrals: [{ conviction: 2, confidence: 2, relationshipDepth: 1, evidenceType: "reputation" }],
     trueTheta: theta({}, 2.3),
-    minComparisons: 18,
+    minComparisons: 24,
     maxComparisons: null,
-    focusDimensions: ["problem_solving", "learning_velocity", "originality", "agency", "taste"],
+    focusDimensions: ["problem_solving", "learning_velocity", "originality", "agency"],
   },
   {
     id: "p-dev",

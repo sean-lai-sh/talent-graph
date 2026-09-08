@@ -346,14 +346,18 @@ function buildComparisons(rng: Rng, people: HiddenPerson[], target: number): Com
   const opponentsFor = (h: HiddenPerson, d: Dimension): HiddenPerson[] =>
     people.filter((o) => o !== h && o.maxComparisons === null && canCompare(o, d));
 
-  // 1. Meet each persona's minimum on its focus dimensions (round-robin).
+  // 1. Meet each persona's minimum: half on the first focus dimension (so that
+  //    dimension is dense enough to estimate), the rest spread over the others.
   for (const h of people) {
-    if (h.minComparisons === 0) continue;
-    let i = 0;
-    let guard = 0;
-    while ((counts.get(h.person.id) ?? 0) < h.minComparisons && guard++ < 1000) {
-      const d = h.focus[i % h.focus.length] as Dimension;
-      i++;
+    if (h.minComparisons === 0 || h.focus.length === 0) continue;
+    const plan: Dimension[] = [];
+    const primary = Math.ceil(h.minComparisons / (h.focus.length === 1 ? 1 : 2));
+    for (let i = 0; i < primary; i++) plan.push(h.focus[0] as Dimension);
+    const rest = h.focus.slice(1);
+    for (let i = 0; plan.length < h.minComparisons && rest.length > 0; i++) {
+      plan.push(rest[i % rest.length] as Dimension);
+    }
+    for (const d of plan) {
       if (!canCompare(h, d)) continue;
       const opp = pick(rng, opponentsFor(h, d));
       if (rng() < 0.5) add(h, opp, d);
@@ -418,7 +422,7 @@ export function generateSeed(opts: SeedOptions = {}): SeedDataset {
 
   const hidden = buildPeople(rng, opts.people ?? 32);
   const referrals = buildReferrals(rng, hidden, opts.referrals ?? 50);
-  const comparisons = buildComparisons(rng, hidden, opts.comparisons ?? 140);
+  const comparisons = buildComparisons(rng, hidden, opts.comparisons ?? 160);
   const evaluations = buildEvaluations(rng, hidden, opts.evaluations ?? 24);
 
   return {
