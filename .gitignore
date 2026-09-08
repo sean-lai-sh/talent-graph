@@ -13,3 +13,6 @@ docs/theory/*.toc
 docs/theory/*.fls
 docs/theory/*.fdb_latexmk
 docs/theory/*.synctex.gz
+
+# Agent worktrees
+.claude/worktrees/
