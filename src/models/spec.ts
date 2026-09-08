@@ -54,7 +54,12 @@ export type SpecOfKind<K extends ModelSpecKind> = Extract<ModelSpec, { kind: K }
 
 export type SpecValidationResult = { ok: true } | { ok: false; errors: string[] };
 
-const SEMVER = /^\d+\.\d+\.\d+$/;
+/**
+ * `MAJOR.MINOR.PATCH` with an optional build tag (`1.0.0+env`). The build tag
+ * marks a spec derived from a registered version with env overrides applied;
+ * registered versions themselves never carry one.
+ */
+const SEMVER = /^\d+\.\d+\.\d+(?:\+[0-9A-Za-z.-]+)?$/;
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
