@@ -13,7 +13,7 @@ import { DIMENSIONS, PRODUCT_LANGUAGE } from "../domain/constants.ts";
 import { ordinal } from "../domain/rank.ts";
 import type { Comparison, Dimension, Person } from "../domain/types.ts";
 import { CURRENT_SPECS } from "../models/registry.ts";
-import type { BradleyTerrySpec } from "../models/spec.ts";
+import { assertSpec, type BradleyTerrySpec } from "../models/spec.ts";
 import {
   type BradleyTerryFit,
   type BradleyTerryOptions,
@@ -47,9 +47,13 @@ export type DimensionEstimate =
       poolSize: number;
       /** Observations inside the component. */
       poolComparisonCount: number;
-      /** Heuristic label on pool size and density; not theory. */
+      /** Heuristic label on the estimated pool's size and density; not theory. */
       poolConfidence: PoolConfidence;
-      /** ≤5 newest comparisons involving the person on this dimension. */
+      /**
+       * ≤5 newest informative comparisons involving the person on this
+       * dimension: outcomes "a" / "b", plus "tie" when tieHandling is "half".
+       * skip / insufficient_observation never appear here.
+       */
       recent: Comparison[];
     }
   | {
@@ -97,6 +101,15 @@ export interface CapabilityOptions {
 /**
  * Heuristic, not theory: how much to trust a percentile given how big and
  * how densely compared the pool is.
+ *
+ * Deviation from issue #6: the issue specified the bands on `componentSize`
+ * (everyone in the connected component). This is computed on the *estimated
+ * pool* instead — `poolSize`, the members who cleared the evidence thresholds
+ * and against whom the percentile is actually taken — with the average
+ * comparisons per person also over that pool. A 20-person component in which
+ * only 5 people are rankable is not a high-confidence percentile, whatever
+ * the component size says. Both `componentSize` and `poolSize` are reported
+ * on the estimate so a caller can see the two numbers side by side.
  */
 export function poolConfidence(poolSize: number, avgComparisonsPerPerson: number): PoolConfidence {
   if (poolSize >= 15 && avgComparisonsPerPerson >= 6) return "high";
@@ -133,7 +146,7 @@ export function computeCapabilityVectors(
   comparisons: readonly Comparison[],
   opts: CapabilityOptions = {},
 ): CapabilityRun {
-  const spec = opts.spec ?? CURRENT_SPECS.bradley_terry;
+  const spec = assertSpec(opts.spec ?? CURRENT_SPECS.bradley_terry);
   const minComparisons = opts.minComparisons ?? spec.minComparisons;
   const minOpponents = opts.minOpponents ?? spec.minOpponents;
   const tieHandling = opts.tieHandling ?? spec.tieHandling;
@@ -173,7 +186,7 @@ export function computeCapabilityVectors(
     }
 
     const componentObs = new Map(run.components.map((c) => [c.componentId, c.comparisonCount]));
-    const recentByPerson = recentComparisons(comparisons, dimension, ids);
+    const recentByPerson = recentComparisons(comparisons, dimension, ids, tieHandling);
 
     for (const id of ids) {
       const fit = fitById.get(id);
@@ -235,15 +248,27 @@ export function computeCapabilityVectors(
   };
 }
 
+/**
+ * Whether a comparison contributed to the fit: "a" / "b" always, "tie" only
+ * under half-win handling. skip / insufficient_observation never do.
+ */
+export function isInformativeOutcome(
+  outcome: Comparison["outcome"],
+  tieHandling: "ignore" | "half",
+): boolean {
+  return outcome === "a" || outcome === "b" || (outcome === "tie" && tieHandling === "half");
+}
+
 function recentComparisons(
   comparisons: readonly Comparison[],
   dimension: Dimension,
   ids: readonly string[],
+  tieHandling: "ignore" | "half",
 ): Map<string, Comparison[]> {
   const known = new Set(ids);
   const byPerson = new Map<string, Comparison[]>();
   const sorted = comparisons
-    .filter((c) => c.dimension === dimension)
+    .filter((c) => c.dimension === dimension && isInformativeOutcome(c.outcome, tieHandling))
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || (a.id < b.id ? -1 : 1));
   for (const c of sorted) {
     for (const id of [c.personAId, c.personBId]) {

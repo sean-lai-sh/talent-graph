@@ -9,16 +9,35 @@
  *   ∇_i L    = − Σ_{w=i} weight·(1 − σ(θ_w − θ_l)) + Σ_{l=i} weight·(1 − σ(θ_w − θ_l))
  *              + 2λθ_i + 2κ(θ_i − θ_i^prev)
  *
- * Solver: diagonal-Newton steps θ_i ← θ_i − step · g_i / (h_i + 2λ + 2κ),
- * where h_i = Σ weight·σ(1−σ) over i's observations, with Armijo backtracking
- * on L so every iteration strictly decreases the objective. Chosen over plain
- * gradient descent because the per-node curvature differs by orders of
- * magnitude between well-observed and sparse nodes; over full Newton because
- * it needs no linear algebra and stays transparent.
+ * Constraint: L is minimised subject to Σ_i θ_i = 0 within each connected
+ * component. The likelihood only sees differences θ_w − θ_l, so it is
+ * translation-invariant; the penalties are not. With κ = 0 the constrained
+ * optimum coincides with the unconstrained one (at the unconstrained optimum
+ * Σ_i ∇_i L = 2λ Σ_i θ_i = 0, so it already has zero mean). With κ > 0 the
+ * solution is the critical point of L on the zero-mean hyperplane, which in
+ * general differs from the centred unconstrained optimum: centring after the
+ * fact would move θ off the point that was declared converged and fight the
+ * anchor prior. Solving in the subspace makes the published θ exactly the
+ * converged point.
+ *
+ * Solver: projected diagonal Newton. Each iteration computes the gradient g
+ * and the diagonal curvature h_i = Σ weight·σ(1−σ) + 2λ + 2κ over i's terms,
+ * projects the gradient onto the subspace (gp = g − mean(g)), takes the
+ * diagonal-Newton direction d_i = −gp_i / h_i, and projects d ← d − mean(d)
+ * so the iterate stays zero-mean. Because Σ gp = 0 the projection leaves the
+ * directional derivative untouched: g·d = gp·d = −Σ gp_i² / h_i < 0, so d is a
+ * descent direction, and Armijo backtracking on the full objective L makes
+ * every iteration strictly decrease it. Convergence is ‖gp‖∞ < tol, reported
+ * as `finalGradientNorm`. The warm start is centred per component before the
+ * first iteration; a final re-centring is kept only to absorb floating-point
+ * drift and is a no-op to machine precision. Chosen over plain gradient
+ * descent because the per-node curvature differs by orders of magnitude
+ * between well-observed and sparse nodes; over full Newton because it needs no
+ * linear algebra and stays transparent.
  *
  * The fit runs per connected component so unrelated groups never influence
- * each other, and θ is shifted to zero mean within each component (only there
- * does translation invariance hold).
+ * each other; the zero-mean constraint is per component because only within a
+ * component are the θ's identified relative to one another.
  *
  * The anchor prior and warm start are engineering continuity devices for
  * re-running the model on a live graph (PLAN.md §11a), not theory: κ = 0 with
@@ -29,7 +48,7 @@
 
 import type { Comparison, Dimension } from "../domain/types.ts";
 import { CURRENT_SPECS } from "../models/registry.ts";
-import type { BradleyTerrySpec } from "../models/spec.ts";
+import { assertSpec, type BradleyTerrySpec } from "../models/spec.ts";
 import { type ComponentInfo, connectedComponents } from "./components.ts";
 import { logSigmoid, sigmoid } from "./logistic.ts";
 
@@ -38,6 +57,12 @@ export interface ComparisonObservation {
   loserId: string;
   /** Default 1; 0.5 for each half of a tie. */
   weight?: number;
+  /**
+   * Id of the comparison this observation came from. Observations sharing a
+   * `sourceId` (the two halves of a tie) count as one comparison in
+   * `comparisonCount`; an observation without one counts as its own comparison.
+   */
+  sourceId?: string;
 }
 
 export interface BradleyTerryAnchor {
@@ -77,9 +102,17 @@ export interface ResolvedBradleyTerryOptions {
 export interface BradleyTerryFit {
   personId: string;
   theta: number;
+  /**
+   * Number of distinct source comparisons the person appears in (an
+   * observation without `sourceId` counts as one). Unweighted, so a single
+   * heavy observation is still one comparison.
+   */
   comparisonCount: number;
+  /** Distinct opponents. */
   opponentCount: number;
+  /** Weighted total of observations won (a half-weight tie adds 0.5). */
   wins: number;
+  /** Weighted total of observations lost (a half-weight tie adds 0.5). */
   losses: number;
   componentId: string;
   componentSize: number;
@@ -88,6 +121,7 @@ export interface BradleyTerryFit {
 export interface ComponentFitInfo extends ComponentInfo {
   iterations: number;
   converged: boolean;
+  /** ‖g − mean(g)‖∞ at the published θ: the gradient projected onto Σθ = 0. */
   finalGradientNorm: number;
 }
 
@@ -123,12 +157,14 @@ export function toObservations(
   const out: ComparisonObservation[] = [];
   for (const c of comparisons) {
     if (c.dimension !== dimension) continue;
-    if (c.outcome === "a") out.push({ winnerId: c.personAId, loserId: c.personBId, weight: 1 });
-    else if (c.outcome === "b")
-      out.push({ winnerId: c.personBId, loserId: c.personAId, weight: 1 });
-    else if (c.outcome === "tie" && tieHandling === "half") {
-      out.push({ winnerId: c.personAId, loserId: c.personBId, weight: 0.5 });
-      out.push({ winnerId: c.personBId, loserId: c.personAId, weight: 0.5 });
+    if (c.outcome === "a") {
+      out.push({ winnerId: c.personAId, loserId: c.personBId, weight: 1, sourceId: c.id });
+    } else if (c.outcome === "b") {
+      out.push({ winnerId: c.personBId, loserId: c.personAId, weight: 1, sourceId: c.id });
+    } else if (c.outcome === "tie" && tieHandling === "half") {
+      // Both halves share the comparison id, so a tie is one comparison per side.
+      out.push({ winnerId: c.personAId, loserId: c.personBId, weight: 0.5, sourceId: c.id });
+      out.push({ winnerId: c.personBId, loserId: c.personAId, weight: 0.5, sourceId: c.id });
     }
   }
   return out;
@@ -205,6 +241,27 @@ const ARMIJO_C = 1e-4;
 const MAX_BACKTRACKS = 60;
 const CURVATURE_FLOOR = 1e-12;
 
+function mean(values: readonly number[]): number {
+  let s = 0;
+  for (const v of values) s += v;
+  return s / values.length;
+}
+
+/** In place: v ← v − mean(v). Returns v. */
+function centre(values: number[]): number[] {
+  const m = mean(values);
+  for (let i = 0; i < values.length; i++) values[i] = (values[i] as number) - m;
+  return values;
+}
+
+/** ‖g − mean(g)‖∞ — the gradient norm inside the zero-mean subspace. */
+function projectedGradientNorm(g: readonly number[]): number {
+  const m = mean(g);
+  let norm = 0;
+  for (const gi of g) norm = Math.max(norm, Math.abs(gi - m));
+  return norm;
+}
+
 function solveComponent(
   size: number,
   obs: Indexed[],
@@ -216,10 +273,12 @@ function solveComponent(
   tolerance: number,
   stepSize: number,
 ): ComponentSolve {
-  const theta = [...init];
+  // Solve on the zero-mean hyperplane: centre the warm start, then keep every
+  // iterate there by projecting the search direction.
+  const theta = centre([...init]);
   if (obs.length === 0 || size < 2) {
-    // Nothing to learn: a singleton or an edgeless set stays at its warm start
-    // (the zero-mean shift below brings a singleton to exactly 0).
+    // Nothing to learn: a singleton (θ = 0 after centring) or an edgeless set
+    // stays at its centred warm start.
     const { negLogLik } = objective(theta, obs, lambda, kappa, prev);
     return { theta, iterations: 0, converged: true, gradNorm: 0, negLogLik };
   }
@@ -231,22 +290,30 @@ function solveComponent(
 
   while (iterations < maxIterations) {
     const { g, h } = gradientAndCurvature(theta, obs, lambda, kappa, prev);
+    // Projected gradient gp = g − mean(g): the component of ∇L inside Σθ = 0.
+    const gMean = mean(g);
+    const gp = g.map((gi) => gi - gMean);
     gradNorm = 0;
-    for (const gi of g) gradNorm = Math.max(gradNorm, Math.abs(gi));
+    for (const gi of gp) gradNorm = Math.max(gradNorm, Math.abs(gi));
     if (gradNorm < tolerance) {
       converged = true;
       break;
     }
     iterations++;
 
-    // Diagonal-Newton direction, clipped so a near-flat node cannot fling itself away.
+    // Diagonal-Newton direction on the projected gradient, clipped so a
+    // near-flat node cannot fling itself away, then projected back onto the
+    // subspace. Since Σ gp = 0, g·d = gp·d is unchanged by the projection and
+    // stays negative (each clipped d_i keeps the sign of −gp_i).
     const direction = new Array<number>(size);
+    for (let i = 0; i < size; i++) {
+      const d = -(gp[i] as number) / Math.max(h[i] as number, CURVATURE_FLOOR);
+      direction[i] = Math.max(-MAX_ABS_STEP, Math.min(MAX_ABS_STEP, d));
+    }
+    centre(direction);
     let directionalDerivative = 0;
     for (let i = 0; i < size; i++) {
-      const d = -(g[i] as number) / Math.max(h[i] as number, CURVATURE_FLOOR);
-      const clipped = Math.max(-MAX_ABS_STEP, Math.min(MAX_ABS_STEP, d));
-      direction[i] = clipped;
-      directionalDerivative += (g[i] as number) * clipped;
+      directionalDerivative += (g[i] as number) * (direction[i] as number);
     }
 
     // Armijo backtracking: shrink the step until L actually decreases enough.
@@ -274,8 +341,7 @@ function solveComponent(
 
   if (!converged) {
     const { g } = gradientAndCurvature(theta, obs, lambda, kappa, prev);
-    gradNorm = 0;
-    for (const gi of g) gradNorm = Math.max(gradNorm, Math.abs(gi));
+    gradNorm = projectedGradientNorm(g);
     converged = gradNorm < tolerance;
   }
 
@@ -292,7 +358,7 @@ export function fitBradleyTerry(
   observations: readonly ComparisonObservation[],
   options: BradleyTerryOptions = {},
 ): BradleyTerryRun {
-  const spec = options.spec ?? CURRENT_SPECS.bradley_terry;
+  const spec = assertSpec(options.spec ?? CURRENT_SPECS.bradley_terry);
   const lambda = options.regularization ?? spec.regularization;
   const maxIterations = options.maxIterations ?? spec.maxIterations;
   const tolerance = options.tolerance ?? spec.tolerance;
@@ -317,26 +383,35 @@ export function fitBradleyTerry(
     label,
   );
 
-  // Per-person tallies (independent of the solver).
+  // Per-person tallies (independent of the solver). wins/losses are weighted;
+  // comparisonCount is the number of distinct source comparisons.
   const wins = new Map<string, number>();
   const losses = new Map<string, number>();
   const opponents = new Map<string, Set<string>>();
+  const sources = new Map<string, Set<string>>();
+  const anonymousObs = new Map<string, number>();
   const bump = (m: Map<string, number>, id: string, by: number) => m.set(id, (m.get(id) ?? 0) + by);
-  const meet = (a: string, b: string) => {
-    let s = opponents.get(a);
+  const addTo = (m: Map<string, Set<string>>, key: string, value: string) => {
+    let s = m.get(key);
     if (!s) {
       s = new Set();
-      opponents.set(a, s);
+      m.set(key, s);
     }
-    s.add(b);
+    s.add(value);
   };
   for (const o of obs) {
     const w = o.weight ?? 1;
     bump(wins, o.winnerId, w);
     bump(losses, o.loserId, w);
-    meet(o.winnerId, o.loserId);
-    meet(o.loserId, o.winnerId);
+    addTo(opponents, o.winnerId, o.loserId);
+    addTo(opponents, o.loserId, o.winnerId);
+    for (const id of [o.winnerId, o.loserId]) {
+      if (o.sourceId === undefined) bump(anonymousObs, id, 1);
+      else addTo(sources, id, o.sourceId);
+    }
   }
+  const comparisonCount = (id: string) =>
+    (sources.get(id)?.size ?? 0) + (anonymousObs.get(id) ?? 0);
 
   const obsByComponent = new Map<string, ComparisonObservation[]>();
   for (const o of obs) {
@@ -383,9 +458,8 @@ export function fitBradleyTerry(
       stepSize,
     );
 
-    // Zero-mean within the component.
-    const mean = solved.theta.reduce((a, b) => a + b, 0) / solved.theta.length;
-    const centred = solved.theta.map((t) => t - mean);
+    // The solver already works on Σθ = 0; this only absorbs floating-point drift.
+    const centred = centre([...solved.theta]);
 
     for (let i = 0; i < comp.members.length; i++) {
       const id = comp.members[i] as string;
@@ -393,15 +467,13 @@ export function fitBradleyTerry(
       if (!Number.isFinite(theta)) {
         throw new Error(`fitBradleyTerry: non-finite θ for ${id}`);
       }
-      const w = wins.get(id) ?? 0;
-      const l = losses.get(id) ?? 0;
       fits.push({
         personId: id,
         theta,
-        comparisonCount: w + l,
+        comparisonCount: comparisonCount(id),
         opponentCount: opponents.get(id)?.size ?? 0,
-        wins: w,
-        losses: l,
+        wins: wins.get(id) ?? 0,
+        losses: losses.get(id) ?? 0,
         componentId: comp.componentId,
         componentSize: comp.members.length,
       });

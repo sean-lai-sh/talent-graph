@@ -16,7 +16,7 @@ function person(id: string): Person {
 function cmp(
   a: string,
   b: string,
-  outcome: "a" | "b" | "skip" = "a",
+  outcome: Comparison["outcome"] = "a",
   createdAt = T0,
   dimension: Dimension = "taste",
 ): Comparison {
@@ -41,14 +41,19 @@ function find(props: ReturnType<typeof selectComparisons>, a: string, b: string)
 }
 
 describe("selectComparisons", () => {
-  test("never-compared pair outranks a pair compared yesterday, all else equal", () => {
-    // Four people in one dense pool, then one pair compared yesterday.
+  /** Four people in one dense pool, every pair compared 3× at T0. */
+  function densePool(): { ids: string[]; comps: Comparison[] } {
     const ids = ["A", "B", "C", "D"];
     const comps: Comparison[] = [];
     for (const x of ids)
       for (const y of ids) if (x < y) comps.push(cmp(x, y, "a"), cmp(y, x, "a"), cmp(x, y, "a"));
-    const yesterday = new Date(NOW.getTime() - 86_400_000);
-    comps.push(cmp("A", "B", "skip", yesterday));
+    return { ids, comps };
+  }
+  const YESTERDAY = new Date(NOW.getTime() - 86_400_000);
+
+  test("never-compared pair outranks a pair compared yesterday, all else equal", () => {
+    const { ids, comps } = densePool();
+    comps.push(cmp("A", "B", "a", YESTERDAY));
     const run = computeCapabilityVectors(ids.map(person), comps);
     const props = selectComparisons("taste", run, comps, { now: NOW, limit: 100 });
     const ab = find(props, "A", "B");
@@ -57,6 +62,44 @@ describe("selectComparisons", () => {
     // C/D were compared at T0, ~59 days ago ⇒ novelty saturates at 1.
     expect(cd?.parts.novelty).toBe(1);
     expect((cd?.priority ?? 0) > (ab?.priority ?? 0)).toBe(true);
+  });
+
+  test("a skip yesterday does not consume novelty", () => {
+    const { ids, comps } = densePool();
+    comps.push(
+      cmp("A", "B", "skip", YESTERDAY),
+      cmp("A", "C", "insufficient_observation", YESTERDAY),
+    );
+    const run = computeCapabilityVectors(ids.map(person), comps);
+    const props = selectComparisons("taste", run, comps, { now: NOW, limit: 100 });
+    expect(find(props, "A", "B")?.parts.novelty).toBe(1);
+    expect(find(props, "A", "C")?.parts.novelty).toBe(1);
+  });
+
+  test("a tie yesterday consumes novelty only when the run's tieHandling is half", () => {
+    const { ids, comps } = densePool();
+    comps.push(cmp("A", "B", "tie", YESTERDAY));
+    const ignore = computeCapabilityVectors(ids.map(person), comps, { tieHandling: "ignore" });
+    const half = computeCapabilityVectors(ids.map(person), comps, { tieHandling: "half" });
+    const opts = { now: NOW, limit: 100 };
+    expect(find(selectComparisons("taste", ignore, comps, opts), "A", "B")?.parts.novelty).toBe(1);
+    expect(
+      find(selectComparisons("taste", half, comps, opts), "A", "B")?.parts.novelty,
+    ).toBeCloseTo(1 / 30, 12);
+  });
+
+  test("a duplicated id in candidatePool never proposes a self-pair", () => {
+    const data = generateSeed();
+    const run = computeCapabilityVectors(data.people, data.comparisons);
+    const props = selectComparisons("agency", run, data.comparisons, {
+      now: NOW,
+      candidatePool: ["p-bram", "p-bram", "p-cleo"],
+      limit: 100,
+    });
+    expect(props).toHaveLength(1);
+    expect(props[0]?.personAId).toBe("p-bram");
+    expect(props[0]?.personBId).toBe("p-cleo");
+    for (const p of props) expect(p.personAId).not.toBe(p.personBId);
   });
 
   test("close θ pair outranks far θ pair", () => {
@@ -78,9 +121,11 @@ describe("selectComparisons", () => {
   test("a sparse person is proposed more often than a heavily compared one", () => {
     const data = generateSeed();
     const run = computeCapabilityVectors(data.people, data.comparisons);
+    // A wide enough window that the ranking is not just the tied 2.5-priority
+    // pairs of people with zero informative comparisons.
     const props = selectComparisons("problem_solving", run, data.comparisons, {
       now: NOW,
-      limit: 40,
+      limit: 200,
     });
     const count = (id: string) =>
       props.filter((p) => p.personAId === id || p.personBId === id).length;

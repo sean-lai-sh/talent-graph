@@ -6,15 +6,24 @@
  *   Closeness       = exp(−|θ_i − θ_j|)                 same component, both estimated
  *                   = 0.5                               either side insufficient (bootstrap)
  *                   = 0.5 · crossComponentBonus         different components (bridging)
- *   Novelty         = 1                                 pair never compared on k by anyone
+ *   Novelty         = 1                                 pair never informatively compared on k
  *                   = min(1, daysSince(last) / 30)      otherwise
+ *
+ * Only informative outcomes consume novelty: "a" / "b", and "tie" when the
+ * run's tieHandling is "half". A skip or insufficient_observation leaves the
+ * pair as fresh as before — the evaluator could not judge it, so it should not
+ * be pushed to the back of the queue.
  *
  * Heuristic, not optimal, and deliberately simple. `now` is a parameter.
  */
 
 import { DIMENSION_PROMPTS } from "../domain/constants.ts";
 import type { Comparison, Dimension } from "../domain/types.ts";
-import type { CapabilityRun, DimensionEstimate } from "./capabilityVector.ts";
+import {
+  type CapabilityRun,
+  type DimensionEstimate,
+  isInformativeOutcome,
+} from "./capabilityVector.ts";
 
 export interface SelectionOptions {
   /** Excluded from every proposed pair. */
@@ -57,7 +66,8 @@ export function selectComparisons(
   const crossBonus = opts.crossComponentBonus ?? 1;
   const nowMs = opts.now.getTime();
 
-  const pool = (opts.candidatePool ?? [...run.vectors.keys()])
+  // Deduplicated so a repeated id can never be paired with itself.
+  const pool = [...new Set(opts.candidatePool ?? [...run.vectors.keys()])]
     .filter((id) => id !== opts.evaluatorId && run.vectors.has(id))
     .sort();
 
@@ -66,10 +76,12 @@ export function selectComparisons(
   const estimateOf = (id: string): DimensionEstimate | undefined =>
     run.vectors.get(id)?.dimensions[dimension];
 
-  // Most recent comparison per unordered pair on this dimension (any outcome).
+  // Most recent informative comparison per unordered pair on this dimension.
+  const tieHandling = run.options.tieHandling;
   const lastComparedMs = new Map<string, number>();
   for (const cmp of comparisons) {
     if (cmp.dimension !== dimension) continue;
+    if (!isInformativeOutcome(cmp.outcome, tieHandling)) continue;
     const key = pairKey(cmp.personAId, cmp.personBId);
     const t = cmp.createdAt.getTime();
     const prev = lastComparedMs.get(key);

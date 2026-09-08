@@ -36,3 +36,6 @@ export function computeCapabilityVectors(people: Person[], comparisons: Comparis
 - Person in a 2-node component vs a 10-node component: percentiles are relative to their own pool.
 - Strong on problem_solving but absent from generativity comparisons ⇒ `estimated` on one, `insufficient_evidence` on the other (Candidate F shape).
 - No dimension of the vector is ever summed/averaged into a scalar (assert the type has no such field; grep test in #12 covers code).
+
+## Superseded
+`poolConfidence` is computed on the **estimated pool** (`poolSize`: members who cleared the evidence thresholds, i.e. the people the percentile is actually relative to), not on `componentSize` as written above; the average comparisons per person is over that same pool. Both `componentSize` and `poolSize` are reported on the estimate. See the doc comment on `poolConfidence` in `src/inference/capabilityVector.ts`.

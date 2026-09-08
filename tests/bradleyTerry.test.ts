@@ -26,6 +26,46 @@ function allFinite(run: ReturnType<typeof fitBradleyTerry>): boolean {
   return run.fits.every((f) => Number.isFinite(f.theta));
 }
 
+/**
+ * Rebuild ∇L from the public fits with the same formulas the solver uses
+ * (likelihood terms via sigmoid, 2λθ, 2κ(θ − θprev)) and project it onto the
+ * zero-mean subspace: gp = g − mean(g). At the constrained optimum gp ≈ 0.
+ */
+function projectedGradient(
+  run: ReturnType<typeof fitBradleyTerry>,
+  observations: readonly ComparisonObservation[],
+  prev?: ReadonlyMap<string, number>,
+): Map<string, number> {
+  const lambda = run.options.regularization;
+  const kappa = run.options.anchorStrength;
+  const th = thetaMap(run);
+  const g = new Map<string, number>(run.fits.map((f) => [f.personId, 0]));
+  const add = (id: string, by: number) => g.set(id, (g.get(id) as number) + by);
+  for (const o of observations) {
+    const w = o.weight ?? 1;
+    const q = 1 - sigmoid((th.get(o.winnerId) as number) - (th.get(o.loserId) as number));
+    add(o.winnerId, -w * q);
+    add(o.loserId, w * q);
+  }
+  for (const f of run.fits) {
+    add(f.personId, 2 * lambda * f.theta);
+    const p = prev?.get(f.personId);
+    if (p !== undefined) add(f.personId, 2 * kappa * (f.theta - p));
+  }
+  const mean = [...g.values()].reduce((s, v) => s + v, 0) / g.size;
+  return new Map([...g].map(([id, v]) => [id, v - mean]));
+}
+
+function maxAbs(values: Iterable<number>): number {
+  let m = 0;
+  for (const v of values) m = Math.max(m, Math.abs(v));
+  return m;
+}
+
+function meanTheta(run: ReturnType<typeof fitBradleyTerry>): number {
+  return run.fits.reduce((s, f) => s + f.theta, 0) / run.fits.length;
+}
+
 describe("fitBradleyTerry — the eight mandated properties", () => {
   test("1. A beats B ×10 ⇒ θ_A > θ_B", () => {
     const run = fitBradleyTerry(["A", "B"], wins("A", "B", 10));
@@ -110,11 +150,59 @@ describe("fitBradleyTerry — the eight mandated properties", () => {
 });
 
 describe("fitBradleyTerry — extras", () => {
-  test("tallies: wins + losses === comparisonCount; opponentCount distinct", () => {
+  test("tallies with unit weights: wins + losses === comparisonCount; opponentCount distinct", () => {
     const run = fitBradleyTerry(["A", "B", "C"], [...wins("A", "B", 3), ...wins("C", "A", 2)]);
     const a = run.fits.find((f) => f.personId === "A");
     expect(a).toMatchObject({ wins: 3, losses: 2, comparisonCount: 5, opponentCount: 2 });
     for (const f of run.fits) expect(f.wins + f.losses).toBe(f.comparisonCount);
+  });
+
+  test("comparisonCount is unweighted: a single weight-10 observation is one comparison", () => {
+    const run = fitBradleyTerry(["A", "B"], wins("A", "B", 1, 10));
+    const a = run.fits.find((f) => f.personId === "A");
+    expect(a).toMatchObject({ wins: 10, losses: 0, comparisonCount: 1, opponentCount: 1 });
+    expect(a?.comparisonCount).toBeLessThan(BRADLEY_TERRY_V1_0_0.minComparisons);
+  });
+
+  test("comparisonCount counts distinct source comparisons: a half-tie is one comparison per side", () => {
+    const tie: Comparison = {
+      id: "c-tie-1",
+      evaluatorId: "j",
+      personAId: "A",
+      personBId: "B",
+      dimension: "agency",
+      outcome: "tie",
+      winnerId: null,
+      confidence: null,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    };
+    const obs = toObservations([tie], "agency", { tieHandling: "half" });
+    expect(obs).toHaveLength(2);
+    const run = fitBradleyTerry(["A", "B"], obs);
+    for (const f of run.fits) {
+      expect(f.comparisonCount).toBe(1);
+      expect(f.opponentCount).toBe(1);
+      expect(f.wins).toBe(0.5);
+      expect(f.losses).toBe(0.5);
+    }
+    // Two observations sharing a sourceId count once; without a sourceId each counts.
+    const shared = fitBradleyTerry(
+      ["A", "B"],
+      [
+        { winnerId: "A", loserId: "B", sourceId: "s" },
+        { winnerId: "B", loserId: "A", sourceId: "s" },
+        { winnerId: "A", loserId: "B" },
+      ],
+    );
+    expect(shared.fits.find((f) => f.personId === "A")?.comparisonCount).toBe(2);
+  });
+
+  test("an invalid spec is rejected at the entry point", () => {
+    expect(() =>
+      fitBradleyTerry(["A", "B"], wins("A", "B", 2), {
+        spec: { ...BRADLEY_TERRY_V1_0_0, regularization: Number.NaN },
+      }),
+    ).toThrow(/regularization/);
   });
 
   test("a person with no observations has θ exactly 0 in a singleton component", () => {
@@ -203,6 +291,45 @@ describe("anchored refit and warm start (#15)", () => {
     expect(moveAnchored).toBeLessThan(moveFree);
   });
 
+  test("κ = 10: published θ is the zero-mean critical point of L (projected gradient ≈ 0)", () => {
+    const previous = fitBradleyTerry(ids, base);
+    const updated = [...base, ...wins("C", "A", 1)];
+    const prev = thetaMap(previous);
+    const anchored = fitBradleyTerry(ids, updated, { anchor: { theta: prev, strength: 10 } });
+    expect(anchored.converged).toBe(true);
+    const gp = projectedGradient(anchored, updated, prev);
+    expect(maxAbs(gp.values())).toBeLessThan(anchored.options.tolerance * 10);
+    expect(Math.abs(meanTheta(anchored))).toBeLessThan(1e-9);
+    // The reported gradient norm is the projected one at the published θ.
+    expect(anchored.finalGradientNorm).toBeLessThan(anchored.options.tolerance);
+  });
+
+  test("κ = 10 with a previous θ map shifted off zero mean still converges on the subspace", () => {
+    // Shift every previous θ by +0.7 and add an unanchored newcomer D, so the
+    // anchor's pull is not uniform across the component. Centring after an
+    // unconstrained solve would leave a non-zero projected gradient here.
+    const previous = fitBradleyTerry(ids, base);
+    const shifted = new Map([...thetaMap(previous)].map(([id, t]) => [id, t + 0.7]));
+    const updated = [...base, ...wins("C", "A", 1), ...wins("D", "B", 2), ...wins("A", "D", 1)];
+    const allIds = [...ids, "D"];
+    const anchored = fitBradleyTerry(allIds, updated, {
+      anchor: { theta: shifted, strength: 10 },
+    });
+    expect(anchored.converged).toBe(true);
+    expect(anchored.options.anchoredCount).toBe(3);
+    const gp = projectedGradient(anchored, updated, shifted);
+    expect(maxAbs(gp.values())).toBeLessThan(anchored.options.tolerance * 10);
+    expect(Math.abs(meanTheta(anchored))).toBeLessThan(1e-9);
+
+    // Same check with everyone anchored to the shifted map.
+    const allAnchored = fitBradleyTerry(ids, [...base, ...wins("C", "A", 1)], {
+      anchor: { theta: shifted, strength: 10 },
+    });
+    const gp2 = projectedGradient(allAnchored, [...base, ...wins("C", "A", 1)], shifted);
+    expect(maxAbs(gp2.values())).toBeLessThan(allAnchored.options.tolerance * 10);
+    expect(Math.abs(meanTheta(allAnchored))).toBeLessThan(1e-9);
+  });
+
   test("anchor strength falls back to the spec's anchorStrength", () => {
     const prev = fitBradleyTerry(ids, base);
     const run = fitBradleyTerry(ids, base, {
@@ -251,17 +378,17 @@ describe("toObservations", () => {
       "agency",
     );
     expect(obs).toEqual([
-      { winnerId: "A", loserId: "B", weight: 1 },
-      { winnerId: "B", loserId: "A", weight: 1 },
+      { winnerId: "A", loserId: "B", weight: 1, sourceId: "c-a" },
+      { winnerId: "B", loserId: "A", weight: 1, sourceId: "c-b" },
     ]);
   });
 
-  test("tie handling", () => {
+  test("tie handling: both halves share the comparison id", () => {
     expect(toObservations([cmp("tie")], "agency")).toEqual([]);
     expect(toObservations([cmp("tie")], "agency", { tieHandling: "ignore" })).toEqual([]);
     expect(toObservations([cmp("tie")], "agency", { tieHandling: "half" })).toEqual([
-      { winnerId: "A", loserId: "B", weight: 0.5 },
-      { winnerId: "B", loserId: "A", weight: 0.5 },
+      { winnerId: "A", loserId: "B", weight: 0.5, sourceId: "c-tie" },
+      { winnerId: "B", loserId: "A", weight: 0.5, sourceId: "c-tie" },
     ]);
   });
 

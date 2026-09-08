@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { DIMENSIONS } from "../src/domain/constants.ts";
-import type { Comparison, Dimension, Person } from "../src/domain/types.ts";
+import type { Comparison, ComparisonOutcome, Dimension, Person } from "../src/domain/types.ts";
+import { fitBradleyTerry } from "../src/inference/bradleyTerry.ts";
 import {
   computeCapabilityVectors,
   estimatedEntries,
@@ -28,6 +29,27 @@ function win(w: string, l: string, dimension: Dimension = "problem_solving", day
     dimension,
     outcome: "a",
     winnerId: w,
+    confidence: 3,
+    createdAt: new Date(T0.getTime() + day * 86_400_000),
+  };
+}
+
+function outcomeRow(
+  a: string,
+  b: string,
+  outcome: ComparisonOutcome,
+  dimension: Dimension = "problem_solving",
+  day = 0,
+): Comparison {
+  n++;
+  return {
+    id: `c-${n}`,
+    evaluatorId: "judge",
+    personAId: a,
+    personBId: b,
+    dimension,
+    outcome,
+    winnerId: outcome === "a" ? a : outcome === "b" ? b : null,
     confidence: 3,
     createdAt: new Date(T0.getTime() + day * 86_400_000),
   };
@@ -139,6 +161,61 @@ describe("computeCapabilityVectors", () => {
     );
   });
 
+  test("recent holds only informative outcomes even when the newest rows are skips", () => {
+    const ids = ["A", "B", "C", "D"];
+    const comps = [
+      ...roundRobin(ids, "taste", 3),
+      ...["B", "C", "D", "B", "C"].map((other, i) =>
+        outcomeRow("A", other, i % 2 === 0 ? "skip" : "insufficient_observation", "taste", 30 + i),
+      ),
+    ];
+    const run = computeCapabilityVectors(ids.map(person), comps);
+    const a = run.vectors.get("A")?.dimensions.taste;
+    if (a?.state !== "estimated") throw new Error("expected estimated");
+    expect(a.recent).toHaveLength(5);
+    expect(a.recent.every((c) => c.outcome === "a" || c.outcome === "b")).toBe(true);
+    expect(a.recent.every((c) => c.personAId === "A" || c.personBId === "A")).toBe(true);
+  });
+
+  test("recent includes ties only under half tie handling", () => {
+    const ids = ["A", "B", "C", "D"];
+    const comps = [...roundRobin(ids, "taste", 3), outcomeRow("A", "B", "tie", "taste", 40)];
+    const ignore = computeCapabilityVectors(ids.map(person), comps, { tieHandling: "ignore" });
+    const half = computeCapabilityVectors(ids.map(person), comps, { tieHandling: "half" });
+    const aIgnore = ignore.vectors.get("A")?.dimensions.taste;
+    const aHalf = half.vectors.get("A")?.dimensions.taste;
+    if (aIgnore?.state !== "estimated" || aHalf?.state !== "estimated")
+      throw new Error("estimated");
+    expect(aIgnore.recent.some((c) => c.outcome === "tie")).toBe(false);
+    expect(aHalf.recent[0]?.outcome).toBe("tie");
+  });
+
+  test("a person with one heavy observation still has one comparison ⇒ insufficient_evidence", () => {
+    // computeCapabilityVectors only ever builds unit / half weights, so the
+    // weighted case is checked at the fit level against the spec's threshold.
+    const fit = fitBradleyTerry(["A", "B"], [{ winnerId: "A", loserId: "B", weight: 10 }], {
+      spec: BRADLEY_TERRY_V1_0_0,
+    });
+    const a = fit.fits.find((f) => f.personId === "A");
+    expect(a?.wins).toBe(10);
+    expect(a?.comparisonCount).toBe(1);
+    expect((a?.comparisonCount ?? 0) < BRADLEY_TERRY_V1_0_0.minComparisons).toBe(true);
+    // And end to end: one comparison per opponent, however the fit weights it, is not enough.
+    const run = computeCapabilityVectors(["A", "B", "C", "D"].map(person), [
+      ...roundRobin(["B", "C", "D"], "taste", 3),
+      win("A", "B", "taste"),
+    ]);
+    expect(run.vectors.get("A")?.dimensions.taste.state).toBe("insufficient_evidence");
+  });
+
+  test("an invalid spec is rejected at the entry point", () => {
+    expect(() =>
+      computeCapabilityVectors(["A", "B"].map(person), [], {
+        spec: { ...BRADLEY_TERRY_V1_0_0, regularization: Number.NaN },
+      }),
+    ).toThrow(/regularization/);
+  });
+
   test("thresholds come from the spec unless overridden", () => {
     const ids = ["A", "B", "C"];
     const comps = roundRobin(ids, "agency", 1); // each person: 2 comparisons, 2 opponents
@@ -209,6 +286,28 @@ describe("poolConfidence heuristic", () => {
     expect(poolConfidence(6, 3)).toBe("medium");
     expect(poolConfidence(5, 10)).toBe("low");
     expect(poolConfidence(20, 2)).toBe("low");
+  });
+
+  test("computed on the estimated pool, not the component (deviation from issue #6)", () => {
+    expect(poolConfidence(5, 8)).toBe("low");
+    // 5 densely compared people plus 15 hangers-on with a single comparison each:
+    // a 20-person component whose estimated pool has only 5 members.
+    const core = ["C1", "C2", "C3", "C4", "C5"];
+    const fringe = Array.from({ length: 15 }, (_, i) => `F${i + 1}`);
+    const comps = [
+      ...roundRobin(core, "agency", 4),
+      ...fringe.map((f, i) => win(core[i % core.length] as string, f, "agency")),
+    ];
+    const run = computeCapabilityVectors([...core, ...fringe].map(person), comps);
+    const c1 = run.vectors.get("C1")?.dimensions.agency;
+    if (c1?.state !== "estimated") throw new Error("expected estimated");
+    expect(c1.componentSize).toBe(20);
+    expect(c1.poolSize).toBe(5);
+    expect(c1.poolConfidence).not.toBe("high");
+    expect(c1.poolConfidence).toBe(poolConfidence(5, c1.comparisonCount));
+    for (const f of fringe) {
+      expect(run.vectors.get(f)?.dimensions.agency.state).toBe("insufficient_evidence");
+    }
   });
 });
 
