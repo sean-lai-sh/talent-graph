@@ -1,3 +1,5 @@
 // Talent Graph — algorithm core public barrel.
-// Populated incrementally by the domain / scoring / graph / inference issues.
-export {};
+
+export * from "./domain/constants.ts";
+export * from "./domain/types.ts";
+export * from "./domain/validate.ts";
