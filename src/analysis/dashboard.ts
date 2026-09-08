@@ -11,9 +11,9 @@ import {
   type CapabilityRun,
   dimensionLabel,
   estimatedEntries,
+  type PoolConfidence,
 } from "../inference/capabilityVector.ts";
 import { displayReferralSignal, type ReferralSignalResult } from "../scoring/referralSignal.ts";
-import { referralStrengthBreakdown } from "../scoring/referralStrength.ts";
 import { mostUnderRecognized, type UnderRecognition } from "./underRecognition.ts";
 
 export interface DashboardData {
@@ -21,6 +21,22 @@ export interface DashboardData {
   referrals: readonly Referral[];
   evaluations: readonly Evaluation[];
   comparisons: readonly Comparison[];
+}
+
+/**
+ * One row of the capability leaderboard. A percentile is only meaningful
+ * inside its own pool, so every row carries the pool it was ranked in and
+ * rows are grouped by pool confidence before they are ordered by percentile.
+ */
+export interface TopCapabilityRow {
+  personId: string;
+  dimension: Dimension;
+  percentile: number;
+  comparisonCount: number;
+  componentId: string;
+  /** Estimated members the percentile is relative to. */
+  poolSize: number;
+  poolConfidence: PoolConfidence;
 }
 
 export interface DashboardSummary {
@@ -35,15 +51,26 @@ export interface DashboardSummary {
   recentReferrals: Referral[];
   /** 10 highest Referral Signals among people with ≥1 referral. */
   topReferralSignal: ReferralSignalResult[];
-  /** 10 highest capability percentiles; estimated entries only. */
-  topCapability: Array<{
-    personId: string;
-    dimension: Dimension;
-    percentile: number;
-    comparisonCount: number;
-  }>;
+  /**
+   * 10 estimated entries ordered by pool-confidence tier (high > medium >
+   * low), then percentile, then comparison count. Percentiles from different
+   * pools are not on one scale; the tier grouping keeps that visible.
+   */
+  topCapability: TopCapabilityRow[];
   /** 10 largest positive under-recognition gaps (exploratory). */
   underRecognized: UnderRecognition[];
+}
+
+const POOL_CONFIDENCE_RANK: Record<PoolConfidence, number> = { high: 2, medium: 1, low: 0 };
+
+/** Numeric tier for sorting: high > medium > low. */
+export function poolConfidenceRank(c: PoolConfidence): number {
+  return POOL_CONFIDENCE_RANK[c];
+}
+
+/** Id → Person, built once so name lookups are O(1) instead of O(people). */
+function indexPeople(people: readonly Person[]): Map<string, Person> {
+  return new Map(people.map((p) => [p.id, p]));
 }
 
 export function buildDashboard(
@@ -63,15 +90,19 @@ export function buildDashboard(
     .sort((a, b) => b.signal - a.signal || (a.personId < b.personId ? -1 : 1))
     .slice(0, 10);
 
-  const topCapability = estimatedEntries(capRun)
+  const topCapability: TopCapabilityRow[] = estimatedEntries(capRun)
     .map(({ personId, estimate }) => ({
       personId,
       dimension: estimate.dimension,
       percentile: estimate.percentile,
       comparisonCount: estimate.comparisonCount,
+      componentId: estimate.componentId,
+      poolSize: estimate.poolSize,
+      poolConfidence: estimate.poolConfidence,
     }))
     .sort(
       (a, b) =>
+        poolConfidenceRank(b.poolConfidence) - poolConfidenceRank(a.poolConfidence) ||
         b.percentile - a.percentile ||
         b.comparisonCount - a.comparisonCount ||
         (a.personId < b.personId ? -1 : 1),
@@ -107,8 +138,9 @@ export function personReport(
   capRun: CapabilityRun,
   gaps: readonly UnderRecognition[],
 ): string {
-  const person = data.people.find((p) => p.id === personId);
-  const nameOf = (id: string) => data.people.find((p) => p.id === id)?.name ?? id;
+  const byId = indexPeople(data.people);
+  const person = byId.get(personId);
+  const nameOf = (id: string) => byId.get(id)?.name ?? id;
   const signal = signals.get(personId);
   const vector = capRun.vectors.get(personId);
   const lines: string[] = [];
@@ -125,10 +157,11 @@ export function personReport(
     );
     if (signal.contributing.length > 0) {
       lines.push("Why:");
-      for (const { referral, strength } of signal.contributing) {
-        const b = referralStrengthBreakdown(referral);
+      // The breakdown was computed under the spec that produced the signal;
+      // re-deriving it here with CURRENT_SPECS could disagree with the number.
+      for (const { referral, strength, breakdown } of signal.contributing) {
         lines.push(
-          `  ${nameOf(referral.referrerId)} → ${strength.toFixed(2)} · ${referral.conviction}/${referral.confidence}/${referral.relationshipDepth} · ${referral.evidenceType} (×${b.multiplier})`,
+          `  ${nameOf(referral.referrerId)} → ${strength.toFixed(2)} · ${referral.conviction}/${referral.confidence}/${referral.relationshipDepth} · ${referral.evidenceType} (×${breakdown.multiplier})`,
         );
       }
     }
@@ -169,7 +202,8 @@ export function personReport(
 
 /** Compact multi-line dashboard text for the demo. */
 export function formatDashboard(summary: DashboardSummary, people: readonly Person[]): string {
-  const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? id;
+  const byId = indexPeople(people);
+  const nameOf = (id: string) => byId.get(id)?.name ?? id;
   const lines = [
     "Talent Graph — dashboard",
     `People ${summary.people} (candidates ${summary.candidates}, members ${summary.members}, archived ${summary.archived}) · referrals ${summary.referrals} · comparisons ${summary.comparisons} · rubric evaluations ${summary.evaluations}`,
@@ -183,7 +217,7 @@ export function formatDashboard(summary: DashboardSummary, people: readonly Pers
     `Top ${PRODUCT_LANGUAGE.relativeCapability}s:`,
     ...summary.topCapability.map(
       (c) =>
-        `  ${nameOf(c.personId).padEnd(18)} ${dimensionLabel(c.dimension).padEnd(18)} ${ordinal(c.percentile).padStart(5)} percentile · ${c.comparisonCount} comparisons`,
+        `  ${nameOf(c.personId).padEnd(18)} ${dimensionLabel(c.dimension).padEnd(18)} ${ordinal(c.percentile).padStart(5)} percentile · ${c.comparisonCount} comparisons · pool: ${c.poolSize} people, ${c.poolConfidence} confidence`,
     ),
     "",
     `${PRODUCT_LANGUAGE.underRecognitionGap} (${PRODUCT_LANGUAGE.exploratory}):`,

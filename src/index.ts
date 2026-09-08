@@ -25,4 +25,6 @@ export * from "./scoring/referralSignal.ts";
 export * from "./scoring/referralStrength.ts";
 export * from "./seed/generate.ts";
 export * from "./seed/personas.ts";
-export * from "./seed/prng.ts";
+// Deliberately not exported: the generator-only persona shapes (hidden
+// abilities that drive the seed) and the seeded random number helpers (test
+// infrastructure). tests/invariants.test.ts checks this stays true.

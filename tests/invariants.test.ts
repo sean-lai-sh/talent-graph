@@ -111,6 +111,37 @@ describe("invariants: no scalar collapse", () => {
   });
 });
 
+describe("invariants: hidden seed abilities stay out of the public surface", () => {
+  const barrelSource = read(join(ROOT, "src/index.ts"));
+
+  test("the barrel never names the generator-only modules or the hidden ability", () => {
+    for (const needle of ["personaShapes", "prng", "trueTheta"]) {
+      expect(barrelSource.includes(needle), `src/index.ts mentions ${needle}`).toBe(false);
+    }
+  });
+
+  test("the barrel exports the seed API but no persona shape or hidden ability", async () => {
+    const barrel = (await import("../src/index.ts")) as Record<string, unknown>;
+    expect(typeof barrel.generateSeed).toBe("function");
+    expect(Array.isArray(barrel.PERSONA_IDS)).toBe(true);
+    expect(Array.isArray(barrel.PERSONA_PROFILES)).toBe(true);
+    expect("PERSONAS" in barrel).toBe(false);
+    expect("trueTheta" in barrel).toBe(false);
+    expect("mulberry32" in barrel).toBe(false);
+    const profiles = barrel.PERSONA_PROFILES as Array<Record<string, unknown>>;
+    for (const p of profiles) {
+      expect(Object.keys(p).sort()).toEqual(["affiliation", "bio", "id", "name"]);
+    }
+  });
+
+  test("trueTheta is referenced only inside src/seed/", () => {
+    for (const f of SRC) {
+      if (f.includes("/src/seed/")) continue;
+      expect(read(f).includes("trueTheta"), `${rel(f)} references trueTheta`).toBe(false);
+    }
+  });
+});
+
 describe("invariants: durable updates", () => {
   test("every registered spec version has a CHANGELOG entry", () => {
     const changelog = read(join(ROOT, "docs/models/CHANGELOG.md"));

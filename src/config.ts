@@ -126,3 +126,28 @@ export function referralSignalSpecFromConfig(
 ): ReferralSignalSpec {
   return tagIfChanged(base, { ...base, topK: config.topKReferrals });
 }
+
+export interface LoadedSpecs {
+  config: TalentGraphConfig;
+  referral_signal: ReferralSignalSpec;
+  bradley_terry: BradleyTerrySpec;
+}
+
+/**
+ * The bridge between the environment and the math. `compute*` / `fit*`
+ * functions never read `process.env`; a caller that wants the advertised
+ * `TG_*` overrides to apply calls this once and passes the specs it returns
+ * (`spec:` option). Each spec is the current registered version, tagged
+ * `+env` when any override changed a number.
+ */
+export function loadSpecs(
+  env: Record<string, string | undefined> = process.env,
+  opts: LoadConfigOptions = {},
+): LoadedSpecs {
+  const config = loadConfig(env, opts);
+  return {
+    config,
+    referral_signal: referralSignalSpecFromConfig(config),
+    bradley_terry: bradleyTerrySpecFromConfig(config),
+  };
+}

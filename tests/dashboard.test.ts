@@ -1,8 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { buildDashboard, formatDashboard, personReport } from "../src/analysis/dashboard.ts";
+import {
+  buildDashboard,
+  formatDashboard,
+  personReport,
+  poolConfidenceRank,
+} from "../src/analysis/dashboard.ts";
 import { underRecognitionGaps } from "../src/analysis/underRecognition.ts";
 import { BANNED_LANGUAGE } from "../src/domain/constants.ts";
 import { computeCapabilityVectors } from "../src/inference/capabilityVector.ts";
+import { REFERRAL_SIGNAL_V0_1_0 } from "../src/models/registry.ts";
+import type { ReferralSignalSpec } from "../src/models/spec.ts";
 import { computeAllReferralSignals } from "../src/scoring/referralSignal.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 import { PERSONA_IDS } from "../src/seed/personas.ts";
@@ -29,19 +36,48 @@ describe("buildDashboard", () => {
     }
   });
 
-  test("topCapability contains only estimated entries, sorted desc", () => {
+  test("topCapability contains only estimated entries", () => {
     expect(summary.topCapability.length).toBeGreaterThan(0);
     expect(summary.topCapability.length).toBeLessThanOrEqual(10);
     for (const c of summary.topCapability) {
       const e = capRun.vectors.get(c.personId)?.dimensions[c.dimension];
       expect(e?.state).toBe("estimated");
     }
-    for (let i = 1; i < summary.topCapability.length; i++) {
-      expect(
-        (summary.topCapability[i - 1]?.percentile ?? 0) >=
-          (summary.topCapability[i]?.percentile ?? 0),
-      ).toBe(true);
+  });
+
+  test("every topCapability row names its pool and its confidence", () => {
+    for (const c of summary.topCapability) {
+      const e = capRun.vectors.get(c.personId)?.dimensions[c.dimension];
+      if (e?.state !== "estimated") throw new Error("expected an estimated entry");
+      expect(typeof c.poolSize).toBe("number");
+      expect(c.poolSize).toBeGreaterThanOrEqual(2);
+      expect(c.poolSize).toBe(e.poolSize);
+      expect(["low", "medium", "high"]).toContain(c.poolConfidence);
+      expect(c.poolConfidence).toBe(e.poolConfidence);
+      expect(c.componentId).toBe(e.componentId);
     }
+  });
+
+  test("topCapability is non-increasing by (pool-confidence tier, percentile)", () => {
+    const rows = summary.topCapability;
+    for (let i = 1; i < rows.length; i++) {
+      const prev = rows[i - 1];
+      const cur = rows[i];
+      if (!prev || !cur) throw new Error("unreachable");
+      const prevTier = poolConfidenceRank(prev.poolConfidence);
+      const curTier = poolConfidenceRank(cur.poolConfidence);
+      expect(prevTier >= curTier).toBe(true);
+      if (prevTier === curTier) expect(prev.percentile >= cur.percentile).toBe(true);
+    }
+    expect(poolConfidenceRank("high")).toBeGreaterThan(poolConfidenceRank("medium"));
+    expect(poolConfidenceRank("medium")).toBeGreaterThan(poolConfidenceRank("low"));
+  });
+
+  test("formatDashboard prints pool size and confidence on capability rows", () => {
+    const dash = formatDashboard(summary, data.people);
+    const first = summary.topCapability[0];
+    if (!first) throw new Error("expected at least one capability row");
+    expect(dash).toContain(`pool: ${first.poolSize} people, ${first.poolConfidence} confidence`);
   });
 
   test("topReferralSignal excludes people with no referrals", () => {
@@ -88,6 +124,20 @@ describe("personReport", () => {
     const text = personReport("p-dev", data, signals, capRun, gaps);
     expect(text).toContain("1 incoming referral ·");
     expect(text.match(/Insufficient Evidence/g)?.length).toBe(7);
+  });
+
+  test("referral breakdown is shown under the spec that produced the signal", () => {
+    // If personReport re-derived the breakdown from CURRENT_SPECS it would
+    // print ×1 for firsthand_work; the producing spec says 0.25.
+    const spec: ReferralSignalSpec = {
+      ...REFERRAL_SIGNAL_V0_1_0,
+      version: "0.9.0",
+      evidenceMultiplier: { ...REFERRAL_SIGNAL_V0_1_0.evidenceMultiplier, firsthand_work: 0.25 },
+    };
+    const custom = computeAllReferralSignals(data.people, data.referrals, { spec });
+    const text = personReport("p-alice", data, custom, capRun, gaps);
+    expect(text).toContain("×0.25");
+    expect(text).not.toContain("×1)");
   });
 
   test("unknown person degrades gracefully", () => {

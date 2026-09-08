@@ -27,8 +27,12 @@ Model Estimate      ≠ Ground Truth
 Concretely, in code:
 
 - `scoring/` (Referral Signal) and `inference/` (Bradley–Terry) never import
-  from each other. The only place they meet is `analysis/underRecognition.ts`,
-  which is explicitly labelled exploratory.
+  from each other. The only places they meet are explicit and enumerated in
+  `tests/invariants.test.ts`: `analysis/underRecognition.ts` (the diagnostic,
+  explicitly labelled exploratory), `analysis/dashboard.ts` (presentation of
+  both, computes nothing), `analysis/drift.ts` and `modelRun.ts`
+  (bookkeeping: comparing and recording runs of either kind), and `index.ts`
+  (the public barrel).
 - Rubric `Evaluation` records are stored and summarised but feed **no** score.
 - Affiliation / credentials are display metadata; no function in `src/` reads
   them to compute a number.
@@ -158,11 +162,14 @@ L(θ) = −Σ log σ(θ_w − θ_l)  +  λ Σ θ_i²          (λ default 0.1, c
 - Insufficient evidence: a person with `< minComparisons` (default 3) or
   `< minOpponents` (default 2) on a dimension gets
   `{ state: "insufficient_evidence" }` and no percentile.
-- Pool confidence label: heuristic on component size + comparisons/person
-  (`low` / `medium` / `high`), documented as a heuristic.
+- Pool confidence label: heuristic on pool size + comparisons/person
+  (`low` / `medium` / `high`), documented as a heuristic. The pool is the
+  *estimated* members of the component — the people the percentile is
+  actually ranked among — not the whole component (this supersedes the
+  `componentSize` wording in issue #6).
 
 Result per (person, dimension): `{ theta, percentile, comparisonCount,
-opponentCount, componentId, componentSize, state }`.
+opponentCount, componentId, componentSize, poolSize, poolConfidence, state }`.
 
 `capabilityVector(personId)` returns all 7 dimensions; never collapsed to a
 scalar.
@@ -173,11 +180,14 @@ scalar.
 Priority(i,j,k) = a·Uncertainty + b·Closeness + c·Novelty
 Uncertainty = 1 / (1 + min(n_i, n_j))            (few comparisons ⇒ high)
 Closeness   = exp(−|θ_i − θ_j|)                   (same component; else 0.5 cross-component bonus optional)
-Novelty     = 1 if never compared on k, else 1 / (1 + recencyRank)
+Novelty     = 1 if never compared on k, else min(1, daysSince(lastInformativeComparison) / 30)
 ```
-Defaults `a=b=c=1`, configurable. Returns top-N candidate pairs with the
-prompt text for that dimension. Excludes `i === j` and evaluator-self pairs
-when an evaluator id is supplied.
+Defaults `a=b=c=1`, configurable. "Informative" means an `a`/`b`/`tie`
+outcome: `skip` and `insufficient_observation` do not count as having
+compared the pair, so a pair that was only ever skipped stays fully novel.
+`now` is passed in, never read from the clock. Returns top-N candidate pairs
+with the prompt text for that dimension. Excludes `i === j` and
+evaluator-self pairs when an evaluator id is supplied.
 
 ## 7. Under-recognition gap (exploratory)
 
@@ -265,6 +275,10 @@ silent reshuffle. Mechanism (issue #15):
    warm start and an optional anchor prior `κ·Σ(θ_i − θ_i^prev)²` (κ = 0 ⇒
    plain fit). Display-layer blending `(1−α)·old + α·new` with a scheduled α is
    available for rollout, always labelled, with both raw runs retained.
+   The objective is minimised **subject to Σθ = 0 per connected component**
+   (a constrained solve, not post-hoc centering): with κ = 0 the two agree,
+   but with κ > 0 the penalties are not translation-invariant, so centering
+   after the fact would not be the optimum.
 6. **Decisions keep their provenance.** `PredictionSnapshot` freezes the
    numbers a decision was made on, tied to `ModelRun` ids, so later spec
    versions never rewrite history.

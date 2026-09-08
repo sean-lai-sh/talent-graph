@@ -7,7 +7,7 @@
 ## `tests/invariants.test.ts`
 Static checks over `src/` using `Bun.Glob` + file reads (no runtime magic):
 1. No file under `src/scoring/` imports from `src/inference/` and vice versa.
-2. Only `src/analysis/underRecognition.ts` (and `dashboard.ts`, `scripts/demo.ts`) import from both.
+2. Only the explicit meeting points import from both: `src/analysis/underRecognition.ts` (the diagnostic), `src/analysis/dashboard.ts` (presentation), `src/analysis/drift.ts` and `src/modelRun.ts` (bookkeeping), `src/index.ts` (barrel). `scripts/demo.ts` is outside `src/` and not checked.
 3. No file under `src/` contains any `BANNED_LANGUAGE` string outside `constants.ts`.
 4. No file under `src/scoring/` or `src/inference/` references `affiliation`, `bio`, or `Evaluation`.
 5. No file under `src/scoring/` or `src/inference/` calls `Date.now()` or `new Date()` without an argument.

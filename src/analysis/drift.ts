@@ -4,7 +4,8 @@
  * Compares two runs on the *same* raw data (typically an old spec version
  * versus a new one) and summarises how much the ordering and the numbers
  * moved: Kendall τ_b, Spearman ρ, top-K Jaccard, shift distribution, people
- * who crossed the insufficient-evidence boundary, and the largest movers.
+ * who crossed the insufficient-evidence boundary (and the fraction of the
+ * valued population they represent), and the largest movers.
  *
  * Referral Signal is compared in `signal` space (0–100); capability in
  * percentile space per dimension. The verdict thresholds are heuristics,
@@ -23,17 +24,26 @@ export interface DriftThresholds {
   minTop10Jaccard: number;
   /** Default 10 (points, in the compared value's units). */
   maxP95Shift: number;
+  /**
+   * Default 0.1. Upper bound on `crossedFraction`: the share of people whose
+   * value appeared or disappeared across the insufficient-evidence boundary.
+   * Rank statistics see only people valued on both sides, so without this a
+   * change that silently drops a third of the population could read as stable.
+   */
+  maxCrossedFraction: number;
 }
 
 export const DEFAULT_DRIFT_THRESHOLDS: DriftThresholds = Object.freeze({
   minKendallTau: 0.9,
   minTop10Jaccard: 0.7,
   maxP95Shift: 10,
+  maxCrossedFraction: 0.1,
 });
 
-/** Below these the change is `breaking` regardless of the other thresholds. */
+/** Beyond these the change is `breaking` regardless of the other thresholds. */
 export const BREAKING_KENDALL_TAU = 0.7;
 export const BREAKING_TOP10_JACCARD = 0.4;
+export const BREAKING_CROSSED_FRACTION = 0.3;
 
 export type DriftVerdict = "stable" | "review" | "breaking";
 
@@ -57,6 +67,8 @@ export interface DriftReport {
   p95AbsShift: number;
   /** Ids that became estimable (gained) or stopped being estimable (lost). */
   crossedInsufficiency: { gained: string[]; lost: string[] };
+  /** (gained + lost) / (n + gained + lost); 0 when nobody is valued on either side. */
+  crossedFraction: number;
   /** Ten largest |delta| among people valued on both sides. */
   largestMovers: DriftMover[];
   verdict: DriftVerdict;
@@ -198,13 +210,22 @@ function buildReport(
   const top10 = topKJaccard(beforeShared, afterShared, 10);
   const top25 = topKJaccard(beforeShared, afterShared, 25);
   const p95AbsShift = quantile(absSorted, 0.95);
+  const crossed = gained.length + lost.length;
+  const crossedDenominator = sharedIds.length + crossed;
+  const crossedFraction = crossedDenominator === 0 ? 0 : crossed / crossedDenominator;
 
   let verdict: DriftVerdict;
-  if (kendallTau < BREAKING_KENDALL_TAU || top10 < BREAKING_TOP10_JACCARD) verdict = "breaking";
+  if (
+    kendallTau < BREAKING_KENDALL_TAU ||
+    top10 < BREAKING_TOP10_JACCARD ||
+    crossedFraction > BREAKING_CROSSED_FRACTION
+  )
+    verdict = "breaking";
   else if (
     kendallTau >= thresholds.minKendallTau &&
     top10 >= thresholds.minTop10Jaccard &&
-    p95AbsShift <= thresholds.maxP95Shift
+    p95AbsShift <= thresholds.maxP95Shift &&
+    crossedFraction <= thresholds.maxCrossedFraction
   )
     verdict = "stable";
   else verdict = "review";
@@ -219,6 +240,7 @@ function buildReport(
     meanAbsShift: absSorted.length ? absSorted.reduce((a, b) => a + b, 0) / absSorted.length : 0,
     p95AbsShift,
     crossedInsufficiency: { gained, lost },
+    crossedFraction,
     largestMovers: [...shifts]
       .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || (a.personId < b.personId ? -1 : 1))
       .slice(0, 10),
@@ -281,7 +303,7 @@ export function formatDriftReport(r: DriftReport): string {
     `Kendall τ_b ${fmt(r.kendallTau)} (min ${r.thresholds.minKendallTau}, breaking < ${BREAKING_KENDALL_TAU}) · Spearman ρ ${fmt(r.spearman)}`,
     `Top-10 Jaccard ${fmt(r.topKJaccard[10], 2)} (min ${r.thresholds.minTop10Jaccard}, breaking < ${BREAKING_TOP10_JACCARD}) · Top-25 Jaccard ${fmt(r.topKJaccard[25], 2)}`,
     `|shift| mean ${fmt(r.meanAbsShift, 2)} · p95 ${fmt(r.p95AbsShift, 2)} (max allowed ${r.thresholds.maxP95Shift}) · max ${fmt(r.maxAbsShift, 2)}`,
-    `Crossed insufficiency: gained ${r.crossedInsufficiency.gained.length}${
+    `Crossed insufficiency: ${fmt(r.crossedFraction, 2)} of ${r.n + r.crossedInsufficiency.gained.length + r.crossedInsufficiency.lost.length} (max ${r.thresholds.maxCrossedFraction}, breaking > ${BREAKING_CROSSED_FRACTION}) · gained ${r.crossedInsufficiency.gained.length}${
       r.crossedInsufficiency.gained.length ? ` [${r.crossedInsufficiency.gained.join(", ")}]` : ""
     } · lost ${r.crossedInsufficiency.lost.length}${
       r.crossedInsufficiency.lost.length ? ` [${r.crossedInsufficiency.lost.join(", ")}]` : ""

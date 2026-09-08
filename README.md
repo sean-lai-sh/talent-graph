@@ -49,6 +49,29 @@ the only reader of `process.env`; both
 tagged `+env` so a run never claims to be a registered version with different
 numbers.
 
+**The exported `compute*` / `fit*` functions never read the environment.**
+Called without a `spec`, they use the registered `CURRENT_SPECS`, whatever
+`TG_*` says. `loadSpecs()` is the bridge: it reads the env once and returns
+`{ config, referral_signal, bradley_terry }` for the caller to pass as
+`spec:`.
+
+```ts
+import { loadSpecs, computeAllReferralSignals, computeCapabilityVectors } from "talent-graph";
+
+const specs = loadSpecs(); // TG_* applied; versions tagged +env when they differ
+const signals = computeAllReferralSignals(data.people, data.referrals, {
+  spec: specs.referral_signal,
+});
+const capability = computeCapabilityVectors(data.people, data.comparisons, {
+  spec: specs.bradley_terry,
+});
+```
+
+`bun run demo` and `bun run drift` go through `loadSpecs()` (drift accepts
+the literal version `env` for `--before` / `--after`, meaning "the current
+registered spec with `TG_*` overrides applied"), so an override is visible in
+both.
+
 ## 2. Product concept
 
 The network already recognises some people; comparative judgment reveals
@@ -109,12 +132,17 @@ answers into a latent ability per dimension.
 ```
 P(i ≻ j | k) = σ(θ_ik − θ_jk)
 L(θ) = −Σ_(w,l) logσ(θ_w − θ_l) + λ Σ_i θ_i²          λ = 0.1 by default
-θ* = argmin L ;  θ ← θ − mean(θ)   per connected component
+θ* = argmin L  subject to  Σ_i θ_i = 0   per connected component
 ```
 
 - **Solver:** diagonal-Newton steps with Armijo backtracking on `L`
   (`inference/bradleyTerry.ts`). Every iteration strictly decreases the
   objective; convergence on `‖∇L‖∞ < 1e-6` or `maxIterations = 500`.
+- **Centering is a constraint of the solve**, not a post-hoc shift: `L` is
+  minimised on the hyperplane `Σθ = 0` within each component. With `κ = 0`
+  this coincides with centering the unconstrained optimum; with an anchor
+  prior (`κ > 0`, §8) the penalties are not translation-invariant and the
+  constrained optimum is the one reported.
 - **Numerics:** `logσ` is computed branch-on-sign (`inference/logistic.ts`);
   no NaN or ±Infinity for any finite input.
 - **Observations:** only outcomes `a` / `b`. `tie` becomes two half-weight
@@ -135,7 +163,10 @@ L(θ) = −Σ_(w,l) logσ(θ_w − θ_l) + λ Σ_i θ_i²          λ = 0.1 by d
   `pct = 100·(rank − 1)/(n − 1)`, average ranks on ties.
 - **Pool confidence** (a labelled heuristic, not theory): `high` if the pool
   has ≥15 people averaging ≥6 comparisons, `medium` if ≥6 people averaging
-  ≥3, else `low`.
+  ≥3, else `low`. The pool is the **estimated** members of the component —
+  the people the percentile is ranked among (`poolSize`) — not the whole
+  component (`componentSize`), which also counts members with insufficient
+  evidence.
 
 `computeCapabilityVectors` returns all seven dimensions per person and is
 never collapsed to a scalar.

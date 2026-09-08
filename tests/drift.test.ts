@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  BREAKING_CROSSED_FRACTION,
   capabilityDrift,
+  DEFAULT_DRIFT_THRESHOLDS,
   formatDriftReport,
   kendallTauB,
   referralSignalDrift,
@@ -76,6 +78,7 @@ describe("referralSignalDrift", () => {
     expect(r.maxAbsShift).toBe(0);
     expect(r.verdict).toBe("stable");
     expect(r.crossedInsufficiency).toEqual({ gained: [], lost: [] });
+    expect(r.crossedFraction).toBe(0);
     expect(r.n).toBe(data.people.filter((p) => baseline.get(p.id)?.incomingCount).length);
     expect(r.labels).toEqual({ before: "0.1.0", after: "0.1.0" });
   });
@@ -136,6 +139,33 @@ describe("capabilityDrift", () => {
     expect(r.crossedInsufficiency.gained).toEqual([]);
     expect(r.labels.after).toBe("1.1.0");
     expect(formatDriftReport(r)).toContain("lost");
+    // The survivors keep their order (τ stays high), but dropping people out
+    // of the estimable set is itself a change the verdict must not call stable.
+    const crossed = r.crossedInsufficiency.gained.length + r.crossedInsufficiency.lost.length;
+    expect(r.crossedFraction).toBeCloseTo(crossed / (r.n + crossed), 12);
+    expect(r.crossedFraction).toBeGreaterThan(DEFAULT_DRIFT_THRESHOLDS.maxCrossedFraction);
+    expect(r.verdict).not.toBe("stable");
+  });
+
+  test("crossing more than the breaking fraction is breaking even with perfect τ", () => {
+    // A threshold nobody meets empties the after-side entirely: everyone is lost.
+    const after = computeCapabilityVectors(data.people, data.comparisons, {
+      spec: { ...BRADLEY_TERRY_V1_0_0, version: "1.3.0", minComparisons: 1000 },
+    });
+    const r = capabilityDrift(before, after, "problem_solving");
+    expect(r.n).toBe(0);
+    expect(r.kendallTau).toBe(1);
+    expect(r.crossedFraction).toBe(1);
+    expect(r.crossedFraction).toBeGreaterThan(BREAKING_CROSSED_FRACTION);
+    expect(r.verdict).toBe("breaking");
+    expect(formatDriftReport(r)).toContain(`breaking > ${BREAKING_CROSSED_FRACTION}`);
+  });
+
+  test("default thresholds include the crossed-fraction bound", () => {
+    expect(DEFAULT_DRIFT_THRESHOLDS.maxCrossedFraction).toBe(0.1);
+    expect(BREAKING_CROSSED_FRACTION).toBe(0.3);
+    const text = formatDriftReport(capabilityDrift(before, before, "agency"));
+    expect(text).toContain("Crossed insufficiency: 0.00 of");
   });
 
   test("a much larger λ compresses θ but is measured in percentile space", () => {

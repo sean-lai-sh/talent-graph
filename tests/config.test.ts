@@ -3,6 +3,7 @@ import {
   bradleyTerrySpecFromConfig,
   DEFAULT_CONFIG,
   loadConfig,
+  loadSpecs,
   referralSignalSpecFromConfig,
 } from "../src/config.ts";
 import { CURRENT_SPECS } from "../src/models/registry.ts";
@@ -73,5 +74,27 @@ describe("loadConfig", () => {
     const rs = referralSignalSpecFromConfig({ ...DEFAULT_CONFIG, topKReferrals: 3 });
     expect(rs.version).toBe("0.1.0+env");
     expect(rs.topK).toBe(3);
+  });
+});
+
+describe("loadSpecs", () => {
+  test("an empty env yields the registered current specs, untagged", () => {
+    const specs = loadSpecs({}, { warn: () => {} });
+    expect(specs.config).toEqual(DEFAULT_CONFIG);
+    expect(specs.referral_signal).toBe(CURRENT_SPECS.referral_signal);
+    expect(specs.bradley_terry).toBe(CURRENT_SPECS.bradley_terry);
+  });
+
+  test("TG_* overrides reach both specs and tag them +env", () => {
+    const specs = loadSpecs(
+      { TG_TOP_K_REFERRALS: "1", TG_BT_REGULARIZATION: "2" },
+      { warn: () => {} },
+    );
+    expect(specs.referral_signal.topK).toBe(1);
+    expect(specs.referral_signal.version).toBe("0.1.0+env");
+    expect(specs.bradley_terry.regularization).toBe(2);
+    expect(specs.bradley_terry.version).toBe("1.0.0+env");
+    expect(validateSpec(specs.referral_signal)).toEqual({ ok: true });
+    expect(validateSpec(specs.bradley_terry)).toEqual({ ok: true });
   });
 });

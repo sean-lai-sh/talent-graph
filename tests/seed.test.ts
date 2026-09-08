@@ -6,7 +6,8 @@ import {
   validateReferral,
 } from "../src/domain/validate.ts";
 import { generateSeed } from "../src/seed/generate.ts";
-import { PERSONA_IDS } from "../src/seed/personas.ts";
+import { PERSONAS } from "../src/seed/personaShapes.ts";
+import { PERSONA_IDS, PERSONA_PROFILES } from "../src/seed/personas.ts";
 import { gaussian, int, mulberry32, pick, shuffle } from "../src/seed/prng.ts";
 
 const data = generateSeed();
@@ -118,5 +119,16 @@ describe("generateSeed", () => {
     const json = JSON.stringify(data);
     expect(json).not.toContain("theta");
     expect(json).not.toContain("trueTheta");
+  });
+
+  test("persona profiles carry display data only; shapes align with them", () => {
+    expect(PERSONA_IDS).toEqual(PERSONA_PROFILES.map((p) => p.id));
+    expect(PERSONAS.map((p) => p.id)).toEqual([...PERSONA_IDS]);
+    for (const p of PERSONA_PROFILES) {
+      expect(Object.keys(p).sort()).toEqual(["affiliation", "bio", "id", "name"]);
+      const person = data.people.find((x) => x.id === p.id);
+      expect(person).toMatchObject({ name: p.name, affiliation: p.affiliation, bio: p.bio });
+    }
+    expect(PERSONAS.every((p) => "trueTheta" in p && "referrals" in p)).toBe(true);
   });
 });

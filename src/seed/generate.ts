@@ -17,7 +17,7 @@ import type {
   RubricScore,
   Scale5,
 } from "../domain/types.ts";
-import { PERSONAS, type Persona } from "./personas.ts";
+import { PERSONAS, type Persona } from "./personaShapes.ts";
 import { gaussian, int, mulberry32, pick, type Rng, shuffle } from "./prng.ts";
 
 export interface SeedDataset {
