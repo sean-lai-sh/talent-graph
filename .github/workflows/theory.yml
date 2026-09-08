@@ -1,0 +1,51 @@
+name: Theory (LaTeX)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/theory/**"
+      - ".github/workflows/theory.yml"
+  pull_request:
+    paths:
+      - "docs/theory/**"
+      - ".github/workflows/theory.yml"
+
+jobs:
+  build-pdf:
+    name: Build main.pdf
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/xu-cheng/texlive-full:latest
+    defaults:
+      run:
+        working-directory: docs/theory
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build with latexmk
+        run: latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex
+
+      - name: Upload PDF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-pdf
+          path: docs/theory/main.pdf
+          if-no-files-found: error
+
+  check-theory-sync:
+    name: Check theory/PDF sync
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Run sync check
+        run: bun run scripts/check-theory-sync.ts
