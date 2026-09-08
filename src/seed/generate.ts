@@ -12,11 +12,14 @@ import type {
   ComparisonOutcome,
   Dimension,
   Evaluation,
+  Opportunity,
+  Outcome,
   Person,
   Referral,
   RubricScore,
   Scale5,
 } from "../domain/types.ts";
+import { generateLongitudinal } from "./outcomes.ts";
 import { PERSONAS, type Persona } from "./personaShapes.ts";
 import { gaussian, int, mulberry32, pick, type Rng, shuffle } from "./prng.ts";
 
@@ -25,6 +28,9 @@ export interface SeedDataset {
   referrals: Referral[];
   evaluations: Evaluation[];
   comparisons: Comparison[];
+  /** Longitudinal records for V2 judge calibration (observed ~200–300 days in). */
+  opportunities: Opportunity[];
+  outcomes: Outcome[];
 }
 
 export interface SeedOptions {
@@ -425,10 +431,24 @@ export function generateSeed(opts: SeedOptions = {}): SeedDataset {
   const comparisons = buildComparisons(rng, hidden, opts.comparisons ?? 160);
   const evaluations = buildEvaluations(rng, hidden, opts.evaluations ?? 24);
 
+  // Hidden contribution = mean hidden ability over the dimensions that exist.
+  const contribution = new Map<string, number>();
+  for (const h of hidden) {
+    const values = DIMENSIONS.map((d) => h.theta[d]).filter((v): v is number => v !== null);
+    contribution.set(h.person.id, values.reduce((a, b) => a + b, 0) / Math.max(1, values.length));
+  }
+  const longitudinal = generateLongitudinal({
+    seed,
+    people: hidden.map((h) => h.person),
+    contribution,
+  });
+
   return {
     people: hidden.map((h) => h.person),
     referrals,
     evaluations,
     comparisons,
+    opportunities: longitudinal.opportunities,
+    outcomes: longitudinal.outcomes,
   };
 }

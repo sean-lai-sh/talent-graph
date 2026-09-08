@@ -30,3 +30,23 @@ the seed dataset and paste the summary line into the entry.
   0 on the seed data. It is not tuned and not theoretically optimal.
 - **Drift:** n/a (first version).
 - **PR:** initial import.
+
+## judge_reliability@2.0.0 — initial (V2 judge calibration)
+
+- **What:** Referrals are scored as predictions once `observationWindowDays = 180`
+  have passed and the candidate has a later outcome. Outcomes are rank-normalised
+  within `kind`, corrected for opportunity by bucket mean
+  (`opportunityBuckets [1, 2, 3]`, `minBucketSize 2`), and the residual's rank
+  percentile is the truth. Per judge: `Ē ← (1−η)Ē + ηE` with `η = 0.3`,
+  `p = exp(−τĒ)` with `τ = 4`, shrinkage `λ = 3` toward `μ_p = 1`, signed bias
+  shrunk toward 0; `applyBiasCorrection false`.
+- **Why:** Implements the white paper's "Learning Who Is Good at Identifying
+  Talent", "Shrinkage" and "Learning Judge Bias" sections. `μ_p = 1` keeps every
+  judge at V0 weight until evidence says otherwise, so with no outcomes V2
+  reproduces V0 exactly (asserted by tests). η, τ, λ are untuned defaults.
+- **Referral Signal:** `referral_signal@0.1.0` is unchanged in value. It gains an
+  optional judge-weight hook `p̂_u · clip(R_uv − b̂_u)` that is the identity when
+  no weights are passed; runs that pass weights record them in `ModelRun`.
+- **Drift:** n/a (first version; with the seed's synthetic outcomes,
+  `bun run demo` shows the weighted vs unweighted Referral Signal side by side).
+- **PR:** V2 judge calibration.

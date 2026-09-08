@@ -245,12 +245,19 @@ versa; greps `src/` for banned strings ("Talent Score", "Intelligence Score",
   assumed. A CI job compiles it with a `texlive` container and uploads the PDF
   as an artifact so the committed PDF can be refreshed on demand.
 
-## 11. Explicitly out of scope (V2+)
+## 11. Scope beyond V1
 
-Judge reliability `p_u`, judge bias `b_u`, clique/correlation discount `ρ`,
-`d_uv`, prior shrinkage `W_v^(0) = (1−c)μ + cS`, longitudinal outcomes,
-opportunity adjustment `R*`, bandits/exploration policy, GNNs, LLM-as-judge.
-The types exist as placeholders so the DB can be shaped for them later.
+**In scope since V2 (issue #16, `src/judges/`):** longitudinal `Outcome` /
+`Opportunity` records, opportunity-corrected residual `R*_v`, judge
+reliability `p_u = exp(−τĒ_u)` from referral prediction error with shrinkage
+toward `μ_p = 1`, judge bias `b_u`, and the `p̂_u · clip(R_uv − b̂_u)` hook in
+the Referral Signal. Truth comes from outcomes only; `src/judges/` never
+imports `src/inference/` and `src/scoring/` never imports `src/judges/`.
+
+**Explicitly out of scope (V3+):** scoring pairwise comparisons as forecasts,
+clique/correlation discount `ρ`, `d_uv`, prior shrinkage
+`W_v^(0) = (1−c)μ + cS`, judge weights inside the V1 likelihood,
+bandits/exploration policy, GNNs, LLM-as-judge.
 
 ## 11a. Durable updates: changing weights without destroying the graph
 

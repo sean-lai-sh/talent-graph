@@ -198,18 +198,69 @@ a production truth (`analysis/underRecognition.ts`).
 
 ## 7. Limitations
 
-- Judges are equally weighted (`p_u = 1`); reliability is not learned.
+- Judge reliability is learned only from **referral** predictions scored
+  against outcomes (§8); pairwise comparisons are not yet scored and V1
+  ignores judge weights. Until outcomes exist every judge is weighted 1.
 - Social correlation between referrers is ignored (no clique discount).
 - Pairwise judgments are subjective and reflect what judges have observed.
-- No outcome validation yet: nothing here has been checked against what
-  people later did.
+- Outcome validation exists only through the judge loop; capability
+  estimates themselves are not yet checked against what people later did.
 - Estimates may reflect network bias: who gets compared depends on who is
   already visible.
 - Every capability estimate is relative to the observed component, not to
   the world.
 - `λ`, the thresholds, and the pool-confidence bands are defaults, not tuned.
 
-## 8. Operational continuity — changing weights without destroying the graph
+## 8. V2 model — Judge calibration from outcomes
+
+Every judge is weighted 1 in V0/V1 on purpose: the only signal inside the
+graph is agreement, and weighting by agreement rewards the herd and punishes
+the judge who spotted someone early. A judge can only be graded against what
+happened afterwards. V2 does that at a time step `T`, following the white
+paper's "Longitudinal Observation", "Learning Who Is Good at Identifying
+Talent", "Shrinkage" and "Learning Judge Bias" sections:
+
+```
+R_v      realised outcome, rank-normalised within its kind         ∈ [0,1]
+R*_v   = R_v − E[R_v | O_v]                                         opportunity-corrected residual
+truth_v = rank percentile of R*_v / 100                             ∈ [0,1]
+x_uv   = R_uv  (the referral's unweighted V0 strength)              the prediction
+E_uv   = (x_uv − truth_v)²                                          scored once T − t_uv ≥ 180 days
+Ē_u   ← (1−η)·Ē_u + η·E_uv          η = 0.3, chronological
+p_u    = exp(−τ·Ē_u)                τ = 4
+p̂_u    = n/(n+λ)·p_u + λ/(n+λ)·μ_p  λ = 3, μ_p = 1                   shrinkage against instant oracles
+b̂_u    = shrunk running mean of (x_uv − truth_v)                    signed bias, reported; applied if enabled
+```
+
+The Referral Signal then uses `p̂_u · clip(R_uv − b̂_u, 0, 1)` per referral.
+With no outcomes, or `p̂ = 1, b̂ = 0`, that is exactly `R_uv`: **V2 reproduces
+V0 bit-for-bit until evidence says otherwise** (asserted by tests).
+
+- `E[R_v | O_v]` is the mean normalised outcome of people with a similar
+  opportunity count (buckets `[1, 2, 3]`, global-mean fallback for small
+  buckets). With no opportunity records it is a constant and the correction
+  vanishes.
+- A referral is evaluable only after the observation window and only against
+  an outcome observed **after** it was made. Nothing is scored before then.
+- Truth comes from outcomes only, never from V1 capability estimates (which
+  are built from judges' comparisons). `src/judges/` never imports
+  `src/inference/`; the invariants test enforces it.
+- Judge weights are passed *into* the Referral Signal; `src/scoring/` never
+  imports `src/judges/`. A weighted `ModelRun` records the weights it used.
+- Comparisons are not scored in 2.0.0. The paper specifies the referral case;
+  scoring comparisons as forecasts is the natural extension.
+
+```ts
+import { computeJudgeCalibration, judgeWeightOptions, computeAllReferralSignals } from "talent-graph";
+
+const calibration = computeJudgeCalibration({ people, referrals, outcomes, opportunities, now: T });
+const weighted = computeAllReferralSignals(people, referrals, judgeWeightOptions(calibration));
+```
+
+`bun run demo` prints the calibrated judges at `T = 2026-12-31` on the seed
+and the V0 vs V2 Referral Signal for the six personas.
+
+## 9. Operational continuity — changing weights without destroying the graph
 
 Weights and thresholds will change. A graph carrying months of observations
 and real decisions must survive that without a silent reshuffle. Mechanism
@@ -242,20 +293,20 @@ and real decisions must survive that without a silent reshuffle. Mechanism
    numbers a decision was made on, tied to `ModelRun` ids, so later spec
    versions never rewrite history.
 
-## 9. Roadmap
+## 10. Roadmap
 
 | Version | Adds | Theory section in `docs/theory/main.tex` |
 |---|---|---|
-| V2 | Judge calibration `p_u` learned from outcomes | "Learning Who Is Good at Identifying Talent" |
-| V3 | Judge bias `b_u`, clique / correlation discount `ρ`, shrinkage `W_v^(0)` | "Learning Judge Bias", "Independence and Clique Discounting", "Shrinkage" |
-| V4 | Longitudinal outcomes and prediction scoring | "Longitudinal Observation", "Reward Information Gain" |
-| V5 | Opportunity correction `R*`, exploration policy | "The Self-Fulfilling Problem", "Exploration Versus Exploitation" |
+| V2 (shipped, §8) | Judge reliability `p_u`, shrinkage, bias `b_u`, opportunity-corrected residual `R*` from referral predictions | "Longitudinal Observation", "Learning Who Is Good at Identifying Talent", "Shrinkage", "Learning Judge Bias" |
+| V3 | Comparisons scored as forecasts; clique / correlation discount `ρ`; prior shrinkage `W_v^(0)` | "Independence and Clique Discounting", "Learning Judge Bias" |
+| V4 | Outcome validation of capability estimates, prediction scoring | "Reward Information Gain", "The Quantity Worth Optimizing" |
+| V5 | Exploration policy | "The Self-Fulfilling Problem", "Exploration Versus Exploitation" |
 
-The placeholder types `Outcome`, `Opportunity`, `JudgeCalibration`,
-`JudgeBias`, `PredictionSnapshot` exist now so a database can be shaped for
-them; no logic reads them except snapshot creation.
+`Outcome` and `Opportunity` are read by V2. `JudgeCalibration` and
+`JudgeBias` are the persistable forms of V2's estimates. `PredictionSnapshot`
+freezes decisions (§9).
 
-## 10. Theory doc
+## 11. Theory doc
 
 `docs/theory/main.tex` is canonical. Any change to the theory must update it
 in the same PR (the PR template has the checkbox), and CI builds the PDF and

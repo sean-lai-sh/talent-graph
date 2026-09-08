@@ -1,12 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import { judgeWeightOptions } from "../src/judges/reliability.ts";
 import {
   createModelRun,
   hashInputs,
   runCapabilityVectors,
+  runJudgeCalibration,
   runReferralSignals,
   stableStringify,
 } from "../src/modelRun.ts";
-import { BRADLEY_TERRY_V1_0_0, REFERRAL_SIGNAL_V0_1_0 } from "../src/models/registry.ts";
+import {
+  BRADLEY_TERRY_V1_0_0,
+  JUDGE_RELIABILITY_V2_0_0,
+  REFERRAL_SIGNAL_V0_1_0,
+} from "../src/models/registry.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 
 const NOW = new Date("2026-06-01T00:00:00.000Z");
@@ -158,5 +164,43 @@ describe("runReferralSignals", () => {
     expect(run.parameters.spec).toEqual(REFERRAL_SIGNAL_V0_1_0);
     expect(run.outputs.size).toBe(data.people.length);
     expect(run.outputs.get("p-alice")?.signal).toBeGreaterThan(70);
+  });
+});
+
+describe("runJudgeCalibration", () => {
+  const T = new Date("2026-12-31T00:00:00.000Z");
+  const input = {
+    people: data.people,
+    referrals: data.referrals,
+    outcomes: data.outcomes,
+    opportunities: data.opportunities,
+    now: T,
+  };
+
+  test("records the spec, referral spec and time step; outcomes are in the input hash", () => {
+    const run = runJudgeCalibration(input);
+    expect(run.modelType).toBe("judge_reliability_v2");
+    expect(run.modelVersion).toBe("2.0.0");
+    expect(run.parameters.spec).toEqual(JUDGE_RELIABILITY_V2_0_0);
+    expect(run.parameters.referralSpec).toEqual(REFERRAL_SIGNAL_V0_1_0);
+    expect(run.parameters.now).toEqual(T);
+    const without = runJudgeCalibration({ ...input, outcomes: [] });
+    expect(without.inputHash).not.toBe(run.inputHash);
+    expect(without.outputs.options.evaluatedReferrals).toBe(0);
+  });
+
+  test("a weighted Referral Signal run records the weights it used", () => {
+    const calibration = runJudgeCalibration(input);
+    const weighted = runReferralSignals(
+      data.people,
+      data.referrals,
+      T,
+      judgeWeightOptions(calibration.outputs),
+    );
+    const plain = runReferralSignals(data.people, data.referrals, T);
+    expect(weighted.inputHash).toBe(plain.inputHash);
+    expect(weighted.id).not.toBe(plain.id);
+    expect(weighted.parameters.judgeReliability).toBeInstanceOf(Map);
+    expect(plain.parameters.judgeReliability).toBeNull();
   });
 });

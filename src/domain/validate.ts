@@ -6,7 +6,15 @@
  */
 
 import { DIMENSIONS, EVIDENCE_TYPES } from "./constants.ts";
-import type { Comparison, Dimension, Evaluation, EvidenceType, Referral } from "./types.ts";
+import type {
+  Comparison,
+  Dimension,
+  Evaluation,
+  EvidenceType,
+  Opportunity,
+  Outcome,
+  Referral,
+} from "./types.ts";
 
 export type ValidationResult = { ok: true } | { ok: false; errors: string[] };
 
@@ -133,5 +141,38 @@ export function validateComparison(
     errors.push("evaluatorId may not be one of the compared people");
   }
 
+  return result(errors);
+}
+
+/**
+ * An outcome is valid when it names a person and a kind, its value is null or
+ * a finite number, and `observedAt` is a real date. Observations may be
+ * back-filled, so `observedAt` is allowed to precede `createdAt`.
+ */
+export function validateOutcome(o: Outcome): ValidationResult {
+  const errors: string[] = [];
+  if (typeof o.personId !== "string" || o.personId === "")
+    errors.push("personId must be non-empty");
+  if (typeof o.kind !== "string" || o.kind.trim() === "") errors.push("kind must be non-empty");
+  if (o.value !== null && !(typeof o.value === "number" && Number.isFinite(o.value))) {
+    errors.push("value must be null or a finite number");
+  }
+  if (!(o.observedAt instanceof Date) || Number.isNaN(o.observedAt.getTime())) {
+    errors.push("observedAt must be a valid Date");
+  }
+  return result(errors);
+}
+
+/** An opportunity is valid when it names a person, has a kind, and ends no earlier than it starts. */
+export function validateOpportunity(o: Opportunity): ValidationResult {
+  const errors: string[] = [];
+  if (typeof o.personId !== "string" || o.personId === "")
+    errors.push("personId must be non-empty");
+  if (typeof o.kind !== "string" || o.kind.trim() === "") errors.push("kind must be non-empty");
+  if (!(o.startedAt instanceof Date) || Number.isNaN(o.startedAt.getTime())) {
+    errors.push("startedAt must be a valid Date");
+  } else if (o.endedAt !== null && o.endedAt.getTime() < o.startedAt.getTime()) {
+    errors.push("endedAt must not precede startedAt");
+  }
   return result(errors);
 }

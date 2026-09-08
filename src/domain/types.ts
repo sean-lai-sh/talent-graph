@@ -88,23 +88,30 @@ export interface Comparison {
 }
 
 /* ------------------------------------------------------------------ *
- * Future-compatibility placeholders.
- * Reserved for V2+; no logic reads these.
+ * Longitudinal records (V2 judge calibration) and V3+ placeholders.
  * ------------------------------------------------------------------ */
 
-/** Reserved for V2+; no logic reads these. Longitudinal realised results. */
+/**
+ * Realised result observed after a referral was made. Read by V2 judge
+ * calibration (`src/judges/`): values are rank-normalised within `kind`, so
+ * the unit is free-form (revenue, a rubric total, a committee grade …).
+ * A `null` value records that an observation was attempted but nothing
+ * measurable came of it; it is excluded from calibration.
+ */
 export interface Outcome {
   id: string;
   personId: string;
   opportunityId: string | null;
   kind: string;
-  /** Free-form, deliberately unopinionated until the longitudinal model exists. */
   value: number | null;
   observedAt: Date;
   createdAt: Date;
 }
 
-/** Reserved for V2+; no logic reads these. Access/opportunity a person had. */
+/**
+ * Access or support a person received. Read by V2 judge calibration to form
+ * the opportunity-corrected residual R*_v = R_v − E[R_v | O_v].
+ */
 export interface Opportunity {
   id: string;
   personId: string;
@@ -115,18 +122,22 @@ export interface Opportunity {
   createdAt: Date;
 }
 
-/** Reserved for V2+; no logic reads these. Judge reliability p_u. */
+/**
+ * Judge reliability p̂_u as persisted by an application. Produced by
+ * `toJudgeCalibration` in `src/judges/reliability.ts`; V0/V1 treat every
+ * judge as 1.
+ */
 export interface JudgeCalibration {
   id: string;
   judgeId: string;
   dimension: Dimension | null;
-  /** p_u ∈ [0,1]; fixed at 1 in V0/V1. */
+  /** p̂_u ∈ [0,1] after shrinkage. */
   reliability: number;
   observationCount: number;
   updatedAt: Date;
 }
 
-/** Reserved for V2+; no logic reads these. Judge bias b_u. */
+/** Judge bias b̂_u as persisted by an application; produced alongside JudgeCalibration. */
 export interface JudgeBias {
   id: string;
   judgeId: string;

@@ -31,6 +31,7 @@ function rel(path: string): string {
 const SRC = listTs("src");
 const SCORING = SRC.filter((f) => f.includes("/src/scoring/"));
 const INFERENCE = SRC.filter((f) => f.includes("/src/inference/"));
+const JUDGES = SRC.filter((f) => f.includes("/src/judges/"));
 
 const importsFrom = (source: string, segment: string): boolean =>
   new RegExp(`from\\s+["'][^"']*/${segment}/[^"']*["']`).test(source);
@@ -62,6 +63,25 @@ describe("invariants: Referral Signal ≠ Relative Capability", () => {
     }).map(rel);
     for (const f of both) expect(allowed.has(f)).toBe(true);
     expect(both).toContain("src/analysis/underRecognition.ts");
+  });
+});
+
+describe("invariants: judge calibration is grounded in outcomes, not in V1", () => {
+  test("src/judges never imports from src/inference (no circular truth)", () => {
+    expect(JUDGES.length).toBeGreaterThan(0);
+    for (const f of JUDGES) expect(importsFrom(read(f), "inference"), rel(f)).toBe(false);
+  });
+
+  test("src/judges never reads the clock; the time step T is a parameter", () => {
+    for (const f of JUDGES) {
+      const code = stripComments(read(f));
+      expect(/Date\.now\(\)/.test(code), rel(f)).toBe(false);
+      expect(/new Date\(\s*\)/.test(code), rel(f)).toBe(false);
+    }
+  });
+
+  test("scoring never imports from src/judges (weights are passed in)", () => {
+    for (const f of SCORING) expect(importsFrom(read(f), "judges"), rel(f)).toBe(false);
   });
 });
 
@@ -147,7 +167,7 @@ describe("invariants: durable updates", () => {
     const changelog = read(join(ROOT, "docs/models/CHANGELOG.md"));
     const registry = read(join(ROOT, "src/models/registry.ts"));
     const versions = [...registry.matchAll(/kind:\s*"(\w+)",\s*version:\s*"([\d.]+)"/g)];
-    expect(versions.length).toBeGreaterThanOrEqual(2);
+    expect(versions.length).toBeGreaterThanOrEqual(3);
     for (const [, kind, version] of versions) {
       expect(changelog.includes(`${kind}@${version}`), `${kind}@${version} missing`).toBe(true);
     }

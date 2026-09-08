@@ -13,6 +13,11 @@ import {
   type CapabilityRun,
   computeCapabilityVectors,
 } from "./inference/capabilityVector.ts";
+import {
+  computeJudgeCalibration,
+  type JudgeCalibrationInput,
+  type JudgeCalibrationRun,
+} from "./judges/reliability.ts";
 import { CURRENT_SPECS } from "./models/registry.ts";
 import type { ModelSpec } from "./models/spec.ts";
 import {
@@ -21,7 +26,7 @@ import {
   type ReferralSignalResult,
 } from "./scoring/referralSignal.ts";
 
-export type ModelType = "referral_signal_v0" | "bradley_terry_v1";
+export type ModelType = "referral_signal_v0" | "bradley_terry_v1" | "judge_reliability_v2";
 
 export interface ModelRun<TOut = unknown> {
   id: string;
@@ -94,10 +99,36 @@ export function runReferralSignals(
   return createModelRun(
     "referral_signal_v0",
     spec.version,
-    { spec, topK: opts.topK ?? spec.topK },
+    {
+      spec,
+      topK: opts.topK ?? spec.topK,
+      // Judge weights change the numbers, so they are part of the provenance.
+      judgeReliability: opts.judgeReliability ?? null,
+      judgeBias: opts.judgeBias ?? null,
+    },
     { people: people.map((p) => p.id), referrals },
     outputs,
     now,
+  );
+}
+
+/** V2 judge calibration wrapped in a ModelRun. `now` is the evaluation time step. */
+export function runJudgeCalibration(input: JudgeCalibrationInput): ModelRun<JudgeCalibrationRun> {
+  const spec = input.spec ?? CURRENT_SPECS.judge_reliability;
+  const referralSpec = input.referralSpec ?? CURRENT_SPECS.referral_signal;
+  const outputs = computeJudgeCalibration(input);
+  return createModelRun(
+    "judge_reliability_v2",
+    spec.version,
+    { spec, referralSpec, now: new Date(input.now.getTime()) },
+    {
+      people: input.people.map((p) => p.id),
+      referrals: input.referrals,
+      outcomes: input.outcomes,
+      opportunities: input.opportunities ?? [],
+    },
+    outputs,
+    input.now,
   );
 }
 

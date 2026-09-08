@@ -15,6 +15,8 @@ export * from "./inference/comparisonSelection.ts";
 export * from "./inference/components.ts";
 export * from "./inference/logistic.ts";
 export * from "./inference/percentile.ts";
+export * from "./judges/outcomes.ts";
+export * from "./judges/reliability.ts";
 export * from "./modelRun.ts";
 export * from "./models/blend.ts";
 export * from "./models/registry.ts";
@@ -24,6 +26,7 @@ export * from "./scoring/referralPercentile.ts";
 export * from "./scoring/referralSignal.ts";
 export * from "./scoring/referralStrength.ts";
 export * from "./seed/generate.ts";
+export * from "./seed/outcomes.ts";
 export * from "./seed/personas.ts";
 // Deliberately not exported: the generator-only persona shapes (hidden
 // abilities that drive the seed) and the seeded random number helpers (test

@@ -3,6 +3,8 @@ import { DIMENSIONS } from "../src/domain/constants.ts";
 import {
   validateComparison,
   validateEvaluation,
+  validateOpportunity,
+  validateOutcome,
   validateReferral,
 } from "../src/domain/validate.ts";
 import { generateSeed } from "../src/seed/generate.ts";
@@ -113,6 +115,13 @@ describe("generateSeed", () => {
     expect(outcomes.has("tie")).toBe(true);
     expect(outcomes.has("skip") || outcomes.has("insufficient_observation")).toBe(true);
     expect(data.evaluations.some((e) => e.score === null)).toBe(true);
+  });
+
+  test("longitudinal records pass the validators and are observed after the referrals", () => {
+    for (const o of data.outcomes) expect(validateOutcome(o)).toEqual({ ok: true });
+    for (const o of data.opportunities) expect(validateOpportunity(o)).toEqual({ ok: true });
+    const lastReferral = Math.max(...data.referrals.map((r) => r.createdAt.getTime()));
+    for (const o of data.outcomes) expect(o.observedAt.getTime()).toBeGreaterThan(lastReferral);
   });
 
   test("no hidden ability leaks into the dataset", () => {

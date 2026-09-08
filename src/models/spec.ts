@@ -45,7 +45,47 @@ export interface BradleyTerrySpec {
   anchorStrength: number;
 }
 
-export type ModelSpec = ReferralSignalSpec | BradleyTerrySpec;
+/**
+ * Parameters of the V2 judge calibration (docs/theory/main.tex, sections
+ * "Longitudinal Observation", "Learning Who Is Good at Identifying Talent",
+ * "Shrinkage" and "Learning Judge Bias").
+ *
+ *   E_uv   = (x_uv − R*_v)²                       prediction error of one referral
+ *   Ē_u    ← (1 − η)·Ē_u + η·E_uv                 exponentially weighted, chronological
+ *   p_u    = exp(−τ·Ē_u)                          raw reliability
+ *   p̂_u    = n/(n+λ)·p_u + λ/(n+λ)·μ_p            shrunk toward the prior
+ *   b_u    ← (1 − η)·b_u + η·(x_uv − R*_v)        signed bias, shrunk the same way
+ */
+export interface JudgeReliabilitySpec {
+  kind: "judge_reliability";
+  /** Semver, e.g. "2.0.0". */
+  version: string;
+  /**
+   * A referral becomes evaluable once this many days have passed since it was
+   * made and the candidate has an outcome observed after it.
+   */
+  observationWindowDays: number;
+  /** η ∈ (0, 1]: weight of the newest error in the running average. */
+  learningRate: number;
+  /** τ > 0 in p_u = exp(−τ·Ē_u). */
+  errorScale: number;
+  /** λ ≥ 0: evaluated predictions needed before an estimate outweighs the prior. */
+  shrinkage: number;
+  /** μ_p ∈ [0, 1]: reliability of a judge with no evaluated predictions. */
+  priorReliability: number;
+  /**
+   * Opportunity-count thresholds that bucket people for the expectation
+   * E[R_v | O_v]. `[1, 2, 3]` ⇒ buckets {0}, {1}, {2}, {3+}. Empty ⇒ one
+   * bucket, i.e. no opportunity correction.
+   */
+  opportunityBuckets: number[];
+  /** Minimum people in a bucket before its mean is trusted over the global mean. */
+  minBucketSize: number;
+  /** Subtract the shrunk bias from a judge's prediction before weighting. */
+  applyBiasCorrection: boolean;
+}
+
+export type ModelSpec = ReferralSignalSpec | BradleyTerrySpec | JudgeReliabilitySpec;
 
 export type ModelSpecKind = ModelSpec["kind"];
 
@@ -122,6 +162,46 @@ function validateBradleyTerrySpec(spec: BradleyTerrySpec, errors: string[]): voi
   }
 }
 
+function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string[]): void {
+  if (!isFiniteNumber(spec.observationWindowDays) || spec.observationWindowDays < 0) {
+    errors.push("observationWindowDays must be a finite number ≥ 0");
+  }
+  if (!isFiniteNumber(spec.learningRate) || spec.learningRate <= 0 || spec.learningRate > 1) {
+    errors.push("learningRate (η) must be in (0, 1]");
+  }
+  if (!isFiniteNumber(spec.errorScale) || spec.errorScale <= 0) {
+    errors.push("errorScale (τ) must be a finite number > 0");
+  }
+  if (!isFiniteNumber(spec.shrinkage) || spec.shrinkage < 0) {
+    errors.push("shrinkage (λ) must be a finite number ≥ 0");
+  }
+  if (
+    !isFiniteNumber(spec.priorReliability) ||
+    spec.priorReliability < 0 ||
+    spec.priorReliability > 1
+  ) {
+    errors.push("priorReliability (μ_p) must be in [0, 1]");
+  }
+  if (!Array.isArray(spec.opportunityBuckets)) {
+    errors.push("opportunityBuckets must be an array of thresholds");
+  } else {
+    let prev = 0;
+    for (const t of spec.opportunityBuckets) {
+      if (!Number.isInteger(t) || t <= prev) {
+        errors.push("opportunityBuckets must be strictly increasing positive integers");
+        break;
+      }
+      prev = t;
+    }
+  }
+  if (!isPositiveInteger(spec.minBucketSize)) {
+    errors.push("minBucketSize must be a positive integer");
+  }
+  if (typeof spec.applyBiasCorrection !== "boolean") {
+    errors.push("applyBiasCorrection must be a boolean");
+  }
+}
+
 /** Structural + numeric validation of a spec. Pure; never throws. */
 export function validateSpec(spec: ModelSpec): SpecValidationResult {
   const errors: string[] = [];
@@ -136,6 +216,9 @@ export function validateSpec(spec: ModelSpec): SpecValidationResult {
       break;
     case "bradley_terry":
       validateBradleyTerrySpec(spec, errors);
+      break;
+    case "judge_reliability":
+      validateJudgeReliabilitySpec(spec, errors);
       break;
     default:
       errors.push(`unknown spec kind: ${String((spec as ModelSpec).kind)}`);

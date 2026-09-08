@@ -14,7 +14,7 @@
  */
 
 import { CURRENT_SPECS } from "./models/registry.ts";
-import type { BradleyTerrySpec, ReferralSignalSpec } from "./models/spec.ts";
+import type { BradleyTerrySpec, JudgeReliabilitySpec, ReferralSignalSpec } from "./models/spec.ts";
 
 export interface TalentGraphConfig {
   /** λ — see the note on BRADLEY_TERRY_V1_0_0 for why 0.1. */
@@ -131,6 +131,8 @@ export interface LoadedSpecs {
   config: TalentGraphConfig;
   referral_signal: ReferralSignalSpec;
   bradley_terry: BradleyTerrySpec;
+  /** No env overrides exist for V2 yet; always the registered current spec. */
+  judge_reliability: JudgeReliabilitySpec;
 }
 
 /**
@@ -149,5 +151,6 @@ export function loadSpecs(
     config,
     referral_signal: referralSignalSpecFromConfig(config),
     bradley_terry: bradleyTerrySpecFromConfig(config),
+    judge_reliability: CURRENT_SPECS.judge_reliability,
   };
 }
