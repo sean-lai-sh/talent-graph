@@ -18,20 +18,11 @@ const TEX_PATH = "docs/theory/main.tex";
 const PDF_PATH = "docs/theory/talent_white_paper.pdf";
 
 function lastCommitTimestamp(path: string): number | null {
-  const result = Bun.spawnSync([
-    "git",
-    "log",
-    "-1",
-    "--format=%ct",
-    "--",
-    path,
-  ]);
+  const result = Bun.spawnSync(["git", "log", "-1", "--format=%ct", "--", path]);
 
   if (result.exitCode !== 0) {
     const stderr = result.stderr?.toString().trim();
-    throw new Error(
-      `git log failed for ${path} (exit ${result.exitCode}): ${stderr}`,
-    );
+    throw new Error(`git log failed for ${path} (exit ${result.exitCode}): ${stderr}`);
   }
 
   const stdout = result.stdout?.toString().trim();
