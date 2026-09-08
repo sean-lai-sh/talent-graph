@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "demo": "bun run scripts/demo.ts"
+    "demo": "bun run scripts/demo.ts",
+    "drift": "bun run scripts/drift.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.14",
