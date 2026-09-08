@@ -1,0 +1,1405 @@
+\documentclass[11pt]{article}
+
+% ------------------------------------------------
+% PACKAGES
+% ------------------------------------------------
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{longtable}
+\usepackage{tabularx}
+
+% ------------------------------------------------
+% STYLE
+% ------------------------------------------------
+\definecolor{darkblue}{RGB}{24,45,76}
+\definecolor{graytext}{RGB}{90,90,90}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=darkblue,
+    urlcolor=darkblue,
+    citecolor=darkblue
+}
+
+\titleformat{\section}
+  {\large\bfseries\color{darkblue}}
+  {\thesection.}{0.6em}{}
+
+\titleformat{\subsection}
+  {\normalsize\bfseries}
+  {\thesubsection.}{0.5em}{}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.7em}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\textit{Talent Graph}}
+\rhead{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ------------------------------------------------
+% DOCUMENT
+% ------------------------------------------------
+\begin{document}
+
+\begin{center}
+    {\LARGE \textbf{Talent Graph}}\\[0.4em]
+    {\large A self-calibrating graph for discovering exceptional people}\\[0.7em]
+    {\color{graytext}
+    Working design note for a member network / talent discovery application}
+\end{center}
+
+\vspace{1em}
+
+\hrule
+
+\vspace{1em}
+
+\textbf{Core idea.}
+Instead of attempting to define ``talent'' as a fixed objective number, treat it as a
+latent variable inferred from a graph of referrals, structured observations,
+pairwise comparisons, and longitudinal outcomes.
+
+The system should answer three distinct questions:
+
+\begin{enumerate}[label=\arabic*.]
+    \item How strong is our current evidence that a person is unusually capable?
+    \item How reliable is each member at identifying different kinds of capability?
+    \item How much of later success was discovered by the graph versus created by the opportunities the graph itself supplied?
+\end{enumerate}
+
+The goal is not to construct a perfect ranking. The goal is to build a
+\textbf{self-correcting discovery mechanism} that becomes better at finding
+under-recognized talent as evidence accumulates.
+
+% ================================================================
+\section{The Graph}
+
+Let
+
+\[
+G = (V,E)
+\]
+
+where each node \(v \in V\) represents a person, and each directed edge
+
+\[
+e_{uv}: u \rightarrow v
+\]
+
+represents person \(u\)'s referral or judgment of person \(v\).
+
+Each node carries several latent or learned values.
+
+A useful representation is
+
+\[
+\mathbf{z}_v =
+\begin{bmatrix}
+T_v \\
+C_v \\
+P_v
+\end{bmatrix}
+\]
+
+where
+
+\begin{itemize}
+    \item \(T_v\): inferred underlying capability,
+    \item \(C_v\): realized contribution to the network,
+    \item \(P_v\): predictive or scouting ability.
+\end{itemize}
+
+In practice, these should eventually be vectors rather than scalars.
+
+For example,
+
+\[
+\mathbf{T}_v =
+\begin{bmatrix}
+t_{\mathrm{problem}} \\
+t_{\mathrm{learning}} \\
+t_{\mathrm{agency}} \\
+t_{\mathrm{taste}} \\
+t_{\mathrm{output}} \\
+t_{\mathrm{generativity}} \\
+t_{\mathrm{originality}}
+\end{bmatrix}.
+\]
+
+Similarly, a judge's predictive ability can be domain-specific:
+
+\[
+\mathbf{P}_u =
+\begin{bmatrix}
+p_{\mathrm{engineering}} \\
+p_{\mathrm{research}} \\
+p_{\mathrm{founder}} \\
+p_{\mathrm{design}} \\
+p_{\mathrm{leadership}}
+\end{bmatrix}.
+\]
+
+The graph therefore learns not merely \emph{who is strong}, but also
+\emph{who is good at identifying what kind of strength}.
+
+% ================================================================
+\section{Priming: Turning ``Vibes'' Into Evidence}
+
+The system should not begin by asking:
+
+\begin{quote}
+``Rate this person from 1--10.''
+\end{quote}
+
+Absolute numerical judgments are poorly calibrated across people.
+
+Instead, begin with a high-recall prompt that captures intuition:
+
+\begin{quote}
+\textbf{Who is one of the smartest, most unusually capable, or most
+under-recognized people you know whom we should meet?}
+\end{quote}
+
+Useful variants include:
+
+\begin{itemize}
+    \item Who is much better than their credentials suggest?
+    \item Who do you call when you are stuck on a genuinely difficult problem?
+    \item Who has made you update your model of what one person can accomplish?
+    \item Who became effective in a new domain unusually quickly?
+    \item Who consistently sees something important before everyone else?
+    \item Who makes unusually strong people around them better?
+\end{itemize}
+
+The first answer is intentionally ``vibes-based.''
+
+The system then converts the intuition into evidence by asking:
+
+\begin{quote}
+\textbf{What did you personally observe that caused you to believe this?}
+\end{quote}
+
+This produces a basic referral tuple:
+
+\[
+e_{uv}
+=
+(x_{uv}, c_{uv}, r_{uv}, q_{uv})
+\]
+
+where
+
+\begin{itemize}
+    \item \(x_{uv}\): referral strength / conviction,
+    \item \(c_{uv}\): confidence,
+    \item \(r_{uv}\): relationship depth,
+    \item \(q_{uv}\): quality of supporting evidence.
+\end{itemize}
+
+The system should preserve the original qualitative explanation rather than
+discarding it after creating numerical features.
+
+% ================================================================
+\section{A Simple Adaptable Rubric}
+
+A rubric should anchor judgments to observable behavior rather than prestige,
+employer, education, charisma, or social status.
+
+Each dimension may be scored from \(0\) to \(4\).
+
+\begin{center}
+\begin{tabularx}{\textwidth}{>{\bfseries}p{0.19\textwidth} X}
+\toprule
+Dimension & What it attempts to measure \\
+\midrule
+Problem solving &
+Ability to make progress on difficult, ambiguous, novel problems. \\
+
+Learning velocity &
+Speed at which the person becomes effective in an unfamiliar domain. \\
+
+Agency &
+Ability to convert ambiguity into action without requiring excessive structure. \\
+
+Taste &
+Ability to identify worthwhile problems, approaches, people, or opportunities. \\
+
+Output &
+Ability to turn capability into concrete artifacts, results, discoveries, or systems. \\
+
+Generativity &
+Ability to increase the effectiveness, ambition, or insight of people around them. \\
+
+Originality &
+Frequency of producing non-obvious ideas, frames, or solutions that others did not generate. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Behavioral score anchors}
+
+Instead of allowing every evaluator to invent their own meaning of ``3/4,''
+use common anchors.
+
+\begin{center}
+\begin{tabularx}{\textwidth}{c X}
+\toprule
+Score & Interpretation \\
+\midrule
+0 & Strong evidence that the behavior is absent or consistently weak. \\
+1 & Roughly ordinary relative to the relevant comparison group. \\
+2 & Clearly above ordinary peers; repeated evidence exists. \\
+3 & Unusually strong; experienced observers notice the difference. \\
+4 & Extreme; repeatedly produces outcomes that surprise strong domain experts. \\
+N/O & Not observed. No numerical penalty should be applied. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Every rating should ideally contain
+
+\[
+J_{uvk} =
+(s_{uvk}, c_{uvk}, e_{uvk})
+\]
+
+where
+
+\begin{itemize}
+    \item \(s_{uvk}\) is the score for dimension \(k\),
+    \item \(c_{uvk}\) is evaluator confidence,
+    \item \(e_{uvk}\) is written evidence.
+\end{itemize}
+
+For example:
+
+\begin{quote}
+\textbf{Learning velocity: 4/4.}\\
+High confidence. Joined a compiler project with no previous compiler
+experience and within three weeks found a correctness bug that multiple
+experienced engineers had missed.
+\end{quote}
+
+The evidence is more valuable than the number.
+
+% ================================================================
+\section{Pairwise Comparison Instead of Absolute Ranking}
+
+Humans are often better at answering
+
+\begin{quote}
+``Who would you trust more with this kind of problem?''
+\end{quote}
+
+than
+
+\begin{quote}
+``How talented is this person from 1--10?''
+\end{quote}
+
+Therefore the application should generate pairwise comparisons.
+
+For people \(a\) and \(b\), a Bradley--Terry style model can infer latent
+strength:
+
+\[
+P(a > b)
+=
+\sigma(\theta_a - \theta_b)
+\]
+
+where
+
+\[
+\sigma(x)=\frac{1}{1+e^{-x}}.
+\]
+
+The system can perform separate comparisons for different dimensions:
+
+\[
+P(a>b \mid k)
+=
+\sigma(\theta_{a,k}-\theta_{b,k}).
+\]
+
+Examples:
+
+\begin{itemize}
+    \item Who would you trust with a highly ambiguous technical problem?
+    \item Who learns unfamiliar material faster?
+    \item Who has stronger taste in choosing problems?
+    \item Who would you recruit first into a five-person team where failure is expensive?
+\end{itemize}
+
+The latent score is then estimated by the model rather than manually invented
+by the evaluator.
+
+% ================================================================
+\section{Initial Node Weight From Referrals}
+
+Suppose candidate \(v\) receives referrals from several existing members.
+
+Let \(Top_5(v)\) be the five strongest usable referral signals.
+
+A raw formulation is
+
+\[
+W_v
+=
+c
+\sum_{u \in Top_5(v)}
+x_{uv} p_u.
+\]
+
+However, an unnormalized sum causes five mediocre referrals to dominate one
+extremely informative referral.
+
+A better form is
+
+\[
+S_5(v)
+=
+\frac{
+\sum\limits_{u \in Top_5(v)}
+x_{uv}\,p_u\,d_{uv}
+}{
+\sum\limits_{u \in Top_5(v)}
+p_u\,d_{uv}
+}.
+\]
+
+Here
+
+\begin{itemize}
+    \item \(x_{uv}\) is referral strength,
+    \item \(p_u\) is the calibrated reliability of the referrer,
+    \item \(d_{uv}\) is an independence / diversity discount.
+\end{itemize}
+
+The initial node estimate can then be
+
+\[
+\boxed{
+W_v^{(0)}
+=
+(1-c_v)\mu
++
+c_v S_5(v)
+}
+\]
+
+where
+
+\begin{itemize}
+    \item \(\mu\) is the system-wide prior,
+    \item \(c_v \in [0,1]\) is evidence confidence.
+\end{itemize}
+
+A candidate with only one weak referral therefore remains close to the prior,
+while a candidate with several strong independent referrals moves farther away.
+
+% ================================================================
+\section{Independence and Clique Discounting}
+
+Five referrals from one tight social cluster do not contain the same
+information as five independent referrals.
+
+Let
+
+\[
+\rho_{ab}
+\]
+
+represent historical correlation between judges \(a\) and \(b\).
+
+A simple diversity discount might be
+
+\[
+d_{uv}
+=
+\frac{1}{
+1 + \lambda
+\sum_{j \in R(v),\, j\neq u}
+\rho_{uj}
+}.
+\]
+
+High overlap between referrers therefore reduces marginal weight.
+
+In an implementation, correlation could be estimated using:
+
+\begin{itemize}
+    \item historical similarity of ratings,
+    \item shared employer,
+    \item shared school or community,
+    \item frequent co-referral,
+    \item direct social proximity,
+    \item repeated use of the same underlying evidence.
+\end{itemize}
+
+This is important because the system should reward
+\textbf{independent convergence}, not popularity within a clique.
+
+% ================================================================
+\section{Longitudinal Observation}
+
+After a fixed observation period, for example six months, the system records
+realized evidence.
+
+Let
+
+\[
+R_v
+\]
+
+represent observed realized contribution.
+
+A simple update is
+
+\[
+\boxed{
+W_v^{(6)}
+=
+(1-\beta)W_v^{(0)}
++
+\beta R_v
+}
+\]
+
+where \(\beta\) determines how much longitudinal observation is trusted relative
+to the initial graph.
+
+However, raw outcome should not be interpreted as raw talent.
+
+The member's outcome may instead be modeled as
+
+\[
+R_v
+=
+T_v
++
+A_v
++
+I_v
++
+\epsilon_v
+\]
+
+where
+
+\begin{itemize}
+    \item \(T_v\): latent underlying capability,
+    \item \(A_v\): opportunity or support provided by the network,
+    \item \(I_v\): interaction effects with collaborators,
+    \item \(\epsilon_v\): noise.
+\end{itemize}
+
+Thus a better learning target is residual performance:
+
+\[
+\boxed{
+R_v^\ast
+=
+R_v -
+\mathbb{E}[R_v \mid O_v]
+}
+\]
+
+where \(O_v\) captures opportunities received.
+
+Interpretation:
+
+\begin{quote}
+How much did this person outperform or underperform what would have been
+expected given the resources and opportunities the system itself gave them?
+\end{quote}
+
+% ================================================================
+\section{Learning Who Is Good at Identifying Talent}
+
+A core feature of the graph is that the evaluator is also a node.
+
+If \(u\) strongly predicts that \(v\) is exceptional, the later evidence about
+\(v\) provides information about \(u\)'s scouting ability.
+
+Let the prediction error be
+
+\[
+E_{uv}
+=
+(x_{uv}-R_v^\ast)^2.
+\]
+
+Maintain an exponentially weighted estimate of evaluator error:
+
+\[
+\bar{E}_u^{(t+1)}
+=
+(1-\eta)\bar{E}_u^{(t)}
++
+\eta E_{uv}.
+\]
+
+The evaluator's reliability may then be defined as
+
+\[
+\boxed{
+p_u
+=
+e^{-\tau \bar{E}_u}
+}
+\]
+
+for tuning parameter \(\tau > 0\).
+
+Repeatedly accurate evaluators therefore gain weight.
+
+Repeatedly inaccurate evaluators lose weight.
+
+% ================================================================
+\section{Shrinkage: Preventing Instant ``Oracles''}
+
+A judge who makes two correct predictions should not immediately receive huge
+influence.
+
+Let \(n_u\) be the number of sufficiently evaluated predictions made by judge
+\(u\).
+
+Use shrinkage:
+
+\[
+\boxed{
+\hat p_u
+=
+\frac{n_u}{n_u+\lambda}p_u
++
+\frac{\lambda}{n_u+\lambda}\mu_p
+}
+\]
+
+where
+
+\begin{itemize}
+    \item \(p_u\) is estimated judge reliability,
+    \item \(\mu_p\) is the population prior for judge reliability,
+    \item \(\lambda\) controls how much evidence is required before the system trusts an individual estimate.
+\end{itemize}
+
+This prevents early luck from generating runaway influence.
+
+% ================================================================
+\section{Learning Judge Bias}
+
+Suppose evaluator \(u\) systematically rates certain kinds of people higher
+than their later evidence suggests.
+
+Represent an observation as
+
+\[
+y_{uvk}
+=
+\theta_{v,k}
++
+b_{u,k}
++
+\epsilon_{uvk}.
+\]
+
+Here
+
+\begin{itemize}
+    \item \(\theta_{v,k}\): latent capability of candidate \(v\) on dimension \(k\),
+    \item \(b_{u,k}\): systematic bias of evaluator \(u\),
+    \item \(\epsilon_{uvk}\): noise.
+\end{itemize}
+
+The adjusted observation becomes
+
+\[
+y_{uvk}^{\ast}
+=
+y_{uvk}
+-
+\hat b_{u,k}.
+\]
+
+Importantly, ``bias'' here need not be interpreted morally.
+
+It simply means:
+
+\begin{quote}
+A systematic residual pattern in how a person's predictions differ from later
+observations.
+\end{quote}
+
+Possible learned tendencies include:
+
+\begin{itemize}
+    \item credential preference,
+    \item charisma preference,
+    \item familiarity preference,
+    \item domain-specific overconfidence,
+    \item tendency to overrate close collaborators,
+    \item tendency to underrate unconventional backgrounds.
+\end{itemize}
+
+% ================================================================
+\section{Aggregated Talent Estimate}
+
+Combining reliability, independence, and bias correction gives a general form:
+
+\[
+\boxed{
+W_v
+=
+\frac{
+\sum\limits_u
+r_u\,d_{uv}\,(y_{uv}-b_u)
+}{
+\sum\limits_u r_u\,d_{uv}
+}
+}
+\]
+
+where
+
+\begin{itemize}
+    \item \(r_u\): evaluator reliability,
+    \item \(d_{uv}\): independence weight,
+    \item \(b_u\): evaluator bias estimate,
+    \item \(y_{uv}\): evaluator assessment.
+\end{itemize}
+
+In a vector model:
+
+\[
+\boxed{
+\mathbf{W}_v
+=
+\frac{
+\sum\limits_u
+\mathbf{r}_u \odot d_{uv}
+\odot
+(\mathbf{y}_{uv}-\mathbf{b}_u)
+}{
+\sum\limits_u
+\mathbf{r}_u \odot d_{uv}
+}
+}
+\]
+
+where \(\odot\) denotes element-wise multiplication.
+
+The application should avoid collapsing this vector into one global number
+unless a specific downstream decision requires it.
+
+% ================================================================
+\section{Uncertainty Must Be First-Class}
+
+Every estimate should contain both a mean and uncertainty:
+
+\[
+W_v
+=
+(\mu_v,\sigma_v).
+\]
+
+For example,
+
+\[
+8.1 \pm 0.3
+\]
+
+means something very different from
+
+\[
+8.1 \pm 2.4.
+\]
+
+The second person is not necessarily weaker.
+
+They are simply less understood.
+
+This is particularly important for finding hidden talent.
+
+A useful discovery queue may prioritize:
+
+\[
+\boxed{
+\text{Discovery Priority}_v
+=
+\text{high upside}
++
+\text{high uncertainty}
++
+\text{low external recognition}
+}
+\]
+
+rather than merely sorting people by current mean score.
+
+% ================================================================
+\section{Reward Information Gain, Not Obvious Predictions}
+
+A judge should receive little additional credit for predicting that an already
+universally recognized superstar is strong.
+
+Instead, scouting value should depend on surprise.
+
+Let
+
+\[
+\hat R_v^{-u}
+\]
+
+represent the system's expected outcome for \(v\) before incorporating
+evaluator \(u\)'s judgment.
+
+Then evaluator \(u\)'s informational contribution can be approximated by
+
+\[
+IG_{uv}
+=
+\left|
+R_v^\ast-\hat R_v^{-u}
+\right|
+\times
+\mathrm{Accuracy}(u,v).
+\]
+
+The ideal scout is not merely someone who identifies strong people.
+
+The ideal scout identifies strong people
+\textbf{before the rest of the graph knows they are strong}.
+
+% ================================================================
+\section{The Self-Fulfilling Problem}
+
+Once graph scores influence admission, introductions, funding, mentorship, or
+attention, the graph becomes an intervention system.
+
+The loop is:
+
+\[
+\text{belief about talent}
+\rightarrow
+\text{opportunity}
+\rightarrow
+\text{outcome}
+\rightarrow
+\text{updated belief}.
+\]
+
+Without correction, this can become:
+
+\[
+W_v \uparrow
+\Rightarrow
+O_v \uparrow
+\Rightarrow
+R_v \uparrow
+\Rightarrow
+W_v \uparrow.
+\]
+
+The system may then mistake its own allocation decisions for evidence that its
+original ranking was correct.
+
+Therefore the application should explicitly track:
+
+\[
+O_v
+=
+\text{opportunity exposure vector}.
+\]
+
+This might include:
+
+\begin{itemize}
+    \item number of introductions,
+    \item access to collaborators,
+    \item funding or resources,
+    \item mentorship hours,
+    \item visibility,
+    \item project opportunities.
+\end{itemize}
+
+Longitudinal talent updates should depend on opportunity-adjusted outcomes,
+not raw outcomes alone.
+
+% ================================================================
+\section{Exploration Versus Exploitation}
+
+If the system gives opportunities only to its highest-ranked members, it can
+never determine whether lower-ranked people were incorrectly assessed.
+
+Therefore some opportunities should be allocated experimentally.
+
+A simple policy is
+
+\[
+P(\mathrm{opportunity}\mid v)
+=
+(1-\varepsilon)f(W_v)
++
+\varepsilon U(v)
+\]
+
+where
+
+\begin{itemize}
+    \item \(f(W_v)\) favors strong current estimates,
+    \item \(U(v)\) introduces controlled exploration,
+    \item \(\varepsilon\) is the exploration rate.
+\end{itemize}
+
+This randomness is not inefficiency.
+
+It is necessary for identifying model error.
+
+% ================================================================
+\section{The Role of an LLM}
+
+An LLM should not be treated as the final judge.
+
+Avoid:
+
+\[
+\text{profile}
+\rightarrow
+\mathrm{LLM}
+\rightarrow
+8.71.
+\]
+
+The numerical precision would be largely cosmetic.
+
+Instead, use an LLM as a normalization and evidence-processing layer:
+
+\[
+\boxed{
+\text{human observation}
+\rightarrow
+\text{structured evidence}
+\rightarrow
+\text{LLM normalization}
+\rightarrow
+\text{human comparison}
+\rightarrow
+\text{statistical inference}
+}
+\]
+
+An LLM may help:
+
+\begin{itemize}
+    \item convert prose into the standard rubric,
+    \item distinguish first-hand observation from hearsay,
+    \item extract evidence supporting each dimension,
+    \item flag unsupported claims,
+    \item detect duplicate underlying evidence,
+    \item create anonymized evaluation packets,
+    \item generate pairwise comparisons,
+    \item summarize disagreement between evaluators,
+    \item identify missing dimensions.
+\end{itemize}
+
+The raw evidence should always remain available for audit.
+
+% ================================================================
+\section{Operational Definition of ``Cracked''}
+
+Instead of pretending that ``crackedness'' is objectively measurable, define it
+operationally.
+
+One useful definition is:
+
+\[
+\boxed{
+\text{Crackedness}
+=
+P(
+\text{substantially exceeds expectation}
+\mid
+\text{difficult open-ended work}
+)
+}
+\]
+
+This turns the score into a prediction that can later be tested.
+
+For example, rather than displaying
+
+\begin{quote}
+Alice = 8.7 / 10
+\end{quote}
+
+the application could display
+
+\begin{quote}
+Estimated 74\% probability of belonging to the top decile of observed members
+on open-ended technical problem solving.
+
+Confidence: medium.
+
+Primary evidence: three independent first-hand observations.
+
+Largest uncertainty: leadership and generativity not yet observed.
+\end{quote}
+
+% ================================================================
+\section{A Minimal Application Data Model}
+
+A first version does not need an extremely complicated architecture.
+
+\subsection*{Person}
+
+\begin{verbatim}
+Person {
+    id
+    name
+    joined_at
+    profile_metadata
+    talent_vector
+    uncertainty_vector
+    contribution_vector
+    scouting_vector
+}
+\end{verbatim}
+
+\subsection*{Referral}
+
+\begin{verbatim}
+Referral {
+    referrer_id
+    candidate_id
+    conviction
+    confidence
+    relationship_depth
+    evidence_text
+    evidence_type
+    created_at
+}
+\end{verbatim}
+
+\subsection*{Evaluation}
+
+\begin{verbatim}
+Evaluation {
+    evaluator_id
+    candidate_id
+    dimension
+    score
+    confidence
+    evidence_text
+    observed_at
+}
+\end{verbatim}
+
+\subsection*{Pairwise Comparison}
+
+\begin{verbatim}
+Comparison {
+    evaluator_id
+    person_a
+    person_b
+    dimension
+    winner
+    confidence
+    created_at
+}
+\end{verbatim}
+
+\subsection*{Opportunity}
+
+\begin{verbatim}
+Opportunity {
+    person_id
+    type
+    magnitude
+    source
+    started_at
+    ended_at
+}
+\end{verbatim}
+
+\subsection*{Outcome}
+
+\begin{verbatim}
+Outcome {
+    person_id
+    dimension
+    observed_value
+    evidence
+    evaluator_id
+    observed_at
+}
+\end{verbatim}
+
+% ================================================================
+\section{Minimal Product Loop}
+
+A first practical version can operate as follows.
+
+\begin{enumerate}[label=\textbf{Step \arabic*.}, leftmargin=2cm]
+
+    \item \textbf{Referral}
+
+    Every trusted member nominates one to three people using prompts such as:
+
+    \begin{quote}
+    Who is unusually capable but insufficiently legible through conventional
+    credentials?
+    \end{quote}
+
+    \item \textbf{Evidence capture}
+
+    The application asks what specific observed behavior produced the belief.
+
+    \item \textbf{Initial graph estimate}
+
+    Candidate weight is calculated from up to five strong independent referrals:
+
+    \[
+    W_v^{(0)}
+    =
+    (1-c_v)\mu+c_vS_5(v).
+    \]
+
+    \item \textbf{Structured evaluation}
+
+    Judges evaluate only dimensions they have actually observed.
+
+    \item \textbf{Pairwise comparisons}
+
+    The system occasionally asks evaluators to compare two people on a specific
+    capability.
+
+    \item \textbf{Admission / interaction}
+
+    Some people receive opportunities based on current evidence, while a small
+    fraction are deliberately explored despite uncertainty.
+
+    \item \textbf{Longitudinal evidence}
+
+    At three, six, and twelve months, collect concrete behavioral and outcome
+    evidence.
+
+    \item \textbf{Opportunity adjustment}
+
+    Estimate:
+
+    \[
+    R_v^\ast
+    =
+    R_v-\mathbb{E}[R_v\mid O_v].
+    \]
+
+    \item \textbf{Back-propagation}
+
+    Update the reliability and bias estimates of evaluators whose predictions
+    can now be tested.
+
+    \item \textbf{Discovery propagation}
+
+    High-calibration members receive somewhat more influence in future
+    referrals, subject to shrinkage and influence caps.
+
+\end{enumerate}
+
+% ================================================================
+\section{What the Application Should Show}
+
+A person page should probably not lead with one giant score.
+
+A better interface might show:
+
+\begin{itemize}
+    \item capability vector,
+    \item uncertainty by dimension,
+    \item strongest supporting evidence,
+    \item number of independent referrals,
+    \item graph distance / communities of referrers,
+    \item observed contribution,
+    \item opportunity exposure,
+    \item surprising positive residuals,
+    \item surprising negative residuals,
+    \item unresolved disagreement between judges.
+\end{itemize}
+
+A candidate might appear as:
+
+\begin{quote}
+\textbf{Candidate X}
+
+High confidence:
+Problem solving, learning velocity, agency.
+
+Medium confidence:
+Originality.
+
+Insufficient evidence:
+Leadership, generativity.
+
+Three independent nominations from two unrelated communities.
+
+Strongest evidence:
+Repeatedly became productive in unfamiliar technical systems within weeks.
+
+Model note:
+Capability estimate is substantially higher than external prestige signal.
+\end{quote}
+
+% ================================================================
+\section{Important Safeguards}
+
+The system should obey several design constraints.
+
+\begin{enumerate}
+    \item \textbf{Do not equate missing evidence with low ability.}
+
+    \item \textbf{Do not allow employer or school prestige to directly dominate talent scores.}
+
+    \item \textbf{Do not reveal existing scores before independent evaluations are submitted.}
+
+    \item \textbf{Do not allow any single evaluator unlimited influence.}
+
+    \item \textbf{Discount highly correlated evaluators.}
+
+    \item \textbf{Separate scouts from downstream outcome evaluators when possible.}
+
+    \item \textbf{Track opportunities created by the network.}
+
+    \item \textbf{Maintain an exploration pool of uncertain or model-disfavored candidates.}
+
+    \item \textbf{Retain qualitative evidence alongside inferred numbers.}
+
+    \item \textbf{Display uncertainty rather than fake precision.}
+
+    \item \textbf{Periodically evaluate whether model score actually predicts future behavior.}
+
+    \item \textbf{Reward informational surprise rather than prestigious referrals.}
+\end{enumerate}
+
+% ================================================================
+\section{The Quantity Worth Optimizing}
+
+The most interesting candidates are not necessarily the people with the
+highest current scores.
+
+A talent discovery system should especially seek people for whom
+
+\[
+\boxed{
+\text{Observed capability}
+-
+\text{Expected capability}
+\gg 0.
+}
+\]
+
+These are people the current model systematically underestimates.
+
+Likewise, the most valuable scouts may be those for whom
+
+\[
+\boxed{
+\text{Predictive accuracy on hidden talent}
+\gg
+\text{population baseline}.
+}
+\]
+
+This changes the purpose of the system.
+
+It is no longer merely:
+
+\begin{quote}
+Find the highest-status people.
+\end{quote}
+
+It becomes:
+
+\begin{quote}
+Find people who repeatedly create positive surprise, and learn which members
+can detect that surprise before everyone else.
+\end{quote}
+
+% ================================================================
+\section{The Full Feedback Loop}
+
+The complete mechanism can be summarized as:
+
+\[
+\boxed{
+\text{Vibe}
+\rightarrow
+\text{Evidence}
+\rightarrow
+\text{Comparison}
+\rightarrow
+\text{Prediction}
+\rightarrow
+\text{Opportunity}
+\rightarrow
+\text{Outcome}
+\rightarrow
+\text{Calibration}
+}
+\]
+
+At the graph level:
+
+\[
+u
+\xrightarrow[x_{uv}]{p_u}
+v
+\rightarrow
+R_v^\ast
+\rightarrow
+p_u'
+\]
+
+and recursively:
+
+\[
+\text{people judge people}
+\rightarrow
+\text{judgments are evaluated}
+\rightarrow
+\text{judges become calibrated}
+\rightarrow
+\text{future judgments improve}.
+\]
+
+The resulting graph is therefore simultaneously:
+
+\begin{itemize}
+    \item a referral graph,
+    \item a reputation graph,
+    \item a prediction system,
+    \item a longitudinal observation system,
+    \item an exploration mechanism,
+    \item and a model of who is good at discovering whom.
+\end{itemize}
+
+% ================================================================
+\section{MVP Recommendation}
+
+For version one, resist the temptation to implement the full probabilistic
+model.
+
+Start with:
+
+\begin{enumerate}
+    \item seven behavioral dimensions,
+    \item evidence-backed \(0\)--\(4\) evaluations,
+    \item ``Not observed'' as a valid value,
+    \item up to five independent referrals,
+    \item simple referrer reliability,
+    \item pairwise comparisons,
+    \item six-month reassessment,
+    \item opportunity tracking,
+    \item uncertainty,
+    \item raw evidence retention.
+\end{enumerate}
+
+A practical initial scoring rule is:
+
+\[
+S_v
+=
+\frac{
+\sum_{u \in Top_5(v)}
+x_{uv}\hat p_u d_{uv}
+}{
+\sum_{u \in Top_5(v)}
+\hat p_u d_{uv}
+}
+\]
+
+followed by
+
+\[
+W_v^{(0)}
+=
+(1-c_v)\mu+c_vS_v.
+\]
+
+At six months:
+
+\[
+R_v^\ast
+=
+R_v-\widehat{\mathbb{E}}[R_v\mid O_v],
+\]
+
+\[
+W_v^{(6)}
+=
+(1-\beta)W_v^{(0)}
++
+\beta R_v^\ast,
+\]
+
+and evaluator prediction errors update
+
+\[
+E_{uv}
+=
+(x_{uv}-R_v^\ast)^2.
+\]
+
+Everything more sophisticated can be learned once the graph contains enough
+observations to justify it.
+
+% ================================================================
+\section{Design Principle}
+
+The model must never become the ground truth it is attempting to predict.
+
+If the graph chooses the winners, gives those winners the best opportunities,
+observes that they succeed, and then uses their success to validate its own
+ranking, it has learned very little.
+
+Therefore the system should preserve:
+
+\[
+\boxed{
+\text{raw evidence}
++
+\text{dissent}
++
+\text{uncertainty}
++
+\text{exploration}
+}
+\]
+
+alongside every inferred score.
+
+The graph is useful precisely when it remains capable of discovering that its
+current model is wrong.
+
+\vfill
+
+\begin{center}
+\textit{
+The objective is not to assign humans a permanent number.\\
+The objective is to build a network that becomes increasingly good at
+recognizing unexpected capability before conventional systems do.
+}
+\end{center}
+
+\end{document}
+```

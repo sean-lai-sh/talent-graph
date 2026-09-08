@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+# LaTeX build artifacts (PDF is committed intentionally)
+docs/theory/*.aux
+docs/theory/*.out
+docs/theory/*.toc
+docs/theory/*.fls
+docs/theory/*.fdb_latexmk
+docs/theory/*.synctex.gz
