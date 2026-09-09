@@ -18,6 +18,7 @@ export * from "./inference/logistic.ts";
 export * from "./inference/percentile.ts";
 export * from "./judges/outcomes.ts";
 export * from "./judges/reliability.ts";
+export * from "./judges/scout.ts";
 export * from "./judges/slope.ts";
 export * from "./modelRun.ts";
 export * from "./models/blend.ts";

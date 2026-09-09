@@ -30,6 +30,7 @@ import type {
   Outcome,
   Person,
   Referral,
+  ScoutInformationGain,
 } from "../domain/types.ts";
 import { CURRENT_SPECS } from "../models/registry.ts";
 import { assertSpec, type JudgeReliabilitySpec, type ReferralSignalSpec } from "../models/spec.ts";
@@ -41,6 +42,7 @@ import {
   type PredictionLabel,
   type ResidualOutcome,
 } from "./outcomes.ts";
+import { computeScoutInformationGain } from "./scout.ts";
 
 const DAY = 86_400_000;
 
@@ -102,6 +104,11 @@ export interface JudgeCalibrationRun {
   skipped: SkippedReferral[];
   /** Mean raw reliability across judges with ≥1 evaluation; null if none. */
   populationMeanReliability: number | null;
+  /**
+   * Ĝ_u per judge — second number, never mixed into p̂_u or Referral Signal.
+   * Populated by `computeScoutInformationGain`; additive.
+   */
+  scout: Map<string, ScoutInformationGain>;
   options: {
     specVersion: string;
     referralSpecVersion: string;
@@ -276,12 +283,22 @@ export function computeJudgeCalibration(input: JudgeCalibrationInput): JudgeCali
     withEvidence.length === 0
       ? null
       : withEvidence.reduce((s, e) => s + (e.rawReliability as number), 0) / withEvidence.length;
+  const scout = computeScoutInformationGain({
+    people: input.people,
+    referrals: input.referrals,
+    outcomes: input.outcomes,
+    opportunities: input.opportunities,
+    now: input.now,
+    spec,
+    referralSpec,
+  });
   return {
     estimates,
     truths: cohort.snapshot,
     predictions,
     skipped,
     populationMeanReliability,
+    scout,
     options: {
       specVersion: spec.version,
       referralSpecVersion: referralSpec.version,

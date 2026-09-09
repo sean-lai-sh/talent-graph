@@ -669,6 +669,25 @@ describe("computeJudgeCalibration and the Referral Signal hook", () => {
     expect(a.options.now).not.toBe(NOW);
     expect(a.options.now).toEqual(NOW);
   });
+
+  test("scout attachment leaves p̂_u / reliability maps unchanged", () => {
+    const run = computeJudgeCalibration({ people, referrals, outcomes, now: NOW });
+    const { predictions } = scoreReferralPredictions(referrals, cohortOf(outcomes));
+    const estimates = estimateJudgeReliability(
+      people.map((p) => p.id),
+      predictions,
+      SPEC,
+    );
+    expect([...run.estimates.entries()]).toEqual([...estimates.entries()]);
+    expect(reliabilityWeights(run)).toEqual(
+      new Map([...estimates.values()].map((e) => [e.judgeId, e.reliability])),
+    );
+    expect(run.scout.size).toBe(run.estimates.size);
+    for (const e of run.estimates.values()) {
+      expect(run.scout.get(e.judgeId)?.gain).toBe(0);
+      expect(run.scout.get(e.judgeId)?.evaluatedCount).toBe(0);
+    }
+  });
 });
 
 /* ------------------------------------------------------------------ *
