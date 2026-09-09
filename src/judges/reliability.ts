@@ -5,7 +5,7 @@
  * unweighted). Once T − t has cleared the observation window it is scored
  * against a causal label built from v's outcomes observed after t (outcomes.ts):
  *
- *   truth_uv = percentile of R*_v among the cohort, R*_v from post-window outcomes
+ *   truth_uv = percentile of R*_v among the cohort, R*_v from post-referral outcomes
  *   E_uv     = (x_uv − truth_uv)²
  *   Ē_u     ← (1 − η)·Ē_u + η·E_uv          in chronological order of evaluation
  *   p_u      = exp(−τ·Ē_u)
@@ -50,13 +50,16 @@ export interface ScoredPrediction {
   candidateId: string;
   /** x_uv — the referral's unweighted V0 strength. */
   prediction: number;
-  /** truth_uv from the post-window residual label. */
+  /** truth_uv from the post-referral residual label. */
   truth: number;
   /** (x − truth)² */
   error: number;
   /** x − truth */
   signedError: number;
-  /** Latest outcome that contributed to the label. */
+  /**
+   * First instant this prediction could be scored: max(createdAt + window,
+   * label.firstEligibleAt). Kind size, not just the first later outcome.
+   */
   evaluatedAt: Date;
   /** Everything the label was built from. */
   label: PredictionLabel;
@@ -126,8 +129,9 @@ export interface JudgeCalibrationInput {
  * One prediction per (judge, candidate): the earliest referral by createdAt
  * (then id). Self-referrals and, by default, referrals edited after creation
  * are skipped. A referral is scored only once `T − t_uv` has cleared the
- * observation window and the candidate has an outcome observed after it.
- * `evaluatedAt` is the first such outcome (the prediction's first evaluation).
+ * observation window and the candidate has a later outcome in a kind that
+ * has reached `minKindSize`. `evaluatedAt` is that first eligible instant
+ * (window opening if the outcome arrived earlier).
  */
 export function scoreReferralPredictions(
   referrals: readonly Referral[],
@@ -173,11 +177,12 @@ export function scoreReferralPredictions(
     }
     const prediction = referralStrength(r, referralSpec);
     const signedError = prediction - label.truth;
-    // First moment the prediction was allowed to be scored: max(first
-    // later outcome, createdAt + window). A day-20 outcome does not sort
-    // before the window has actually opened.
+    // First moment the prediction was allowed to be scored: max(kind
+    // eligibility, createdAt + window). A day-20 outcome does not sort
+    // before the window opens, and a rare kind does not stamp day-190
+    // when the cohort only became rankable on day 310.
     const eligibleAt = r.createdAt.getTime() + windowMs;
-    const evaluatedAt = new Date(Math.max(label.firstObservedAt.getTime(), eligibleAt));
+    const evaluatedAt = new Date(Math.max(label.firstEligibleAt.getTime(), eligibleAt));
     out.push({
       referralId: r.id,
       judgeId: r.referrerId,

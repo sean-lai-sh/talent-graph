@@ -42,7 +42,10 @@ the seed dataset and paste the summary line into the entry.
   opportunity count taken on the referral clock (`opportunityClock "referral"`),
   and the residual's cohort percentile is the truth. One prediction per
   (judge, candidate): the earliest referral; edited rows are skipped
-  (`excludeEditedReferrals true`). Per judge: `Ē ← (1−η)Ē + ηE` with `η = 0.3`,
+  (`excludeEditedReferrals true`). `evaluatedAt` is
+  `max(createdAt + window, firstEligibleAt)` so EWMA waits for the kind to
+  reach `minKindSize`, not just the first later outcome. Per judge:
+  `Ē ← (1−η)Ē + ηE` with `η = 0.3`,
   `p = exp(−τĒ)` with `τ = 4`, shrinkage `λ = 3` toward `μ_p = 1`, signed bias
   shrunk toward 0; `applyBiasCorrection false`.
 - **Why:** Implements the white paper's "Longitudinal Observation", "Learning

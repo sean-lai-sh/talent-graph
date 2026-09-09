@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Opportunity, Outcome, Person, Referral } from "../src/domain/types.ts";
 import {
   buildOutcomeCohort,
+  firstCausalEligibleAt,
   labelForPrediction,
   opportunityBucket,
   percentileAmong,
@@ -357,15 +358,50 @@ describe("scoreReferralPredictions (time step T)", () => {
   });
 
   test("scored predictions are ordered by first evaluation, not the latest outcome", () => {
+    // Pads so the kind is rankable before either candidate's first outcome.
     const o = [
+      outcome("z0", 4, 200),
+      outcome("z1", 5, 201),
       outcome("v", 9, 210),
       outcome("v", 8, 300),
       outcome("w", 1, 220),
-      outcome("z", 5, 230),
     ];
     const scored = score([referral("u", "v", 5), referral("u", "w", 5)], o);
     expect(scored.map((p) => p.candidateId)).toEqual(["v", "w"]);
-    expect(scored[0]?.evaluatedAt).toEqual(o[0]?.observedAt);
+    expect(scored[0]?.evaluatedAt).toEqual(o[2]?.observedAt);
+  });
+
+  test("evaluatedAt waits for minKindSize, not the first later outcome", () => {
+    // v's rare-kind outcome lands day 190; the kind only becomes rankable
+    // on day 310. w's common-kind label is available day 200.
+    const o = [
+      outcome("v", 1, 190, "rare"),
+      outcome("w", 9, 200, "common"),
+      outcome("c1", 5, 200, "common"),
+      outcome("c2", 1, 200, "common"),
+      outcome("r1", 5, 310, "rare"),
+      outcome("r2", 9, 310, "rare"),
+    ];
+    const late = referral("j", "v", 5, 10);
+    const early = referral("j", "w", 5, 20);
+
+    // Before the rare kind fills, only w is evaluable.
+    const mid = scoreReferralPredictions([late, early], cohortOf(o, [], SPEC, day(250)));
+    expect(mid.predictions.map((p) => p.candidateId)).toEqual(["w"]);
+    expect(mid.skipped).toEqual([{ referralId: late.id, reason: "no_later_outcome" }]);
+
+    const { predictions } = scoreReferralPredictions([late, early], cohortOf(o));
+    expect(predictions.map((p) => p.candidateId)).toEqual(["w", "v"]);
+    expect(predictions[0]?.evaluatedAt).toEqual(day(200));
+    expect(predictions[1]?.evaluatedAt).toEqual(day(310));
+    expect(predictions[1]?.label.firstObservedAt).toEqual(day(190));
+    expect(predictions[1]?.label.firstEligibleAt).toEqual(day(310));
+
+    // Wrong-then-right if stamped on firstObservedAt (Ē=0.7); chronological
+    // eligibility is right-then-wrong (Ē=0.3).
+    const est = estimateJudgeReliability(["j"], predictions, SPEC);
+    expect(est.get("j")?.meanSquaredError).toBeCloseTo(0.3, 12);
+    expect(firstCausalEligibleAt(o, "v", day(10), SPEC, NOW)).toEqual(day(310));
   });
 
   test("one prediction per (judge, candidate): the earliest referral; duplicates are skipped", () => {
@@ -459,15 +495,17 @@ describe("estimateJudgeReliability", () => {
   });
 
   test("the running error is an exponentially weighted average in evaluation order", () => {
+    // Pads so the kind is rankable before either first outcome.
+    const pads = [outcome("pad1", 4, 50), outcome("pad2", 6, 50)];
     // Wrong first (lo observed day 210), then right (hi observed day 220).
-    const o = [outcome("lo", 1, 210), outcome("hi", 9, 220), outcome("mid", 5, 215)];
+    const o = [...pads, outcome("lo", 1, 210), outcome("hi", 9, 220)];
     const refs = [referral("j", "lo", 5), referral("j", "hi", 5)];
     const est = estimateJudgeReliability(["j"], score(refs, o), SPEC);
     // Ē = (1−η)·1 + η·0 = 0.7
     expect(est.get("j")?.meanSquaredError).toBeCloseTo(0.7, 12);
 
     // Reverse order (right first, then wrong): Ē = (1−η)·0 + η·1 = 0.3
-    const o2 = [outcome("lo", 1, 220), outcome("hi", 9, 210), outcome("mid", 5, 215)];
+    const o2 = [...pads, outcome("lo", 1, 220), outcome("hi", 9, 210)];
     const est2 = estimateJudgeReliability(["j"], score(refs, o2), SPEC);
     expect(est2.get("j")?.meanSquaredError).toBeCloseTo(0.3, 12);
   });
@@ -653,7 +691,7 @@ describe("seed longitudinal records", () => {
       expect(p.label.firstObservedAt.getTime()).toBeGreaterThan(r.createdAt.getTime());
       expect(p.evaluatedAt.getTime()).toBe(
         Math.max(
-          p.label.firstObservedAt.getTime(),
+          p.label.firstEligibleAt.getTime(),
           r.createdAt.getTime() + SPEC.observationWindowDays * DAY,
         ),
       );

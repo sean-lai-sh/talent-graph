@@ -15,11 +15,11 @@ Talent", "Shrinkage: Preventing Instant Oracles", "Learning Judge Bias".
 
 ```
 R_v       realised outcome, rank-normalised within its kind        ∈ [0,1]  (kinds with < minKindSize ignored)
-R*_uv   = R_v − E[R_v | O_v]   over v's outcomes observed ≥ window after the referral; O_v at the referral
+R*_uv   = R_v − E[R_v | O_v]   over v's outcomes observed after the referral (scored once T − t_uv ≥ window); O_v at the referral
 truth_uv = cohort percentile of R*_uv                               ∈ [0,1]
 x_uv    = R_uv  (unweighted V0 strength of the referral)            the prediction
 E_uv    = (x_uv − truth_uv)²                                        one per (judge, candidate)
-Ē_u    ← (1−η)·Ē_u + η·E_uv          chronological by evaluation     η = 0.3
+Ē_u    ← (1−η)·Ē_u + η·E_uv          chronological by first eligibility  η = 0.3
 p_u     = exp(−τ·Ē_u)                                                τ = 4
 p̂_u     = n/(n+λ)·p_u + λ/(n+λ)·μ_p                                  λ = 3, μ_p = 1
 b_u    ← (1−η)·b_u + η·(x_uv − truth_uv),  b̂_u shrunk toward 0
@@ -39,6 +39,10 @@ exactly `R_uv`, so V0 is reproduced bit-for-bit.
   buckets and percentiles share that cutoff). The opportunity count is taken
   at the referral (`opportunityClock: "referral"`) unless the spec says
   `"outcome"`. Kinds with fewer than `minKindSize` (3) outcomes are ignored.
+  `evaluatedAt` is `max(createdAt + window, firstEligibleAt)`, where
+  `firstEligibleAt` is when the candidate's later outcome *and* its kind
+  become rankable — so a rare kind does not insert a prediction into the
+  EWMA past.
 - **One prediction per (judge, candidate):** the earliest referral; referrals
   edited after creation are skipped (`excludeEditedReferrals`, default true).
   Skipped referrals are reported with a reason.
@@ -71,7 +75,8 @@ exactly `R_uv`, so V0 is reproduced bit-for-bit.
 - Shrinkage: closed-form p̂ for 1 vs 5 wrong calls.
 - Ē is an EWMA in evaluation order (0.7 vs 0.3 for the two orderings).
 - Observation window on T − t_uv; mixed pre/post labels ignore pre-referral
-  values even through the kind scale; short-horizon outcomes are kept once T is late.
+  values even through the kind scale; short-horizon outcomes are kept once T is late;
+  `evaluatedAt` waits for `minKindSize`, not the first later outcome.
 - Opportunity clock: a post-referral opportunity is not subtracted under the default, is under `"outcome"`.
 - Kinds below `minKindSize` are dropped; duplicates score once (earliest); edited rows skipped by default.
 - Opportunity correction lowers the residual of a boosted person with the same raw outcome; small buckets fall back to the global mean.

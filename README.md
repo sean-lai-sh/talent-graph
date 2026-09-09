@@ -228,7 +228,7 @@ R*_uv   = R_v − E[R_v | O_v]                                        residual o
 truth_uv = cohort percentile of R*_uv                               ∈ [0,1]
 x_uv    = R_uv  (the referral's unweighted V0 strength)             the prediction
 E_uv    = (x_uv − truth_uv)²                                        one per (judge, candidate): earliest referral
-Ē_u    ← (1−η)·Ē_u + η·E_uv          η = 0.3, chronological
+Ē_u    ← (1−η)·Ē_u + η·E_uv          η = 0.3, chronological by first eligibility
 p_u     = exp(−τ·Ē_u)                τ = 4
 p̂_u     = n/(n+λ)·p_u + λ/(n+λ)·μ_p  λ = 3, μ_p = 1                  shrinkage against instant oracles
 b̂_u     = shrunk running mean of (x_uv − truth_uv)                  signed bias, reported; applied if enabled
@@ -257,7 +257,8 @@ V0 bit-for-bit until evidence says otherwise** (asserted by tests).
   reason.
 - Outcome kinds with fewer than `minKindSize = 3` measurable outcomes are
   ignored: a rank inside a one- or two-row kind is a cohort accident, not a
-  scale.
+  scale. EWMA order uses the first instant the kind is rankable, not the
+  first later outcome, so a delayed kind does not rewrite earlier updates.
 - Truth comes from outcomes only, never from V1 capability estimates (which
   are built from judges' comparisons). `src/judges/` never imports
   `src/inference/`; the invariants test enforces it.

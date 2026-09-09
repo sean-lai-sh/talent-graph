@@ -53,7 +53,7 @@ export interface ResidualOutcome {
 /** The label one referral is scored against. */
 export interface PredictionLabel {
   personId: string;
-  /** Mean normalised value over the post-window outcomes only. */
+  /** Mean normalised value over the post-referral outcomes only. */
   normalized: number;
   /** Opportunities counted on the spec's clock (referral by default). */
   opportunityCount: number;
@@ -62,7 +62,15 @@ export interface PredictionLabel {
   /** Rank percentile of the residual within the cohort, divided by 100. */
   truth: number;
   outcomeIds: string[];
+  /** Earliest post-referral outcome that contributes to the label at T. */
   firstObservedAt: Date;
+  /**
+   * First instant a causal cohort could have produced a label: the candidate
+   * has a later outcome *and* that outcome's kind has reached `minKindSize`.
+   * EWMA order uses this, not `firstObservedAt`, so a delayed kind does not
+   * insert a prediction into the past.
+   */
+  firstEligibleAt: Date;
   latestObservedAt: Date;
 }
 
@@ -280,8 +288,54 @@ export function residualOutcomes(
 }
 
 /**
+ * First instant a causal label for `personId` could exist after `referredAt`:
+ * the earliest post-referral outcome whose kind has `minKindSize` observations
+ * (counting only outcomes after the referral and ≤ `now`). Null when none.
+ */
+export function firstCausalEligibleAt(
+  outcomes: readonly Outcome[],
+  personId: string,
+  referredAt: Date,
+  spec: JudgeReliabilitySpec,
+  now: Date,
+): Date | null {
+  const nowMs = now.getTime();
+  const afterMs = referredAt.getTime();
+  const measurable = outcomes.filter((o) => {
+    if (o.value === null || !Number.isFinite(o.value)) return false;
+    const t = o.observedAt.getTime();
+    return t <= nowMs && t > afterMs;
+  });
+  const byKind = new Map<string, Outcome[]>();
+  for (const o of measurable) {
+    const list = byKind.get(o.kind);
+    if (list) list.push(o);
+    else byKind.set(o.kind, [o]);
+  }
+  const kindEligibleMs = new Map<string, number>();
+  for (const [kind, list] of byKind) {
+    if (list.length < spec.minKindSize) continue;
+    const ordered = [...list].sort(
+      (a, b) =>
+        a.observedAt.getTime() - b.observedAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
+    kindEligibleMs.set(kind, ordered[spec.minKindSize - 1]!.observedAt.getTime());
+  }
+  let first: number | null = null;
+  for (const o of measurable) {
+    if (o.personId !== personId) continue;
+    const kindAt = kindEligibleMs.get(o.kind);
+    if (kindAt === undefined) continue;
+    const eligible = Math.max(o.observedAt.getTime(), kindAt);
+    if (first === null || eligible < first) first = eligible;
+  }
+  return first === null ? null : new Date(first);
+}
+
+/**
  * The label for a referral made at `referredAt` about `personId`, or null when
- * the candidate has no outcome observed after the referral (and ≤ T).
+ * the candidate has no outcome observed after the referral (and ≤ T) whose
+ * kind is large enough to rank.
  *
  * Rebuilds a causal cohort at the referral cutoff: kind ranks, E[R|O] buckets,
  * and residual percentiles all use the same post-referral observations and
@@ -304,6 +358,14 @@ export function labelForPrediction(
   if (!snap || !list || list.length === 0) return null;
 
   const times = list.map((o) => o.observedAt.getTime());
+  const firstEligibleAt = firstCausalEligibleAt(
+    cohort.outcomes,
+    personId,
+    referredAt,
+    spec,
+    cohort.now,
+  );
+  if (firstEligibleAt === null) return null;
   return {
     personId,
     normalized: snap.normalized,
@@ -313,6 +375,7 @@ export function labelForPrediction(
     truth: snap.truth,
     outcomeIds: snap.outcomeIds,
     firstObservedAt: new Date(Math.min(...times)),
+    firstEligibleAt,
     latestObservedAt: snap.latestObservedAt,
   };
 }
