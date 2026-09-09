@@ -254,10 +254,18 @@ toward `μ_p = 1`, judge bias `b_u`, and the `p̂_u · clip(R_uv − b̂_u)` hoo
 the Referral Signal. Truth comes from outcomes only; `src/judges/` never
 imports `src/inference/` and `src/scoring/` never imports `src/judges/`.
 
-**Explicitly out of scope (V3+):** scoring pairwise comparisons as forecasts,
-clique/correlation discount `ρ`, `d_uv`, prior shrinkage
+**In scope since Phase E (issues #20–#27):** Residual Slope `ΔR*`,
+`forecastKind`, contribution trajectory (reporting), Scout Information
+Gain `Ĝ_u` as a second judge number, `scoutHook` on
+`judge_reliability@3.0.0` (**default off**), optional surprise term in
+comparison *selection*, and the closeout invariants / README §8a / theory
+safeguards / two-number demo.
+
+**Explicitly still out of scope:** scoring pairwise comparisons as
+forecasts, clique/correlation discount `ρ`, `d_uv`, prior shrinkage
 `W_v^(0) = (1−c)μ + cS`, judge weights inside the V1 likelihood,
-bandits/exploration policy, GNNs, LLM-as-judge.
+bandits/exploration policy, GNNs, LLM-as-judge. Do not turn `scoutHook`
+on.
 
 ## 11a. Durable updates: changing weights without destroying the graph
 
@@ -293,6 +301,28 @@ silent reshuffle. Mechanism (issue #15):
 Anchoring and blending are engineering continuity devices, not theory; they
 are documented in README, not in `docs/theory/main.tex`.
 
+## 11b. V3 judge model — intercept vs slope
+
+V2 grades level (`E_uv = (x_uv − truth_uv)²`) and cannot tell "already
+strong, flat" from "will compound." Phase E adds Scout Information Gain
+`Ĝ_u` from Residual Slope `ΔR*_v = R*_v(t1) − R*_v(t0)` and prior
+`π_v(t_uv)` (unweighted V0 signal before `t_uv`, judge excluded):
+
+```
+IG_uv = (1 − π_v(t_uv)) · max(ΔR*_v, 0)
+```
+
+`x_uv` does not appear. Intensity Calibration / Judge Reliability `p̂_u`
+is unchanged. Both numbers are shown; never summed. `scoutHook` on
+`judge_reliability@3.0.0` is **default off** (bit-for-bit V2). Only
+`will_compound` is scout-eligible. Trajectory reporting and slope-aware
+comparison *selection* stay outside V0/V1 (`src/inference` never imports
+slopes; no `Comparison` from outcomes).
+
+This is a V3 *reading* of "Reward Information Gain", **not** the paper's
+`|R* − R̂^{-u}| × Accuracy`. Accuracy is omitted on purpose. Slope
+replaces level. Missing slope ≠ low ability.
+
 ## 12. Work breakdown → GitHub issues
 
 Each issue in `docs/issues/` is a self-contained brief for a cloud coding
@@ -319,3 +349,16 @@ to do. Ordering:
 
 Phase A = issues 1–2. Phase B (V0) = 3, 4, 10. Phase C (V1) = 5–9, 11–12.
 Closeout = 13–14. Cross-cutting = 15 (land after 6 and 11, before 12–13).
+V2 judge calibration = #16 (shipped). Phase E (V3 judge model — intercept
+vs slope) uses the already-assigned issues #20–#27:
+
+| Phase | GH | Issue | Depends on |
+|---|---|---|---|
+| E1 | #20 | ResidualSlope / ScoutInformationGain types + judge_reliability@3.0.0 registered (not current) | 15 |
+| E2 | #22 | Causal residual slope ΔR* | E1 |
+| E4 | #21 | Referral.forecastKind | E1 |
+| E3 | #23 | contributionTrajectory + sloped Cleo/Bram seed | E2, E4 |
+| E5 | #24 | Scout information gain Ĝ_u (second judge number) | E2, E4 |
+| E6 | #26 | scoutHook on Referral Signal; 3.0.0 current, hook off | E5 |
+| E7 | #25 | Surprise term in comparison selection | E2 |
+| E8 | #27 | Invariants, README §8a, theory safeguards, two-number demo | E6, E7 |

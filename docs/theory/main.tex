@@ -749,6 +749,23 @@ A useful discovery queue may prioritize:
 rather than merely sorting people by current mean score.
 
 % ================================================================
+\section{Residual Series and Slope}
+
+Longitudinal observation already produces an opportunity-corrected residual
+\(R_v^\ast(t)\) at a cutoff. The residual \emph{slope} over a window is the
+change in that series:
+
+\[
+\Delta R_v^\ast
+=
+R_v^\ast(t_1)-R_v^\ast(t_0).
+\]
+
+The slope is undefined if either residual is missing or the window is shorter
+than the minimum gap. Missing slope is not low ability. A person who has not
+yet been observed at both ends of the window is simply not slope-scored.
+
+% ================================================================
 \section{Reward Information Gain, Not Obvious Predictions}
 
 A judge should receive little additional credit for predicting that an already
@@ -756,19 +773,11 @@ universally recognized superstar is strong.
 
 Instead, scouting value should depend on surprise.
 
-Let
+The paper's ideal quantity mixed a leave-one-out outcome forecast with an
+accuracy term:
 
 \[
-\hat R_v^{-u}
-\]
-
-represent the system's expected outcome for \(v\) before incorporating
-evaluator \(u\)'s judgment.
-
-Then evaluator \(u\)'s informational contribution can be approximated by
-
-\[
-IG_{uv}
+IG_{uv}^{\mathrm{paper}}
 =
 \left|
 R_v^\ast-\hat R_v^{-u}
@@ -777,10 +786,47 @@ R_v^\ast-\hat R_v^{-u}
 \mathrm{Accuracy}(u,v).
 \]
 
+This version implements a V3 \emph{reading} of that idea, not that product.
+Accuracy is omitted on purpose: it would reintroduce intensity. Slope replaces
+level.
+
+Let \(\pi_v(t_{uv})\) be the unweighted V0 Referral Signal of \(v\) from
+referrals strictly before \(t_{uv}\), excluding judge \(u\)
+(missing or zero incoming \(\Rightarrow \pi_v=0\)).
+Then the implemented information gain is
+
+\[
+\boxed{
+IG_{uv}
+=
+\bigl(1-\pi_v(t_{uv})\bigr)\cdot\max(\Delta R_v^\ast,\,0)
+}
+\]
+
+only when the referral is marked \(\mathtt{will\_compound}\) and
+\(\Delta R_v^\ast\) is defined. Conviction \(x_{uv}\) does not appear.
+Undefined slope is a skip, not a zero.
+
 The ideal scout is not merely someone who identifies strong people.
 
 The ideal scout identifies strong people
 \textbf{before the rest of the graph knows they are strong}.
+
+% ================================================================
+\section{Two Judge Numbers}
+
+Each judge has two numbers. They are never summed into one judge score.
+
+\begin{itemize}
+    \item Intensity Calibration / Judge Reliability \(\hat p_u\): V2 level
+    error against residual outcomes.
+    \item Scout Information Gain \(\hat G_u\): shrunk mean of \(IG_{uv}\),
+    toward \(0\).
+\end{itemize}
+
+Combining them for the Referral Signal is a hook
+(\texttt{scoutHook} on \texttt{judge\_reliability@3.0.0}), default
+off. With the hook off, production math is bit-for-bit V2.
 
 % ================================================================
 \section{The Self-Fulfilling Problem}
@@ -1189,6 +1235,9 @@ The system should obey several design constraints.
     \item \textbf{Periodically evaluate whether model score actually predicts future behavior.}
 
     \item \textbf{Reward informational surprise rather than prestigious referrals.}
+
+    \item \textbf{Never grade judges by \(\theta\) or by agreement with other
+    judges; never treat missing slope as low ability.}
 \end{enumerate}
 
 % ================================================================

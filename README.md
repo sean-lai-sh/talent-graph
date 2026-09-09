@@ -96,8 +96,10 @@ metadata that no scoring function reads. All of this is asserted by
 
 Approved vocabulary: **Referral Signal**, **Relative Capability Estimate**,
 **Insufficient Evidence**, **Not Observed**, **Structured Evidence**,
-**Under-Recognition Gap**, **Exploratory**. Avoid: "Talent Score",
-"Intelligence Score", "Capability Score", "Objective Rank", "Human Value".
+**Under-Recognition Gap**, **Exploratory**, **Scout Information Gain**,
+**Intensity Calibration** / **Judge Reliability**, **Residual Slope**.
+Avoid: "Talent Score", "Intelligence Score", "Capability Score",
+"Objective Rank", "Human Value", "Scout Score".
 
 ## 3. V0 model — Referral Signal
 
@@ -285,6 +287,46 @@ not a cartoon of the math. Until the 180-day window opens, every weight
 stays at 1 and V2 equals V0. The UI is presentation only (`demo/`,
 `scripts/demo-ui.ts`); it is not part of the algorithm core.
 
+## 8a. V3 judge model — intercept vs slope
+
+V2 grades **level** only:
+
+```
+E_uv = (x_uv − truth_uv)²
+```
+
+That cannot tell "already strong, flat" from "will compound" (Cleo). A
+judge who names Cleo early with a modest `x_uv` is punished; a judge who
+names someone already famous is rewarded. The paper's ideal scout is not
+measured.
+
+V3 adds a **second** judge number — Scout Information Gain `Ĝ_u` — from
+the causal Residual Slope `ΔR*_v = R*_v(t1) − R*_v(t0)` and the prior
+`π_v(t_uv)` = unweighted V0 signal of `v` before `t_uv`, judge `u`
+excluded:
+
+```
+IG_uv = (1 − π_v(t_uv)) · max(ΔR*_v, 0)     only will_compound + defined slope
+Ĝ_u   = n/(n+λ) · mean(IG_uv) + λ/(n+λ) · 0   λ = scoutShrinkage (default 3)
+```
+
+`x_uv` does not appear. V2 Intensity Calibration / Judge Reliability `p̂_u`
+is unchanged. Both numbers are shown; they are never summed. Combining
+them for the Referral Signal is `scoutHook` on `judge_reliability@3.0.0`,
+**default off** — bit-for-bit V2 when off. Do not turn the hook on in
+this closeout.
+
+`forecastKind` defaults to unspecified; only `will_compound` is
+scout-eligible. Trajectory reporting (`contributionTrajectory`) and
+slope-aware comparison *selection* (optional surprise term) stay outside
+V0/V1: `src/inference` never imports slopes, and no `Comparison` is
+synthesized from outcomes.
+
+This is a V3 *reading* of the white paper's "Reward Information Gain",
+**not** the paper's `|R* − R̂^{-u}| × Accuracy`. Accuracy is omitted on
+purpose (it would reintroduce intensity). Slope replaces level. Missing
+slope is undefined, not low ability.
+
 ## 9. Operational continuity — changing weights without destroying the graph
 
 Weights and thresholds will change. A graph carrying months of observations
@@ -322,9 +364,10 @@ and real decisions must survive that without a silent reshuffle. Mechanism
 
 | Version | Adds | Theory section in `docs/theory/main.tex` |
 |---|---|---|
-| V2 (shipped, §8) | Judge reliability `p_u`, shrinkage, bias `b_u`, opportunity-corrected residual `R*` from referral predictions | "Longitudinal Observation", "Learning Who Is Good at Identifying Talent", "Shrinkage", "Learning Judge Bias" |
-| V3 | Comparisons scored as forecasts; clique / correlation discount `ρ`; prior shrinkage `W_v^(0)` | "Independence and Clique Discounting", "Learning Judge Bias" |
-| V4 | Outcome validation of capability estimates, prediction scoring | "Reward Information Gain", "The Quantity Worth Optimizing" |
+| V2 (shipped, §8) | Judge Reliability `p̂_u` (Intensity Calibration), shrinkage, bias `b_u`, opportunity-corrected residual `R*` from referral predictions | "Longitudinal Observation", "Learning Who Is Good at Identifying Talent", "Shrinkage", "Learning Judge Bias" |
+| V3 judge model (Phase E, shipped, §8a) | Residual Slope `ΔR*`, `forecastKind`, Scout Information Gain `Ĝ_u`, `scoutHook` **default off**, surprise term in comparison *selection* only | "Residual Series and Slope", "Reward Information Gain, Not Obvious Predictions", "Two Judge Numbers", Safeguard 13 |
+| Later | Comparisons scored as forecasts; clique / correlation discount `ρ`; prior shrinkage `W_v^(0)` | "Independence and Clique Discounting", "Learning Judge Bias" |
+| Later | Outcome validation of capability estimates | "The Quantity Worth Optimizing" |
 | V5 | Exploration policy | "The Self-Fulfilling Problem", "Exploration Versus Exploitation" |
 
 `Outcome` and `Opportunity` are read by V2. `JudgeCalibration` and
