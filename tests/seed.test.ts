@@ -72,6 +72,13 @@ describe("generateSeed", () => {
     for (const e of data.evaluations) expect(validateEvaluation(e)).toEqual({ ok: true });
   });
 
+  test("seed referrals omit forecastKind (stay unspecified, not scout-eligible)", () => {
+    for (const r of data.referrals) {
+      expect(r.forecastKind === undefined || r.forecastKind === "unspecified").toBe(true);
+      expect(r.forecastKind).not.toBe("will_compound");
+    }
+  });
+
   test("ids are unique and dates deterministic from the base", () => {
     const ids = [
       ...data.people.map((p) => p.id),

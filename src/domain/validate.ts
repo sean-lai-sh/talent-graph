@@ -5,12 +5,13 @@
  * none of them compute a score.
  */
 
-import { DIMENSIONS, EVIDENCE_TYPES } from "./constants.ts";
+import { DIMENSIONS, EVIDENCE_TYPES, FORECAST_KINDS } from "./constants.ts";
 import type {
   Comparison,
   Dimension,
   Evaluation,
   EvidenceType,
+  ForecastKind,
   Opportunity,
   Outcome,
   Referral,
@@ -38,6 +39,10 @@ export function isEvidenceType(value: unknown): value is EvidenceType {
   return typeof value === "string" && (EVIDENCE_TYPES as readonly string[]).includes(value);
 }
 
+export function isForecastKind(value: unknown): value is ForecastKind {
+  return typeof value === "string" && (FORECAST_KINDS as readonly string[]).includes(value);
+}
+
 /**
  * A referral is valid when nobody refers themselves, all three sliders are
  * integers in 1..5, the (referrer, candidate) pair is new, and the referrer
@@ -57,6 +62,9 @@ export function validateReferral(
   if (!isScale5(r.relationshipDepth)) errors.push("relationshipDepth must be an integer in 1..5");
   if (!isEvidenceType(r.evidenceType))
     errors.push(`unknown evidenceType: ${String(r.evidenceType)}`);
+  if (r.forecastKind !== undefined && !isForecastKind(r.forecastKind)) {
+    errors.push(`unknown forecastKind: ${String(r.forecastKind)}`);
+  }
   if (typeof r.evidenceText !== "string" || r.evidenceText.trim() === "") {
     errors.push("evidenceText must be non-empty");
   }

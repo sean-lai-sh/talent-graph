@@ -31,6 +31,8 @@ export type RubricScore = 0 | 1 | 2 | 3 | 4;
 
 export type ComparisonOutcome = "a" | "b" | "tie" | "skip" | "insufficient_observation";
 
+export type ForecastKind = "unspecified" | "will_compound";
+
 export interface Person {
   id: string;
   name: string;
@@ -51,6 +53,12 @@ export interface Referral {
   relationshipDepth: Scale5;
   evidenceType: EvidenceType;
   evidenceText: string;
+  /**
+   * What the referrer claimed they were forecasting. Default / omitted:
+   * `"unspecified"`. Only `"will_compound"` is scout-eligible later.
+   * Does not enter R_uv.
+   */
+  forecastKind?: ForecastKind;
   createdAt: Date;
   updatedAt: Date;
 }

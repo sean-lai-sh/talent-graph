@@ -6,7 +6,7 @@
  * verbatim from the MVP prompt so a UI never has to re-type it.
  */
 
-import type { Dimension, EvidenceType, RubricScore, Scale5 } from "./types.ts";
+import type { Dimension, EvidenceType, ForecastKind, RubricScore, Scale5 } from "./types.ts";
 
 /** Canonical dimension order. Used for stable iteration and display. */
 export const DIMENSIONS: readonly Dimension[] = [
@@ -42,6 +42,9 @@ export const EVIDENCE_TYPES: readonly EvidenceType[] = [
   "reputation",
   "other",
 ] as const;
+
+/** Allowed `Referral.forecastKind` values. Omitted ≡ `"unspecified"`. */
+export const FORECAST_KINDS: readonly ForecastKind[] = ["unspecified", "will_compound"] as const;
 
 /** Evidence types that represent direct personal observation. */
 export const FIRSTHAND_EVIDENCE_TYPES: readonly EvidenceType[] = [
