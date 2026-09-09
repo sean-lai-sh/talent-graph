@@ -273,6 +273,14 @@ describe("labelForPrediction", () => {
       cohortOf(outcomes, [], SPEC, day(400)),
     );
     expect(skipped[0]?.reason).toBe("too_recent");
+    // Once T is late, evaluatedAt is the window opening, not the day-15 outcome.
+    const scored = scoreReferralPredictions(
+      [referral("u", "v", 5, 100)],
+      cohortOf(outcomes, [], SPEC, day(1000)),
+    ).predictions[0];
+    expect(scored?.evaluatedAt.getTime()).toBe(
+      day(100).getTime() + SPEC.observationWindowDays * DAY,
+    );
   });
 
   test("opportunity clock: a post-referral opportunity is not subtracted under the default", () => {
@@ -643,7 +651,12 @@ describe("seed longitudinal records", () => {
       const r = data.referrals.find((x) => x.id === p.referralId);
       if (!r) throw new Error("missing referral");
       expect(p.label.firstObservedAt.getTime()).toBeGreaterThan(r.createdAt.getTime());
-      expect(p.evaluatedAt.getTime()).toBe(p.label.firstObservedAt.getTime());
+      expect(p.evaluatedAt.getTime()).toBe(
+        Math.max(
+          p.label.firstObservedAt.getTime(),
+          r.createdAt.getTime() + SPEC.observationWindowDays * DAY,
+        ),
+      );
       expect(run.options.now.getTime() - r.createdAt.getTime()).toBeGreaterThanOrEqual(
         SPEC.observationWindowDays * DAY,
       );

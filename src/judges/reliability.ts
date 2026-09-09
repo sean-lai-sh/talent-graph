@@ -173,6 +173,11 @@ export function scoreReferralPredictions(
     }
     const prediction = referralStrength(r, referralSpec);
     const signedError = prediction - label.truth;
+    // First moment the prediction was allowed to be scored: max(first
+    // later outcome, createdAt + window). A day-20 outcome does not sort
+    // before the window has actually opened.
+    const eligibleAt = r.createdAt.getTime() + windowMs;
+    const evaluatedAt = new Date(Math.max(label.firstObservedAt.getTime(), eligibleAt));
     out.push({
       referralId: r.id,
       judgeId: r.referrerId,
@@ -181,7 +186,7 @@ export function scoreReferralPredictions(
       truth: label.truth,
       error: signedError * signedError,
       signedError,
-      evaluatedAt: label.firstObservedAt,
+      evaluatedAt,
       label,
     });
   }
