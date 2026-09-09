@@ -101,8 +101,12 @@ describe("residualSlope", () => {
     const fell = residualSlope({ personId: "hi", outcomes, t0, t1, spec: V3 });
     expect(rose.state).toBe("defined");
     expect(fell.state).toBe("defined");
-    expect(rose.delta).toBe((at1.get("lo")?.residual as number) - (at0.get("lo")?.residual as number));
-    expect(fell.delta).toBe((at1.get("hi")?.residual as number) - (at0.get("hi")?.residual as number));
+    expect(rose.delta).toBe(
+      (at1.get("lo")?.residual as number) - (at0.get("lo")?.residual as number),
+    );
+    expect(fell.delta).toBe(
+      (at1.get("hi")?.residual as number) - (at0.get("hi")?.residual as number),
+    );
     expect(rose.delta as number).toBeGreaterThan(0);
     expect(fell.delta as number).toBeLessThan(0);
   });
@@ -118,7 +122,9 @@ describe("residualSlope", () => {
     const slope = residualSlope({ personId: "late", outcomes, t0, t1, spec: V3 });
     expect(slope.state).toBe("insufficient_early");
     expect(slope.residualT0).toBeNull();
-    expect(slope.residualT1).toBe(residualOutcomes(outcomes, [], V3, t1).get("late")?.residual as number);
+    expect(slope.residualT1).toBe(
+      residualOutcomes(outcomes, [], V3, t1).get("late")?.residual as number,
+    );
     expect(slope.delta).toBeNull();
   });
 
@@ -166,15 +172,23 @@ describe("residualSlope", () => {
   test("t1 < t0 or gap too small ⇒ undefined_window, delta null; residuals still filled", () => {
     const outcomes = triad(10);
     const t0 = day(100);
-    const earlier = day(10);
     const tooClose = day(10 + 89);
 
-    const reversed = residualSlope({ personId: "mid", outcomes, t0, t1: earlier, spec: V3 });
+    // t1 before any outcome: late snapshot empty; t0 still has the triad.
+    const beforeAll = residualSlope({ personId: "mid", outcomes, t0, t1: day(9), spec: V3 });
+    expect(beforeAll.state).toBe("undefined_window");
+    expect(beforeAll.delta).toBeNull();
+    expect(beforeAll.residualT0).toBe(
+      residualOutcomes(outcomes, [], V3, t0).get("mid")?.residual as number,
+    );
+    expect(beforeAll.residualT1).toBeNull();
+
+    // t1 after the outcomes but before t0: both residuals filled, delta still null.
+    const reversed = residualSlope({ personId: "mid", outcomes, t0, t1: day(10), spec: V3 });
     expect(reversed.state).toBe("undefined_window");
     expect(reversed.delta).toBeNull();
-    // t1 is before the outcomes, so the late snapshot is empty; t0 is after.
-    expect(reversed.residualT0).toBe(residualOutcomes(outcomes, [], V3, t0).get("mid")?.residual as number);
-    expect(reversed.residualT1).toBeNull();
+    expect(reversed.residualT0).not.toBeNull();
+    expect(reversed.residualT1).not.toBeNull();
 
     const equal = residualSlope({ personId: "mid", outcomes, t0: day(10), t1: day(10), spec: V3 });
     expect(equal.state).toBe("undefined_window");
@@ -239,9 +253,9 @@ describe("residualSlope", () => {
     expect(residualSlope({ personId: "mid", outcomes, t0, t1, spec: wide }).state).toBe(
       "undefined_window",
     );
-    expect(residualSlope({ personId: "mid", outcomes, t0, t1: day(10 + 30), spec: tight }).state).toBe(
-      "defined",
-    );
+    expect(
+      residualSlope({ personId: "mid", outcomes, t0, t1: day(10 + 30), spec: tight }).state,
+    ).toBe("defined");
   });
 
   test("forwards opportunities into residualOutcomes at each cutoff", () => {
@@ -259,9 +273,18 @@ describe("residualSlope", () => {
     const at1 = residualOutcomes(outcomes, opps, V3, t1);
     expect(at0.get("lo")?.opportunityCount).toBe(0);
     expect(at1.get("lo")?.opportunityCount).toBe(1);
-    const slope = residualSlope({ personId: "lo", outcomes, opportunities: opps, t0, t1, spec: V3 });
+    const slope = residualSlope({
+      personId: "lo",
+      outcomes,
+      opportunities: opps,
+      t0,
+      t1,
+      spec: V3,
+    });
     expect(slope.state).toBe("defined");
-    expect(slope.delta).toBe((at1.get("lo")?.residual as number) - (at0.get("lo")?.residual as number));
+    expect(slope.delta).toBe(
+      (at1.get("lo")?.residual as number) - (at0.get("lo")?.residual as number),
+    );
   });
 
   test("returned dates are copies; a residual of 0 is defined, not missing", () => {
@@ -301,7 +324,12 @@ describe("residualSlopes", () => {
       "insufficient_early",
       "insufficient_early",
     ]);
-    expect(rows[0]?.delta).toBe(0);
+    // `late` joins the kind by t1, so mid's rank (and residual) moves.
+    const at0 = residualOutcomes(outcomes, [], V3, t0);
+    const at1 = residualOutcomes(outcomes, [], V3, t1);
+    expect(rows[0]?.delta).toBe(
+      (at1.get("mid")?.residual as number) - (at0.get("mid")?.residual as number),
+    );
     expect(rows[1]?.delta).toBeNull();
     expect(residualSlopes({ personIds: [], outcomes, t0, t1, spec: V3 })).toEqual([]);
 

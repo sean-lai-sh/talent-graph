@@ -82,7 +82,10 @@ function assemble(
     t1: new Date(t1.getTime()),
     residualT0,
     residualT1,
-    delta: state === "defined" && residualT0 !== null && residualT1 !== null ? residualT1 - residualT0 : null,
+    delta:
+      state === "defined" && residualT0 !== null && residualT1 !== null
+        ? residualT1 - residualT0
+        : null,
     state,
   };
 }
