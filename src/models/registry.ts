@@ -82,11 +82,36 @@ export const JUDGE_RELIABILITY_V2_0_0: JudgeReliabilitySpec = deepFreeze({
   applyBiasCorrection: false,
 });
 
+/**
+ * V3 slope / scout placeholders. Same numeric V2 fields; V3 keys present
+ * with scoutHook off. Registered so later Phase E issues can compute
+ * against it. Not current — production math still uses 2.0.0.
+ */
+export const JUDGE_RELIABILITY_V3_0_0: JudgeReliabilitySpec = deepFreeze({
+  kind: "judge_reliability",
+  version: "3.0.0",
+  observationWindowDays: 180,
+  learningRate: 0.3,
+  errorScale: 4,
+  shrinkage: 3,
+  priorReliability: 1,
+  opportunityBuckets: [1, 2, 3],
+  minBucketSize: 2,
+  minKindSize: 3,
+  opportunityClock: "referral",
+  excludeEditedReferrals: true,
+  applyBiasCorrection: false,
+  scoutHook: false,
+  scoutShrinkage: 3,
+  slopeMinGapDays: 90,
+});
+
 /** Every spec version ever shipped. Append only. */
 export const SPEC_HISTORY: readonly ModelSpec[] = deepFreeze([
   REFERRAL_SIGNAL_V0_1_0,
   BRADLEY_TERRY_V1_0_0,
   JUDGE_RELIABILITY_V2_0_0,
+  JUDGE_RELIABILITY_V3_0_0,
 ]);
 
 /** The version used when a caller does not pass a spec explicitly. */

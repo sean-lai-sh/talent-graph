@@ -8,6 +8,7 @@ import {
   getSpec,
   isRegisteredSpec,
   JUDGE_RELIABILITY_V2_0_0,
+  JUDGE_RELIABILITY_V3_0_0,
   REFERRAL_SIGNAL_V0_1_0,
   SPEC_HISTORY,
   specVersions,
@@ -102,9 +103,53 @@ describe("validateSpec: judge_reliability", () => {
   test("registered and current", () => {
     expect(CURRENT_SPECS.judge_reliability).toBe(JUDGE_RELIABILITY_V2_0_0);
     expect(getSpec("judge_reliability", "2.0.0")).toBe(JUDGE_RELIABILITY_V2_0_0);
-    expect(specVersions("judge_reliability")).toEqual(["2.0.0"]);
+    expect(specVersions("judge_reliability")).toEqual(["2.0.0", "3.0.0"]);
     expect(JUDGE_RELIABILITY_V2_0_0.priorReliability).toBe(1);
     expect(Object.isFrozen(JUDGE_RELIABILITY_V2_0_0.opportunityBuckets)).toBe(true);
+  });
+
+  test("accepts registered V2 and V3 specs", () => {
+    expect(validateSpec(JUDGE_RELIABILITY_V2_0_0)).toEqual({ ok: true });
+    expect(validateSpec(JUDGE_RELIABILITY_V3_0_0)).toEqual({ ok: true });
+  });
+
+  test("current judge_reliability stays 2.0.0; 3.0.0 is registered", () => {
+    expect(CURRENT_SPECS.judge_reliability).toBe(JUDGE_RELIABILITY_V2_0_0);
+    expect(CURRENT_SPECS.judge_reliability.version).toBe("2.0.0");
+    expect(getSpec("judge_reliability", "3.0.0")).toBe(JUDGE_RELIABILITY_V3_0_0);
+    expect(Object.isFrozen(JUDGE_RELIABILITY_V3_0_0)).toBe(true);
+  });
+
+  test("rejects invalid V3 fields when any V3 key is present", () => {
+    expect(
+      validateSpec({ ...JUDGE_RELIABILITY_V3_0_0, scoutShrinkage: -1 }).ok,
+    ).toBe(false);
+    expect(validateSpec({ ...JUDGE_RELIABILITY_V3_0_0, scoutHook: "yes" as never }).ok).toBe(
+      false,
+    );
+  });
+
+  test("JSON of 2.0.0 has no V3 keys", () => {
+    const keys = Object.keys(JUDGE_RELIABILITY_V2_0_0).sort();
+    expect(keys).toEqual([
+      "applyBiasCorrection",
+      "errorScale",
+      "excludeEditedReferrals",
+      "kind",
+      "learningRate",
+      "minBucketSize",
+      "minKindSize",
+      "observationWindowDays",
+      "opportunityBuckets",
+      "opportunityClock",
+      "priorReliability",
+      "shrinkage",
+      "version",
+    ]);
+    expect(keys).not.toContain("scoutHook");
+    expect(keys).not.toContain("scoutShrinkage");
+    expect(keys).not.toContain("slopeMinGapDays");
+    expect(JSON.parse(JSON.stringify(JUDGE_RELIABILITY_V2_0_0))).not.toHaveProperty("scoutHook");
   });
 });
 

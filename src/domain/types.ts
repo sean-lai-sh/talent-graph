@@ -135,6 +135,8 @@ export interface JudgeCalibration {
   reliability: number;
   observationCount: number;
   updatedAt: Date;
+  /** Persistable Ĝ_u. Produced later; unused by current math. */
+  scoutGain?: number | null;
 }
 
 /** Judge bias b̂_u as persisted by an application; produced alongside JudgeCalibration. */
@@ -160,4 +162,35 @@ export interface PredictionSnapshot {
   values: Record<string, number | null>;
   decision: string | null;
   createdAt: Date;
+}
+
+export type ForecastKind = "unspecified" | "will_compound";
+
+export type ResidualSlopeState =
+  | "defined"
+  | "insufficient_early"
+  | "insufficient_late"
+  | "undefined_window";
+
+/** Snapshot of ΔR*_v = R*_v(t1) − R*_v(t0). Computed later; type only here. */
+export interface ResidualSlope {
+  personId: string;
+  t0: Date;
+  t1: Date;
+  residualT0: number | null;
+  residualT1: number | null;
+  delta: number | null;
+  state: ResidualSlopeState;
+}
+
+/**
+ * Persistable scout number Ĝ_u. Produced later; type only here.
+ * Never added to p̂_u. Never derived from θ.
+ */
+export interface ScoutInformationGain {
+  judgeId: string;
+  gain: number;
+  evaluatedCount: number;
+  rawGain: number | null;
+  updatedAt: Date;
 }

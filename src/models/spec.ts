@@ -95,6 +95,15 @@ export interface JudgeReliabilitySpec {
   excludeEditedReferrals: boolean;
   /** Subtract the shrunk bias from a judge's prediction before weighting. */
   applyBiasCorrection: boolean;
+  /**
+   * Optional V3 fields. Absent on 2.0.0. When any is present, all three
+   * must be valid. No production math reads them yet.
+   */
+  scoutHook?: boolean;
+  /** λ_g ≥ 0. */
+  scoutShrinkage?: number;
+  /** Minimum t1 − t0 in days; ≥ 0. */
+  slopeMinGapDays?: number;
 }
 
 export type ModelSpec = ReferralSignalSpec | BradleyTerrySpec | JudgeReliabilitySpec;
@@ -220,6 +229,22 @@ function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string
   }
   if (typeof spec.applyBiasCorrection !== "boolean") {
     errors.push("applyBiasCorrection must be a boolean");
+  }
+
+  const hasV3 =
+    spec.scoutHook !== undefined ||
+    spec.scoutShrinkage !== undefined ||
+    spec.slopeMinGapDays !== undefined;
+  if (hasV3) {
+    if (typeof spec.scoutHook !== "boolean") {
+      errors.push("scoutHook must be a boolean");
+    }
+    if (!isFiniteNumber(spec.scoutShrinkage) || spec.scoutShrinkage < 0) {
+      errors.push("scoutShrinkage (λ_g) must be a finite number ≥ 0");
+    }
+    if (!isFiniteNumber(spec.slopeMinGapDays) || spec.slopeMinGapDays < 0) {
+      errors.push("slopeMinGapDays must be a finite number ≥ 0");
+    }
   }
 }
 

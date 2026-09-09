@@ -63,3 +63,15 @@ the seed dataset and paste the summary line into the entry.
 - **Drift:** n/a (first version; with the seed's synthetic outcomes,
   `bun run demo` shows the weighted vs unweighted Referral Signal side by side).
 - **PR:** #17.
+
+## judge_reliability@3.0.0 — registered, not current (Phase E1)
+
+- **What:** Same numeric V2 fields plus optional V3 keys `scoutHook: false`,
+  `scoutShrinkage: 3` (λ_g), `slopeMinGapDays: 90`. Domain types for
+  `ResidualSlope` and `ScoutInformationGain` land alongside; no production
+  math reads the new fields yet.
+- **Why:** Versioned target for later Phase E slope snapshots and scout
+  information gain. Registered so `getSpec("judge_reliability", "3.0.0")`
+  works; `CURRENT_SPECS.judge_reliability` stays `2.0.0`.
+- **Drift:** n/a until later (not current; no math change).
+- **PR:** issue #20.
