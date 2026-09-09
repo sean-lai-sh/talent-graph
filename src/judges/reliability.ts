@@ -287,7 +287,7 @@ export function computeJudgeCalibration(input: JudgeCalibrationInput): JudgeCali
     people: input.people,
     referrals: input.referrals,
     outcomes: input.outcomes,
-    opportunities: input.opportunities,
+    opportunities: input.opportunities ?? [],
     now: input.now,
     spec,
     referralSpec,

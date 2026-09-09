@@ -128,9 +128,7 @@ function priorReferralSignal(
   const tUvMs = tUv.getTime();
   const prior = referrals.filter(
     (r) =>
-      r.candidateId === candidateId &&
-      r.referrerId !== judgeId &&
-      r.createdAt.getTime() < tUvMs,
+      r.candidateId === candidateId && r.referrerId !== judgeId && r.createdAt.getTime() < tUvMs,
   );
   return computeReferralSignal(candidateId, prior, { spec: referralSpec }).s;
 }
@@ -140,9 +138,10 @@ function priorReferralSignal(
  * `forecastKind === "will_compound"` and ΔR* is defined; everything else
  * is a skip, not a zero IG.
  */
-export function scoreScoutPredictions(
-  input: ScoreScoutPredictionsInput,
-): { predictions: ScoredScoutPrediction[]; skipped: SkippedScoutReferral[] } {
+export function scoreScoutPredictions(input: ScoreScoutPredictionsInput): {
+  predictions: ScoredScoutPrediction[];
+  skipped: SkippedScoutReferral[];
+} {
   const spec = assertSpec(input.spec ?? CURRENT_SPECS.judge_reliability);
   const referralSpec = assertSpec(input.referralSpec ?? CURRENT_SPECS.referral_signal);
   const opportunities = input.opportunities ?? [];

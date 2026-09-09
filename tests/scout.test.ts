@@ -111,6 +111,18 @@ function slopeOf(personId: string, outcomes: Outcome[], spec: JudgeReliabilitySp
   return residualSlope({ personId, outcomes, t0, t1, spec });
 }
 
+function definedDelta(
+  personId: string,
+  outcomes: Outcome[],
+  spec: JudgeReliabilitySpec = V2,
+): number {
+  const slope = slopeOf(personId, outcomes, spec);
+  if (slope.state !== "defined" || slope.delta === null) {
+    throw new Error(`expected defined slope for ${personId}, got ${slope.state}`);
+  }
+  return slope.delta;
+}
+
 describe("scoutSlopeGapDays (window rule)", () => {
   test("t1 − t0 is max(observationWindowDays, slopeMinGapDays ?? 90)", () => {
     expect(V2.slopeMinGapDays).toBeUndefined();
@@ -207,16 +219,15 @@ describe("scoreScoutPredictions / computeScoutInformationGain", () => {
 
   test("will_compound + positive ΔR* + π = 0 ⇒ IG = ΔR*", () => {
     const outcomes = compoundingTriad();
-    const slope = slopeOf("lo", outcomes);
-    expect(slope.state).toBe("defined");
-    expect(slope.delta as number).toBeGreaterThan(0);
+    const delta = definedDelta("lo", outcomes);
+    expect(delta).toBeGreaterThan(0);
 
     const ref = willCompound("u", "lo", 2);
     const scored = scoreScoutPredictions({ referrals: [ref], outcomes, spec: V2 });
     expect(scored.predictions).toHaveLength(1);
     expect(scored.predictions[0]?.priorSignal).toBe(0);
-    expect(scored.predictions[0]?.delta).toBe(slope.delta);
-    expect(scored.predictions[0]?.informationGain).toBe(slope.delta);
+    expect(scored.predictions[0]?.delta).toBe(delta);
+    expect(scored.predictions[0]?.informationGain).toBe(delta);
 
     const gains = computeScoutInformationGain({
       people: [person("u")],
@@ -225,14 +236,14 @@ describe("scoreScoutPredictions / computeScoutInformationGain", () => {
       now: NOW,
       spec: V2,
     });
-    expect(gains.get("u")?.rawGain).toBe(slope.delta);
+    expect(gains.get("u")?.rawGain).toBe(delta);
     expect(gains.get("u")?.evaluatedCount).toBe(1);
   });
 
   test("π = 1 ⇒ IG = 0 even if the slope is huge", () => {
     const outcomes = compoundingTriad();
-    const slope = slopeOf("lo", outcomes);
-    expect(slope.delta as number).toBeGreaterThan(0);
+    const delta = definedDelta("lo", outcomes);
+    expect(delta).toBeGreaterThan(0);
 
     // Five max-strength V0 referrals from *other* judges before t_uv fill Top-K.
     const priors = ["s1", "s2", "s3", "s4", "s5"].map((id) => referral(id, "lo", 5, 1));
@@ -246,7 +257,7 @@ describe("scoreScoutPredictions / computeScoutInformationGain", () => {
     });
     const row = scored.predictions.find((p) => p.referralId === scoutRef.id);
     expect(row?.priorSignal).toBe(1);
-    expect(row?.delta).toBe(slope.delta);
+    expect(row?.delta).toBe(delta);
     expect(row?.informationGain).toBe(0);
 
     const gains = computeScoutInformationGain({
@@ -263,15 +274,14 @@ describe("scoreScoutPredictions / computeScoutInformationGain", () => {
 
   test("negative ΔR* ⇒ IG = 0 via max(·, 0) and the row still counts toward n", () => {
     const outcomes = compoundingTriad();
-    const slope = slopeOf("hi", outcomes);
-    expect(slope.state).toBe("defined");
-    expect(slope.delta as number).toBeLessThan(0);
+    const delta = definedDelta("hi", outcomes);
+    expect(delta).toBeLessThan(0);
 
     const ref = willCompound("u", "hi", 5);
     const scored = scoreScoutPredictions({ referrals: [ref], outcomes, spec: V2 });
     expect(scored.predictions).toHaveLength(1);
     expect(scored.predictions[0]?.informationGain).toBe(0);
-    expect(scored.predictions[0]?.delta).toBe(slope.delta);
+    expect(scored.predictions[0]?.delta).toBe(delta);
 
     const gains = computeScoutInformationGain({
       people: [person("u")],
@@ -290,7 +300,7 @@ describe("scoreScoutPredictions / computeScoutInformationGain", () => {
 
   test("same slope, different conviction ⇒ same IG (x_uv does not enter)", () => {
     const outcomes = compoundingTriad();
-    const slope = slopeOf("lo", outcomes);
+    const delta = definedDelta("lo", outcomes);
     // Same createdAt: neither referral is in the other's π (strictly before t_uv).
     const mild = willCompound("mild", "lo", 1);
     const hot = willCompound("hot", "lo", 5);
@@ -301,10 +311,10 @@ describe("scoreScoutPredictions / computeScoutInformationGain", () => {
     expect(scored.predictions).toHaveLength(2);
     expect(scored.predictions[0]?.priorSignal).toBe(0);
     expect(scored.predictions[1]?.priorSignal).toBe(0);
-    expect(scored.predictions[0]?.delta).toBe(slope.delta);
-    expect(scored.predictions[1]?.delta).toBe(slope.delta);
+    expect(scored.predictions[0]?.delta).toBe(delta);
+    expect(scored.predictions[1]?.delta).toBe(delta);
     expect(scored.predictions[0]?.informationGain).toBe(scored.predictions[1]?.informationGain);
-    expect(scored.predictions[0]?.informationGain).toBe(slope.delta);
+    expect(scored.predictions[0]?.informationGain).toBe(delta);
   });
 
   test("shrinkage closed form: 1 hit vs 5 identical hits, λ = 3", () => {
@@ -318,7 +328,7 @@ describe("scoreScoutPredictions / computeScoutInformationGain", () => {
     const oneRef = willCompound("one", oneId);
     const fiveRefs = fiveIds.map((id) => willCompound("five", id));
 
-    const deltas = [oneId, ...fiveIds].map((id) => slopeOf(id, outcomes).delta);
+    const deltas = [oneId, ...fiveIds].map((id) => definedDelta(id, outcomes));
     expect(deltas.every((d) => d === deltas[0])).toBe(true);
     const g = deltas[0] as number;
     expect(g).toBeGreaterThan(0);
@@ -374,7 +384,7 @@ describe("scoreScoutPredictions / computeScoutInformationGain", () => {
       new Map([...estimates.values()].map((e) => [e.judgeId, e.reliability])),
     );
     expect(run.scout.get("u")?.evaluatedCount).toBe(1);
-    expect(run.scout.get("u")?.rawGain).toBe(slopeOf("lo", outcomes).delta);
+    expect(run.scout.get("u")?.rawGain).toBe(definedDelta("lo", outcomes));
     expect(run.estimates.get("u")?.reliability).toBe(estimates.get("u")?.reliability);
   });
 
