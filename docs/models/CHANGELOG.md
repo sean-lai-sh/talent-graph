@@ -64,14 +64,28 @@ the seed dataset and paste the summary line into the entry.
   `bun run demo` shows the weighted vs unweighted Referral Signal side by side).
 - **PR:** #17.
 
-## judge_reliability@3.0.0 — registered, not current (Phase E1)
+## judge_reliability@3.0.0 — current (Phase E6)
 
 - **What:** Same numeric V2 fields plus optional V3 keys `scoutHook: false`,
-  `scoutShrinkage: 3` (λ_g), `slopeMinGapDays: 90`. Domain types for
-  `ResidualSlope` and `ScoutInformationGain` land alongside; no production
-  math reads the new fields yet.
-- **Why:** Versioned target for later Phase E slope snapshots and scout
-  information gain. Registered so `getSpec("judge_reliability", "3.0.0")`
-  works; `CURRENT_SPECS.judge_reliability` stays `2.0.0`.
-- **Drift:** n/a until later (not current; no math change).
-- **PR:** #28 (issue #20).
+  `scoutShrinkage: 3` (λ_g), `slopeMinGapDays: 90`. Now current:
+  `CURRENT_SPECS.judge_reliability = JUDGE_RELIABILITY_V3_0_0`. The Referral
+  Signal hook accepts optional `scoutWeights`; contribution is
+  `scoutFactor · p̂_u · clip(R_uv − b̂_u, 0, 1)` with
+  `scoutFactor = clip01(scoutWeights.get(u) ?? 1)`. A missing Ĝ (omitted map
+  or missing judge) is factor 1 and does not move the graph. Zero scout
+  factor drops the referral from Top-K the same way zero reliability does.
+  `judgeWeightOptions` still always passes reliability (and bias when
+  `applyBiasCorrection`); it passes `scoutWeights` **only when**
+  `spec.scoutHook === true`. Default `scoutHook` stays **false**, so
+  production math is bit-for-bit V2. `src/scoring` still does not import
+  `src/judges`.
+- **Why:** Lands the scout information-gain hook (issue #26 / Phase E6)
+  without turning it on. 2.0.0 stays registered and key-identical (no V3
+  keys). Ĝ is never mixed into p̂_u.
+- **Drift:** `bun run drift` only compares `referral_signal` /
+  `bradley_terry`. On `generateSeed()`, `computeAllReferralSignals` with
+  `judgeWeightOptions(cal2)` vs `judgeWeightOptions(cal3)` (same `now`,
+  hook off) are **identical** (stable).
+  `bun run drift -- --kind referral_signal --before 0.1.0 --after 0.1.0`
+  is also stable (same spec).
+- **PR:** this PR (issue #26).

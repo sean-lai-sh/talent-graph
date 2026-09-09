@@ -10,7 +10,7 @@ import {
 } from "../src/modelRun.ts";
 import {
   BRADLEY_TERRY_V1_0_0,
-  JUDGE_RELIABILITY_V2_0_0,
+  JUDGE_RELIABILITY_V3_0_0,
   REFERRAL_SIGNAL_V0_1_0,
 } from "../src/models/registry.ts";
 import { generateSeed } from "../src/seed/generate.ts";
@@ -180,8 +180,8 @@ describe("runJudgeCalibration", () => {
   test("records the spec, referral spec and time step; outcomes are in the input hash", () => {
     const run = runJudgeCalibration(input);
     expect(run.modelType).toBe("judge_reliability_v2");
-    expect(run.modelVersion).toBe("2.0.0");
-    expect(run.parameters.spec).toEqual(JUDGE_RELIABILITY_V2_0_0);
+    expect(run.modelVersion).toBe("3.0.0");
+    expect(run.parameters.spec).toEqual(JUDGE_RELIABILITY_V3_0_0);
     expect(run.parameters.referralSpec).toEqual(REFERRAL_SIGNAL_V0_1_0);
     expect(run.parameters.now).toEqual(T);
     const without = runJudgeCalibration({ ...input, outcomes: [] });
@@ -202,10 +202,26 @@ describe("runJudgeCalibration", () => {
     expect(weighted.id).not.toBe(plain.id);
     expect(weighted.parameters.judgeReliability).toBeInstanceOf(Map);
     expect(weighted.parameters.judgeWeighted).toBe(true);
+    expect(weighted.parameters.scoutWeighted).toBe(false);
+    expect(weighted.parameters.scoutWeights).toBeNull();
     expect(weighted.modelVersion).toBe("0.1.0+judge_reliability");
     expect(plain.modelVersion).toBe("0.1.0");
     expect(plain.parameters.judgeReliability).toBeNull();
     expect(plain.parameters.judgeWeighted).toBe(false);
+    expect(plain.parameters.scoutWeighted).toBe(false);
+  });
+
+  test("a scoutWeights map is copied into provenance", () => {
+    const scoutWeights = new Map<string, number>([["p-001", 0.4]]);
+    const run = runReferralSignals(data.people, data.referrals, T, { scoutWeights });
+    expect(run.parameters.judgeWeighted).toBe(true);
+    expect(run.parameters.scoutWeighted).toBe(true);
+    const recorded = run.parameters.scoutWeights as Map<string, number>;
+    expect(recorded.get("p-001")).toBe(0.4);
+    scoutWeights.set("p-001", 1);
+    expect(recorded.get("p-001")).toBe(0.4);
+    expect(recorded).not.toBe(scoutWeights);
+    expect(run.modelVersion).toBe("0.1.0+judge_reliability");
   });
 
   test("recorded judge weights are a copy: mutating the caller's map does not rewrite provenance", () => {

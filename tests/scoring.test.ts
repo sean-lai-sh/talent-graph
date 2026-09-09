@@ -7,6 +7,7 @@ import {
   computeReferralSignal,
   displayReferralSignal,
 } from "../src/scoring/referralSignal.ts";
+import { generateSeed } from "../src/seed/generate.ts";
 import {
   normalizeScale,
   referralStrength,
@@ -246,6 +247,94 @@ describe("computeReferralSignal", () => {
     // Type-level: computeReferralSignal takes (personId, Referral[], opts?). If a
     // future change adds an evaluation parameter this arity assertion fails.
     expect(computeReferralSignal.length).toBe(2);
+  });
+});
+
+describe("scoutWeights hook", () => {
+  test("omitted map is bit-identical to no judge weights", () => {
+    const rs = [
+      referral({ referrerId: "a", conviction: 5 }),
+      referral({ referrerId: "b", conviction: 3 }),
+    ];
+    const plain = computeReferralSignal("v", rs);
+    const omitted = computeReferralSignal("v", rs, {});
+    expect(omitted.signal).toBe(plain.signal);
+    expect(omitted.s).toBe(plain.s);
+    expect(omitted.usedCount).toBe(plain.usedCount);
+    expect(omitted.judgeWeighted).toBe(false);
+    expect(omitted.scoutWeighted).toBe(false);
+    expect(omitted.contributing.map((c) => c.judge.scout)).toEqual([1, 1]);
+  });
+
+  test("missing judge in the map keeps factor 1", () => {
+    const trusted = referral({ referrerId: "good", conviction: 5 });
+    const other = referral({ referrerId: "also", conviction: 5 });
+    const plain = computeReferralSignal("v", [trusted, other], { topK: 2 });
+    const res = computeReferralSignal("v", [trusted, other], {
+      topK: 2,
+      scoutWeights: new Map([["someone-else", 0]]),
+    });
+    expect(res.signal).toBe(plain.signal);
+    expect(res.s).toBe(plain.s);
+    expect(res.usedCount).toBe(2);
+    expect(res.judgeWeighted).toBe(true);
+    expect(res.scoutWeighted).toBe(true);
+    expect(res.contributing.map((c) => c.judge.scout)).toEqual([1, 1]);
+  });
+
+  test("scout weight 0 drops a top contributor from Top-K and does not dilute the mean", () => {
+    const trusted = referral({ referrerId: "good", conviction: 5 });
+    const junk = referral({ referrerId: "scout-zero", conviction: 5 });
+    const res = computeReferralSignal("v", [trusted, junk], {
+      topK: 2,
+      scoutWeights: new Map([["scout-zero", 0]]),
+    });
+    expect(res.incomingCount).toBe(2);
+    expect(res.usedCount).toBe(1);
+    expect(res.contributing.map((c) => c.referral.referrerId)).toEqual(["good"]);
+    expect(res.s).toBe(1);
+    expect(res.strongest).toBe(1);
+    expect(res.judgeWeighted).toBe(true);
+    expect(res.scoutWeighted).toBe(true);
+  });
+
+  test("finite out-of-range scout weights are clipped; non-finite weights are rejected", () => {
+    const r = referral({ referrerId: "u", conviction: 5 });
+    const high = computeReferralSignal("v", [r], { scoutWeights: new Map([["u", 1.5]]) });
+    expect(high.contributing[0]?.judge.scout).toBe(1);
+    expect(high.s).toBe(1);
+    const low = computeReferralSignal("v", [r], { scoutWeights: new Map([["u", -0.5]]) });
+    expect(low.usedCount).toBe(0);
+    expect(low.s).toBe(0);
+    expect(() =>
+      computeReferralSignal("v", [r], { scoutWeights: new Map([["u", Number.NaN]]) }),
+    ).toThrow(/scout weight/);
+  });
+
+  test("scoutFactor multiplies reliability · clip(R − bias, 0, 1)", () => {
+    const r = referral({ referrerId: "u", conviction: 5 });
+    const res = computeReferralSignal("v", [r], {
+      judgeReliability: new Map([["u", 0.5]]),
+      judgeBias: new Map([["u", 0.2]]),
+      scoutWeights: new Map([["u", 0.4]]),
+    });
+    const adjusted = 1 - 0.2;
+    expect(res.contributing[0]?.judge.adjusted).toBeCloseTo(adjusted, 12);
+    expect(res.contributing[0]?.strength).toBeCloseTo(0.4 * 0.5 * adjusted, 12);
+  });
+
+  test("no scout map on generateSeed() is bit-identical to the unweighted V0 signals", () => {
+    const data = generateSeed();
+    const plain = computeAllReferralSignals(data.people, data.referrals);
+    const noScout = computeAllReferralSignals(data.people, data.referrals, {});
+    for (const [id, left] of plain) {
+      const right = noScout.get(id);
+      expect(right?.signal).toBe(left.signal);
+      expect(right?.s).toBe(left.s);
+      expect(right?.usedCount).toBe(left.usedCount);
+      expect(right?.scoutWeighted).toBe(false);
+      expect(right?.judgeWeighted).toBe(false);
+    }
   });
 });
 

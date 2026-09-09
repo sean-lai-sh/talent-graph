@@ -84,8 +84,8 @@ export const JUDGE_RELIABILITY_V2_0_0: JudgeReliabilitySpec = deepFreeze({
 
 /**
  * V3 slope / scout placeholders. Same numeric V2 fields; V3 keys present
- * with scoutHook off. Registered so later Phase E issues can compute
- * against it. Not current — production math still uses 2.0.0.
+ * with scoutHook off. Current. With the hook off, `judgeWeightOptions`
+ * does not pass scoutWeights, so Referral Signal matches V2 bit-for-bit.
  */
 export const JUDGE_RELIABILITY_V3_0_0: JudgeReliabilitySpec = deepFreeze({
   kind: "judge_reliability",
@@ -118,7 +118,7 @@ export const SPEC_HISTORY: readonly ModelSpec[] = deepFreeze([
 export const CURRENT_SPECS: { readonly [K in ModelSpecKind]: SpecOfKind<K> } = deepFreeze({
   referral_signal: REFERRAL_SIGNAL_V0_1_0,
   bradley_terry: BRADLEY_TERRY_V1_0_0,
-  judge_reliability: JUDGE_RELIABILITY_V2_0_0,
+  judge_reliability: JUDGE_RELIABILITY_V3_0_0,
 });
 
 /** All known versions of one kind, in registration order. */
