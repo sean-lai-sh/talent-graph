@@ -11,7 +11,9 @@
  * Referral Signal of v just before the referral (how obvious v already was),
  * and the payoff is the causal residual slope ΔR*_v after the referral
  * (whether v actually compounded). Conviction / x_uv / R_uv never enter IG.
- * Ĝ_u is never added to p̂_u and never applied to Referral Signal.
+ * Ĝ_u is never added to p̂_u. It is applied to Referral Signal only when
+ * a caller passes `scoutWeights` (`judgeWeightOptions` does so iff
+ * `spec.scoutHook === true`).
  *
  *   π_v(t_uv) = unweighted V0 S_v of referrals with createdAt < t_uv,
  *               excluding judge u (missing / zero incoming ⇒ π = 0)

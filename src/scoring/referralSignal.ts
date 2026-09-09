@@ -7,15 +7,20 @@
  *   S_v   = |TopK(v)| > 0 ? mean(R_uv, u ∈ TopK(v)) : 0
  *   ReferralSignal_v = 100 · S_v      // float; rounded only for display
  *
- * V2 hook (judge calibration): a caller may pass per-judge reliability p̂_u and
- * bias b̂_u maps. Each referral's contribution becomes
+ * V2/V3 hook (judge calibration): a caller may pass per-judge reliability
+ * p̂_u, bias b̂_u, and optional scout-weight maps. Each referral's
+ * contribution becomes
  *
- *   x*_uv = clip(R_uv − b̂_u, 0, 1) ;  contribution = p̂_u · x*_uv
+ *   x*_uv = clip(R_uv − b̂_u, 0, 1)
+ *   scoutFactor = clip01(scoutWeights.get(u) ?? 1)
+ *   contribution = scoutFactor · p̂_u · x*_uv
  *
- * With no maps (or p̂_u = 1, b̂_u = 0) this is exactly R_uv, so V0 is
- * reproduced bit-for-bit. This module never computes p̂_u itself; see
- * src/judges/. Inputs are referrals plus optional judge weights. Rubric
- * evaluations, comparisons, affiliation and bio are not parameters.
+ * Omitted scoutWeights, or a missing judge in the map, is factor 1 (no Ĝ ⇒
+ * do not move the graph). With no maps (or p̂_u = 1, b̂_u = 0, scoutFactor
+ * = 1) this is exactly R_uv, so V0 is reproduced bit-for-bit. This module
+ * never computes p̂_u or Ĝ_u itself; see src/judges/. Inputs are referrals
+ * plus optional judge weights. Rubric evaluations, comparisons, affiliation
+ * and bio are not parameters.
  */
 
 import { FIRSTHAND_EVIDENCE_TYPES } from "../domain/constants.ts";
@@ -39,7 +44,7 @@ export interface ContributingReferral {
    */
   breakdown: ReferralStrengthBreakdown;
   /** Judge weighting applied to this referral (1 / 0 / R_uv when none). */
-  judge: { reliability: number; bias: number; adjusted: number };
+  judge: { reliability: number; bias: number; scout: number; adjusted: number };
 }
 
 export interface ReferralSignalResult {
@@ -62,8 +67,13 @@ export interface ReferralSignalResult {
   explanation: string;
   /** Spec that produced the number, for provenance. */
   specVersion: string;
-  /** True when per-judge reliability or bias was applied (V2). */
+  /**
+   * True when any of reliability / bias / scoutWeights was passed.
+   * Omitted maps still leave every factor at the identity (1 / 0 / 1).
+   */
   judgeWeighted: boolean;
+  /** True when a `scoutWeights` map was passed (even if every factor is 1). */
+  scoutWeighted: boolean;
 }
 
 export interface ReferralSignalOptions {
@@ -74,10 +84,27 @@ export interface ReferralSignalOptions {
   judgeReliability?: ReadonlyMap<string, number>;
   /** b̂_u per judge id from V2 calibration; missing judges count as 0. */
   judgeBias?: ReadonlyMap<string, number>;
+  /**
+   * Scout factor per judge id (clipped Ĝ_u when the caller opts in).
+   * Omitted map, or a missing judge, is factor 1. Present values are
+   * clamped to [0, 1]; non-finite values are rejected.
+   */
+  scoutWeights?: ReadonlyMap<string, number>;
 }
 
 function clip01(x: number): number {
   return x < 0 ? 0 : x > 1 ? 1 : x;
+}
+
+/** Missing map / missing judge ⇒ 1. Present finite values are clipped to [0, 1]. */
+function scoutFactorOf(judgeId: string, weights: ReadonlyMap<string, number> | undefined): number {
+  if (weights === undefined) return 1;
+  const raw = weights.get(judgeId);
+  if (raw === undefined) return 1;
+  if (!Number.isFinite(raw)) {
+    throw new Error(`computeReferralSignal: judge ${judgeId} has scout weight ${raw}`);
+  }
+  return clip01(raw);
 }
 
 function compareContributing(a: ContributingReferral, b: ContributingReferral): number {
@@ -99,25 +126,31 @@ export function computeReferralSignal(
   // Defensive: a self-referral should already be rejected by validateReferral.
   const incoming = referrals.filter((r) => r.candidateId === personId && r.referrerId !== personId);
 
-  const judgeWeighted = opts.judgeReliability !== undefined || opts.judgeBias !== undefined;
+  const scoutWeighted = opts.scoutWeights !== undefined;
+  const judgeWeighted =
+    opts.judgeReliability !== undefined || opts.judgeBias !== undefined || scoutWeighted;
   const scored = incoming
     .map((referral): ContributingReferral => {
       const breakdown = referralStrengthBreakdown(referral, spec);
       const reliability = opts.judgeReliability?.get(referral.referrerId) ?? 1;
       const bias = opts.judgeBias?.get(referral.referrerId) ?? 0;
+      const scout = scoutFactorOf(referral.referrerId, opts.scoutWeights);
       if (!(reliability >= 0 && reliability <= 1) || !Number.isFinite(bias)) {
         throw new Error(
           `computeReferralSignal: judge ${referral.referrerId} has reliability ${reliability}, bias ${bias}`,
         );
       }
       const adjusted = bias === 0 ? breakdown.strength : clip01(breakdown.strength - bias);
-      const strength = reliability === 1 ? adjusted : reliability * adjusted;
-      return { referral, strength, breakdown, judge: { reliability, bias, adjusted } };
+      const strength = reliability === 1 && scout === 1 ? adjusted : scout * reliability * adjusted;
+      return { referral, strength, breakdown, judge: { reliability, bias, scout, adjusted } };
     })
     .sort(compareContributing);
 
-  // A zero-reliability judge must not occupy a Top-K slot or dilute the mean.
-  const eligible = judgeWeighted ? scored.filter((c) => c.judge.reliability > 0) : scored;
+  // A zero-reliability or zero-scout judge must not occupy a Top-K slot
+  // or dilute the mean.
+  const eligible = judgeWeighted
+    ? scored.filter((c) => c.judge.reliability > 0 && c.judge.scout > 0)
+    : scored;
   const contributing = eligible.slice(0, topK);
   const s =
     contributing.length === 0
@@ -144,6 +177,7 @@ export function computeReferralSignal(
     explanation: REFERRAL_SIGNAL_EXPLANATION,
     specVersion: spec.version,
     judgeWeighted,
+    scoutWeighted,
   };
 }
 

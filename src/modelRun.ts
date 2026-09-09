@@ -96,7 +96,9 @@ export function runReferralSignals(
 ): ModelRun<Map<string, ReferralSignalResult>> {
   const spec: ModelSpec = opts.spec ?? CURRENT_SPECS.referral_signal;
   const outputs = computeAllReferralSignals(people, referrals, opts);
-  const judgeWeighted = opts.judgeReliability !== undefined || opts.judgeBias !== undefined;
+  const scoutWeighted = opts.scoutWeights !== undefined;
+  const judgeWeighted =
+    opts.judgeReliability !== undefined || opts.judgeBias !== undefined || scoutWeighted;
   return createModelRun(
     "referral_signal_v0",
     // Weighted numbers are not the unweighted 0.1.0 identity; tag the run.
@@ -106,10 +108,13 @@ export function runReferralSignals(
       topK: opts.topK ?? spec.topK,
       // Judge weights change the numbers; they are provenance, not a silent
       // rewrite of referral_signal@0.1.0. Copied so later map mutation cannot
-      // rewrite the record. `judgeWeighted` is true iff either map was passed.
+      // rewrite the record. `judgeWeighted` is true iff any weight map was
+      // passed; `scoutWeighted` is true iff scoutWeights was passed.
       judgeWeighted,
+      scoutWeighted,
       judgeReliability: opts.judgeReliability ? new Map(opts.judgeReliability) : null,
       judgeBias: opts.judgeBias ? new Map(opts.judgeBias) : null,
+      scoutWeights: opts.scoutWeights ? new Map(opts.scoutWeights) : null,
     },
     { people: people.map((p) => p.id), referrals },
     outputs,

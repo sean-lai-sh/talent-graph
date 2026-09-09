@@ -232,8 +232,9 @@ describe("residualSlope", () => {
     expect(V2.slopeMinGapDays).toBeUndefined();
   });
 
-  test("omitted spec uses CURRENT_SPECS.judge_reliability (2.0.0) and the 90-day default", () => {
-    expect(CURRENT_SPECS.judge_reliability).toBe(V2);
+  test("omitted spec uses CURRENT_SPECS.judge_reliability (3.0.0) and the 90-day default", () => {
+    expect(CURRENT_SPECS.judge_reliability).toBe(V3);
+    expect(CURRENT_SPECS.judge_reliability.slopeMinGapDays).toBe(90);
     const outcomes = triad(10);
     const slope = residualSlope({ personId: "mid", outcomes, t0: day(10), t1: day(10 + 90) });
     expect(slope.state).toBe("defined");

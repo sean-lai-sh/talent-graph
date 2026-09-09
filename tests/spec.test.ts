@@ -101,8 +101,11 @@ describe("validateSpec: judge_reliability", () => {
   });
 
   test("registered and current", () => {
-    expect(CURRENT_SPECS.judge_reliability).toBe(JUDGE_RELIABILITY_V2_0_0);
+    expect(CURRENT_SPECS.judge_reliability).toBe(JUDGE_RELIABILITY_V3_0_0);
+    expect(CURRENT_SPECS.judge_reliability.version).toBe("3.0.0");
+    expect(CURRENT_SPECS.judge_reliability.scoutHook).toBe(false);
     expect(getSpec("judge_reliability", "2.0.0")).toBe(JUDGE_RELIABILITY_V2_0_0);
+    expect(getSpec("judge_reliability", "3.0.0")).toBe(JUDGE_RELIABILITY_V3_0_0);
     expect(specVersions("judge_reliability")).toEqual(["2.0.0", "3.0.0"]);
     expect(JUDGE_RELIABILITY_V2_0_0.priorReliability).toBe(1);
     expect(Object.isFrozen(JUDGE_RELIABILITY_V2_0_0.opportunityBuckets)).toBe(true);
@@ -113,9 +116,11 @@ describe("validateSpec: judge_reliability", () => {
     expect(validateSpec(JUDGE_RELIABILITY_V3_0_0)).toEqual({ ok: true });
   });
 
-  test("current judge_reliability stays 2.0.0; 3.0.0 is registered", () => {
-    expect(CURRENT_SPECS.judge_reliability).toBe(JUDGE_RELIABILITY_V2_0_0);
-    expect(CURRENT_SPECS.judge_reliability.version).toBe("2.0.0");
+  test("current judge_reliability is 3.0.0; 2.0.0 stays registered and key-identical", () => {
+    expect(CURRENT_SPECS.judge_reliability).toBe(JUDGE_RELIABILITY_V3_0_0);
+    expect(CURRENT_SPECS.judge_reliability.version).toBe("3.0.0");
+    expect(CURRENT_SPECS.judge_reliability.scoutHook).toBe(false);
+    expect(getSpec("judge_reliability", "2.0.0")).toBe(JUDGE_RELIABILITY_V2_0_0);
     expect(getSpec("judge_reliability", "3.0.0")).toBe(JUDGE_RELIABILITY_V3_0_0);
     expect(Object.isFrozen(JUDGE_RELIABILITY_V3_0_0)).toBe(true);
   });

@@ -105,8 +105,10 @@ export interface JudgeCalibrationRun {
   /** Mean raw reliability across judges with ≥1 evaluation; null if none. */
   populationMeanReliability: number | null;
   /**
-   * Ĝ_u per judge — second number, never mixed into p̂_u or Referral Signal.
-   * Populated by `computeScoutInformationGain`; additive.
+   * Ĝ_u per judge — second number, never mixed into p̂_u.
+   * Applied to Referral Signal only when `judgeWeightOptions` passes
+   * `scoutWeights` (`spec.scoutHook === true`). Populated by
+   * `computeScoutInformationGain`; additive.
    */
   scout: Map<string, ScoutInformationGain>;
   options: {
@@ -116,6 +118,8 @@ export interface JudgeCalibrationRun {
     evaluatedReferrals: number;
     judgesWithEvidence: number;
     applyBiasCorrection: boolean;
+    /** True only when the spec that produced this run set `scoutHook`. */
+    scoutHook: boolean;
   };
 }
 
@@ -306,22 +310,34 @@ export function computeJudgeCalibration(input: JudgeCalibrationInput): JudgeCali
       evaluatedReferrals: predictions.length,
       judgesWithEvidence: withEvidence.length,
       applyBiasCorrection: spec.applyBiasCorrection,
+      scoutHook: spec.scoutHook === true,
     },
   };
 }
 
 /**
- * The V2 options to pass to `computeReferralSignal` / `computeAllReferralSignals`:
- * reliability always, bias only when the spec enables the correction.
+ * Options to pass to `computeReferralSignal` / `computeAllReferralSignals`:
+ * reliability always, bias only when the spec enables the correction,
+ * scoutWeights only when `spec.scoutHook === true`.
+ *
+ * A judge with no scout evidence (`evaluatedCount === 0` or `rawGain`
+ * null) gets factor 1 (do not move the graph). A judge with scout
+ * evidence gets `clip(gain, 0, 1)` — Ĝ is already shrunk toward 0.
  */
 export function judgeWeightOptions(run: JudgeCalibrationRun): {
   judgeReliability: Map<string, number>;
   judgeBias?: Map<string, number>;
+  scoutWeights?: Map<string, number>;
 } {
   const judgeReliability = reliabilityWeights(run);
-  return run.options.applyBiasCorrection
-    ? { judgeReliability, judgeBias: biasCorrections(run) }
-    : { judgeReliability };
+  const out: {
+    judgeReliability: Map<string, number>;
+    judgeBias?: Map<string, number>;
+    scoutWeights?: Map<string, number>;
+  } = { judgeReliability };
+  if (run.options.applyBiasCorrection) out.judgeBias = biasCorrections(run);
+  if (run.options.scoutHook) out.scoutWeights = scoutWeights(run);
+  return out;
 }
 
 /** p̂_u per judge, in the form `computeReferralSignal` accepts. */
@@ -332,6 +348,23 @@ export function reliabilityWeights(run: JudgeCalibrationRun): Map<string, number
 /** b̂_u per judge, in the form `computeReferralSignal` accepts. */
 export function biasCorrections(run: JudgeCalibrationRun): Map<string, number> {
   return new Map([...run.estimates.values()].map((e) => [e.judgeId, e.bias]));
+}
+
+function clip01(x: number): number {
+  return x < 0 ? 0 : x > 1 ? 1 : x;
+}
+
+/**
+ * Scout factor per judge, in the form `computeReferralSignal` accepts.
+ * Missing Ĝ (`evaluatedCount === 0` or `rawGain` null) ⇒ 1.
+ */
+export function scoutWeights(run: JudgeCalibrationRun): Map<string, number> {
+  return new Map(
+    [...run.scout.values()].map((s) => [
+      s.judgeId,
+      s.evaluatedCount === 0 || s.rawGain === null ? 1 : clip01(s.gain),
+    ]),
+  );
 }
 
 /** Persistable JudgeCalibration record for an application's store. */

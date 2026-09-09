@@ -15,10 +15,11 @@ import {
   judgeWeightOptions,
   reliabilityWeights,
   scoreReferralPredictions,
+  scoutWeights,
   toJudgeBias,
   toJudgeCalibration,
 } from "../src/judges/reliability.ts";
-import { JUDGE_RELIABILITY_V2_0_0 } from "../src/models/registry.ts";
+import { JUDGE_RELIABILITY_V2_0_0, JUDGE_RELIABILITY_V3_0_0 } from "../src/models/registry.ts";
 import type { JudgeReliabilitySpec } from "../src/models/spec.ts";
 import { computeAllReferralSignals } from "../src/scoring/referralSignal.ts";
 import { referralStrength } from "../src/scoring/referralStrength.ts";
@@ -688,6 +689,62 @@ describe("computeJudgeCalibration and the Referral Signal hook", () => {
       expect(run.scout.get(e.judgeId)?.evaluatedCount).toBe(0);
     }
   });
+
+  test("judgeWeightOptions omits scoutWeights when scoutHook is false or absent", () => {
+    const v2 = computeJudgeCalibration({ people, referrals, outcomes, now: NOW, spec: SPEC });
+    const v3 = computeJudgeCalibration({
+      people,
+      referrals,
+      outcomes,
+      now: NOW,
+      spec: JUDGE_RELIABILITY_V3_0_0,
+    });
+    expect(v2.options.scoutHook).toBe(false);
+    expect(v3.options.scoutHook).toBe(false);
+    expect(judgeWeightOptions(v2).scoutWeights).toBeUndefined();
+    expect(judgeWeightOptions(v3).scoutWeights).toBeUndefined();
+  });
+
+  test("judgeWeightOptions passes clipped Ĝ only when scoutHook is on; missing Ĝ stays 1", () => {
+    const hooked = computeJudgeCalibration({
+      people,
+      referrals,
+      outcomes,
+      now: NOW,
+      spec: { ...JUDGE_RELIABILITY_V3_0_0, scoutHook: true },
+    });
+    expect(hooked.options.scoutHook).toBe(true);
+    const opts = judgeWeightOptions(hooked);
+    expect(opts.scoutWeights).toBeDefined();
+    const factors = scoutWeights(hooked);
+    for (const e of hooked.scout.values()) {
+      if (e.evaluatedCount === 0 || e.rawGain === null) {
+        expect(factors.get(e.judgeId)).toBe(1);
+      } else {
+        expect(factors.get(e.judgeId)).toBe(Math.min(1, Math.max(0, e.gain)));
+      }
+    }
+    expect(opts.scoutWeights).toEqual(factors);
+
+    // This fixture has no will_compound rows, so every factor is 1 and the
+    // hooked signal matches hook-off V3 (and V2).
+    expect([...factors.values()].every((f) => f === 1)).toBe(true);
+    const off = computeAllReferralSignals(
+      people,
+      referrals,
+      judgeWeightOptions(
+        computeJudgeCalibration({
+          people,
+          referrals,
+          outcomes,
+          now: NOW,
+          spec: JUDGE_RELIABILITY_V3_0_0,
+        }),
+      ),
+    );
+    const on = computeAllReferralSignals(people, referrals, opts);
+    for (const id of off.keys()) expect(on.get(id)?.signal).toBe(off.get(id)?.signal as number);
+  });
 });
 
 /* ------------------------------------------------------------------ *
@@ -745,6 +802,36 @@ describe("seed longitudinal records", () => {
     const v0 = computeAllReferralSignals(data.people, data.referrals);
     const v2 = computeAllReferralSignals(data.people, data.referrals, judgeWeightOptions(early));
     for (const id of v0.keys()) expect(v2.get(id)?.signal).toBe(v0.get(id)?.signal as number);
+  });
+
+  test("hook off: V2 and V3 judgeWeightOptions produce identical seed signals", () => {
+    const now = new Date("2026-12-31T00:00:00.000Z");
+    const input = {
+      people: data.people,
+      referrals: data.referrals,
+      outcomes: data.outcomes,
+      opportunities: data.opportunities,
+      now,
+    };
+    const cal2 = computeJudgeCalibration({ ...input, spec: JUDGE_RELIABILITY_V2_0_0 });
+    const cal3 = computeJudgeCalibration({ ...input, spec: JUDGE_RELIABILITY_V3_0_0 });
+    expect(cal2.options.scoutHook).toBe(false);
+    expect(cal3.options.scoutHook).toBe(false);
+    const a = computeAllReferralSignals(data.people, data.referrals, judgeWeightOptions(cal2));
+    const b = computeAllReferralSignals(data.people, data.referrals, judgeWeightOptions(cal3));
+    expect(a.size).toBe(b.size);
+    for (const [id, left] of a) {
+      const right = b.get(id);
+      expect(right?.signal).toBe(left.signal);
+      expect(right?.s).toBe(left.s);
+      expect(right?.usedCount).toBe(left.usedCount);
+      expect(right?.contributing.map((c) => c.referral.id)).toEqual(
+        left.contributing.map((c) => c.referral.id),
+      );
+      expect(right?.contributing.map((c) => c.strength)).toEqual(
+        left.contributing.map((c) => c.strength),
+      );
+    }
   });
 
   test("spec with no opportunity buckets yields no opportunity correction", () => {

@@ -97,7 +97,9 @@ export interface JudgeReliabilitySpec {
   applyBiasCorrection: boolean;
   /**
    * Optional V3 fields. Absent on 2.0.0. When any is present, all three
-   * must be valid. No production math reads them yet.
+   * must be valid. `scoutHook` gates whether `judgeWeightOptions` passes
+   * scoutWeights; `scoutShrinkage` is used by scout gain; `slopeMinGapDays`
+   * is used by residualSlope.
    */
   scoutHook?: boolean;
   /** λ_g ≥ 0. */
