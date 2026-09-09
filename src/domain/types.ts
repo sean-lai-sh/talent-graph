@@ -172,8 +172,6 @@ export interface PredictionSnapshot {
   createdAt: Date;
 }
 
-export type ForecastKind = "unspecified" | "will_compound";
-
 export type ResidualSlopeState =
   | "defined"
   | "insufficient_early"
