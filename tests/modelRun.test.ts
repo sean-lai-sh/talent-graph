@@ -201,7 +201,11 @@ describe("runJudgeCalibration", () => {
     expect(weighted.inputHash).toBe(plain.inputHash);
     expect(weighted.id).not.toBe(plain.id);
     expect(weighted.parameters.judgeReliability).toBeInstanceOf(Map);
+    expect(weighted.parameters.judgeWeighted).toBe(true);
+    expect(weighted.modelVersion).toBe("0.1.0+judge_reliability");
+    expect(plain.modelVersion).toBe("0.1.0");
     expect(plain.parameters.judgeReliability).toBeNull();
+    expect(plain.parameters.judgeWeighted).toBe(false);
   });
 
   test("recorded judge weights are a copy: mutating the caller's map does not rewrite provenance", () => {

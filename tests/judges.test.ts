@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Opportunity, Outcome, Person, Referral } from "../src/domain/types.ts";
 import {
   buildOutcomeCohort,
+  firstCausalEligibleAt,
   labelForPrediction,
   opportunityBucket,
   percentileAmong,
@@ -239,31 +240,48 @@ describe("labelForPrediction", () => {
 
   test("pre-referral outcomes never enter the label (mixed pre/post case)", () => {
     // v: brilliant before the referral (day 50), poor afterwards (day 300).
-    const outcomes = [
-      outcome("v", 9, 50),
+    const post = [
       outcome("v", 1, 300),
       outcome("a", 5, 250),
       outcome("b", 6, 250),
       outcome("c", 7, 250),
     ];
-    const cohort = cohortOf(outcomes);
+    const mixed = [outcome("v", 9, 50), ...post];
+    const altPre = [outcome("v", 99, 50), ...post];
     const referredAt = day(100);
-    const label = labelForPrediction(cohort, "v", referredAt);
-    expect(label?.outcomeIds).toEqual([outcomes[1]?.id as string]);
-    expect(label?.normalized).toBe(0); // the post-window outcome is the cohort minimum
+    const label = labelForPrediction(cohortOf(mixed), "v", referredAt);
+    const labelAlt = labelForPrediction(cohortOf(altPre), "v", referredAt);
+    expect(label?.outcomeIds).toEqual([post[0]?.id as string]);
+    expect(label?.normalized).toBe(0);
     expect(label?.truth).toBe(0);
+    // Changing the pre-referral value must not move the causal label.
+    expect(labelAlt?.normalized).toBe(label?.normalized);
+    expect(labelAlt?.truth).toBe(label?.truth);
     // The person-level snapshot still averages both.
-    expect(cohort.snapshot.get("v")?.outcomeIds).toHaveLength(2);
-    expect(cohort.snapshot.get("v")?.normalized).toBe(0.5);
+    expect(cohortOf(mixed).snapshot.get("v")?.outcomeIds).toHaveLength(2);
+    expect(cohortOf(mixed).snapshot.get("v")?.normalized).toBe(0.5);
   });
 
-  test("the observation window is measured from the referral to the outcome, not to T", () => {
+  test("the observation window is T − t_uv; a short-horizon outcome is kept once T is late", () => {
     const outcomes = [outcome("v", 9, 115), outcome("a", 5, 250), outcome("b", 1, 250)];
-    const cohort = cohortOf(outcomes, [], SPEC, day(1000)); // T far in the future
-    // Referred at day 100: the outcome 15 days later does not clear 180 days.
-    expect(labelForPrediction(cohort, "v", day(100))).toBeNull();
-    // Referred at day −70 (outcome 185 days later): scorable.
-    expect(labelForPrediction(cohort, "v", day(-70))).not.toBeNull();
+    // Outcome 15 days after the referral is in the causal label.
+    expect(
+      labelForPrediction(cohortOf(outcomes, [], SPEC, day(1000)), "v", day(100)),
+    ).not.toBeNull();
+    // The scorer still refuses until T − t_uv ≥ 180.
+    const { skipped } = scoreReferralPredictions(
+      [referral("u", "v", 5, 300)],
+      cohortOf(outcomes, [], SPEC, day(400)),
+    );
+    expect(skipped[0]?.reason).toBe("too_recent");
+    // Once T is late, evaluatedAt is the window opening, not the day-15 outcome.
+    const scored = scoreReferralPredictions(
+      [referral("u", "v", 5, 100)],
+      cohortOf(outcomes, [], SPEC, day(1000)),
+    ).predictions[0];
+    expect(scored?.evaluatedAt.getTime()).toBe(
+      day(100).getTime() + SPEC.observationWindowDays * DAY,
+    );
   });
 
   test("opportunity clock: a post-referral opportunity is not subtracted under the default", () => {
@@ -292,10 +310,10 @@ describe("labelForPrediction", () => {
     expect(outcomeClock?.truth).toBeLessThan(referralClock?.truth as number);
   });
 
-  test("no post-window outcome ⇒ null", () => {
+  test("no later outcome ⇒ null", () => {
     const cohort = cohortOf([outcome("a", 5), outcome("b", 6), outcome("c", 7)]);
     expect(labelForPrediction(cohort, "nobody", day(5))).toBeNull();
-    expect(labelForPrediction(cohort, "a", day(200))).toBeNull(); // outcome at 250 < 200 + 180
+    expect(labelForPrediction(cohort, "a", day(260))).toBeNull(); // outcome at 250 precedes the referral
   });
 });
 
@@ -306,12 +324,15 @@ describe("labelForPrediction", () => {
 describe("scoreReferralPredictions (time step T)", () => {
   const outcomes = [outcome("v", 9, 250), outcome("w", 1, 250), outcome("z", 5, 250)];
 
-  test("a referral without a post-window outcome is not evaluated yet", () => {
-    const recent = referral("u", "v", 5, 300); // outcome at 250 precedes it
+  test("a referral without a later outcome is not evaluated", () => {
+    const late = referral("u", "v", 5, 260); // outcome at 250 precedes it; T − t ≥ 180
     const old = referral("u2", "v", 5, 5);
-    const { predictions, skipped } = scoreReferralPredictions([recent, old], cohortOf(outcomes));
+    const { predictions, skipped } = scoreReferralPredictions(
+      [late, old],
+      cohortOf(outcomes, [], SPEC, day(500)),
+    );
     expect(predictions.map((p) => p.referralId)).toEqual([old.id]);
-    expect(skipped).toEqual([{ referralId: recent.id, reason: "no_post_window_outcome" }]);
+    expect(skipped).toEqual([{ referralId: late.id, reason: "no_later_outcome" }]);
   });
 
   test("an outcome observed before the referral cannot score it", () => {
@@ -336,10 +357,57 @@ describe("scoreReferralPredictions (time step T)", () => {
     expect(pv?.label.outcomeIds).toEqual([outcomes[0]?.id as string]);
   });
 
-  test("scored predictions are ordered chronologically by evaluation", () => {
-    const o = [outcome("v", 9, 220), outcome("w", 1, 210), outcome("z", 5, 230)];
+  test("scored predictions are ordered by first evaluation, not the latest outcome", () => {
+    // Pads so the kind is rankable before either candidate's first outcome.
+    const o = [
+      outcome("z0", 4, 200),
+      outcome("z1", 5, 201),
+      outcome("v", 9, 210),
+      outcome("v", 8, 300),
+      outcome("w", 1, 220),
+    ];
     const scored = score([referral("u", "v", 5), referral("u", "w", 5)], o);
-    expect(scored.map((p) => p.candidateId)).toEqual(["w", "v"]);
+    expect(scored.map((p) => p.candidateId)).toEqual(["v", "w"]);
+    expect(scored[0]?.evaluatedAt).toEqual(o[2]?.observedAt);
+  });
+
+  test("evaluatedAt waits for minKindSize, not the first later outcome", () => {
+    // v's rare-kind outcome lands day 190; the kind only becomes rankable
+    // on day 310. w's common-kind label is available day 200.
+    const o = [
+      outcome("v", 1, 190, "rare"),
+      outcome("w", 9, 200, "common"),
+      outcome("c1", 5, 200, "common"),
+      outcome("c2", 1, 200, "common"),
+      outcome("r1", 5, 310, "rare"),
+      outcome("r2", 9, 310, "rare"),
+    ];
+    const late = referral("j", "v", 5, 10);
+    const early = referral("j", "w", 5, 20);
+
+    // Before the rare kind fills, only w is evaluable.
+    const mid = scoreReferralPredictions([late, early], cohortOf(o, [], SPEC, day(250)));
+    expect(mid.predictions.map((p) => p.candidateId)).toEqual(["w"]);
+    expect(mid.skipped).toEqual([{ referralId: late.id, reason: "no_later_outcome" }]);
+
+    const { predictions } = scoreReferralPredictions([late, early], cohortOf(o));
+    expect(predictions.map((p) => p.candidateId)).toEqual(["w", "v"]);
+    expect(predictions[0]?.evaluatedAt).toEqual(day(200));
+    expect(predictions[1]?.evaluatedAt).toEqual(day(310));
+    expect(predictions[1]?.label.firstObservedAt).toEqual(day(190));
+    expect(predictions[1]?.label.firstEligibleAt).toEqual(day(310));
+
+    // Eligibility order is right-then-wrong. Stamping on firstObservedAt
+    // would fold the larger error first (Ē ≈ 0.57 instead of ≈ 0.25).
+    const est = estimateJudgeReliability(["j"], predictions, SPEC);
+    const e0 = predictions[0]?.error as number;
+    const e1 = predictions[1]?.error as number;
+    expect(e0).toBeLessThan(e1);
+    expect(est.get("j")?.meanSquaredError).toBeCloseTo(
+      (1 - SPEC.learningRate) * e0 + SPEC.learningRate * e1,
+      12,
+    );
+    expect(firstCausalEligibleAt(o, "v", day(10), SPEC, NOW)).toEqual(day(310));
   });
 
   test("one prediction per (judge, candidate): the earliest referral; duplicates are skipped", () => {
@@ -433,15 +501,17 @@ describe("estimateJudgeReliability", () => {
   });
 
   test("the running error is an exponentially weighted average in evaluation order", () => {
+    // Pads so the kind is rankable before either first outcome.
+    const pads = [outcome("pad1", 4, 50), outcome("pad2", 6, 50)];
     // Wrong first (lo observed day 210), then right (hi observed day 220).
-    const o = [outcome("lo", 1, 210), outcome("hi", 9, 220), outcome("mid", 5, 215)];
+    const o = [...pads, outcome("lo", 1, 210), outcome("hi", 9, 220)];
     const refs = [referral("j", "lo", 5), referral("j", "hi", 5)];
     const est = estimateJudgeReliability(["j"], score(refs, o), SPEC);
     // Ē = (1−η)·1 + η·0 = 0.7
     expect(est.get("j")?.meanSquaredError).toBeCloseTo(0.7, 12);
 
     // Reverse order (right first, then wrong): Ē = (1−η)·0 + η·1 = 0.3
-    const o2 = [outcome("lo", 1, 220), outcome("hi", 9, 210), outcome("mid", 5, 215)];
+    const o2 = [...pads, outcome("lo", 1, 220), outcome("hi", 9, 210)];
     const est2 = estimateJudgeReliability(["j"], score(refs, o2), SPEC);
     expect(est2.get("j")?.meanSquaredError).toBeCloseTo(0.3, 12);
   });
@@ -479,7 +549,7 @@ describe("computeJudgeCalibration and the Referral Signal hook", () => {
   test("no outcomes ⇒ every judge at the prior and the weighted signal equals V0 exactly", () => {
     const run = computeJudgeCalibration({ people, referrals, outcomes: [], now: NOW });
     expect(run.predictions).toHaveLength(0);
-    expect(run.skipped.every((s) => s.reason === "no_post_window_outcome")).toBe(true);
+    expect(run.skipped.every((s) => s.reason === "no_later_outcome")).toBe(true);
     expect(run.populationMeanReliability).toBeNull();
     for (const e of run.estimates.values()) expect(e.reliability).toBe(1);
 
@@ -620,19 +690,28 @@ describe("seed longitudinal records", () => {
     });
     expect(run.options.evaluatedReferrals).toBeGreaterThan(5);
     expect(run.options.judgesWithEvidence).toBeGreaterThan(3);
-    // Every scored label is built from outcomes that cleared the window after the referral.
+    // Every scored label uses an outcome after the referral; the window is on T.
     for (const p of run.predictions) {
       const r = data.referrals.find((x) => x.id === p.referralId);
       if (!r) throw new Error("missing referral");
-      expect(p.label.firstObservedAt.getTime() - r.createdAt.getTime()).toBeGreaterThanOrEqual(
+      expect(p.label.firstObservedAt.getTime()).toBeGreaterThan(r.createdAt.getTime());
+      expect(p.evaluatedAt.getTime()).toBe(
+        Math.max(
+          p.label.firstEligibleAt.getTime(),
+          r.createdAt.getTime() + SPEC.observationWindowDays * DAY,
+        ),
+      );
+      expect(run.options.now.getTime() - r.createdAt.getTime()).toBeGreaterThanOrEqual(
         SPEC.observationWindowDays * DAY,
       );
     }
     const values = [...run.estimates.values()].map((e) => e.reliability);
     expect(Math.min(...values)).toBeLessThan(1);
     expect(Math.max(...values)).toBeLessThanOrEqual(1);
-    // Seed referrals are unique per pair and unedited: nothing skipped for those reasons.
-    expect(run.skipped.every((s) => s.reason === "no_post_window_outcome")).toBe(true);
+    // Seed referrals are unique per pair and unedited: skips are only missing labels or recency.
+    expect(
+      run.skipped.every((s) => s.reason === "no_later_outcome" || s.reason === "too_recent"),
+    ).toBe(true);
   });
 
   test("before the window closes nothing is evaluated and the signal is untouched", () => {

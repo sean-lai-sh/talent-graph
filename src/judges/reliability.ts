@@ -2,10 +2,10 @@
  * Judge calibration — learning who is good at identifying talent.
  *
  * A referral u → v made at time t is a prediction x_uv (its V0 strength R_uv,
- * unweighted). It is scored against a label built only from v's outcomes
- * observed at least `observationWindowDays` after t (outcomes.ts):
+ * unweighted). Once T − t has cleared the observation window it is scored
+ * against a causal label built from v's outcomes observed after t (outcomes.ts):
  *
- *   truth_uv = percentile of R*_v among the cohort, R*_v from post-window outcomes
+ *   truth_uv = percentile of R*_v among the cohort, R*_v from post-referral outcomes
  *   E_uv     = (x_uv − truth_uv)²
  *   Ē_u     ← (1 − η)·Ē_u + η·E_uv          in chronological order of evaluation
  *   p_u      = exp(−τ·Ē_u)
@@ -42,19 +42,24 @@ import {
   type ResidualOutcome,
 } from "./outcomes.ts";
 
+const DAY = 86_400_000;
+
 export interface ScoredPrediction {
   referralId: string;
   judgeId: string;
   candidateId: string;
   /** x_uv — the referral's unweighted V0 strength. */
   prediction: number;
-  /** truth_uv from the post-window residual label. */
+  /** truth_uv from the post-referral residual label. */
   truth: number;
   /** (x − truth)² */
   error: number;
   /** x − truth */
   signedError: number;
-  /** Latest outcome that contributed to the label. */
+  /**
+   * First instant this prediction could be scored: max(createdAt + window,
+   * label.firstEligibleAt). Kind size, not just the first later outcome.
+   */
   evaluatedAt: Date;
   /** Everything the label was built from. */
   label: PredictionLabel;
@@ -62,7 +67,12 @@ export interface ScoredPrediction {
 
 export interface SkippedReferral {
   referralId: string;
-  reason: "self_referral" | "duplicate_pair" | "edited_after_creation" | "no_post_window_outcome";
+  reason:
+    | "self_referral"
+    | "duplicate_pair"
+    | "edited_after_creation"
+    | "too_recent"
+    | "no_later_outcome";
 }
 
 export interface JudgeReliabilityEstimate {
@@ -118,9 +128,10 @@ export interface JudgeCalibrationInput {
  *
  * One prediction per (judge, candidate): the earliest referral by createdAt
  * (then id). Self-referrals and, by default, referrals edited after creation
- * are skipped. A referral is scored only when the candidate has at least one
- * outcome observed ≥ `observationWindowDays` after it; the label uses those
- * outcomes only.
+ * are skipped. A referral is scored only once `T − t_uv` has cleared the
+ * observation window and the candidate has a later outcome in a kind that
+ * has reached `minKindSize`. `evaluatedAt` is that first eligible instant
+ * (window opening if the outcome arrived earlier).
  */
 export function scoreReferralPredictions(
   referrals: readonly Referral[],
@@ -129,36 +140,49 @@ export function scoreReferralPredictions(
 ): { predictions: ScoredPrediction[]; skipped: SkippedReferral[] } {
   const spec = cohort.spec;
   const skipped: SkippedReferral[] = [];
+  const nowMs = cohort.now.getTime();
+  const windowMs = spec.observationWindowDays * DAY;
 
-  // Earliest referral per pair.
+  // Earliest referral per pair. Nested map so opaque ids cannot collide.
   const sorted = [...referrals].sort(
     (a, b) =>
       a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
-  const seenPair = new Set<string>();
+  const seenPair = new Map<string, Set<string>>();
   const out: ScoredPrediction[] = [];
   for (const r of sorted) {
     if (r.referrerId === r.candidateId) {
       skipped.push({ referralId: r.id, reason: "self_referral" });
       continue;
     }
-    const pair = `${r.referrerId}→${r.candidateId}`;
-    if (seenPair.has(pair)) {
+    const seen = seenPair.get(r.referrerId) ?? new Set<string>();
+    if (seen.has(r.candidateId)) {
       skipped.push({ referralId: r.id, reason: "duplicate_pair" });
       continue;
     }
-    seenPair.add(pair);
+    seen.add(r.candidateId);
+    seenPair.set(r.referrerId, seen);
     if (spec.excludeEditedReferrals && r.updatedAt.getTime() > r.createdAt.getTime()) {
       skipped.push({ referralId: r.id, reason: "edited_after_creation" });
       continue;
     }
+    if (nowMs - r.createdAt.getTime() < windowMs) {
+      skipped.push({ referralId: r.id, reason: "too_recent" });
+      continue;
+    }
     const label = labelForPrediction(cohort, r.candidateId, r.createdAt);
     if (label === null) {
-      skipped.push({ referralId: r.id, reason: "no_post_window_outcome" });
+      skipped.push({ referralId: r.id, reason: "no_later_outcome" });
       continue;
     }
     const prediction = referralStrength(r, referralSpec);
     const signedError = prediction - label.truth;
+    // First moment the prediction was allowed to be scored: max(kind
+    // eligibility, createdAt + window). A day-20 outcome does not sort
+    // before the window opens, and a rare kind does not stamp day-190
+    // when the cohort only became rankable on day 310.
+    const eligibleAt = r.createdAt.getTime() + windowMs;
+    const evaluatedAt = new Date(Math.max(label.firstEligibleAt.getTime(), eligibleAt));
     out.push({
       referralId: r.id,
       judgeId: r.referrerId,
@@ -167,7 +191,7 @@ export function scoreReferralPredictions(
       truth: label.truth,
       error: signedError * signedError,
       signedError,
-      evaluatedAt: label.latestObservedAt,
+      evaluatedAt,
       label,
     });
   }
