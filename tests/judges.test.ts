@@ -385,6 +385,10 @@ describe("computeJudgeCalibration and the Referral Signal hook", () => {
     expect(v2.get("v")?.signal).toBeLessThan(v0.get("v")?.signal as number);
     // Provenance of the weighting is on the result.
     expect(fromGood?.judge.adjusted).toBe(fromGood?.breakdown.strength as number);
+    // `strongest` keeps its contract: the raw max R_uv, unaffected by weights.
+    expect(v2.get("v")?.strongest).toBe(v0.get("v")?.strongest as number);
+    expect(v2.get("x")?.strongest).toBe(1);
+    expect(v2.get("x")?.contributing[0]?.strength).toBeLessThan(1);
   });
 
   test("bias correction is off by default and lowers an overrating judge when enabled", () => {

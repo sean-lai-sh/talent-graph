@@ -55,7 +55,7 @@ export interface ReferralSignalResult {
   usedCount: number;
   /** Incoming referrals whose evidence is firsthand (work or personal). */
   firsthandCount: number;
-  /** max R_uv over all incoming, or null when there are none. */
+  /** max R_uv over all incoming (unweighted, even under V2 weights), or null when none. */
   strongest: number | null;
   /** Distinct evidence types among all incoming, in canonical order of first appearance. */
   evidenceTypes: EvidenceType[];
@@ -136,7 +136,8 @@ export function computeReferralSignal(
     usedCount: contributing.length,
     firsthandCount: incoming.filter((r) => FIRSTHAND_EVIDENCE_TYPES.includes(r.evidenceType))
       .length,
-    strongest: scored.length === 0 ? null : (scored[0]?.strength ?? null),
+    // Raw max R_uv, independent of judge weighting (the documented contract).
+    strongest: scored.length === 0 ? null : Math.max(...scored.map((c) => c.breakdown.strength)),
     evidenceTypes,
     explanation: REFERRAL_SIGNAL_EXPLANATION,
     specVersion: spec.version,

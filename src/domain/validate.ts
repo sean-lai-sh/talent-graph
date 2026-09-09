@@ -169,10 +169,14 @@ export function validateOpportunity(o: Opportunity): ValidationResult {
   if (typeof o.personId !== "string" || o.personId === "")
     errors.push("personId must be non-empty");
   if (typeof o.kind !== "string" || o.kind.trim() === "") errors.push("kind must be non-empty");
-  if (!(o.startedAt instanceof Date) || Number.isNaN(o.startedAt.getTime())) {
-    errors.push("startedAt must be a valid Date");
-  } else if (o.endedAt !== null && o.endedAt.getTime() < o.startedAt.getTime()) {
-    errors.push("endedAt must not precede startedAt");
+  const validStart = o.startedAt instanceof Date && !Number.isNaN(o.startedAt.getTime());
+  if (!validStart) errors.push("startedAt must be a valid Date");
+  if (o.endedAt !== null) {
+    const validEnd = o.endedAt instanceof Date && !Number.isNaN(o.endedAt.getTime());
+    if (!validEnd) errors.push("endedAt must be null or a valid Date");
+    else if (validStart && o.endedAt.getTime() < o.startedAt.getTime()) {
+      errors.push("endedAt must not precede startedAt");
+    }
   }
   return result(errors);
 }

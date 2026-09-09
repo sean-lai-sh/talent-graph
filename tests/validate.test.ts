@@ -254,4 +254,23 @@ describe("validateOutcome / validateOpportunity", () => {
     );
     expect(validateOpportunity({ ...op, personId: "" }).ok).toBe(false);
   });
+
+  test("opportunity validator never throws on a non-Date or invalid endedAt", () => {
+    const op: Opportunity = {
+      id: "op-2",
+      personId: "p-1",
+      kind: "grant",
+      description: "x",
+      startedAt: new Date("2026-03-01T00:00:00.000Z"),
+      endedAt: null,
+      createdAt: new Date("2026-03-01T00:00:00.000Z"),
+    };
+    const asString = validateOpportunity({ ...op, endedAt: "2026-04-01" as never });
+    expect(asString.ok).toBe(false);
+    expect(asString.ok === false && asString.errors.join(" ")).toContain("endedAt");
+    expect(validateOpportunity({ ...op, endedAt: new Date("nope") }).ok).toBe(false);
+    expect(
+      validateOpportunity({ ...op, startedAt: new Date("nope"), endedAt: new Date("nope") }).ok,
+    ).toBe(false);
+  });
 });

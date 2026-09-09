@@ -203,4 +203,13 @@ describe("runJudgeCalibration", () => {
     expect(weighted.parameters.judgeReliability).toBeInstanceOf(Map);
     expect(plain.parameters.judgeReliability).toBeNull();
   });
+
+  test("recorded judge weights are a copy: mutating the caller's map does not rewrite provenance", () => {
+    const weights = new Map<string, number>([["p-001", 0.5]]);
+    const run = runReferralSignals(data.people, data.referrals, T, { judgeReliability: weights });
+    const recorded = run.parameters.judgeReliability as Map<string, number>;
+    weights.set("p-001", 1);
+    expect(recorded.get("p-001")).toBe(0.5);
+    expect(recorded).not.toBe(weights);
+  });
 });

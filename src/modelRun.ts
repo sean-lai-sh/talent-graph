@@ -103,8 +103,9 @@ export function runReferralSignals(
       spec,
       topK: opts.topK ?? spec.topK,
       // Judge weights change the numbers, so they are part of the provenance.
-      judgeReliability: opts.judgeReliability ?? null,
-      judgeBias: opts.judgeBias ?? null,
+      // Copied: a caller mutating its map later must not rewrite the record.
+      judgeReliability: opts.judgeReliability ? new Map(opts.judgeReliability) : null,
+      judgeBias: opts.judgeBias ? new Map(opts.judgeBias) : null,
     },
     { people: people.map((p) => p.id), referrals },
     outputs,
