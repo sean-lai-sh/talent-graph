@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { DIMENSION_PROMPTS } from "../src/domain/constants.ts";
 import type { Comparison, Dimension, Person } from "../src/domain/types.ts";
 import { computeCapabilityVectors } from "../src/inference/capabilityVector.ts";
@@ -59,8 +61,10 @@ describe("selectComparisons", () => {
     const ab = find(props, "A", "B");
     const cd = find(props, "C", "D");
     expect(ab?.parts.novelty).toBeCloseTo(1 / 30, 12);
+    expect(ab?.parts.surprise).toBe(0);
     // C/D were compared at T0, ~59 days ago ⇒ novelty saturates at 1.
     expect(cd?.parts.novelty).toBe(1);
+    expect(cd?.parts.surprise).toBe(0);
     expect((cd?.priority ?? 0) > (ab?.priority ?? 0)).toBe(true);
   });
 
@@ -171,6 +175,7 @@ describe("selectComparisons", () => {
     expect(find(props, "A", "Lone")?.parts.closeness).toBe(0.5);
     expect(find(props, "A", "X")?.parts.closeness).toBe(0.75);
     expect(find(props, "A", "B")?.parts.closeness).toBeCloseTo(1, 6);
+    expect(find(props, "A", "B")?.parts.surprise).toBe(0);
   });
 
   test("deterministic and honours limit and weights", () => {
@@ -182,10 +187,147 @@ describe("selectComparisons", () => {
     expect(first).toEqual(second);
     expect(first).toHaveLength(5);
     for (const p of first) {
+      expect(p.parts.surprise).toBe(0);
       expect(p.priority).toBeCloseTo(2 * p.parts.uncertainty + p.parts.novelty, 12);
     }
     for (let i = 1; i < first.length; i++) {
       expect((first[i - 1]?.priority ?? 0) >= (first[i]?.priority ?? 0)).toBe(true);
+    }
+  });
+});
+
+describe("selectComparisons surprise term", () => {
+  /** Four people in one dense pool, every pair compared 3× at T0. */
+  function densePool(): { ids: string[]; comps: Comparison[] } {
+    const ids = ["A", "B", "C", "D"];
+    const comps: Comparison[] = [];
+    for (const x of ids)
+      for (const y of ids) if (x < y) comps.push(cmp(x, y, "a"), cmp(y, x, "a"), cmp(x, y, "a"));
+    return { ids, comps };
+  }
+
+  /** Locked against the pre-surprise ranking of the dense T0 pool. */
+  const DENSE_FIXTURE = [
+    { personAId: "B", personBId: "C", priority: 1.824087810268378 },
+    { personAId: "A", personBId: "B", priority: 1.818802728882575 },
+    { personAId: "C", personBId: "D", priority: 1.818802728882575 },
+    { personAId: "A", personBId: "C", priority: 1.6204762939715183 },
+    { personAId: "B", personBId: "D", priority: 1.6204762939715183 },
+    { personAId: "A", personBId: "D", priority: 1.4741197804254167 },
+  ] as const;
+
+  const SEED_OUTPUT_TOP5 = [
+    { personAId: "p-001", personBId: "p-003", priority: 3 },
+    { personAId: "p-001", personBId: "p-006", priority: 3 },
+    { personAId: "p-001", personBId: "p-007", priority: 3 },
+    { personAId: "p-001", personBId: "p-015", priority: 3 },
+    { personAId: "p-001", personBId: "p-018", priority: 3 },
+  ] as const;
+
+  function ranking(props: ReturnType<typeof selectComparisons>) {
+    return props.map((p) => ({
+      personAId: p.personAId,
+      personBId: p.personBId,
+      priority: p.priority,
+    }));
+  }
+
+  test("no surprise map and d = 0 keep today's fixture priorities and order", () => {
+    const { ids, comps } = densePool();
+    const run = computeCapabilityVectors(ids.map(person), comps);
+    const omitted = selectComparisons("taste", run, comps, { now: NOW, limit: 100 });
+    const surpriseMap = new Map([
+      ["A", 1],
+      ["D", 1],
+    ]);
+    const explicitZero = selectComparisons("taste", run, comps, {
+      now: NOW,
+      limit: 100,
+      weights: { d: 0 },
+      surprise: surpriseMap,
+    });
+    const defaultD = selectComparisons("taste", run, comps, {
+      now: NOW,
+      limit: 100,
+      surprise: surpriseMap,
+    });
+    expect(ranking(omitted)).toEqual([...DENSE_FIXTURE]);
+    expect(ranking(explicitZero)).toEqual([...DENSE_FIXTURE]);
+    expect(ranking(defaultD)).toEqual([...DENSE_FIXTURE]);
+    for (const p of omitted) expect(p.parts.surprise).toBe(0);
+
+    const data = generateSeed();
+    const seedRun = computeCapabilityVectors(data.people, data.comparisons);
+    const seedProps = selectComparisons("output", seedRun, data.comparisons, {
+      now: NOW,
+      limit: 5,
+      weights: { a: 2, b: 0, c: 1 },
+    });
+    expect(ranking(seedProps)).toEqual([...SEED_OUTPUT_TOP5]);
+    for (const p of seedProps) expect(p.parts.surprise).toBe(0);
+  });
+
+  test("high surprise on one person lifts pairs that include them when d > 0", () => {
+    const { ids, comps } = densePool();
+    const run = computeCapabilityVectors(ids.map(person), comps);
+    const baseline = selectComparisons("taste", run, comps, { now: NOW, limit: 100 });
+    const lifted = selectComparisons("taste", run, comps, {
+      now: NOW,
+      limit: 100,
+      weights: { d: 1 },
+      surprise: new Map([["D", 1]]),
+    });
+
+    const baseCD = find(baseline, "C", "D");
+    const liftCD = find(lifted, "C", "D");
+    const liftBC = find(lifted, "B", "C");
+    expect(baseCD?.priority).toBe(1.818802728882575);
+    expect(liftCD?.parts.surprise).toBe(1);
+    expect(liftBC?.parts.surprise).toBe(0);
+    expect(liftCD?.priority).toBe((baseCD?.priority ?? 0) + 1);
+    expect((liftCD?.priority ?? 0) > (liftBC?.priority ?? 0)).toBe(true);
+    expect(lifted[0]?.personAId).toBe("C");
+    expect(lifted[0]?.personBId).toBe("D");
+    // Every pair that includes D is above every pair that does not.
+    const withD = lifted.filter((p) => p.personAId === "D" || p.personBId === "D");
+    const withoutD = lifted.filter((p) => p.personAId !== "D" && p.personBId !== "D");
+    const minWithD = Math.min(...withD.map((p) => p.priority));
+    const maxWithoutD = Math.max(...withoutD.map((p) => p.priority));
+    expect(minWithD).toBeGreaterThan(maxWithoutD);
+  });
+
+  test("surprise values outside [0, 1] are clamped and never throw", () => {
+    const { ids, comps } = densePool();
+    const run = computeCapabilityVectors(ids.map(person), comps);
+    const props = selectComparisons("taste", run, comps, {
+      now: NOW,
+      limit: 100,
+      weights: { d: 1 },
+      surprise: new Map([
+        ["A", 2.5],
+        ["B", -1],
+        ["C", 0.4],
+      ]),
+    });
+    // A is clamped to 1, B to 0; pair surprise is max(s_i, s_j).
+    expect(find(props, "A", "B")?.parts.surprise).toBe(1);
+    expect(find(props, "B", "D")?.parts.surprise).toBe(0);
+    expect(find(props, "C", "D")?.parts.surprise).toBe(0.4);
+    expect(find(props, "A", "C")?.parts.surprise).toBe(1);
+    const ab = find(props, "A", "B");
+    expect(ab?.priority).toBe(
+      (ab?.parts.uncertainty ?? 0) + (ab?.parts.closeness ?? 0) + (ab?.parts.novelty ?? 0) + 1,
+    );
+  });
+
+  test("src/inference still does not import src/scoring or src/judges", () => {
+    const root = join(import.meta.dir, "..");
+    const files = [...new Bun.Glob("src/inference/**/*.ts").scanSync({ cwd: root })];
+    expect(files.length).toBeGreaterThan(0);
+    for (const f of files) {
+      const source = readFileSync(join(root, f), "utf8");
+      expect(source, f).not.toMatch(/from\s+["'][^"']*\/scoring\//);
+      expect(source, f).not.toMatch(/from\s+["'][^"']*\/judges\//);
     }
   });
 });

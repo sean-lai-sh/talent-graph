@@ -1,13 +1,21 @@
 /**
  * Comparison selection heuristic — which pair should an evaluator judge next?
  *
- *   Priority(i,j,k) = a·Uncertainty + b·Closeness + c·Novelty
+ *   Priority(i,j,k) = a·Uncertainty + b·Closeness + c·Novelty + d·Surprise
  *   Uncertainty     = 1 / (1 + min(n_i, n_j))          n = informative comparisons on k
  *   Closeness       = exp(−|θ_i − θ_j|)                 same component, both estimated
  *                   = 0.5                               either side insufficient (bootstrap)
  *                   = 0.5 · crossComponentBonus         different components (bridging)
  *   Novelty         = 1                                 pair never informatively compared on k
  *                   = min(1, daysSince(last) / 30)      otherwise
+ *   Surprise        = max(s_i, s_j)                     per-person scores from the caller
+ *                   = 0                                 no map or missing person id
+ *
+ * `s_i` is a caller-injected score in [0, 1] (e.g. ΔR* / IG computed outside
+ * this module). Values outside [0, 1] are clamped; a missing person id is 0.
+ * This file never imports `src/judges`, never computes residuals, and never
+ * writes Comparison rows from outcomes. Default `d = 0` keeps existing
+ * rankings bit-identical.
  *
  * Only informative outcomes consume novelty: "a" / "b", and "tie" when the
  * run's tieHandling is "half". A skip or insufficient_observation leaves the
@@ -31,11 +39,18 @@ export interface SelectionOptions {
   now: Date;
   /** Default 10. */
   limit?: number;
-  weights?: { a?: number; b?: number; c?: number };
+  /** `d` defaults to 0 so rankings stay bit-identical without a surprise term. */
+  weights?: { a?: number; b?: number; c?: number; d?: number };
   /** Default 1. Scales the 0.5 closeness given to cross-component pairs. */
   crossComponentBonus?: number;
   /** Restrict proposals to these ids (e.g. people the evaluator has observed). */
   candidatePool?: string[];
+  /**
+   * Per-person surprise in [0, 1], computed by the caller (e.g. ΔR* / IG).
+   * Pair surprise is max(s_i, s_j); a missing id is 0. Out-of-range values
+   * are clamped to [0, 1].
+   */
+  surprise?: ReadonlyMap<string, number>;
 }
 
 export interface ProposedComparison {
@@ -43,11 +58,29 @@ export interface ProposedComparison {
   personBId: string;
   dimension: Dimension;
   priority: number;
-  parts: { uncertainty: number; closeness: number; novelty: number };
+  parts: { uncertainty: number; closeness: number; novelty: number; surprise: number };
   prompt: string;
 }
 
 const DAY = 86_400_000;
+
+/** Clamp a caller-supplied surprise score to [0, 1] without throwing. */
+function clampUnitInterval(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+/**
+ * Pair surprise is the max of the two people's scores. Missing ids are 0
+ * (including when the caller omitted the map). Values are clamped to [0, 1].
+ */
+function pairSurprise(
+  scores: ReadonlyMap<string, number> | undefined,
+  i: string,
+  j: string,
+): number {
+  if (scores === undefined) return 0;
+  return Math.max(clampUnitInterval(scores.get(i) ?? 0), clampUnitInterval(scores.get(j) ?? 0));
+}
 
 function pairKey(a: string, b: string): string {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
@@ -63,6 +96,7 @@ export function selectComparisons(
   const a = opts.weights?.a ?? 1;
   const b = opts.weights?.b ?? 1;
   const c = opts.weights?.c ?? 1;
+  const d = opts.weights?.d ?? 0;
   const crossBonus = opts.crossComponentBonus ?? 1;
   const nowMs = opts.now.getTime();
 
@@ -113,13 +147,20 @@ export function selectComparisons(
 
       const last = lastComparedMs.get(pairKey(i, j));
       const novelty = last === undefined ? 1 : Math.min(1, Math.max(0, (nowMs - last) / DAY) / 30);
+      const surprise = pairSurprise(opts.surprise, i, j);
+      // When d is 0 the extra term is omitted so default rankings stay
+      // bit-identical, including if a surprise map is present but unused.
+      const priority =
+        d === 0
+          ? a * uncertainty + b * closeness + c * novelty
+          : a * uncertainty + b * closeness + c * novelty + d * surprise;
 
       proposals.push({
         personAId: i,
         personBId: j,
         dimension,
-        priority: a * uncertainty + b * closeness + c * novelty,
-        parts: { uncertainty, closeness, novelty },
+        priority,
+        parts: { uncertainty, closeness, novelty, surprise },
         prompt: DIMENSION_PROMPTS[dimension],
       });
     }
