@@ -68,7 +68,10 @@ describe("buildJudgeTimeline", () => {
     }
     const bram = last?.signals.find((s) => s.id === "p-bram");
     expect(bram?.v0Display).toBe(77);
-    expect(bram?.v2Display).toBe(62);
+    // V2 display moved 62 → 64: Phase E3 reshapes Cleo/Bram residuals (low-then-compound
+    // vs high-flat) so the residual labels — and therefore p̂ of shared referrers —
+    // shift. evaluatedReferrals stays 27; V0 is unchanged (forecastKind is not in R_uv).
+    expect(bram?.v2Display).toBe(64);
   });
 
   test("evaluated referral count is non-decreasing and hits every scoring instant", () => {
