@@ -19,6 +19,7 @@ export * from "./inference/percentile.ts";
 export * from "./judges/outcomes.ts";
 export * from "./judges/reliability.ts";
 export * from "./judges/slope.ts";
+export * from "./judges/trajectory.ts";
 export * from "./modelRun.ts";
 export * from "./models/blend.ts";
 export * from "./models/registry.ts";
