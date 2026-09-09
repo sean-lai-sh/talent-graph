@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { DIMENSIONS, EVIDENCE_MULTIPLIER, REFERRAL_WEIGHTS } from "../src/domain/constants.ts";
+import {
+  DIMENSIONS,
+  EVIDENCE_MULTIPLIER,
+  FORECAST_KINDS,
+  REFERRAL_WEIGHTS,
+} from "../src/domain/constants.ts";
 import type {
   Comparison,
   Evaluation,
@@ -93,6 +98,10 @@ describe("constants", () => {
       other: 0.7,
     });
   });
+
+  test("forecast kinds are unspecified and will_compound", () => {
+    expect(FORECAST_KINDS).toEqual(["unspecified", "will_compound"]);
+  });
 });
 
 describe("validateReferral", () => {
@@ -141,6 +150,23 @@ describe("validateReferral", () => {
   test("rejects an unknown evidence type", () => {
     const res = validateReferral(referral({ evidenceType: "hearsay" as never }));
     expect(res.ok).toBe(false);
+  });
+
+  test("omitted forecastKind is valid (means unspecified)", () => {
+    const r = referral();
+    expect(r.forecastKind).toBeUndefined();
+    expect(validateReferral(r)).toEqual({ ok: true });
+  });
+
+  test("accepts unspecified and will_compound", () => {
+    expect(validateReferral(referral({ forecastKind: "unspecified" }))).toEqual({ ok: true });
+    expect(validateReferral(referral({ forecastKind: "will_compound" }))).toEqual({ ok: true });
+  });
+
+  test("rejects an unknown forecastKind", () => {
+    const res = validateReferral(referral({ forecastKind: "already_famous" as never }));
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.errors.join(" ")).toContain("forecastKind");
   });
 });
 

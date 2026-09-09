@@ -98,10 +98,10 @@ describe("invariants: language", () => {
 });
 
 describe("invariants: inputs", () => {
-  test("scoring/ and inference/ never read affiliation, bio, or rubric Evaluations", () => {
+  test("scoring/ and inference/ never read affiliation, bio, rubric Evaluations, or forecastKind", () => {
     for (const f of [...SCORING, ...INFERENCE]) {
       const code = stripComments(read(f));
-      for (const word of ["affiliation", "bio", "Evaluation"]) {
+      for (const word of ["affiliation", "bio", "Evaluation", "forecastKind"]) {
         expect(new RegExp(`\\b${word}\\b`).test(code), `${rel(f)} references ${word}`).toBe(false);
       }
     }

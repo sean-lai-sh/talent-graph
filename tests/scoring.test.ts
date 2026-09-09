@@ -65,6 +65,21 @@ describe("referralStrength", () => {
     expect(b.strength).toBeCloseTo(0.575 * 0.85, 12);
   });
 
+  test("forecastKind does not change R_uv", () => {
+    const omitted = referral({
+      id: "r-fk",
+      referrerId: "u-fk",
+      conviction: 4,
+      confidence: 3,
+      relationshipDepth: 2,
+      evidenceType: "artifact",
+    });
+    const unspecified: Referral = { ...omitted, forecastKind: "unspecified" };
+    const willCompound: Referral = { ...omitted, forecastKind: "will_compound" };
+    expect(referralStrength(unspecified)).toBe(referralStrength(omitted));
+    expect(referralStrength(willCompound)).toBe(referralStrength(omitted));
+  });
+
   test("reads weights from the spec, not from constants", () => {
     const spec = {
       ...REFERRAL_SIGNAL_V0_1_0,
@@ -207,6 +222,24 @@ describe("computeReferralSignal", () => {
       (c) => c.referral.evidenceType === "firsthand_work",
     );
     expect(plainFirsthand?.breakdown.multiplier).toBe(1);
+  });
+
+  test("forecastKind does not change Referral Signal", () => {
+    const omitted = referral({
+      id: "r-fk-sig",
+      referrerId: "u-fk-sig",
+      conviction: 4,
+      confidence: 3,
+      relationshipDepth: 2,
+      evidenceType: "artifact",
+    });
+    const willCompound: Referral = { ...omitted, forecastKind: "will_compound" };
+    const a = computeReferralSignal("v", [omitted]);
+    const b = computeReferralSignal("v", [willCompound]);
+    expect(b.signal).toBe(a.signal);
+    expect(b.s).toBe(a.s);
+    expect(b.strongest).toBe(a.strongest);
+    expect(b.usedCount).toBe(a.usedCount);
   });
 
   test("the signature accepts referrals only (no evaluations, no comparisons)", () => {
