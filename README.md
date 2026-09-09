@@ -221,15 +221,17 @@ paper's "Longitudinal Observation", "Learning Who Is Good at Identifying
 Talent", "Shrinkage" and "Learning Judge Bias" sections:
 
 ```
-R_v      realised outcome, rank-normalised within its kind         ∈ [0,1]
-R*_v   = R_v − E[R_v | O_v]                                         opportunity-corrected residual
-truth_v = rank percentile of R*_v / 100                             ∈ [0,1]
-x_uv   = R_uv  (the referral's unweighted V0 strength)              the prediction
-E_uv   = (x_uv − truth_v)²                                          scored once T − t_uv ≥ 180 days
-Ē_u   ← (1−η)·Ē_u + η·E_uv          η = 0.3, chronological
-p_u    = exp(−τ·Ē_u)                τ = 4
-p̂_u    = n/(n+λ)·p_u + λ/(n+λ)·μ_p  λ = 3, μ_p = 1                   shrinkage against instant oracles
-b̂_u    = shrunk running mean of (x_uv − truth_v)                    signed bias, reported; applied if enabled
+R_v       realised outcome, rank-normalised within its kind        ∈ [0,1]  (kinds with < 3 outcomes ignored)
+R*_uv   = R_v − E[R_v | O_v]                                        residual over v's outcomes observed
+                                                                    ≥ 180 days after the referral only;
+                                                                    O_v counted at the referral
+truth_uv = cohort percentile of R*_uv                               ∈ [0,1]
+x_uv    = R_uv  (the referral's unweighted V0 strength)             the prediction
+E_uv    = (x_uv − truth_uv)²                                        one per (judge, candidate): earliest referral
+Ē_u    ← (1−η)·Ē_u + η·E_uv          η = 0.3, chronological
+p_u     = exp(−τ·Ē_u)                τ = 4
+p̂_u     = n/(n+λ)·p_u + λ/(n+λ)·μ_p  λ = 3, μ_p = 1                  shrinkage against instant oracles
+b̂_u     = shrunk running mean of (x_uv − truth_uv)                  signed bias, reported; applied if enabled
 ```
 
 The Referral Signal then uses `p̂_u · clip(R_uv − b̂_u, 0, 1)` per referral.
@@ -240,8 +242,21 @@ V0 bit-for-bit until evidence says otherwise** (asserted by tests).
   opportunity count (buckets `[1, 2, 3]`, global-mean fallback for small
   buckets). With no opportunity records it is a constant and the correction
   vanishes.
-- A referral is evaluable only after the observation window and only against
-  an outcome observed **after** it was made. Nothing is scored before then.
+- **Labels are per prediction, not per person.** A referral's label uses only
+  outcomes observed at least the window after it; the candidate's earlier
+  track record never grades the judge, and an outcome 15 days after the
+  referral is not a label however far away `T` is. The opportunity count is
+  taken at the referral (`opportunityClock: "referral"`), so an opportunity
+  the referral itself caused is not subtracted from the judge's credit;
+  `"outcome"` restores the person-level rule. The person-level snapshot
+  (`residualOutcomes`) still uses everything and is for reporting.
+- **One prediction per judge–candidate pair**, the earliest referral, matching
+  the ingest invariant; a referral edited after creation is skipped by default
+  because an edited row is not a frozen prediction. Skips are reported with a
+  reason.
+- Outcome kinds with fewer than `minKindSize = 3` measurable outcomes are
+  ignored: a rank inside a one- or two-row kind is a cohort accident, not a
+  scale.
 - Truth comes from outcomes only, never from V1 capability estimates (which
   are built from judges' comparisons). `src/judges/` never imports
   `src/inference/`; the invariants test enforces it.

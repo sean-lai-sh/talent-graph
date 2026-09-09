@@ -14,15 +14,15 @@ Sections "Longitudinal Observation", "Learning Who Is Good at Identifying
 Talent", "Shrinkage: Preventing Instant Oracles", "Learning Judge Bias".
 
 ```
-R_v      realised outcome, rank-normalised within its kind         ∈ [0,1]
-R*_v   = R_v − E[R_v | O_v]                                         opportunity-corrected
-truth_v = rank percentile of R*_v / 100                             ∈ [0,1]
-x_uv   = R_uv  (unweighted V0 strength of the referral)             the prediction
-E_uv   = (x_uv − truth_v)²
-Ē_u   ← (1−η)·Ē_u + η·E_uv          chronological by evaluation      η = 0.3
-p_u    = exp(−τ·Ē_u)                                                 τ = 4
-p̂_u    = n/(n+λ)·p_u + λ/(n+λ)·μ_p                                   λ = 3, μ_p = 1
-b_u   ← (1−η)·b_u + η·(x_uv − truth_v),  b̂_u shrunk toward 0
+R_v       realised outcome, rank-normalised within its kind        ∈ [0,1]  (kinds with < minKindSize ignored)
+R*_uv   = R_v − E[R_v | O_v]   over v's outcomes observed ≥ window after the referral; O_v at the referral
+truth_uv = cohort percentile of R*_uv                               ∈ [0,1]
+x_uv    = R_uv  (unweighted V0 strength of the referral)            the prediction
+E_uv    = (x_uv − truth_uv)²                                        one per (judge, candidate)
+Ē_u    ← (1−η)·Ē_u + η·E_uv          chronological by evaluation     η = 0.3
+p_u     = exp(−τ·Ē_u)                                                τ = 4
+p̂_u     = n/(n+λ)·p_u + λ/(n+λ)·μ_p                                  λ = 3, μ_p = 1
+b_u    ← (1−η)·b_u + η·(x_uv − truth_uv),  b̂_u shrunk toward 0
 ```
 
 Referral Signal hook: contribution of referral u → v becomes
@@ -34,8 +34,14 @@ exactly `R_uv`, so V0 is reproduced bit-for-bit.
   opportunity-count bucket (`opportunityBuckets [1,2,3]`), falling back to the
   global mean when a bucket has fewer than `minBucketSize` people. With no
   opportunity records this is a constant and residual ranks equal raw ranks.
-- **Evaluable at T** iff `T − referral.createdAt ≥ observationWindowDays` (180)
-  and the candidate has a measurable outcome observed after the referral.
+- **Label per prediction:** a referral's label is built only from the
+  candidate's outcomes observed ≥ `observationWindowDays` (180) after the
+  referral; pre-referral outcomes never enter `E_uv`. The opportunity count is
+  taken at the referral (`opportunityClock: "referral"`) unless the spec says
+  `"outcome"`. Kinds with fewer than `minKindSize` (3) outcomes are ignored.
+- **One prediction per (judge, candidate):** the earliest referral; referrals
+  edited after creation are skipped (`excludeEditedReferrals`, default true).
+  Skipped referrals are reported with a reason.
 - **μ_p = 1** so a judge with no evaluated predictions keeps V0 weight. The
   population mean reliability is reported for callers who prefer it as prior.
 - **Bias correction is estimated always, applied only when
@@ -64,7 +70,9 @@ exactly `R_uv`, so V0 is reproduced bit-for-bit.
 - Accurate judge → p̂ = 1; inaccurate → p̂ < 1; unevaluated → prior.
 - Shrinkage: closed-form p̂ for 1 vs 5 wrong calls.
 - Ē is an EWMA in evaluation order (0.7 vs 0.3 for the two orderings).
-- Observation window and "outcome must follow referral" gates.
+- Observation window measured referral → outcome (not referral → T); mixed pre/post outcomes use only the post-window ones.
+- Opportunity clock: a post-referral opportunity is not subtracted under the default, is under `"outcome"`.
+- Kinds below `minKindSize` are dropped; duplicates score once (earliest); edited rows skipped by default.
 - Opportunity correction lowers the residual of a boosted person with the same raw outcome; small buckets fall back to the global mean.
 - Bias sign, shrinkage, default off, lowers an overrating judge when on.
 - Top-K reorders under weights; invalid spec / weights rejected.

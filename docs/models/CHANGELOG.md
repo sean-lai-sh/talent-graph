@@ -33,20 +33,28 @@ the seed dataset and paste the summary line into the entry.
 
 ## judge_reliability@2.0.0 — initial (V2 judge calibration)
 
-- **What:** Referrals are scored as predictions once `observationWindowDays = 180`
-  have passed and the candidate has a later outcome. Outcomes are rank-normalised
-  within `kind`, corrected for opportunity by bucket mean
-  (`opportunityBuckets [1, 2, 3]`, `minBucketSize 2`), and the residual's rank
-  percentile is the truth. Per judge: `Ē ← (1−η)Ē + ηE` with `η = 0.3`,
+- **What:** Each referral is scored as a prediction against a label built only
+  from the candidate's outcomes observed ≥ `observationWindowDays = 180` after
+  the referral. Outcomes are rank-normalised within `kind` (kinds with fewer
+  than `minKindSize = 3` outcomes are ignored), corrected for opportunity by
+  bucket mean (`opportunityBuckets [1, 2, 3]`, `minBucketSize 2`) with the
+  opportunity count taken on the referral clock (`opportunityClock "referral"`),
+  and the residual's cohort percentile is the truth. One prediction per
+  (judge, candidate): the earliest referral; edited rows are skipped
+  (`excludeEditedReferrals true`). Per judge: `Ē ← (1−η)Ē + ηE` with `η = 0.3`,
   `p = exp(−τĒ)` with `τ = 4`, shrinkage `λ = 3` toward `μ_p = 1`, signed bias
   shrunk toward 0; `applyBiasCorrection false`.
-- **Why:** Implements the white paper's "Learning Who Is Good at Identifying
-  Talent", "Shrinkage" and "Learning Judge Bias" sections. `μ_p = 1` keeps every
-  judge at V0 weight until evidence says otherwise, so with no outcomes V2
-  reproduces V0 exactly (asserted by tests). η, τ, λ are untuned defaults.
+- **Why:** Implements the white paper's "Longitudinal Observation", "Learning
+  Who Is Good at Identifying Talent", "Shrinkage" and "Learning Judge Bias"
+  sections. `μ_p = 1` keeps every judge at V0 weight until evidence says
+  otherwise, so with no outcomes V2 reproduces V0 exactly (asserted by tests).
+  The per-prediction label, outcome-side window, referral-clock opportunities
+  and kind minimum close the leakage and small-cohort holes raised in review of
+  PR #17. η, τ, λ are untuned defaults.
 - **Referral Signal:** `referral_signal@0.1.0` is unchanged in value. It gains an
   optional judge-weight hook `p̂_u · clip(R_uv − b̂_u)` that is the identity when
-  no weights are passed; runs that pass weights record them in `ModelRun`.
+  no weights are passed; runs that pass weights record copies of them in
+  `ModelRun`. `strongest` stays the raw max `R_uv`.
 - **Drift:** n/a (first version; with the seed's synthetic outcomes,
   `bun run demo` shows the weighted vs unweighted Referral Signal side by side).
-- **PR:** V2 judge calibration.
+- **PR:** #17.

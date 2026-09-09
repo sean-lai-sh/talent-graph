@@ -2,15 +2,20 @@
  * Judge calibration — learning who is good at identifying talent.
  *
  * A referral u → v made at time t is a prediction x_uv (its V0 strength R_uv,
- * unweighted). Once the observation window has passed and v has an outcome
- * observed after t, the prediction is scored against the opportunity-corrected
- * residual truth (outcomes.ts):
+ * unweighted). It is scored against a label built only from v's outcomes
+ * observed at least `observationWindowDays` after t (outcomes.ts):
  *
- *   E_uv  = (x_uv − truth_v)²
- *   Ē_u   ← (1 − η)·Ē_u + η·E_uv          in chronological order of evaluation
- *   p_u   = exp(−τ·Ē_u)
- *   p̂_u   = n/(n+λ)·p_u + λ/(n+λ)·μ_p     shrinkage against instant oracles
- *   b_u   ← (1 − η)·b_u + η·(x_uv − truth_v)   signed bias, shrunk toward 0
+ *   truth_uv = percentile of R*_v among the cohort, R*_v from post-window outcomes
+ *   E_uv     = (x_uv − truth_uv)²
+ *   Ē_u     ← (1 − η)·Ē_u + η·E_uv          in chronological order of evaluation
+ *   p_u      = exp(−τ·Ē_u)
+ *   p̂_u      = n/(n+λ)·p_u + λ/(n+λ)·μ_p     shrinkage against instant oracles
+ *   b_u     ← (1 − η)·b_u + η·(x_uv − truth_uv)   signed bias, shrunk toward 0
+ *
+ * Observation model: one prediction per (judge, candidate) pair — the earliest
+ * referral — matching the ingest invariant in validateReferral. A referral
+ * edited after creation (`updatedAt > createdAt`) is not a frozen prediction
+ * and is excluded unless the spec says otherwise.
  *
  * Circularity guard: truth comes only from outcomes, never from V1 capability
  * estimates, which are themselves built from judges' comparisons. This module
@@ -29,9 +34,13 @@ import type {
 import { CURRENT_SPECS } from "../models/registry.ts";
 import { assertSpec, type JudgeReliabilitySpec, type ReferralSignalSpec } from "../models/spec.ts";
 import { referralStrength } from "../scoring/referralStrength.ts";
-import { type ResidualOutcome, residualOutcomes } from "./outcomes.ts";
-
-const DAY = 86_400_000;
+import {
+  buildOutcomeCohort,
+  labelForPrediction,
+  type OutcomeCohort,
+  type PredictionLabel,
+  type ResidualOutcome,
+} from "./outcomes.ts";
 
 export interface ScoredPrediction {
   referralId: string;
@@ -39,14 +48,21 @@ export interface ScoredPrediction {
   candidateId: string;
   /** x_uv — the referral's unweighted V0 strength. */
   prediction: number;
-  /** truth_v from residual outcomes. */
+  /** truth_uv from the post-window residual label. */
   truth: number;
   /** (x − truth)² */
   error: number;
   /** x − truth */
   signedError: number;
-  /** When the prediction became scorable: the latest contributing outcome. */
+  /** Latest outcome that contributed to the label. */
   evaluatedAt: Date;
+  /** Everything the label was built from. */
+  label: PredictionLabel;
+}
+
+export interface SkippedReferral {
+  referralId: string;
+  reason: "self_referral" | "duplicate_pair" | "edited_after_creation" | "no_post_window_outcome";
 }
 
 export interface JudgeReliabilityEstimate {
@@ -69,8 +85,11 @@ export interface JudgeReliabilityEstimate {
 
 export interface JudgeCalibrationRun {
   estimates: Map<string, JudgeReliabilityEstimate>;
+  /** Person-level snapshot at T (reporting view). */
   truths: Map<string, ResidualOutcome>;
   predictions: ScoredPrediction[];
+  /** Referrals not scored, with the reason. */
+  skipped: SkippedReferral[];
   /** Mean raw reliability across judges with ≥1 evaluation; null if none. */
   populationMeanReliability: number | null;
   options: {
@@ -95,44 +114,69 @@ export interface JudgeCalibrationInput {
 }
 
 /**
- * Score every referral that is evaluable at `now`: the observation window has
- * elapsed since it was made, and the candidate has residual truth built from
- * at least one outcome observed after the referral.
+ * Score every referral that is evaluable at the cohort's `now`.
+ *
+ * One prediction per (judge, candidate): the earliest referral by createdAt
+ * (then id). Self-referrals and, by default, referrals edited after creation
+ * are skipped. A referral is scored only when the candidate has at least one
+ * outcome observed ≥ `observationWindowDays` after it; the label uses those
+ * outcomes only.
  */
 export function scoreReferralPredictions(
   referrals: readonly Referral[],
-  truths: ReadonlyMap<string, ResidualOutcome>,
-  spec: JudgeReliabilitySpec,
-  now: Date,
+  cohort: OutcomeCohort,
   referralSpec: ReferralSignalSpec = CURRENT_SPECS.referral_signal,
-): ScoredPrediction[] {
-  const nowMs = now.getTime();
-  const windowMs = spec.observationWindowDays * DAY;
+): { predictions: ScoredPrediction[]; skipped: SkippedReferral[] } {
+  const spec = cohort.spec;
+  const skipped: SkippedReferral[] = [];
+
+  // Earliest referral per pair.
+  const sorted = [...referrals].sort(
+    (a, b) =>
+      a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+  const seenPair = new Set<string>();
   const out: ScoredPrediction[] = [];
-  for (const r of referrals) {
-    if (r.referrerId === r.candidateId) continue;
-    const made = r.createdAt.getTime();
-    if (nowMs - made < windowMs) continue;
-    const truth = truths.get(r.candidateId);
-    if (!truth || truth.latestObservedAt.getTime() <= made) continue;
+  for (const r of sorted) {
+    if (r.referrerId === r.candidateId) {
+      skipped.push({ referralId: r.id, reason: "self_referral" });
+      continue;
+    }
+    const pair = `${r.referrerId}→${r.candidateId}`;
+    if (seenPair.has(pair)) {
+      skipped.push({ referralId: r.id, reason: "duplicate_pair" });
+      continue;
+    }
+    seenPair.add(pair);
+    if (spec.excludeEditedReferrals && r.updatedAt.getTime() > r.createdAt.getTime()) {
+      skipped.push({ referralId: r.id, reason: "edited_after_creation" });
+      continue;
+    }
+    const label = labelForPrediction(cohort, r.candidateId, r.createdAt);
+    if (label === null) {
+      skipped.push({ referralId: r.id, reason: "no_post_window_outcome" });
+      continue;
+    }
     const prediction = referralStrength(r, referralSpec);
-    const signedError = prediction - truth.truth;
+    const signedError = prediction - label.truth;
     out.push({
       referralId: r.id,
       judgeId: r.referrerId,
       candidateId: r.candidateId,
       prediction,
-      truth: truth.truth,
+      truth: label.truth,
       error: signedError * signedError,
       signedError,
-      evaluatedAt: truth.latestObservedAt,
+      evaluatedAt: label.latestObservedAt,
+      label,
     });
   }
-  return out.sort(
+  out.sort(
     (a, b) =>
       a.evaluatedAt.getTime() - b.evaluatedAt.getTime() ||
       (a.referralId < b.referralId ? -1 : a.referralId > b.referralId ? 1 : 0),
   );
+  return { predictions: out, skipped };
 }
 
 function shrink(n: number, value: number, prior: number, lambda: number): number {
@@ -196,14 +240,8 @@ export function estimateJudgeReliability(
 export function computeJudgeCalibration(input: JudgeCalibrationInput): JudgeCalibrationRun {
   const spec = assertSpec(input.spec ?? CURRENT_SPECS.judge_reliability);
   const referralSpec = assertSpec(input.referralSpec ?? CURRENT_SPECS.referral_signal);
-  const truths = residualOutcomes(input.outcomes, input.opportunities ?? [], spec, input.now);
-  const predictions = scoreReferralPredictions(
-    input.referrals,
-    truths,
-    spec,
-    input.now,
-    referralSpec,
-  );
+  const cohort = buildOutcomeCohort(input.outcomes, input.opportunities ?? [], spec, input.now);
+  const { predictions, skipped } = scoreReferralPredictions(input.referrals, cohort, referralSpec);
   const estimates = estimateJudgeReliability(
     input.people.map((p) => p.id),
     predictions,
@@ -216,8 +254,9 @@ export function computeJudgeCalibration(input: JudgeCalibrationInput): JudgeCali
       : withEvidence.reduce((s, e) => s + (e.rawReliability as number), 0) / withEvidence.length;
   return {
     estimates,
-    truths,
+    truths: cohort.snapshot,
     predictions,
+    skipped,
     populationMeanReliability,
     options: {
       specVersion: spec.version,

@@ -76,6 +76,9 @@ export const JUDGE_RELIABILITY_V2_0_0: JudgeReliabilitySpec = deepFreeze({
   priorReliability: 1,
   opportunityBuckets: [1, 2, 3],
   minBucketSize: 2,
+  minKindSize: 3,
+  opportunityClock: "referral",
+  excludeEditedReferrals: true,
   applyBiasCorrection: false,
 });
 

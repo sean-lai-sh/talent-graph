@@ -50,7 +50,8 @@ export interface BradleyTerrySpec {
  * "Longitudinal Observation", "Learning Who Is Good at Identifying Talent",
  * "Shrinkage" and "Learning Judge Bias").
  *
- *   E_uv   = (x_uv − R*_v)²                       prediction error of one referral
+ *   truth_uv = cohort percentile of R*_v built from v's post-window outcomes
+ *   E_uv   = (x_uv − truth_uv)²                    prediction error of one referral
  *   Ē_u    ← (1 − η)·Ē_u + η·E_uv                 exponentially weighted, chronological
  *   p_u    = exp(−τ·Ē_u)                          raw reliability
  *   p̂_u    = n/(n+λ)·p_u + λ/(n+λ)·μ_p            shrunk toward the prior
@@ -61,8 +62,8 @@ export interface JudgeReliabilitySpec {
   /** Semver, e.g. "2.0.0". */
   version: string;
   /**
-   * A referral becomes evaluable once this many days have passed since it was
-   * made and the candidate has an outcome observed after it.
+   * Only outcomes observed at least this many days after a referral count
+   * toward that referral's label (the paper's "fixed observation period").
    */
   observationWindowDays: number;
   /** η ∈ (0, 1]: weight of the newest error in the running average. */
@@ -81,6 +82,16 @@ export interface JudgeReliabilitySpec {
   opportunityBuckets: number[];
   /** Minimum people in a bucket before its mean is trusted over the global mean. */
   minBucketSize: number;
+  /** Outcome kinds with fewer measurable outcomes than this are ignored (a rank in a tiny kind is noise). */
+  minKindSize: number;
+  /**
+   * Which opportunities are subtracted from a judge's label: those the
+   * candidate already had at the referral ("referral"), or all up to the
+   * latest contributing outcome ("outcome", the person-level snapshot rule).
+   */
+  opportunityClock: "referral" | "outcome";
+  /** Skip referrals whose updatedAt is later than createdAt: an edited row is not a frozen prediction. */
+  excludeEditedReferrals: boolean;
   /** Subtract the shrunk bias from a judge's prediction before weighting. */
   applyBiasCorrection: boolean;
 }
@@ -196,6 +207,15 @@ function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string
   }
   if (!isPositiveInteger(spec.minBucketSize)) {
     errors.push("minBucketSize must be a positive integer");
+  }
+  if (!isPositiveInteger(spec.minKindSize)) {
+    errors.push("minKindSize must be a positive integer");
+  }
+  if (spec.opportunityClock !== "referral" && spec.opportunityClock !== "outcome") {
+    errors.push('opportunityClock must be "referral" or "outcome"');
+  }
+  if (typeof spec.excludeEditedReferrals !== "boolean") {
+    errors.push("excludeEditedReferrals must be a boolean");
   }
   if (typeof spec.applyBiasCorrection !== "boolean") {
     errors.push("applyBiasCorrection must be a boolean");
