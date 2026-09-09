@@ -130,6 +130,23 @@ describe("computeReferralSignal", () => {
     expect(res.contributing[0]?.referral.id).toBe("a");
   });
 
+  test("a zero-reliability judge is dropped from Top-K and does not dilute the mean", () => {
+    const trusted = referral({ referrerId: "good", conviction: 5 });
+    const junk = referral({ referrerId: "bad", conviction: 5 });
+    const res = computeReferralSignal("v", [trusted, junk], {
+      topK: 2,
+      judgeReliability: new Map([
+        ["good", 1],
+        ["bad", 0],
+      ]),
+    });
+    expect(res.incomingCount).toBe(2);
+    expect(res.usedCount).toBe(1);
+    expect(res.contributing.map((c) => c.referral.referrerId)).toEqual(["good"]);
+    expect(res.s).toBe(1);
+    expect(res.strongest).toBe(1);
+  });
+
   test("topK can come from an explicit spec", () => {
     const rs = [referral(), referral(), referral()];
     const res = computeReferralSignal("v", rs, { spec: { ...REFERRAL_SIGNAL_V0_1_0, topK: 2 } });

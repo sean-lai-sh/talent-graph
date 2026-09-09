@@ -7,8 +7,15 @@
  *   S_v   = |TopK(v)| > 0 ? mean(R_uv, u ∈ TopK(v)) : 0
  *   ReferralSignal_v = 100 · S_v      // float; rounded only for display
  *
- * Inputs are referrals only. Rubric evaluations, comparisons, affiliation and
- * bio are not parameters and cannot influence the result.
+ * V2 hook (judge calibration): a caller may pass per-judge reliability p̂_u and
+ * bias b̂_u maps. Each referral's contribution becomes
+ *
+ *   x*_uv = clip(R_uv − b̂_u, 0, 1) ;  contribution = p̂_u · x*_uv
+ *
+ * With no maps (or p̂_u = 1, b̂_u = 0) this is exactly R_uv, so V0 is
+ * reproduced bit-for-bit. This module never computes p̂_u itself; see
+ * src/judges/. Inputs are referrals plus optional judge weights. Rubric
+ * evaluations, comparisons, affiliation and bio are not parameters.
  */
 
 import { FIRSTHAND_EVIDENCE_TYPES } from "../domain/constants.ts";
@@ -27,8 +34,12 @@ export interface ContributingReferral {
   /**
    * Every intermediate of R_uv under the spec that produced this result, so
    * explanations never have to re-derive it with a possibly different spec.
+   * `breakdown.strength` is the unweighted R_uv; `strength` above is the
+   * judge-weighted contribution (identical when no judge weights are given).
    */
   breakdown: ReferralStrengthBreakdown;
+  /** Judge weighting applied to this referral (1 / 0 / R_uv when none). */
+  judge: { reliability: number; bias: number; adjusted: number };
 }
 
 export interface ReferralSignalResult {
@@ -44,19 +55,29 @@ export interface ReferralSignalResult {
   usedCount: number;
   /** Incoming referrals whose evidence is firsthand (work or personal). */
   firsthandCount: number;
-  /** max R_uv over all incoming, or null when there are none. */
+  /** max R_uv over all incoming (unweighted, even under V2 weights), or null when none. */
   strongest: number | null;
   /** Distinct evidence types among all incoming, in canonical order of first appearance. */
   evidenceTypes: EvidenceType[];
   explanation: string;
   /** Spec that produced the number, for provenance. */
   specVersion: string;
+  /** True when per-judge reliability or bias was applied (V2). */
+  judgeWeighted: boolean;
 }
 
 export interface ReferralSignalOptions {
   spec?: ReferralSignalSpec;
   /** Overrides `spec.topK`. Prefer passing a spec. */
   topK?: number;
+  /** p̂_u per judge id from V2 calibration; missing judges count as 1. */
+  judgeReliability?: ReadonlyMap<string, number>;
+  /** b̂_u per judge id from V2 calibration; missing judges count as 0. */
+  judgeBias?: ReadonlyMap<string, number>;
+}
+
+function clip01(x: number): number {
+  return x < 0 ? 0 : x > 1 ? 1 : x;
 }
 
 function compareContributing(a: ContributingReferral, b: ContributingReferral): number {
@@ -78,14 +99,26 @@ export function computeReferralSignal(
   // Defensive: a self-referral should already be rejected by validateReferral.
   const incoming = referrals.filter((r) => r.candidateId === personId && r.referrerId !== personId);
 
+  const judgeWeighted = opts.judgeReliability !== undefined || opts.judgeBias !== undefined;
   const scored = incoming
-    .map((referral) => {
+    .map((referral): ContributingReferral => {
       const breakdown = referralStrengthBreakdown(referral, spec);
-      return { referral, strength: breakdown.strength, breakdown };
+      const reliability = opts.judgeReliability?.get(referral.referrerId) ?? 1;
+      const bias = opts.judgeBias?.get(referral.referrerId) ?? 0;
+      if (!(reliability >= 0 && reliability <= 1) || !Number.isFinite(bias)) {
+        throw new Error(
+          `computeReferralSignal: judge ${referral.referrerId} has reliability ${reliability}, bias ${bias}`,
+        );
+      }
+      const adjusted = bias === 0 ? breakdown.strength : clip01(breakdown.strength - bias);
+      const strength = reliability === 1 ? adjusted : reliability * adjusted;
+      return { referral, strength, breakdown, judge: { reliability, bias, adjusted } };
     })
     .sort(compareContributing);
 
-  const contributing = scored.slice(0, topK);
+  // A zero-reliability judge must not occupy a Top-K slot or dilute the mean.
+  const eligible = judgeWeighted ? scored.filter((c) => c.judge.reliability > 0) : scored;
+  const contributing = eligible.slice(0, topK);
   const s =
     contributing.length === 0
       ? 0
@@ -105,10 +138,12 @@ export function computeReferralSignal(
     usedCount: contributing.length,
     firsthandCount: incoming.filter((r) => FIRSTHAND_EVIDENCE_TYPES.includes(r.evidenceType))
       .length,
-    strongest: scored.length === 0 ? null : (scored[0]?.strength ?? null),
+    // Raw max R_uv, independent of judge weighting (the documented contract).
+    strongest: scored.length === 0 ? null : Math.max(...scored.map((c) => c.breakdown.strength)),
     evidenceTypes,
     explanation: REFERRAL_SIGNAL_EXPLANATION,
     specVersion: spec.version,
+    judgeWeighted,
   };
 }
 

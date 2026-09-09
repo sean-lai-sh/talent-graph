@@ -11,6 +11,7 @@
 import { EVIDENCE_MULTIPLIER, REFERRAL_WEIGHTS } from "../domain/constants.ts";
 import {
   type BradleyTerrySpec,
+  type JudgeReliabilitySpec,
   type ModelSpec,
   type ModelSpecKind,
   type ReferralSignalSpec,
@@ -59,16 +60,40 @@ export const BRADLEY_TERRY_V1_0_0: BradleyTerrySpec = deepFreeze({
   anchorStrength: 0,
 });
 
+/**
+ * V2 judge calibration, following the white paper's formulas. The prior
+ * reliability is 1 so a judge with no evaluated predictions is weighted
+ * exactly as in V0/V1; with no outcomes at all, V2 reproduces V0 exactly.
+ * η, τ and λ are modest defaults, not tuned.
+ */
+export const JUDGE_RELIABILITY_V2_0_0: JudgeReliabilitySpec = deepFreeze({
+  kind: "judge_reliability",
+  version: "2.0.0",
+  observationWindowDays: 180,
+  learningRate: 0.3,
+  errorScale: 4,
+  shrinkage: 3,
+  priorReliability: 1,
+  opportunityBuckets: [1, 2, 3],
+  minBucketSize: 2,
+  minKindSize: 3,
+  opportunityClock: "referral",
+  excludeEditedReferrals: true,
+  applyBiasCorrection: false,
+});
+
 /** Every spec version ever shipped. Append only. */
 export const SPEC_HISTORY: readonly ModelSpec[] = deepFreeze([
   REFERRAL_SIGNAL_V0_1_0,
   BRADLEY_TERRY_V1_0_0,
+  JUDGE_RELIABILITY_V2_0_0,
 ]);
 
 /** The version used when a caller does not pass a spec explicitly. */
 export const CURRENT_SPECS: { readonly [K in ModelSpecKind]: SpecOfKind<K> } = deepFreeze({
   referral_signal: REFERRAL_SIGNAL_V0_1_0,
   bradley_terry: BRADLEY_TERRY_V1_0_0,
+  judge_reliability: JUDGE_RELIABILITY_V2_0_0,
 });
 
 /** All known versions of one kind, in registration order. */

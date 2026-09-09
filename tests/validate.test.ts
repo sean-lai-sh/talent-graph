@@ -1,9 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { DIMENSIONS, EVIDENCE_MULTIPLIER, REFERRAL_WEIGHTS } from "../src/domain/constants.ts";
-import type { Comparison, Evaluation, Referral } from "../src/domain/types.ts";
+import type {
+  Comparison,
+  Evaluation,
+  Opportunity,
+  Outcome,
+  Referral,
+} from "../src/domain/types.ts";
 import {
   validateComparison,
   validateEvaluation,
+  validateOpportunity,
+  validateOutcome,
   validateReferral,
 } from "../src/domain/validate.ts";
 
@@ -205,5 +213,64 @@ describe("validateComparison", () => {
   test("rejects an unknown dimension", () => {
     const res = validateComparison(comparison({ dimension: "vibes" as never }));
     expect(res.ok).toBe(false);
+  });
+});
+
+describe("validateOutcome / validateOpportunity", () => {
+  const base: Outcome = {
+    id: "o-1",
+    personId: "p-1",
+    opportunityId: null,
+    kind: "shipped_project",
+    value: 3.5,
+    observedAt: new Date("2026-07-01T00:00:00.000Z"),
+    createdAt: new Date("2026-07-02T00:00:00.000Z"),
+  };
+
+  test("accepts a measurable outcome and a null (nothing measurable) outcome", () => {
+    expect(validateOutcome(base)).toEqual({ ok: true });
+    expect(validateOutcome({ ...base, value: null })).toEqual({ ok: true });
+  });
+
+  test("rejects a non-finite value, an empty kind, and an invalid date", () => {
+    expect(validateOutcome({ ...base, value: Number.NaN }).ok).toBe(false);
+    expect(validateOutcome({ ...base, kind: " " }).ok).toBe(false);
+    expect(validateOutcome({ ...base, observedAt: new Date("nope") }).ok).toBe(false);
+  });
+
+  test("opportunity must not end before it starts", () => {
+    const op: Opportunity = {
+      id: "op-1",
+      personId: "p-1",
+      kind: "grant",
+      description: "x",
+      startedAt: new Date("2026-03-01T00:00:00.000Z"),
+      endedAt: null,
+      createdAt: new Date("2026-03-01T00:00:00.000Z"),
+    };
+    expect(validateOpportunity(op)).toEqual({ ok: true });
+    expect(validateOpportunity({ ...op, endedAt: new Date("2026-02-01T00:00:00.000Z") }).ok).toBe(
+      false,
+    );
+    expect(validateOpportunity({ ...op, personId: "" }).ok).toBe(false);
+  });
+
+  test("opportunity validator never throws on a non-Date or invalid endedAt", () => {
+    const op: Opportunity = {
+      id: "op-2",
+      personId: "p-1",
+      kind: "grant",
+      description: "x",
+      startedAt: new Date("2026-03-01T00:00:00.000Z"),
+      endedAt: null,
+      createdAt: new Date("2026-03-01T00:00:00.000Z"),
+    };
+    const asString = validateOpportunity({ ...op, endedAt: "2026-04-01" as never });
+    expect(asString.ok).toBe(false);
+    expect(asString.ok === false && asString.errors.join(" ")).toContain("endedAt");
+    expect(validateOpportunity({ ...op, endedAt: new Date("nope") }).ok).toBe(false);
+    expect(
+      validateOpportunity({ ...op, startedAt: new Date("nope"), endedAt: new Date("nope") }).ok,
+    ).toBe(false);
   });
 });

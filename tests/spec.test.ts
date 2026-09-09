@@ -7,11 +7,17 @@ import {
   deepFreeze,
   getSpec,
   isRegisteredSpec,
+  JUDGE_RELIABILITY_V2_0_0,
   REFERRAL_SIGNAL_V0_1_0,
   SPEC_HISTORY,
   specVersions,
 } from "../src/models/registry.ts";
-import { type BradleyTerrySpec, specId, validateSpec } from "../src/models/spec.ts";
+import {
+  type BradleyTerrySpec,
+  type JudgeReliabilitySpec,
+  specId,
+  validateSpec,
+} from "../src/models/spec.ts";
 import { referralStrength } from "../src/scoring/referralStrength.ts";
 
 const T0 = new Date("2026-01-01T00:00:00.000Z");
@@ -72,6 +78,33 @@ describe("validateSpec", () => {
     };
     const res = validateSpec(bad);
     expect(res.ok === false && res.errors).toHaveLength(2);
+  });
+});
+
+describe("validateSpec: judge_reliability", () => {
+  test("accepts the registered V2 spec and rejects each bad field", () => {
+    expect(validateSpec(JUDGE_RELIABILITY_V2_0_0)).toEqual({ ok: true });
+    const bad = (patch: Partial<JudgeReliabilitySpec>) =>
+      validateSpec({ ...JUDGE_RELIABILITY_V2_0_0, ...patch });
+    expect(bad({ learningRate: 0 }).ok).toBe(false);
+    expect(bad({ learningRate: 1.5 }).ok).toBe(false);
+    expect(bad({ errorScale: 0 }).ok).toBe(false);
+    expect(bad({ shrinkage: -1 }).ok).toBe(false);
+    expect(bad({ priorReliability: 1.2 }).ok).toBe(false);
+    expect(bad({ observationWindowDays: -1 }).ok).toBe(false);
+    expect(bad({ opportunityBuckets: [2, 1] }).ok).toBe(false);
+    expect(bad({ opportunityBuckets: [0] }).ok).toBe(false);
+    expect(bad({ minBucketSize: 0 }).ok).toBe(false);
+    expect(bad({ applyBiasCorrection: "yes" as never }).ok).toBe(false);
+    expect(bad({ opportunityBuckets: [] }).ok).toBe(true);
+  });
+
+  test("registered and current", () => {
+    expect(CURRENT_SPECS.judge_reliability).toBe(JUDGE_RELIABILITY_V2_0_0);
+    expect(getSpec("judge_reliability", "2.0.0")).toBe(JUDGE_RELIABILITY_V2_0_0);
+    expect(specVersions("judge_reliability")).toEqual(["2.0.0"]);
+    expect(JUDGE_RELIABILITY_V2_0_0.priorReliability).toBe(1);
+    expect(Object.isFrozen(JUDGE_RELIABILITY_V2_0_0.opportunityBuckets)).toBe(true);
   });
 });
 
