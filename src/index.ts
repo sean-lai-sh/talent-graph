@@ -2,6 +2,7 @@
 
 export * from "./analysis/dashboard.ts";
 export * from "./analysis/drift.ts";
+export * from "./analysis/judgeTimeline.ts";
 export * from "./analysis/underRecognition.ts";
 export * from "./config.ts";
 export * from "./domain/constants.ts";

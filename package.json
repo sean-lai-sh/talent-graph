@@ -11,6 +11,7 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "demo": "bun run scripts/demo.ts",
+    "demo:ui": "bun run scripts/demo-ui.ts",
     "drift": "bun run scripts/drift.ts"
   },
   "devDependencies": {

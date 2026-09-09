@@ -19,6 +19,7 @@ bun run lint        # biome
 bun run typecheck   # tsc --noEmit
 bun test            # 170+ tests, including invariant checks
 bun run demo        # dashboard + the six persona reports from the seed
+bun run demo:ui     # interactive judge-calibration explainer (http://127.0.0.1:4173)
 bun run drift -- --kind referral_signal --before 0.1.0 --after 0.1.0
 ```
 
@@ -276,6 +277,13 @@ const weighted = computeAllReferralSignals(people, referrals, judgeWeightOptions
 
 `bun run demo` prints the calibrated judges at `T = 2026-12-31` on the seed
 and the V0 vs V2 Referral Signal for the six personas.
+
+`bun run demo:ui` serves a small explainer that walks the same seed from
+1 June to 31 December 2026. Each frame is a real `computeJudgeCalibration`
+at that T — the network, judge weights, and persona Referral Signals are
+not a cartoon of the math. Until the 180-day window opens, every weight
+stays at 1 and V2 equals V0. The UI is presentation only (`demo/`,
+`scripts/demo-ui.ts`); it is not part of the algorithm core.
 
 ## 9. Operational continuity — changing weights without destroying the graph
 

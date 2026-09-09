@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Talent Graph — how the network learns which judges to trust</title>
+    <meta
+      name="description"
+      content="Interactive explainer of V2 judge calibration: over a short simulation the graph scores referrals against later outcomes and corrects judge weights."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,620&family=IBM+Plex+Mono:wght@400;500&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <p class="eyebrow">Talent Graph · V2 · Exploratory</p>
+        <h1>The network cannot know who is good at spotting people until time has passed.</h1>
+        <p class="lede">
+          Every referral is a prediction. After a 180-day observation window the graph scores that
+          prediction against what the person actually did — never against other judges — and quietly
+          turns the error into a reliability weight. Play the next seven months of the seed.
+        </p>
+      </header>
+
+      <section class="why" aria-label="Why this exists">
+        <h2>Why we cannot just ask the herd</h2>
+        <p>
+          If we weighted judges by how much they agree with each other, we would reward the clique
+          and punish the person who named someone early. Agreement is cheap. Outcomes are not. Until
+          outcomes exist, every judge is weighted <em>exactly</em> 1 — V2 reproduces V0 bit for bit.
+          That is the point.
+        </p>
+      </section>
+
+      <div class="stage">
+        <section class="network-panel" aria-label="Referral network">
+          <div class="panel-head">
+            <div>
+              <h2>Referral network</h2>
+              <p class="hint" id="network-hint">Judges on the left, people they named on the right. Edge weight is referral strength; colour is the judge’s current reliability.</p>
+            </div>
+            <div class="toggles">
+              <button type="button" class="toggle is-on" data-view="focus" aria-pressed="true">Personas</button>
+              <button type="button" class="toggle" data-view="full" aria-pressed="false">Full graph</button>
+            </div>
+          </div>
+          <div class="svg-wrap">
+            <svg id="network" viewBox="0 0 920 640" role="img" aria-labelledby="network-hint"></svg>
+          </div>
+          <div class="legend">
+            <span><i class="swatch swatch-prior"></i> Weight still at prior 1</span>
+            <span><i class="swatch swatch-good"></i> Predictions matched outcomes</span>
+            <span><i class="swatch swatch-poor"></i> Predictions missed</span>
+            <span><i class="swatch swatch-pulse"></i> Just scored</span>
+          </div>
+        </section>
+
+        <aside class="side">
+          <section class="clock-card">
+            <p class="clock-label">Simulation time T</p>
+            <p class="clock" id="clock">2026-06-01</p>
+            <p class="clock-meta" id="clock-meta">Waiting for the observation window.</p>
+            <p class="caption" id="caption"></p>
+          </section>
+
+          <section>
+            <h2>Judge weights <span class="soft">p̂</span></h2>
+            <p class="hint">Shrinkage keeps a single lucky call from minting an oracle. λ&nbsp;=&nbsp;3.</p>
+            <ol class="weight-list" id="weights"></ol>
+          </section>
+
+          <section>
+            <h2>Referral Signal <span class="soft">V0 → V2</span></h2>
+            <p class="hint">Same referrals. Only the judge weights moved.</p>
+            <ol class="signal-list" id="signals"></ol>
+          </section>
+        </aside>
+      </div>
+
+      <section class="transport" aria-label="Playback">
+        <div class="transport-row">
+          <button type="button" class="icon-btn" id="btn-reset" title="Back to start">Reset</button>
+          <button type="button" class="icon-btn" id="btn-step-back" title="Previous frame">◀</button>
+          <button type="button" class="play-btn" id="btn-play" aria-pressed="false">Play the year</button>
+          <button type="button" class="icon-btn" id="btn-step" title="Next frame">▶</button>
+          <label class="speed">
+            Speed
+            <select id="speed">
+              <option value="0.6">0.6×</option>
+              <option value="1" selected>1×</option>
+              <option value="1.8">1.8×</option>
+            </select>
+          </label>
+          <p class="transport-status" id="transport-status">Day 152 · 0 referrals scored</p>
+        </div>
+        <label class="slider-label">
+          <span class="visually-hidden">Simulation time</span>
+          <input type="range" id="scrub" min="0" max="1" value="0" step="1" />
+        </label>
+        <div class="ticks" aria-hidden="true">
+          <span>1 Jun</span>
+          <span>Window opens</span>
+          <span>Outcomes land</span>
+          <span>31 Dec</span>
+        </div>
+      </section>
+
+      <div class="lower">
+        <section>
+          <h2>What just scored</h2>
+          <p class="hint">A referral becomes evaluable only after 180 days <em>and</em> a later outcome in a kind large enough to rank.</p>
+          <ol class="event-list" id="events"></ol>
+        </section>
+        <section>
+          <h2>Selected</h2>
+          <div class="detail" id="detail">
+            <p class="empty">Click a judge or a candidate in the network.</p>
+          </div>
+        </section>
+        <section class="formula">
+          <h2>The update</h2>
+          <ol>
+            <li><code>x = R<sub>uv</sub></code> — the referral’s own strength. This is the prediction. It is never rewritten by the weight that follows.</li>
+            <li><code>truth</code> — residual outcome percentile of the candidate after the window, opportunity-corrected. Not a pairwise estimate.</li>
+            <li><code>E = (x − truth)²</code> then <code>Ē ← (1−η)Ē + ηE</code> in the order predictions become eligible. η = 0.3</li>
+            <li><code>p = exp(−τ Ē)</code>, <code>p̂ = n/(n+λ)·p + λ/(n+λ)·1</code>. τ = 4, λ = 3. New judges stay near 1.</li>
+            <li>The Referral Signal uses <code>p̂ · R<sub>uv</sub></code>. Zero-weight judges drop out of the Top-K so they cannot dilute it.</li>
+          </ol>
+        </section>
+      </div>
+
+      <footer class="foot">
+        <p>
+          Built on the algorithm core in this repo — <code>computeJudgeCalibration</code> at each T,
+          then <code>computeAllReferralSignals</code> with the learned weights. Seed of 32 people,
+          50 referrals, synthetic outcomes. Specs
+          <span id="spec-label">referral_signal@0.1.0 · judge_reliability@2.0.0</span>.
+        </p>
+      </footer>
+    </div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
