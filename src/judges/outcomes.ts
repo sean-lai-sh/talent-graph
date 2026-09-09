@@ -319,7 +319,9 @@ export function firstCausalEligibleAt(
       (a, b) =>
         a.observedAt.getTime() - b.observedAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
     );
-    kindEligibleMs.set(kind, ordered[spec.minKindSize - 1]!.observedAt.getTime());
+    const threshold = ordered[spec.minKindSize - 1];
+    if (!threshold) continue;
+    kindEligibleMs.set(kind, threshold.observedAt.getTime());
   }
   let first: number | null = null;
   for (const o of measurable) {

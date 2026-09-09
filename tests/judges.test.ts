@@ -397,10 +397,16 @@ describe("scoreReferralPredictions (time step T)", () => {
     expect(predictions[1]?.label.firstObservedAt).toEqual(day(190));
     expect(predictions[1]?.label.firstEligibleAt).toEqual(day(310));
 
-    // Wrong-then-right if stamped on firstObservedAt (Ē=0.7); chronological
-    // eligibility is right-then-wrong (Ē=0.3).
+    // Eligibility order is right-then-wrong. Stamping on firstObservedAt
+    // would fold the larger error first (Ē ≈ 0.57 instead of ≈ 0.25).
     const est = estimateJudgeReliability(["j"], predictions, SPEC);
-    expect(est.get("j")?.meanSquaredError).toBeCloseTo(0.3, 12);
+    const e0 = predictions[0]?.error as number;
+    const e1 = predictions[1]?.error as number;
+    expect(e0).toBeLessThan(e1);
+    expect(est.get("j")?.meanSquaredError).toBeCloseTo(
+      (1 - SPEC.learningRate) * e0 + SPEC.learningRate * e1,
+      12,
+    );
     expect(firstCausalEligibleAt(o, "v", day(10), SPEC, NOW)).toEqual(day(310));
   });
 
