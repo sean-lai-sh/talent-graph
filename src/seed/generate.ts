@@ -297,6 +297,13 @@ function buildReferrals(rng: Rng, people: HiddenPerson[], target: number): Refer
     });
   }
 
+  // Exactly one early Cleo referral is scout-forecast; every other seed
+  // referral stays omitted / unspecified (Phase E4 landed; scout math is later).
+  const cleoEarly = referrals
+    .filter((r) => r.candidateId === "p-cleo")
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : 1))[0];
+  if (cleoEarly) cleoEarly.forecastKind = "will_compound";
+
   return referrals.sort(
     (a, b) => a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : 1),
   );

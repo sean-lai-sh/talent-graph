@@ -72,10 +72,17 @@ describe("generateSeed", () => {
     for (const e of data.evaluations) expect(validateEvaluation(e)).toEqual({ ok: true });
   });
 
-  test("seed referrals omit forecastKind (stay unspecified, not scout-eligible)", () => {
+  test("exactly one early Cleo referral is will_compound; every other stays unspecified", () => {
+    const compound = data.referrals.filter((r) => r.forecastKind === "will_compound");
+    expect(compound).toHaveLength(1);
+    expect(compound[0]?.candidateId).toBe("p-cleo");
+    const cleoIncoming = data.referrals
+      .filter((r) => r.candidateId === "p-cleo")
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : 1));
+    expect(compound[0]?.id).toBe(cleoIncoming[0]?.id);
     for (const r of data.referrals) {
+      if (r.id === compound[0]?.id) continue;
       expect(r.forecastKind === undefined || r.forecastKind === "unspecified").toBe(true);
-      expect(r.forecastKind).not.toBe("will_compound");
     }
   });
 
