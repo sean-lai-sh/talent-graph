@@ -135,11 +135,16 @@ export const PRODUCT_LANGUAGE = {
   structuredEvidence: "Structured Evidence",
   underRecognitionGap: "Under-Recognition Gap",
   exploratory: "Exploratory",
+  scoutInformationGain: "Scout Information Gain",
+  intensityCalibration: "Intensity Calibration",
+  judgeReliability: "Judge Reliability",
+  residualSlope: "Residual Slope",
 } as const;
 
 /**
  * Phrases that must never appear anywhere in `src/`. Asserted by the
  * invariants test: the model estimates relative evidence, not human value.
+ * "Scout Score" is banned as a collapsed product of p̂ and Ĝ.
  */
 export const BANNED_LANGUAGE: readonly string[] = [
   "Talent Score",
@@ -147,4 +152,5 @@ export const BANNED_LANGUAGE: readonly string[] = [
   "Capability Score",
   "Objective Rank",
   "Human Value",
+  "Scout Score",
 ] as const;

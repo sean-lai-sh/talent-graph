@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { BANNED_LANGUAGE } from "../src/domain/constants.ts";
+import { BANNED_LANGUAGE, PRODUCT_LANGUAGE } from "../src/domain/constants.ts";
 
 const ROOT = join(import.meta.dir, "..");
 
@@ -66,6 +66,31 @@ describe("invariants: Referral Signal ≠ Relative Capability", () => {
   });
 });
 
+/** Body of `function name(...) { ... }` (first match). Nested braces included. */
+function extractFunction(source: string, name: string): string | null {
+  const start = source.search(new RegExp(`function\\s+${name}\\s*\\(`));
+  if (start < 0) return null;
+  const open = source.indexOf("{", start);
+  if (open < 0) return null;
+  let depth = 0;
+  for (let i = open; i < source.length; i++) {
+    const ch = source[i];
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return source.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+/** True if a reliability / MSE field is assigned an expression that mentions slope/gain. */
+function mixesSlopeIntoIntercept(code: string): boolean {
+  return /(?:reliability|meanSquaredError)\s*(?:=|\+=|:)\s*[^\n,;]*\b(?:delta|gain|scoutGain)\b/.test(
+    code,
+  );
+}
+
 describe("invariants: judge calibration is grounded in outcomes, not in V1", () => {
   test("src/judges never imports from src/inference (no circular truth)", () => {
     expect(JUDGES.length).toBeGreaterThan(0);
@@ -83,6 +108,73 @@ describe("invariants: judge calibration is grounded in outcomes, not in V1", () 
   test("scoring never imports from src/judges (weights are passed in)", () => {
     for (const f of SCORING) expect(importsFrom(read(f), "judges"), rel(f)).toBe(false);
   });
+
+  test("src/inference never imports from src/judges (no slopes inside V1)", () => {
+    for (const f of INFERENCE) expect(importsFrom(read(f), "judges"), rel(f)).toBe(false);
+  });
+
+  test("judges are never graded by agreement with other judges", () => {
+    for (const f of JUDGES) {
+      const code = stripComments(read(f));
+      expect(/\bagreement\b/i.test(code), `${rel(f)} mentions agreement`).toBe(false);
+    }
+  });
+
+  test("judges are never graded by θ or by capability percentiles as truth", () => {
+    for (const f of JUDGES) {
+      const code = stripComments(read(f));
+      expect(/\btrueTheta\b/.test(code), `${rel(f)} references trueTheta`).toBe(false);
+      expect(/\bcapabilityPercentile\b/i.test(code), `${rel(f)} uses capability percentiles`).toBe(
+        false,
+      );
+    }
+  });
+});
+
+describe("invariants: slope ≠ intercept (two judge numbers)", () => {
+  test("no judges file adds delta/gain/scoutGain into reliability or meanSquaredError", () => {
+    expect(JUDGES.length).toBeGreaterThan(0);
+    for (const f of JUDGES) {
+      const code = stripComments(read(f));
+      expect(mixesSlopeIntoIntercept(code), rel(f)).toBe(false);
+    }
+  });
+
+  test("ScoutInformationGain and JudgeReliabilityEstimate stay separate types", () => {
+    const types = read(join(ROOT, "src/domain/types.ts"));
+    const reliability = read(join(ROOT, "src/judges/reliability.ts"));
+    expect(types).toMatch(/export interface ScoutInformationGain\b/);
+    expect(reliability).toMatch(/export interface JudgeReliabilityEstimate\b/);
+    expect(types.includes("export interface JudgeReliabilityEstimate")).toBe(false);
+    expect(reliability.includes("export interface ScoutInformationGain")).toBe(false);
+  });
+
+  test("CURRENT_SPECS.judge_reliability.scoutHook stays false", async () => {
+    const { CURRENT_SPECS } = await import("../src/models/registry.ts");
+    expect(CURRENT_SPECS.judge_reliability.version).toBe("3.0.0");
+    expect(CURRENT_SPECS.judge_reliability.scoutHook).toBe(false);
+  });
+});
+
+describe("invariants: no synthesized comparisons from outcomes", () => {
+  test("src/judges never constructs Comparison rows", () => {
+    for (const f of JUDGES) {
+      const code = stripComments(read(f));
+      expect(/\bComparison\b/.test(code), `${rel(f)} names Comparison`).toBe(false);
+    }
+  });
+
+  test("src/seed/outcomes.ts never writes Comparison rows", () => {
+    const code = stripComments(read(join(ROOT, "src/seed/outcomes.ts")));
+    expect(/\bComparison\b/.test(code)).toBe(false);
+  });
+
+  test("seed comparison generator does not read Outcome records", () => {
+    const src = stripComments(read(join(ROOT, "src/seed/generate.ts")));
+    const fn = extractFunction(src, "buildComparisons");
+    expect(fn).toBeTruthy();
+    expect(/\bOutcome\b|\boutcomes\b/.test(fn ?? "")).toBe(false);
+  });
 });
 
 describe("invariants: language", () => {
@@ -94,6 +186,23 @@ describe("invariants: language", () => {
         expect(s.includes(phrase), `${rel(f)} contains "${phrase}"`).toBe(false);
       }
     }
+  });
+
+  test("demo and presentation never use a collapsed product name", () => {
+    const files = ["demo/index.html", "demo/app.js", "scripts/demo.ts", "scripts/demo-ui.ts"];
+    for (const f of files) {
+      const s = read(join(ROOT, f));
+      for (const phrase of BANNED_LANGUAGE) {
+        expect(s.includes(phrase), `${f} contains "${phrase}"`).toBe(false);
+      }
+    }
+  });
+
+  test("approved Phase E names exist as separate product phrases", () => {
+    expect(PRODUCT_LANGUAGE.scoutInformationGain).toBe("Scout Information Gain");
+    expect(PRODUCT_LANGUAGE.intensityCalibration).toBe("Intensity Calibration");
+    expect(PRODUCT_LANGUAGE.judgeReliability).toBe("Judge Reliability");
+    expect(PRODUCT_LANGUAGE.residualSlope).toBe("Residual Slope");
   });
 });
 
