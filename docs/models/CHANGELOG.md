@@ -83,9 +83,12 @@ the seed dataset and paste the summary line into the entry.
   without turning it on. 2.0.0 stays registered and key-identical (no V3
   keys). Ĝ is never mixed into p̂_u.
 - **Drift:** `bun run drift` only compares `referral_signal` /
-  `bradley_terry`. On `generateSeed()`, `computeAllReferralSignals` with
-  `judgeWeightOptions(cal2)` vs `judgeWeightOptions(cal3)` (same `now`,
-  hook off) are **identical** (stable).
+  `bradley_terry`. On `generateSeed()` at T=2026-12-31,
+  `computeAllReferralSignals` with `judgeWeightOptions(cal2)` vs
+  `judgeWeightOptions(cal3)` (hook off; neither map includes
+  `scoutWeights`) are **identical** (32 people, 24 valued):
+  `Verdict: STABLE   n=24` · Kendall τ_b 1.000 · Spearman ρ 1.000 ·
+  Top-10/25 Jaccard 1.00 · |shift| mean/p95/max 0.00.
   `bun run drift -- --kind referral_signal --before 0.1.0 --after 0.1.0`
-  is also stable (same spec).
-- **PR:** this PR (issue #26).
+  is also `Verdict: STABLE   n=24` (same spec).
+- **PR:** #34 (issue #26).

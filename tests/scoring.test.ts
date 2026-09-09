@@ -7,12 +7,12 @@ import {
   computeReferralSignal,
   displayReferralSignal,
 } from "../src/scoring/referralSignal.ts";
-import { generateSeed } from "../src/seed/generate.ts";
 import {
   normalizeScale,
   referralStrength,
   referralStrengthBreakdown,
 } from "../src/scoring/referralStrength.ts";
+import { generateSeed } from "../src/seed/generate.ts";
 
 const T0 = new Date("2026-01-01T00:00:00.000Z");
 let seq = 0;
