@@ -74,4 +74,4 @@ the seed dataset and paste the summary line into the entry.
   information gain. Registered so `getSpec("judge_reliability", "3.0.0")`
   works; `CURRENT_SPECS.judge_reliability` stays `2.0.0`.
 - **Drift:** n/a until later (not current; no math change).
-- **PR:** issue #20.
+- **PR:** #28 (issue #20).

@@ -121,12 +121,8 @@ describe("validateSpec: judge_reliability", () => {
   });
 
   test("rejects invalid V3 fields when any V3 key is present", () => {
-    expect(
-      validateSpec({ ...JUDGE_RELIABILITY_V3_0_0, scoutShrinkage: -1 }).ok,
-    ).toBe(false);
-    expect(validateSpec({ ...JUDGE_RELIABILITY_V3_0_0, scoutHook: "yes" as never }).ok).toBe(
-      false,
-    );
+    expect(validateSpec({ ...JUDGE_RELIABILITY_V3_0_0, scoutShrinkage: -1 }).ok).toBe(false);
+    expect(validateSpec({ ...JUDGE_RELIABILITY_V3_0_0, scoutHook: "yes" as never }).ok).toBe(false);
   });
 
   test("JSON of 2.0.0 has no V3 keys", () => {
