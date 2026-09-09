@@ -1,10 +1,11 @@
 /**
- * Time-sliced V2 judge calibration for the interactive explainer.
+ * Time-sliced judge calibration for the interactive explainer.
  *
  * Replays `computeJudgeCalibration` at successive time steps T so a UI can
- * show reliability weights moving as referrals become evaluable. Presentation
- * only: the math lives in `src/judges/` and `src/scoring/`. Does not import
- * `src/inference/` — truth is outcomes, never pairwise estimates.
+ * show Judge Reliability p̂ and Scout Information Gain Ĝ as separate fields.
+ * Presentation only: the math lives in `src/judges/` and `src/scoring/`. Does
+ * not import `src/inference/` — truth is outcomes, never pairwise estimates.
+ * Ĝ is copied from `run.scout` and is never added to reliability.
  *
  * Pure: `now` is never read; the caller passes the window.
  */
@@ -60,6 +61,10 @@ export interface TimelineJudgeState {
   bias: number;
   evaluatedCount: number;
   meanSquaredError: number | null;
+  /** Ĝ_u from `run.scout`. Separate from reliability; never added to p̂. */
+  scoutGain: number;
+  /** Scout-eligible rows that produced Ĝ_u. 0 means prior (missing slope ≠ 0 ability). */
+  scoutEvaluatedCount: number;
 }
 
 export interface TimelineSignalState {
@@ -96,6 +101,8 @@ export interface TimelineFrame {
 export interface JudgeTimeline {
   specVersion: string;
   referralSpecVersion: string;
+  /** Copied from the spec. Production 3.0.0 stays false. */
+  scoutHook: boolean;
   observationWindowDays: number;
   shrinkage: number;
   learningRate: number;
@@ -216,14 +223,19 @@ function edgeView(
 function judgeStates(run: JudgeCalibrationRun): TimelineJudgeState[] {
   return [...run.estimates.values()]
     .sort((a, b) => a.judgeId.localeCompare(b.judgeId))
-    .map((e) => ({
-      id: e.judgeId,
-      reliability: e.reliability,
-      rawReliability: e.rawReliability,
-      bias: e.bias,
-      evaluatedCount: e.evaluatedCount,
-      meanSquaredError: e.meanSquaredError,
-    }));
+    .map((e) => {
+      const scout = run.scout.get(e.judgeId);
+      return {
+        id: e.judgeId,
+        reliability: e.reliability,
+        rawReliability: e.rawReliability,
+        bias: e.bias,
+        evaluatedCount: e.evaluatedCount,
+        meanSquaredError: e.meanSquaredError,
+        scoutGain: scout?.gain ?? 0,
+        scoutEvaluatedCount: scout?.evaluatedCount ?? 0,
+      };
+    });
 }
 
 function signalStates(
@@ -302,6 +314,7 @@ export function buildJudgeTimeline(input: TimelineInput): JudgeTimeline {
   return {
     specVersion: spec.version,
     referralSpecVersion: referralSpec.version,
+    scoutHook: spec.scoutHook === true,
     observationWindowDays: spec.observationWindowDays,
     shrinkage: spec.shrinkage,
     learningRate: spec.learningRate,

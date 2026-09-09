@@ -33,6 +33,8 @@ describe("buildJudgeTimeline", () => {
       expect(j.reliability).toBe(1);
       expect(j.evaluatedCount).toBe(0);
       expect(j.rawReliability).toBeNull();
+      expect(j.scoutGain).toBe(0);
+      expect(j.scoutEvaluatedCount).toBe(0);
     }
     for (const s of first?.signals ?? []) {
       expect(s.v2).toBe(s.v0);
@@ -72,6 +74,15 @@ describe("buildJudgeTimeline", () => {
     // vs high-flat) so the residual labels — and therefore p̂ of shared referrers —
     // shift. evaluatedReferrals stays 27; V0 is unchanged (forecastKind is not in R_uv).
     expect(bram?.v2Display).toBe(64);
+    for (const e of run.estimates.values()) {
+      const row = last?.judges.find((j) => j.id === e.judgeId);
+      const scout = run.scout.get(e.judgeId);
+      expect(row).toBeDefined();
+      expect(row?.reliability).toBe(e.reliability);
+      expect(row?.scoutGain).toBe(scout?.gain ?? 0);
+      expect(row?.scoutEvaluatedCount).toBe(scout?.evaluatedCount ?? 0);
+      expect(row?.scoutGain).not.toBe(row?.reliability);
+    }
   });
 
   test("evaluated referral count is non-decreasing and hits every scoring instant", () => {
@@ -98,6 +109,8 @@ describe("buildJudgeTimeline", () => {
     expect(flagged.sort()).toEqual([...PERSONA_IDS].sort());
     expect(timeline.observationWindowDays).toBe(180);
     expect(timeline.priorReliability).toBe(1);
+    expect(timeline.specVersion).toBe("3.0.0");
+    expect(timeline.scoutHook).toBe(false);
   });
 
   test("uses no banned language in the serialised payload", () => {

@@ -289,7 +289,7 @@ select {
   display: flex;
   flex-direction: column;
   gap: 7px;
-  max-height: 280px;
+  max-height: 220px;
   overflow: auto;
 }
 

@@ -55,13 +55,21 @@ const judged = [...calibration.estimates.values()]
   .sort((a, b) => b.reliability - a.reliability || (a.judgeId < b.judgeId ? -1 : 1));
 
 console.log();
-console.log(`Judge calibration at T = ${T.toISOString().slice(0, 10)} (V2, Exploratory)`);
+console.log(
+  `Judge calibration at T = ${T.toISOString().slice(0, 10)} (judge_reliability@${specs.judge_reliability.version}, scoutHook ${specs.judge_reliability.scoutHook === true ? "on" : "off"})`,
+);
 console.log(
   `${calibration.options.evaluatedReferrals} referrals scored against ${calibration.truths.size} people with outcomes · ${judged.length} judges with evidence · others stay at prior ${specs.judge_reliability.priorReliability}`,
 );
+console.log(
+  "Two numbers, not one — Judge Reliability p̂ (intensity) and Scout Information Gain Ĝ (slope). They are not added. scoutHook off ⇒ Referral Signal stays bit-for-bit V2.",
+);
 for (const e of judged) {
+  const scout = calibration.scout.get(e.judgeId);
+  const gain = scout?.gain ?? 0;
+  const scoutN = scout?.evaluatedCount ?? 0;
   console.log(
-    `  ${nameOf(e.judgeId).padEnd(18)} p̂ ${e.reliability.toFixed(2)} · Ē ${(e.meanSquaredError ?? 0).toFixed(3)} · bias ${e.bias >= 0 ? "+" : ""}${e.bias.toFixed(2)} · ${e.evaluatedCount} scored`,
+    `  ${nameOf(e.judgeId).padEnd(18)} Judge Reliability p̂ ${e.reliability.toFixed(2)} · Scout Information Gain Ĝ ${gain.toFixed(3)} (${scoutN} scout-eligible) · Ē ${(e.meanSquaredError ?? 0).toFixed(3)} · bias ${e.bias >= 0 ? "+" : ""}${e.bias.toFixed(2)} · ${e.evaluatedCount} scored`,
   );
 }
 

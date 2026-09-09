@@ -1,5 +1,6 @@
 const network = document.querySelector("#network");
 const weightsEl = document.querySelector("#weights");
+const scoutsEl = document.querySelector("#scouts");
 const signalsEl = document.querySelector("#signals");
 const eventsEl = document.querySelector("#events");
 const detailEl = document.querySelector("#detail");
@@ -152,7 +153,7 @@ function renderNetwork() {
         <circle class="halo" r="16" fill="#171b17" stroke="#2c322c" />
         <circle r="11" fill="${reliabilityColor(rel)}" />
         <text class="node-label" x="-22" y="4" text-anchor="end">${p.name}</text>
-        <text class="node-sub" x="-22" y="16" text-anchor="end">${rel.toFixed(2)} · ${n}</text>
+        <text class="node-sub" x="-22" y="16" text-anchor="end">p̂ ${rel.toFixed(2)} · Ĝ ${(judges.get(p.id)?.scoutGain ?? 0).toFixed(2)}</text>
         <circle class="hit" r="18" data-id="${p.id}" />
       </g>`;
     })
@@ -181,13 +182,16 @@ function renderNetwork() {
   `;
 }
 
-function renderWeights() {
+function judgedRows() {
   const fr = frame();
-  const rows = fr.judges
+  return fr.judges
     .filter((j) => state.data.people.find((p) => p.id === j.id)?.judged)
     .sort((a, b) => b.reliability - a.reliability || a.id.localeCompare(b.id))
     .slice(0, state.view === "focus" ? 12 : 20);
-  weightsEl.innerHTML = rows
+}
+
+function renderWeights() {
+  weightsEl.innerHTML = judgedRows()
     .map((j) => {
       const color = reliabilityColor(j.reliability);
       return `<li class="weight-row">
@@ -196,6 +200,23 @@ function renderWeights() {
           <div class="bar"><i style="width:${Math.round(j.reliability * 100)}%;background:${color}"></i></div>
         </div>
         <div class="num">${j.reliability.toFixed(2)}</div>
+      </li>`;
+    })
+    .join("");
+}
+
+function renderScouts() {
+  const rows = [...judgedRows()].sort((a, b) => b.scoutGain - a.scoutGain || a.id.localeCompare(b.id));
+  scoutsEl.innerHTML = rows
+    .map((j) => {
+      const width = Math.round(Math.min(1, Math.max(0, j.scoutGain)) * 100);
+      const hint = j.scoutEvaluatedCount === 0 ? "prior" : `${j.scoutEvaluatedCount} eligible`;
+      return `<li class="weight-row">
+        <div>
+          <div class="name">${nameOf(j.id)}</div>
+          <div class="bar"><i style="width:${width}%;background:#d4a054"></i></div>
+        </div>
+        <div class="num">${j.scoutGain.toFixed(3)} <span class="delta">${hint}</span></div>
       </li>`;
     })
     .join("");
@@ -263,7 +284,10 @@ function renderDetail() {
   const bits = [`<p><strong>${person?.name ?? id}</strong></p>`];
   if (judge && outgoing.length) {
     bits.push(
-      `<p>Reliability p̂ ${judge.reliability.toFixed(2)} after ${judge.evaluatedCount} scored referral${judge.evaluatedCount === 1 ? "" : "s"}. Bias ${judge.bias >= 0 ? "+" : ""}${judge.bias.toFixed(2)} (estimated, not applied in 2.0.0).</p>`,
+      `<p>Judge Reliability p̂ ${judge.reliability.toFixed(2)} after ${judge.evaluatedCount} scored referral${judge.evaluatedCount === 1 ? "" : "s"}. Bias ${judge.bias >= 0 ? "+" : ""}${judge.bias.toFixed(2)} (estimated, not applied).</p>`,
+    );
+    bits.push(
+      `<p>Scout Information Gain Ĝ ${judge.scoutGain.toFixed(3)} from ${judge.scoutEvaluatedCount} scout-eligible referral${judge.scoutEvaluatedCount === 1 ? "" : "s"}. Separate from p̂; not added; scoutHook off.</p>`,
     );
   }
   if (signal && incoming.length) {
@@ -297,6 +321,7 @@ function render() {
   scrub.value = String(state.index);
   renderNetwork();
   renderWeights();
+  renderScouts();
   renderSignals();
   renderEvents();
   renderDetail();
@@ -385,7 +410,7 @@ async function main() {
   }
   state.data = await res.json();
   scrub.max = String(state.data.frames.length - 1);
-  specLabel.textContent = `referral_signal@${state.data.referralSpecVersion} · judge_reliability@${state.data.specVersion}`;
+  specLabel.textContent = `referral_signal@${state.data.referralSpecVersion} · judge_reliability@${state.data.specVersion} · scoutHook ${state.data.scoutHook ? "on" : "off"}`;
   state.layout = computeLayout(state.view);
   bind();
   render();

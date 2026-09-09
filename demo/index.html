@@ -6,7 +6,7 @@
     <title>Talent Graph — how the network learns which judges to trust</title>
     <meta
       name="description"
-      content="Interactive explainer of V2 judge calibration: over a short simulation the graph scores referrals against later outcomes and corrects judge weights."
+      content="Interactive explainer of V2 Intensity Calibration and V3 Scout Information Gain: two judge numbers, never one score."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -19,12 +19,13 @@
   <body>
     <div class="page">
       <header class="masthead">
-        <p class="eyebrow">Talent Graph · V2 · Exploratory</p>
+        <p class="eyebrow">Talent Graph · V2 + V3 · judge_reliability@3.0.0 · scoutHook off</p>
         <h1>The network cannot know who is good at spotting people until time has passed.</h1>
         <p class="lede">
           Every referral is a prediction. After a 180-day observation window the graph scores that
           prediction against what the person actually did — never against other judges — and quietly
-          turns the error into a reliability weight. Play the next seven months of the seed.
+          turns the error into a reliability weight. A second number, Scout Information Gain, asks
+          who named someone before they compounded. Play the next seven months of the seed.
         </p>
       </header>
 
@@ -34,7 +35,9 @@
           If we weighted judges by how much they agree with each other, we would reward the clique
           and punish the person who named someone early. Agreement is cheap. Outcomes are not. Until
           outcomes exist, every judge is weighted <em>exactly</em> 1 — V2 reproduces V0 bit for bit.
-          That is the point.
+          Intensity Calibration still cannot tell “already strong, flat” from “will compound.” That
+          is why V3 adds Scout Information Gain as a <em>second</em> number. They are never added.
+          <code>scoutHook</code> stays off, so the Referral Signal on the right is still V2.
         </p>
       </section>
 
@@ -70,14 +73,20 @@
           </section>
 
           <section>
-            <h2>Judge weights <span class="soft">p̂</span></h2>
-            <p class="hint">Shrinkage keeps a single lucky call from minting an oracle. λ&nbsp;=&nbsp;3.</p>
+            <h2>Judge Reliability <span class="soft">p̂</span></h2>
+            <p class="hint">Intensity Calibration. Shrinkage keeps a single lucky call from minting an oracle. λ&nbsp;=&nbsp;3.</p>
             <ol class="weight-list" id="weights"></ol>
           </section>
 
           <section>
+            <h2>Scout Information Gain <span class="soft">Ĝ</span></h2>
+            <p class="hint">Residual Slope payoff, not intensity. Missing slope stays at the prior 0 — that is not low ability. Never added to p̂.</p>
+            <ol class="weight-list" id="scouts"></ol>
+          </section>
+
+          <section>
             <h2>Referral Signal <span class="soft">V0 → V2</span></h2>
-            <p class="hint">Same referrals. Only the judge weights moved.</p>
+            <p class="hint">Same referrals. Only Judge Reliability moved. scoutHook is off.</p>
             <ol class="signal-list" id="signals"></ol>
           </section>
         </aside>
@@ -129,8 +138,9 @@
             <li><code>x = R<sub>uv</sub></code> — the referral’s own strength. This is the prediction. It is never rewritten by the weight that follows.</li>
             <li><code>truth</code> — residual outcome percentile of the candidate after the window, opportunity-corrected. Not a pairwise estimate.</li>
             <li><code>E = (x − truth)²</code> then <code>Ē ← (1−η)Ē + ηE</code> in the order predictions become eligible. η = 0.3</li>
-            <li><code>p = exp(−τ Ē)</code>, <code>p̂ = n/(n+λ)·p + λ/(n+λ)·1</code>. τ = 4, λ = 3. New judges stay near 1.</li>
-            <li>The Referral Signal uses <code>p̂ · R<sub>uv</sub></code>. Zero-weight judges drop out of the Top-K so they cannot dilute it.</li>
+            <li><code>p = exp(−τ Ē)</code>, <code>p̂ = n/(n+λ)·p + λ/(n+λ)·1</code>. τ = 4, λ = 3. New judges stay near 1. This is Judge Reliability — Intensity Calibration.</li>
+            <li>The Referral Signal uses <code>p̂ · R<sub>uv</sub></code>. Zero-weight judges drop out of the Top-K so they cannot dilute it. <code>scoutHook</code> is off, so Ĝ does not enter this product.</li>
+            <li>Scout Information Gain is a second number: <code>IG = (1 − π) · max(ΔR*, 0)</code> only for <code>will_compound</code> referrals with a defined Residual Slope. <code>x<sub>uv</sub></code> does not appear. Ĝ shrinks toward 0. Missing slope is a skip, not a zero ability.</li>
           </ol>
         </section>
       </div>
@@ -140,7 +150,7 @@
           Built on the algorithm core in this repo — <code>computeJudgeCalibration</code> at each T,
           then <code>computeAllReferralSignals</code> with the learned weights. Seed of 32 people,
           50 referrals, synthetic outcomes. Specs
-          <span id="spec-label">referral_signal@0.1.0 · judge_reliability@2.0.0</span>.
+          <span id="spec-label">referral_signal@0.1.0 · judge_reliability@3.0.0</span>.
         </p>
       </footer>
     </div>

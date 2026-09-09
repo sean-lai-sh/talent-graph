@@ -2,9 +2,10 @@
 /**
  * bun run demo:ui — serves the interactive judge-calibration explainer.
  *
- * Frames are computed once from the seed through the real V2 path
- * (`buildJudgeTimeline` → `computeJudgeCalibration`). The HTTP layer
- * only serves those frames plus the static files in `demo/`.
+ * Frames are computed once from the seed through the real calibration path
+ * (`buildJudgeTimeline` → `computeJudgeCalibration`). Each judge carries
+ * Judge Reliability p̂ and Scout Information Gain Ĝ as separate fields.
+ * The HTTP layer only serves those frames plus the static files in `demo/`.
  */
 
 import { join, normalize, relative, resolve } from "node:path";
