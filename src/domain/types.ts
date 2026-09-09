@@ -178,7 +178,7 @@ export type ResidualSlopeState =
   | "insufficient_late"
   | "undefined_window";
 
-/** Snapshot of ΔR*_v = R*_v(t1) − R*_v(t0). Computed later; type only here. */
+/** Snapshot of ΔR*_v = R*_v(t1) − R*_v(t0). Produced by `residualSlope`. */
 export interface ResidualSlope {
   personId: string;
   t0: Date;
