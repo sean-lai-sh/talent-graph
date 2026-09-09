@@ -55,15 +55,16 @@ export interface BradleyTerrySpec {
  *   Ē_u    ← (1 − η)·Ē_u + η·E_uv                 exponentially weighted, chronological
  *   p_u    = exp(−τ·Ē_u)                          raw reliability
  *   p̂_u    = n/(n+λ)·p_u + λ/(n+λ)·μ_p            shrunk toward the prior
- *   b_u    ← (1 − η)·b_u + η·(x_uv − R*_v)        signed bias, shrunk the same way
+ *   b_u    ← (1 − η)·b_u + η·(x_uv − truth_uv)    signed bias, shrunk the same way
  */
 export interface JudgeReliabilitySpec {
   kind: "judge_reliability";
   /** Semver, e.g. "2.0.0". */
   version: string;
   /**
-   * Only outcomes observed at least this many days after a referral count
-   * toward that referral's label (the paper's "fixed observation period").
+   * A referral becomes evaluable once this many days have passed from
+   * `createdAt` to T (the paper's "fixed observation period"). The label
+   * then uses every outcome observed after the referral and at or before T.
    */
   observationWindowDays: number;
   /** η ∈ (0, 1]: weight of the newest error in the running average. */

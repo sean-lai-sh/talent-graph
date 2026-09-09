@@ -34,10 +34,10 @@ exactly `R_uv`, so V0 is reproduced bit-for-bit.
   opportunity-count bucket (`opportunityBuckets [1,2,3]`), falling back to the
   global mean when a bucket has fewer than `minBucketSize` people. With no
   opportunity records this is a constant and residual ranks equal raw ranks.
-- **Label per prediction:** a referral's label is built only from the
-  candidate's outcomes observed ≥ `observationWindowDays` (180) after the
-  referral; pre-referral outcomes never enter `E_uv`. The opportunity count is
-  taken at the referral (`opportunityClock: "referral"`) unless the spec says
+- **Label per prediction:** evaluable once `T − t_uv ≥ observationWindowDays`.
+  The label is a causal cohort at the referral (later outcomes only; kind ranks,
+  buckets and percentiles share that cutoff). The opportunity count is taken
+  at the referral (`opportunityClock: "referral"`) unless the spec says
   `"outcome"`. Kinds with fewer than `minKindSize` (3) outcomes are ignored.
 - **One prediction per (judge, candidate):** the earliest referral; referrals
   edited after creation are skipped (`excludeEditedReferrals`, default true).
@@ -70,7 +70,8 @@ exactly `R_uv`, so V0 is reproduced bit-for-bit.
 - Accurate judge → p̂ = 1; inaccurate → p̂ < 1; unevaluated → prior.
 - Shrinkage: closed-form p̂ for 1 vs 5 wrong calls.
 - Ē is an EWMA in evaluation order (0.7 vs 0.3 for the two orderings).
-- Observation window measured referral → outcome (not referral → T); mixed pre/post outcomes use only the post-window ones.
+- Observation window on T − t_uv; mixed pre/post labels ignore pre-referral
+  values even through the kind scale; short-horizon outcomes are kept once T is late.
 - Opportunity clock: a post-referral opportunity is not subtracted under the default, is under `"outcome"`.
 - Kinds below `minKindSize` are dropped; duplicates score once (earliest); edited rows skipped by default.
 - Opportunity correction lowers the residual of a boosted person with the same raw outcome; small buckets fall back to the global mean.

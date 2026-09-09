@@ -116,7 +116,9 @@ export function computeReferralSignal(
     })
     .sort(compareContributing);
 
-  const contributing = scored.slice(0, topK);
+  // A zero-reliability judge must not occupy a Top-K slot or dilute the mean.
+  const eligible = judgeWeighted ? scored.filter((c) => c.judge.reliability > 0) : scored;
+  const contributing = eligible.slice(0, topK);
   const s =
     contributing.length === 0
       ? 0

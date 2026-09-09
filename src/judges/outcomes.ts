@@ -7,16 +7,18 @@
  *   R*_v   = R_v − E[R_v | O_v]                 residual after opportunity
  *   truth_v = rank percentile of R*_v / 100     ∈ [0, 1], comparable to x_uv
  *
- * Two views share one cohort built at time T:
+ * Two views:
  *
- * - `residualOutcomes` — a person-level snapshot for reporting: every usable
- *   outcome the person has, opportunities on the latest-outcome clock.
- * - `labelForPrediction` — the label a single referral u → v is scored
- *   against. Only outcomes observed at least `observationWindowDays` after
- *   the referral count (the paper's "after a fixed observation period");
- *   the opportunity count is taken on the referral clock by default, so an
- *   opportunity the referral itself caused is not subtracted from the
- *   judge's credit. Pre-referral track record never enters E_uv.
+ * - `residualOutcomes` — person-level snapshot at T for reporting: every usable
+ *   outcome ≤ T, opportunities on the latest-outcome clock.
+ * - `labelForPrediction` — the label a referral u → v is scored against. Built
+ *   from a **causal cohort** at the referral: only outcomes observed after it
+ *   (and ≤ T), kind ranks / bucket means / residual percentiles all computed
+ *   on that same cutoff. Pre-referral track record cannot move E_uv, even
+ *   through the scale. The paper's observation window is `T − t_uv`; an
+ *   outcome shortly after the referral is kept once T has cleared the window.
+ *   Opportunities default to the referral clock so a referral-caused
+ *   fellowship is not subtracted from the judge's credit.
  *
  * E[R_v | O_v] is the mean normalised outcome of the cohort bucket with a
  * similar opportunity count; a bucket smaller than `minBucketSize` falls back
@@ -29,8 +31,6 @@
 import { rankPercentiles } from "../domain/rank.ts";
 import type { Opportunity, Outcome } from "../domain/types.ts";
 import type { JudgeReliabilitySpec } from "../models/spec.ts";
-
-const DAY = 86_400_000;
 
 export interface ResidualOutcome {
   personId: string;
@@ -66,11 +66,27 @@ export interface PredictionLabel {
   latestObservedAt: Date;
 }
 
+/**
+ * Cutoff for a causal (per-prediction) cohort. Omit for the reporting snapshot
+ * at `now`.
+ */
+export interface ResidualClock {
+  /** Only outcomes with `observedAt > after` are used. */
+  after: Date;
+  /**
+   * Count every person's opportunities at this instant. Omit to use each
+   * person's latest contributing outcome (the snapshot / `"outcome"` clock).
+   */
+  opportunityAsOf?: Date;
+}
+
 /** Cohort statistics at time T, shared by the snapshot and by per-prediction labels. */
 export interface OutcomeCohort {
   now: Date;
   spec: JudgeReliabilitySpec;
-  /** Usable outcomes (measurable, ≤ now, kind large enough) per person. */
+  /** Raw outcomes passed in (unfiltered); used to rebuild a causal cohort. */
+  outcomes: readonly Outcome[];
+  /** Usable outcomes (measurable, ≤ now, kind large enough, after the clock) per person. */
   usableByPerson: Map<string, Outcome[]>;
   /** Within-kind rank normalisation of every usable outcome. */
   normalizedById: Map<string, number>;
@@ -125,17 +141,22 @@ function countOpportunities(
   ).length;
 }
 
-/** Build the cohort at `now`. */
+/** Build the cohort at `now`, optionally restricted to a causal clock. */
 export function buildOutcomeCohort(
   outcomes: readonly Outcome[],
   opportunities: readonly Opportunity[],
   spec: JudgeReliabilitySpec,
   now: Date,
+  clock?: ResidualClock,
 ): OutcomeCohort {
   const nowMs = now.getTime();
-  const measurable = outcomes.filter(
-    (o) => o.value !== null && Number.isFinite(o.value) && o.observedAt.getTime() <= nowMs,
-  );
+  const afterMs = clock ? clock.after.getTime() : Number.NEGATIVE_INFINITY;
+  const opportunityAsOfMs = clock?.opportunityAsOf?.getTime();
+  const measurable = outcomes.filter((o) => {
+    if (o.value === null || !Number.isFinite(o.value)) return false;
+    const t = o.observedAt.getTime();
+    return t <= nowMs && t > afterMs;
+  });
 
   // 1. Rank-normalise within kind; drop kinds too small to carry a rank.
   const byKind = new Map<string, Outcome[]>();
@@ -178,7 +199,7 @@ export function buildOutcomeCohort(
     partials.push({
       personId,
       normalized: mean(list.map((o) => normalizedById.get(o.id) as number)),
-      opportunityCount: countOpportunities(opportunities, personId, latest),
+      opportunityCount: countOpportunities(opportunities, personId, opportunityAsOfMs ?? latest),
       outcomeIds: list.map((o) => o.id).sort(),
       latestObservedAt: new Date(latest),
     });
@@ -226,6 +247,7 @@ export function buildOutcomeCohort(
   return {
     now: new Date(nowMs),
     spec,
+    outcomes,
     usableByPerson,
     normalizedById,
     opportunities,
@@ -259,13 +281,12 @@ export function residualOutcomes(
 
 /**
  * The label for a referral made at `referredAt` about `personId`, or null when
- * no outcome has yet been observed at least `observationWindowDays` after it.
+ * the candidate has no outcome observed after the referral (and ≤ T).
  *
- * Only post-window outcomes enter the label. The opportunity count is taken
- * at the referral (`opportunityClock: "referral"`) or at the latest
- * contributing outcome (`"outcome"`). The percentile is taken against the
- * rest of the cohort's snapshot residuals, so a label equal to the person's
- * own snapshot residual receives exactly the snapshot truth.
+ * Rebuilds a causal cohort at the referral cutoff: kind ranks, E[R|O] buckets,
+ * and residual percentiles all use the same post-referral observations and
+ * (by default) the same opportunity clock. The 180-day gate is applied by
+ * the scorer on `T − t_uv`, not on the outcome's own age.
  */
 export function labelForPrediction(
   cohort: OutcomeCohort,
@@ -273,31 +294,25 @@ export function labelForPrediction(
   referredAt: Date,
 ): PredictionLabel | null {
   const spec = cohort.spec;
-  const earliest = referredAt.getTime() + spec.observationWindowDays * DAY;
-  const qualifying = (cohort.usableByPerson.get(personId) ?? []).filter(
-    (o) => o.observedAt.getTime() >= earliest,
-  );
-  if (qualifying.length === 0) return null;
+  const clock: ResidualClock =
+    spec.opportunityClock === "referral"
+      ? { after: referredAt, opportunityAsOf: referredAt }
+      : { after: referredAt };
+  const causal = buildOutcomeCohort(cohort.outcomes, cohort.opportunities, spec, cohort.now, clock);
+  const snap = causal.snapshot.get(personId);
+  const list = causal.usableByPerson.get(personId);
+  if (!snap || !list || list.length === 0) return null;
 
-  const times = qualifying.map((o) => o.observedAt.getTime());
-  const latest = Math.max(...times);
-  const clockMs = spec.opportunityClock === "referral" ? referredAt.getTime() : latest;
-  const opportunityCount = countOpportunities(cohort.opportunities, personId, clockMs);
-  const normalized = mean(qualifying.map((o) => cohort.normalizedById.get(o.id) as number));
-  const expected = expectedForCount(cohort, opportunityCount);
-  const residual = normalized - expected;
-  const others: number[] = [];
-  for (const [id, s] of cohort.snapshot) if (id !== personId) others.push(s.residual);
-
+  const times = list.map((o) => o.observedAt.getTime());
   return {
     personId,
-    normalized,
-    opportunityCount,
-    expected,
-    residual,
-    truth: percentileAmong(others, residual),
-    outcomeIds: qualifying.map((o) => o.id).sort(),
+    normalized: snap.normalized,
+    opportunityCount: snap.opportunityCount,
+    expected: snap.expected,
+    residual: snap.residual,
+    truth: snap.truth,
+    outcomeIds: snap.outcomeIds,
     firstObservedAt: new Date(Math.min(...times)),
-    latestObservedAt: new Date(latest),
+    latestObservedAt: snap.latestObservedAt,
   };
 }

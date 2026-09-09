@@ -102,8 +102,10 @@ export function runReferralSignals(
     {
       spec,
       topK: opts.topK ?? spec.topK,
-      // Judge weights change the numbers, so they are part of the provenance.
-      // Copied: a caller mutating its map later must not rewrite the record.
+      // Judge weights change the numbers; they are provenance, not a silent
+      // rewrite of referral_signal@0.1.0. Copied so later map mutation cannot
+      // rewrite the record. `judgeWeighted` is true iff either map was passed.
+      judgeWeighted: opts.judgeReliability !== undefined || opts.judgeBias !== undefined,
       judgeReliability: opts.judgeReliability ? new Map(opts.judgeReliability) : null,
       judgeBias: opts.judgeBias ? new Map(opts.judgeBias) : null,
     },

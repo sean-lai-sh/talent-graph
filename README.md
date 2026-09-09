@@ -223,8 +223,8 @@ Talent", "Shrinkage" and "Learning Judge Bias" sections:
 ```
 R_v       realised outcome, rank-normalised within its kind        ∈ [0,1]  (kinds with < 3 outcomes ignored)
 R*_uv   = R_v − E[R_v | O_v]                                        residual over v's outcomes observed
-                                                                    ≥ 180 days after the referral only;
-                                                                    O_v counted at the referral
+                                                                    after the referral (scored once
+                                                                    T − t_uv ≥ 180 days); O_v at referral
 truth_uv = cohort percentile of R*_uv                               ∈ [0,1]
 x_uv    = R_uv  (the referral's unweighted V0 strength)             the prediction
 E_uv    = (x_uv − truth_uv)²                                        one per (judge, candidate): earliest referral
@@ -242,14 +242,15 @@ V0 bit-for-bit until evidence says otherwise** (asserted by tests).
   opportunity count (buckets `[1, 2, 3]`, global-mean fallback for small
   buckets). With no opportunity records it is a constant and the correction
   vanishes.
-- **Labels are per prediction, not per person.** A referral's label uses only
-  outcomes observed at least the window after it; the candidate's earlier
-  track record never grades the judge, and an outcome 15 days after the
-  referral is not a label however far away `T` is. The opportunity count is
-  taken at the referral (`opportunityClock: "referral"`), so an opportunity
-  the referral itself caused is not subtracted from the judge's credit;
+- **Labels are per prediction, not per person.** A referral is evaluable
+  once `T − t_uv` has cleared the observation window. Its label is a causal
+  cohort at the referral: only later outcomes, with kind ranks, `E[R|O]`
+  buckets and residual percentiles all computed on that same cutoff, so a
+  pre-referral track record cannot move `E_uv` even through the scale. The
+  opportunity count is taken at the referral (`opportunityClock: "referral"`);
   `"outcome"` restores the person-level rule. The person-level snapshot
-  (`residualOutcomes`) still uses everything and is for reporting.
+  (`residualOutcomes`) still uses everything and is for reporting. Zero-
+  reliability judges are dropped from Top-K so they cannot dilute the mean.
 - **One prediction per judge–candidate pair**, the earliest referral, matching
   the ingest invariant; a referral edited after creation is skipped by default
   because an edited row is not a frozen prediction. Skips are reported with a
