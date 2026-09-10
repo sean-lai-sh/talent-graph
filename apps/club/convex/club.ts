@@ -18,6 +18,9 @@ import { comparisonOutcome, dimension, evidenceType, personStatus, scale5 } from
 /**
  * Persist club *inputs* here. Every write re-runs views via `lib/engine.ts`
  * (`src/` compute). Do not reimplement scoring / inference / judges.
+ *
+ * Singleton `clubOrgs.first()` until SEA-12. Mutations are public. This is
+ * not per-org isolation — do not treat SEA-10 as a multi-tenant gate.
  */
 
 type QueryCtx = GenericQueryCtx<DataModel>;
@@ -51,6 +54,7 @@ function stateFields(state: ClubState) {
   };
 }
 
+/** One shared document until SEA-12 owns org keys + auth on the data plane. */
 async function loadOrg(ctx: QueryCtx | MutationCtx): Promise<Doc<"clubOrgs"> | null> {
   return await ctx.db.query("clubOrgs").first();
 }

@@ -4,7 +4,12 @@ This folder is the official `@convex-dev/better-auth` component setup for
 `/club` only. `/` and `/example` stay on `generateSeed()` and do not use it.
 
 **Persisted:** `clubOrgs` domain inputs — people, referrals, comparisons,
-evaluations, outcomes, opportunities, snapshots, and clock `now`.
+evaluations, outcomes, opportunities, snapshots, and clock `now` (wall
+time for new orgs; not `EXAMPLE_T_*`). Snapshot `values.referralSignal`
+is accept/archive provenance only.
+
+**Not yet:** per-org isolation or an auth gate. `loadOrg` is
+`clubOrgs.first()` and mutations are public until SEA-12.
 
 **Computed:** every mutation and `getBoard` call `computeView` / `addPerson`
 / `setStatus` / `addReferral` / … from `lib/engine.ts`, which imports

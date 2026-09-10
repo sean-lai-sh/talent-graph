@@ -4,6 +4,7 @@
  *
  * `/` and `/example` start from `generateSeed()` via `initialState()`.
  * `/club` persists domain inputs in Convex and calls the same helpers.
+ * Persisted orgs use `emptyState()` / wall clock; example seed keeps EXAMPLE_T_*.
  */
 
 import {
@@ -98,7 +99,13 @@ function nextId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export function emptyState(now: string = EXAMPLE_T_END): ClubState {
+/** Wall clock for persisted orgs. Example seed keeps EXAMPLE_T_* via initialState(). */
+export function wallClockNow(): string {
+  return new Date().toISOString();
+}
+
+/** Empty persisted-org inputs. Clock is wall time, not EXAMPLE_T_END. */
+export function emptyState(now: string = wallClockNow()): ClubState {
   return {
     people: [],
     referrals: [],
@@ -376,10 +383,9 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
   };
 }
 
-/** First of each month from EXAMPLE_T_START through EXAMPLE_T_END, plus the end T. */
-export function exampleTimeSteps(): string[] {
-  const start = new Date(EXAMPLE_T_START);
-  const end = new Date(EXAMPLE_T_END);
+function monthlySteps(startIso: string, endIso: string): string[] {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
   const steps: string[] = [];
   const seen = new Set<string>();
   const push = (iso: string) => {
@@ -387,14 +393,53 @@ export function exampleTimeSteps(): string[] {
     seen.add(iso);
     steps.push(iso);
   };
-  push(EXAMPLE_T_START);
+  push(start.toISOString());
   const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
   while (cursor.getTime() <= end.getTime()) {
     if (cursor.getTime() >= start.getTime()) push(cursor.toISOString());
     cursor.setUTCMonth(cursor.getUTCMonth() + 1);
   }
-  push(EXAMPLE_T_END);
+  push(end.toISOString());
   return steps;
+}
+
+/** First of each month from EXAMPLE_T_START through EXAMPLE_T_END, plus the end T. */
+export function exampleTimeSteps(): string[] {
+  return monthlySteps(EXAMPLE_T_START, EXAMPLE_T_END);
+}
+
+/** Seed personas keep the public example calendar; Convex orgs do not. */
+export function usesExampleCalendar(state: ClubState): boolean {
+  return state.people.some((p) => personaSet.has(p.id));
+}
+
+function eventTimes(state: ClubState): number[] {
+  const raw: Array<string | null | undefined> = [
+    state.now,
+    ...state.people.flatMap((p) => [p.createdAt, p.updatedAt]),
+    ...state.referrals.flatMap((r) => [r.createdAt, r.updatedAt]),
+    ...state.comparisons.map((c) => c.createdAt),
+    ...state.evaluations.flatMap((e) => [e.createdAt, e.updatedAt]),
+    ...state.outcomes.flatMap((o) => [o.observedAt, o.createdAt]),
+    ...state.opportunities.flatMap((o) => [o.startedAt, o.endedAt, o.createdAt]),
+    ...state.snapshots.map((s) => s.createdAt),
+  ];
+  return raw
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .map((value) => new Date(value).getTime())
+    .filter((time) => Number.isFinite(time));
+}
+
+/** Monthly ticks from earliest org event through `state.now`. */
+export function orgTimeSteps(state: ClubState): string[] {
+  const times = eventTimes(state);
+  const end = times.length > 0 ? Math.max(...times) : Date.parse(state.now);
+  const start = times.length > 0 ? Math.min(...times) : end;
+  return monthlySteps(new Date(start).toISOString(), new Date(end).toISOString());
+}
+
+function timeStepsFor(state: ClubState): string[] {
+  return usesExampleCalendar(state) ? exampleTimeSteps() : orgTimeSteps(state);
 }
 
 function toJudgeViews(
@@ -427,8 +472,10 @@ function liveJudgeTimeline(
   const windowMs = specs.judge_reliability.observationWindowDays * 86_400_000;
   const earliestReferral = Math.min(...referrals.map((r) => r.createdAt.getTime()));
   const personaIds = state.people.filter((p) => personaSet.has(p.id));
+  const tracked =
+    personaIds.length > 0 ? personaIds : state.people.filter((p) => p.status !== "archived");
 
-  return exampleTimeSteps().map((isoNow) => {
+  return timeStepsFor(state).map((isoNow) => {
     const now = new Date(isoNow);
     const cal = computeJudgeCalibration({
       people,
@@ -449,7 +496,7 @@ function liveJudgeTimeline(
       judgesWithEvidence: cal.options.judgesWithEvidence,
       windowOpen: now.getTime() - earliestReferral >= windowMs,
       judges: toJudgeViews(state, cal),
-      personas: personaIds.map((p) => {
+      personas: tracked.map((p) => {
         const s0 = v0.get(p.id);
         const s2 = v2.get(p.id);
         return {
