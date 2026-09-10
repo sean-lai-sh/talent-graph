@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describeActionError } from "../apps/club/lib/actionError.ts";
 import {
   addComparison,
   addReferral,
@@ -12,6 +15,8 @@ import {
   setNow,
   setStatus,
 } from "../apps/club/lib/engine.ts";
+import { OTHER_GRAPH_LIMIT, selectGraphNodes } from "../apps/club/lib/graphLayout.ts";
+import { BANNED_LANGUAGE, PRODUCT_LANGUAGE, SCALE_LABELS } from "../src/domain/constants.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 
 describe("example club engine", () => {
@@ -218,5 +223,51 @@ describe("example club engine", () => {
       (p) => p.id === "p-alice",
     )?.v2;
     expect(after).not.toBe(before);
+  });
+});
+
+describe("example club UX pins", () => {
+  test("failed actions surface a recoverable message", () => {
+    expect(describeActionError(new Error("unknown referral"))).toBe("unknown referral");
+    expect(describeActionError("self-referral is not allowed")).toBe(
+      "self-referral is not allowed",
+    );
+    expect(describeActionError({})).toContain("Reset to seed");
+  });
+
+  test("personas-off keeps personas plus a short outer ring, not a hairball", () => {
+    const { view } = loadClub();
+    const only = selectGraphNodes(view.graph.nodes, true);
+    const all = selectGraphNodes(view.graph.nodes, false);
+    expect(only.map((n) => n.id)).toEqual([
+      "p-alice",
+      "p-bram",
+      "p-cleo",
+      "p-dev",
+      "p-ember",
+      "p-fox",
+    ]);
+    expect(view.graph.nodes.length).toBeGreaterThan(18);
+    expect(all.length).toBeLessThanOrEqual(6 + OTHER_GRAPH_LIMIT);
+    expect(all.filter((n) => n.persona).length).toBe(6);
+    expect(all.some((n) => !n.persona)).toBe(true);
+  });
+
+  test("club UI copy uses product language and never banned phrases", () => {
+    const root = join(import.meta.dir, "..");
+    const glob = new Bun.Glob("apps/club/{app,components,lib}/**/*.{ts,tsx}");
+    const files = [...glob.scanSync({ cwd: root, absolute: true })];
+    expect(files.length).toBeGreaterThan(5);
+    const joined = files.map((f) => readFileSync(f, "utf8")).join("\n");
+    for (const phrase of BANNED_LANGUAGE) {
+      expect(joined.includes(phrase), `club UI contains "${phrase}"`).toBe(false);
+    }
+    expect(joined.includes('from "../../../src/domain/constants.ts"')).toBe(true);
+    for (const key of Object.keys(PRODUCT_LANGUAGE)) {
+      expect(joined.includes(`PRODUCT_LANGUAGE.${key}`), `club UI unused ${key}`).toBe(true);
+    }
+    expect(joined.includes("SCALE_LABELS.rubricNotObserved")).toBe(true);
+    expect(joined.includes("Reset to seed")).toBe(true);
+    expect(SCALE_LABELS.rubricNotObserved).toBe("not observed");
   });
 });
