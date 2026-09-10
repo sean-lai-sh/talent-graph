@@ -1,12 +1,29 @@
-# Talent Graph — Algorithm Core
+# Talent Graph
 
-**`src/` is the algorithm core only** — no UI, no database, no application
-framework. It is a Bun + TypeScript library with zero runtime dependencies that
-a later application imports. Every function is pure: `(inputs, options) → result`.
+This is the **example admin of the club product**, sitting on the algorithm
+engine. It is one product, not two frontends.
 
-The club product's example admin lives in [`apps/club/`](apps/club/) and
-imports that library. `/` and `/example` are the public seed club (no auth).
-`/club` is a stub for a real organization later. One Next app, two doors.
+- **`apps/club/`** — the example admin. One Next.js app. `/` and `/example`
+  are the public seed club (no sign-in). `/club` is a stub for a real
+  organization later.
+- **`src/`** — the **engine**. Pure TypeScript, no UI, no database. Every
+  function is `(inputs, options) → result`. The admin imports it; the
+  engine does not know about Next.
+
+**Clerk and Neon come next.** They add sign-in and a database to this same
+admin. They are **not a second frontend**. Do not add a login wall to the
+public example.
+
+Deploy is one Vercel project away. The settings that must be exact:
+
+| Setting | Value |
+|---|---|
+| **Root Directory** | `apps/club` |
+| **Include source files outside of the Root Directory in the Build Step** | ON |
+| **`outputFileTracingRoot`** | repository root (`apps/club/next.config.ts`) |
+
+Full dashboard and CLI steps:
+[apps/club/README.md — Deploy on Vercel](apps/club/README.md#deploy-on-vercel-one-project-away).
 
 - Theory (canonical): [`docs/theory/main.tex`](docs/theory/main.tex) · compiled
   [`talent_white_paper.pdf`](docs/theory/talent_white_paper.pdf)
@@ -26,27 +43,6 @@ bun run demo        # dashboard + the six persona reports from the seed
 bun run club:web    # Next.js example admin at http://127.0.0.1:3000
 bun run drift -- --kind referral_signal --before 0.1.0 --after 0.1.0
 ```
-
-Vercel (one project away — exact steps in
-[`apps/club/README.md`](apps/club/README.md)):
-
-1. Import this repo. Set **Root Directory** to `apps/club` (dashboard
-   **Edit** on import, or **Project Settings → Build and Deployment**).
-   Enable **Include source files outside of the Root Directory in the
-   Build Step** (new projects often default ON; confirm it). Required so
-   `../../src` and `outputFileTracingRoot` at the repo root work.
-2. Framework: Next.js. No env vars. Do not add Clerk / auth keys.
-   Optional `TG_*` keys are listed in
-   [`apps/club/.env.example`](apps/club/.env.example).
-3. Keep `outputFileTracingRoot` as the **repo root** in
-   `apps/club/next.config.ts` so `src/` is traced into the bundle.
-
-CLI from this repo root (not from `apps/club`): `bunx vercel link` does
-not set Root Directory (no link flag for it). After link, run
-`bunx vercel project update --root-directory apps/club`, confirm the
-include-files-outside-root toggle in the dashboard, then `bunx vercel`.
-The public example has no auth and no database — refresh restores
-`generateSeed()`.
 
 Import from the barrel:
 

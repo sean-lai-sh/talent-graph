@@ -1,14 +1,17 @@
 # Club product — example admin
 
-This is the club product's Next.js app. One app, two doors:
+This is the **example admin of the club product**. One Next.js app. A human
+opens it to see who the network is loud about, who is quiet, and who the
+compares say is strong.
 
-- `/` and `/example` — public **example admin**. Unauthenticated seed club from
-  `generateSeed()`. Refresh restores the seed.
+- **`src/`** is the **engine**. This app imports `../../src`. Scoring lives
+  there, not here.
+- **Clerk and Neon come next**, on this same app. They are **not a second frontend**.
+  Do not add a login wall to `/` or `/example`.
+- `/` and `/example` — public example admin. No sign-in. Refresh restores
+  the seed club.
 - `/club` — disabled stub for a real organization later. No Clerk, no
-  persistence, no login wall on the example.
-
-The board imports the algorithm core from `../../src`. It is the example admin
-surface of the product, not a side explainer.
+  persistence.
 
 ```sh
 bun --cwd apps/club install
@@ -16,6 +19,24 @@ bun --cwd apps/club dev          # http://127.0.0.1:3000
 # or from the repo root:
 bun run club:web
 ```
+
+## What to look at
+
+1. **Cleo vs Bram on load.** Cleo Marsh is selected. She is quiet (Referral
+   Signal V2 **7**, one incoming). Bram Okafor is loud (V2 **62**, four
+   incoming). Graph circles follow that signal. The Referral Signal list
+   has Loud and Quiet, so both are on the first screen.
+2. **Try one referral or one slider.** Write a referral, or drag a
+   conviction / confidence slider on an existing one and let go. The club
+   re-runs. **Reset to seed** puts you back.
+3. **Drag T from January to Dec 31.** The clock starts on Dec 31. Drag it
+   back to January: V2 equals V0 and every judge is 1. Drag it to Dec 31:
+   the observation window opens and weights move.
+
+Also on the board: Referral Signal stays next to Relative Capability
+(never merged). Accept / archive records a local snapshot and does not
+invent a score. Empty incoming evidence is **Insufficient Evidence**, not
+a zero.
 
 ## Deploy on Vercel (one project away)
 
@@ -77,12 +98,3 @@ Local check before you deploy: `bun run club:build` from the repo root.
 rewrites `AGENTS.md` on `next dev`). They are not product copy and are not
 the old `demo/` explainer voice. Commit the generated `AGENTS.md` so the
 tree stays clean.
-
-What you can do on the example:
-
-- Read Referral Signal next to Relative Capability (never merged)
-- Open a persona dossier (start with Cleo vs Bram)
-- Meddle referral sliders, write a referral, run a compare
-- Accept / archive — records a local snapshot, does not invent a score
-- Drag evaluation time T: each tick reruns judge calibration on the *current*
-  club (including slider meddles), not a pre-baked seed tape
