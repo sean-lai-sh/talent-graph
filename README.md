@@ -4,15 +4,15 @@ This is the **example admin of the club product**, sitting on the algorithm
 engine. It is one product, not two frontends.
 
 - **`apps/club/`** — the example admin. One Next.js app. `/` and `/example`
-  are the public seed club (no sign-in). `/club` is a stub for a real
-  organization later.
+  are the public seed club (no sign-in). `/club` is the real-organization
+  door: Convex + Better Auth is scaffolded there only.
 - **`src/`** — the **engine**. Pure TypeScript, no UI, no database. Every
   function is `(inputs, options) → result`. The admin imports it; the
   engine does not know about Next.
 
-**Clerk and Neon come next.** They add sign-in and a database to this same
-admin. They are **not a second frontend**. Do not add a login wall to the
-public example.
+**Convex + Better Auth is the plan for `/club`.** Official
+`@convex-dev/better-auth` on this same admin — not Clerk, not Neon, and
+not a second frontend. Do not add a login wall to `/` or `/example`.
 
 Deploy is one Vercel project away. The settings that must be exact:
 

@@ -10,7 +10,8 @@
       "!**/node_modules",
       "!**/.claude",
       "!apps/club/.next",
-      "!apps/club/node_modules"
+      "!apps/club/node_modules",
+      "!apps/club/convex/_generated"
     ]
   },
   "formatter": {

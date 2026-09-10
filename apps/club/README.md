@@ -6,12 +6,14 @@ compares say is strong.
 
 - **`src/`** is the **engine**. This app imports `../../src`. Scoring lives
   there, not here.
-- **Clerk and Neon come next**, on this same app. They are **not a second frontend**.
+- **Convex + Better Auth** is the plan for `/club` on this same app. Official
+  `@convex-dev/better-auth`. Not Clerk, not Neon, and **not a second frontend**.
   Do not add a login wall to `/` or `/example`.
 - `/` and `/example` — public example admin. No sign-in. Refresh restores
   the seed club.
-- `/club` — disabled stub for a real organization later. No Clerk, no
-  persistence.
+- `/club` — real-organization door. Convex client, schema stub, empty
+  mutations/queries, and Better Auth wiring live here. Persistence is still
+  empty (SEA-10). The auth gate is later (SEA-12).
 
 ```sh
 bun --cwd apps/club install
@@ -19,6 +21,17 @@ bun --cwd apps/club dev          # http://127.0.0.1:3000
 # or from the repo root:
 bun run club:web
 ```
+
+`/` and `/example` need no Convex project. To connect `/club`:
+
+```sh
+# from apps/club
+npx convex dev
+npx convex env set BETTER_AUTH_SECRET=$(openssl rand -base64 32)
+npx convex env set SITE_URL http://127.0.0.1:3000
+```
+
+That writes `NEXT_PUBLIC_CONVEX_*` into `.env.local`. Do not put those keys on the public example deploy.
 
 ## What to look at
 
@@ -44,7 +57,9 @@ a zero.
 ## Deploy on Vercel (one project away)
 
 No live preview is attached to this branch. The app is configured so a
-human can ship it with one Vercel project. Do not add auth env.
+human can ship the public example with one Vercel project. Do not add
+auth env for `/` or `/example`. Convex + Better Auth keys are `/club`
+only.
 
 | Setting | Value |
 |---|---|
@@ -52,7 +67,7 @@ human can ship it with one Vercel project. Do not add auth env.
 | **Include source files outside of the Root Directory in the Build Step** | ON (new projects often default ON; confirm) |
 | **Framework Preset** | Next.js (`apps/club/vercel.json`) |
 | **outputFileTracingRoot** | repo root (`apps/club/next.config.ts`) |
-| **Environment variables** | none required; do not set Clerk / auth keys |
+| **Environment variables** | none required for `/` and `/example`. `/club` uses Convex + Better Auth vars from `.env.example` when a deployment is connected |
 
 `outputFileTracingRoot` must stay the **repository root**, not `apps/club`.
 The board imports `../../src`; tracing from the repo root puts that tree
@@ -73,8 +88,9 @@ in the build.
    on the detected defaults. Do not set Output Directory.
 5. Skip Environment Variables. Optional `TG_*` keys are in
    [`apps/club/.env.example`](.env.example); they are not required.
-6. Deploy. `/` and `/example` are the public seed club. `/club` is a
-   disabled stub. Refresh restores `generateSeed()`.
+6. Deploy. `/` and `/example` are the public seed club. Refresh restores
+   `generateSeed()`. `/club` is the Convex + Better Auth scaffold and does
+   not wall the example.
 
 ### CLI (from the repository root)
 
