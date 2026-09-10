@@ -2,7 +2,17 @@
   "$schema": "https://biomejs.dev/schemas/2.5.12/schema.json",
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
   "files": {
-    "includes": ["**/*.ts", "**/*.json", "!**/bun.lock", "!**/node_modules", "!**/.claude"]
+    "includes": [
+      "**/*.ts",
+      "**/*.tsx",
+      "**/*.json",
+      "!**/bun.lock",
+      "!**/node_modules",
+      "!**/.claude",
+      "!apps/club/.next",
+      "!apps/club/node_modules",
+      "!apps/club/convex/_generated"
+    ]
   },
   "formatter": {
     "enabled": true,

@@ -1,8 +1,31 @@
-# Talent Graph — Algorithm Core
+# Talent Graph
 
-**This repo is the algorithm core only** — no UI, no database, no application
-framework. It is a Bun + TypeScript library with zero runtime dependencies that
-a later application imports. Every function is pure: `(inputs, options) → result`.
+This is the **example admin of the club product**, sitting on the algorithm
+engine. It is one product, not two frontends.
+
+- **`apps/club/`** — the example admin. One Next.js app. `/` and `/example`
+  are the public seed club (no sign-in). `/club` is the real-organization
+  door: Convex + Better Auth session/org gate, club inputs persisted in
+  Convex, views computed from `src/`. Unauthenticated `/club` is sign-in
+  only. Env list: [`apps/club/.env.example`](apps/club/.env.example).
+- **`src/`** — the **engine**. Pure TypeScript, no UI, no database. Every
+  function is `(inputs, options) → result`. The admin imports it; the
+  engine does not know about Next.
+
+**Convex + Better Auth is the plan for `/club`.** Official
+`@convex-dev/better-auth` on this same admin — not Clerk, not Neon, and
+not a second frontend. Do not add a login wall to `/` or `/example`.
+
+Deploy is one Vercel project away. The settings that must be exact:
+
+| Setting | Value |
+|---|---|
+| **Root Directory** | `apps/club` |
+| **Include source files outside of the Root Directory in the Build Step** | ON |
+| **`outputFileTracingRoot`** | repository root (`apps/club/next.config.ts`) |
+
+Full dashboard and CLI steps:
+[apps/club/README.md — Deploy on Vercel](apps/club/README.md#deploy-on-vercel-one-project-away).
 
 - Theory (canonical): [`docs/theory/main.tex`](docs/theory/main.tex) · compiled
   [`talent_white_paper.pdf`](docs/theory/talent_white_paper.pdf)
@@ -18,6 +41,7 @@ bun install
 bun run lint        # biome
 bun run typecheck   # tsc --noEmit
 bun test            # 170+ tests, including invariant checks
+bun run club:web    # Next.js example admin at http://127.0.0.1:3000
 bun run demo        # dashboard + the six persona reports from the seed
 bun run drift -- --kind referral_signal --before 0.1.0 --after 0.1.0
 ```

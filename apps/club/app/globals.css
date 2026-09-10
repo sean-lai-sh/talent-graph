@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #f4efe6;
+  --ink: #1c1915;
+  --muted: #6b6458;
+  --line: #d8d0c4;
+  --panel: #fffdf8;
+  --signal: #9a3412;
+  --capability: #1e3a5f;
+  --gap: #3f6212;
+  --warn: #92400e;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-panel: var(--panel);
+  --color-signal: var(--signal);
+  --color-capability: var(--capability);
+  --color-gap: var(--gap);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-serif: var(--font-newsreader), "Times New Roman", serif;
+}
+
+html,
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  min-height: 100vh;
+}
+
+.board-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+/* Landscape phones: keep the 12-col board from becoming one tall stack. */
+@media (orientation: landscape) and (max-height: 540px) {
+  .board-graph {
+    max-height: 38vh;
+  }
+
+  .board-scroll {
+    max-height: 7.5rem;
+  }
+}

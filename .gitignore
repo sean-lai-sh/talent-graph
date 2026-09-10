@@ -1,4 +1,8 @@
 node_modules/
+apps/club/node_modules/
+apps/club/.next/
+apps/club/.vercel/
+.vercel/
 dist/
 coverage/
 .env
