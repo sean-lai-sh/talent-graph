@@ -15,8 +15,8 @@ import {
   REFERRAL_EVIDENCE_PROMPT,
   REFERRAL_PRIMARY_PROMPT,
   SCALE_LABELS,
-} from "../../src/domain/constants.ts";
-import type { EvidenceType, PersonStatus, Scale5 } from "../../src/domain/types.ts";
+} from "../../../src/domain/constants.ts";
+import type { EvidenceType, PersonStatus, Scale5 } from "../../../src/domain/types.ts";
 import type { ClubState, ClubView, EngineResult, PersonView } from "../lib/types.ts";
 import { JudgeSim } from "./JudgeSim.tsx";
 import { PersonaGraph } from "./PersonaGraph.tsx";
@@ -82,13 +82,24 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
     <div className="min-h-screen bg-paper text-ink">
       <header className="flex flex-wrap items-end justify-between gap-3 border-b border-line px-5 py-4">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.18em] text-muted">Talent Graph · owner demo</p>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted">
+            Talent Graph · example admin
+          </p>
           <h1 className="font-serif text-2xl tracking-tight">Who should this club look at?</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted">
-            Hypothetical seed club. {PRODUCT_LANGUAGE.referralSignal} is how loud the network is.{" "}
-            {PRODUCT_LANGUAGE.relativeCapability} is how they look on pairwise compares. They are never
-            merged. Refresh restores the seed.
+            You are the admin of this public example club. {PRODUCT_LANGUAGE.referralSignal} is how
+            loud the network is. {PRODUCT_LANGUAGE.relativeCapability} is how they look on pairwise
+            compares. They are never merged. Refresh restores <code>generateSeed()</code>. No
+            sign-in.
           </p>
+          <nav className="mt-2 flex flex-wrap gap-3 text-[11px] text-muted">
+            <span className="rounded-full border border-ink px-2 py-0.5 text-ink">
+              Example · / and /example
+            </span>
+            <a href="/club" className="rounded-full border border-line px-2 py-0.5 hover:border-ink">
+              Your club · later
+            </a>
+          </nav>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
           <span>

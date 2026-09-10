@@ -3,7 +3,8 @@ import { loadClub } from "../lib/engine.ts";
 
 export const dynamic = "force-dynamic";
 
-export default function Home() {
+/** Public example admin. Auth-free; refresh restores generateSeed(). */
+export default function ExampleAdminHome() {
   const initial = loadClub();
   return <ClubBoard initial={initial} />;
 }

@@ -5,7 +5,7 @@ import type {
   Outcome,
   Person,
   Referral,
-} from "../../src/domain/types.ts";
+} from "../../../src/domain/types.ts";
 import type {
   ClubComparison,
   ClubEvaluation,

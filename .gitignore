@@ -1,7 +1,7 @@
 node_modules/
-demo/node_modules/
-demo/.next/
-demo/.vercel/
+apps/club/node_modules/
+apps/club/.next/
+apps/club/.vercel/
 dist/
 coverage/
 .env

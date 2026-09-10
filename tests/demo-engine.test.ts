@@ -8,10 +8,10 @@ import {
   meddleReferral,
   setNow,
   setStatus,
-} from "../demo/lib/engine.ts";
-import { DEMO_T_END, DEMO_T_START } from "../demo/lib/serialize.ts";
+} from "../apps/club/lib/engine.ts";
+import { DEMO_T_END, DEMO_T_START } from "../apps/club/lib/serialize.ts";
 
-describe("owner demo engine", () => {
+describe("example club engine", () => {
   test("seed view pins the six personas and never emits a single accept score", () => {
     const { view } = loadClub();
     const personas = view.people.filter((p) => p.persona);

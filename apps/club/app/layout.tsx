@@ -19,9 +19,9 @@ const newsreader = Newsreader({
 });
 
 export const metadata: Metadata = {
-  title: "Talent Graph · owner demo",
+  title: "Talent Graph · example club admin",
   description:
-    "Hypothetical member club. Referral Signal is not a Relative Capability Estimate. Missing evidence is not low ability.",
+    "Public example of the club product. You are the admin of a seed club. Referral Signal is not a Relative Capability Estimate. Missing evidence is not low ability.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

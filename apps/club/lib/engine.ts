@@ -1,10 +1,14 @@
 /**
- * Owner-demo view over the algorithm core. No scoring lives here — this file
- * only serialises club state and calls `compute*` from `src/`.
+ * Example-admin view over the algorithm core. This is the public,
+ * unauthenticated surface of the club product. No scoring lives here —
+ * this file only serialises club state and calls `compute*` from `src/`.
  */
 
-import { mostUnderRecognized, underRecognitionGaps } from "../../src/analysis/underRecognition.ts";
-import { DIMENSION_PROMPTS, DIMENSIONS, PRODUCT_LANGUAGE } from "../../src/domain/constants.ts";
+import {
+  mostUnderRecognized,
+  underRecognitionGaps,
+} from "../../../src/analysis/underRecognition.ts";
+import { DIMENSION_PROMPTS, DIMENSIONS, PRODUCT_LANGUAGE } from "../../../src/domain/constants.ts";
 import type {
   Comparison,
   ComparisonOutcome,
@@ -13,18 +17,21 @@ import type {
   PersonStatus,
   Referral,
   Scale5,
-} from "../../src/domain/types.ts";
-import { validateComparison, validateReferral } from "../../src/domain/validate.ts";
-import { computeCapabilityVectors, dimensionLabel } from "../../src/inference/capabilityVector.ts";
-import { selectComparisons } from "../../src/inference/comparisonSelection.ts";
-import { computeJudgeCalibration, judgeWeightOptions } from "../../src/judges/reliability.ts";
-import { CURRENT_SPECS } from "../../src/models/registry.ts";
+} from "../../../src/domain/types.ts";
+import { validateComparison, validateReferral } from "../../../src/domain/validate.ts";
+import {
+  computeCapabilityVectors,
+  dimensionLabel,
+} from "../../../src/inference/capabilityVector.ts";
+import { selectComparisons } from "../../../src/inference/comparisonSelection.ts";
+import { computeJudgeCalibration, judgeWeightOptions } from "../../../src/judges/reliability.ts";
+import { CURRENT_SPECS } from "../../../src/models/registry.ts";
 import {
   computeAllReferralSignals,
   displayReferralSignal,
-} from "../../src/scoring/referralSignal.ts";
-import { generateSeed } from "../../src/seed/generate.ts";
-import { PERSONA_IDS } from "../../src/seed/personas.ts";
+} from "../../../src/scoring/referralSignal.ts";
+import { generateSeed } from "../../../src/seed/generate.ts";
+import { PERSONA_IDS } from "../../../src/seed/personas.ts";
 import {
   clubToComparison,
   clubToOpportunity,
@@ -58,7 +65,7 @@ import type {
 export { DEMO_T_END, DEMO_T_START } from "./serialize.ts";
 export { PRODUCT_LANGUAGE };
 
-export const OWNER_EVALUATOR_ID = "demo-owner";
+export const OWNER_EVALUATOR_ID = "example-admin";
 
 export const PERSONA_NOTES: Readonly<Record<string, string>> = {
   "p-alice": "Strong, and the network already sees it.",

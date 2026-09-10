@@ -4,7 +4,7 @@ import type {
   EvidenceType,
   PersonStatus,
   Scale5,
-} from "../../src/domain/types.ts";
+} from "../../../src/domain/types.ts";
 
 /** ISO-8601 timestamps — ClubState crosses the server/client boundary. */
 export type IsoDate = string;

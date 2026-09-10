@@ -6,7 +6,7 @@ import type {
   EvidenceType,
   PersonStatus,
   Scale5,
-} from "../../src/domain/types.ts";
+} from "../../../src/domain/types.ts";
 import {
   addComparison,
   addReferral,
