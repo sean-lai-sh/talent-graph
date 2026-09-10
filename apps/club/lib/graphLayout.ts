@@ -5,6 +5,17 @@ export const PERSONA_ORDER = ["p-alice", "p-bram", "p-cleo", "p-dev", "p-ember",
 /** Extra nodes when personas-off. Enough to read; not a 32-node hairball. */
 export const OTHER_GRAPH_LIMIT = 8;
 
+/**
+ * Fixed radius for people with no incoming referrals.
+ * Signal 0 (quiet) is 7; this mid-band size must not share that band.
+ */
+export const UNMEASURED_NODE_RADIUS = 11;
+
+export function nodeRadius(n: Pick<GraphNode, "v2Signal">, selected: boolean): number {
+  const base = n.v2Signal === null ? UNMEASURED_NODE_RADIUS : 7 + (n.v2Signal / 100) * 13;
+  return selected ? base + 2 : base;
+}
+
 export function selectGraphNodes(nodes: GraphNode[], personasOnly: boolean): GraphNode[] {
   const personas = PERSONA_ORDER.map((id) => nodes.find((n) => n.id === id)).filter(
     (n): n is GraphNode => n !== undefined,

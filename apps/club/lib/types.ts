@@ -185,7 +185,10 @@ export interface PersonView {
 export interface GraphEdge {
   from: string;
   to: string;
+  /** Real R_uv. Never a placeholder for a dropped or unmeasured edge. */
   strength: number;
+  /** False when the referral exists but did not enter TopK / the signal. */
+  contributing: boolean;
 }
 
 export interface GraphNode {
@@ -231,6 +234,8 @@ export interface TimelineFrame {
   judgesWithEvidence: number;
   windowOpen: boolean;
   personas: TimelinePersona[];
+  /** Judges at this frame's T — same clock as `personas`. */
+  judges: JudgeView[];
 }
 
 export interface ClubView {

@@ -8,6 +8,7 @@ import {
   computeView,
   EXAMPLE_T_END,
   EXAMPLE_T_START,
+  exampleTimeSteps,
   initialState,
   loadClub,
   meddleReferral,
@@ -15,8 +16,15 @@ import {
   setNow,
   setStatus,
 } from "../apps/club/lib/engine.ts";
-import { OTHER_GRAPH_LIMIT, selectGraphNodes } from "../apps/club/lib/graphLayout.ts";
+import {
+  nodeRadius,
+  OTHER_GRAPH_LIMIT,
+  selectGraphNodes,
+  UNMEASURED_NODE_RADIUS,
+} from "../apps/club/lib/graphLayout.ts";
+import { loadSpecs } from "../src/config.ts";
 import { BANNED_LANGUAGE, PRODUCT_LANGUAGE, SCALE_LABELS } from "../src/domain/constants.ts";
+import { referralStrength } from "../src/scoring/referralStrength.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 
 describe("example club engine", () => {
@@ -197,6 +205,88 @@ describe("example club engine", () => {
     expect(early.view.evaluatedReferrals).toBe(0);
   });
 
+  test("graph nodes with no incoming evidence are not painted as signal 0", () => {
+    const { view } = loadClub();
+    const ife = view.graph.nodes.find((n) => n.name === "Ife Doyle");
+    const cleo = view.graph.nodes.find((n) => n.id === "p-cleo");
+    const bram = view.graph.nodes.find((n) => n.id === "p-bram");
+    if (!ife || !cleo || !bram) throw new Error("expected Ife, Cleo, and Bram on the graph");
+    expect(ife.v2Signal).toBeNull();
+    expect(nodeRadius(ife, false)).toBe(UNMEASURED_NODE_RADIUS);
+    expect(nodeRadius({ v2Signal: 0 }, false)).toBe(7);
+    expect(nodeRadius(ife, false)).not.toBe(nodeRadius({ v2Signal: 0 }, false));
+    expect(nodeRadius(ife, false)).not.toBe(nodeRadius(cleo, false));
+    expect(nodeRadius(cleo, false)).toBeLessThan(nodeRadius(bram, false));
+    expect(nodeRadius(ife, false)).toBeGreaterThan(nodeRadius(cleo, false));
+  });
+
+  test("graph edges use real R_uv and mark TopK-dropped referrals", () => {
+    const { view } = loadClub();
+    const ember = view.people.find((p) => p.id === "p-ember");
+    if (!ember) throw new Error("expected Ember on the seed");
+    expect(ember.incomingCount).toBe(6);
+    expect(ember.contributing).toHaveLength(5);
+    const edges = view.graph.edges.filter((e) => e.to === "p-ember");
+    expect(edges).toHaveLength(6);
+    expect(edges.filter((e) => e.contributing)).toHaveLength(5);
+    const dropped = edges.filter((e) => !e.contributing);
+    expect(dropped).toHaveLength(1);
+    const droppedEdge = dropped[0];
+    if (!droppedEdge) throw new Error("expected a dropped Ember edge");
+    const pair = generateSeed().referrals.find(
+      (r) => r.referrerId === droppedEdge.from && r.candidateId === "p-ember",
+    );
+    if (!pair) throw new Error("expected the dropped Ember referral in the seed");
+    expect(droppedEdge.strength).toBe(referralStrength(pair));
+    expect(droppedEdge.strength).not.toBe(0.4);
+  });
+
+  test("exampleTimeSteps follows EXAMPLE_T_* and the judge panel shares one clock", () => {
+    const steps = exampleTimeSteps();
+    expect(steps[0]).toBe(EXAMPLE_T_START);
+    expect(steps[steps.length - 1]).toBe(EXAMPLE_T_END);
+    expect(steps).toContain(
+      new Date(
+        Date.UTC(
+          new Date(EXAMPLE_T_START).getUTCFullYear(),
+          new Date(EXAMPLE_T_START).getUTCMonth() + 1,
+          1,
+        ),
+      ).toISOString(),
+    );
+    const source = readFileSync(join(import.meta.dir, "../apps/club/lib/engine.ts"), "utf8");
+    expect(source).not.toContain("Date.UTC(2026");
+    expect(source).toContain("loadSpecs()");
+    expect(source).not.toContain("CURRENT_SPECS");
+
+    const { view } = loadClub();
+    expect(view.timeline.map((f) => f.now)).toEqual(steps);
+    const first = view.timeline[0];
+    const last = view.timeline[view.timeline.length - 1];
+    if (!first || !last) throw new Error("expected timeline frames");
+    expect(first.judges).toEqual([]);
+    expect(last.judges.map((j) => [j.judgeId, j.reliability, j.evaluatedCount])).toEqual(
+      view.judges.map((j) => [j.judgeId, j.reliability, j.evaluatedCount]),
+    );
+    const judgeSim = readFileSync(
+      join(import.meta.dir, "../apps/club/components/JudgeSim.tsx"),
+      "utf8",
+    );
+    expect(judgeSim).toContain("frame.judges");
+    expect(judgeSim).not.toContain("view.judges");
+  });
+
+  test("club view applies loadSpecs TG_* the same way as the CLI", () => {
+    const state = initialState();
+    const tightened = loadSpecs({ TG_TOP_K_REFERRALS: "1" }, { warn: () => {} });
+    const view = computeView(state, tightened);
+    const ember = view.people.find((p) => p.id === "p-ember");
+    if (!ember) throw new Error("expected Ember on the seed");
+    expect(ember.contributing).toHaveLength(1);
+    expect(view.graph.edges.filter((e) => e.to === "p-ember" && e.contributing)).toHaveLength(1);
+    expect(view.graph.edges.filter((e) => e.to === "p-ember" && !e.contributing)).toHaveLength(5);
+  });
+
   test("judge timeline is live: first frame V2=V0, last frame moves, meddling changes it", () => {
     const start = loadClub();
     expect(start.view.timeline.length).toBeGreaterThan(2);
@@ -267,6 +357,7 @@ describe("example club UX pins", () => {
       expect(joined.includes(`PRODUCT_LANGUAGE.${key}`), `club UI unused ${key}`).toBe(true);
     }
     expect(joined.includes("SCALE_LABELS.rubricNotObserved")).toBe(true);
+    expect(joined.includes("not a score of 0")).toBe(true);
     expect(joined.includes("Reset to seed")).toBe(true);
     expect(SCALE_LABELS.rubricNotObserved).toBe("not observed");
   });

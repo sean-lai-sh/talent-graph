@@ -243,7 +243,10 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
             onSelect={setSelectedId}
           />
           <p className="mt-2 text-[11px] leading-relaxed text-muted">
-            Circle size follows {PRODUCT_LANGUAGE.referralSignal} (V2). Cleo is quiet; Bram is loud.
+            Circle size follows {PRODUCT_LANGUAGE.referralSignal} (V2) when there is incoming
+            evidence. A dashed circle is {PRODUCT_LANGUAGE.insufficientEvidence} — missing evidence,
+            not a score of 0. Solid edges contributed to the signal; dashed edges are real referrals
+            that did not. Cleo is quiet; Bram is loud.
             {personasOnly
               ? ""
               : " Personas stay on the inner ring; other people sit outside so the graph stays readable."}

@@ -121,7 +121,7 @@ export function JudgeSim({
       </div>
 
       <div className="mt-3 space-y-1">
-        {view.judges.slice(0, 8).map((j) => (
+        {frame.judges.slice(0, 8).map((j) => (
           <div key={j.judgeId} className="flex items-center justify-between text-sm">
             <button
               type="button"
@@ -137,7 +137,7 @@ export function JudgeSim({
             </span>
           </div>
         ))}
-        {view.judges.length === 0 ? (
+        {frame.judges.length === 0 ? (
           <p className="text-sm text-muted">No judges have cleared the observation window yet.</p>
         ) : null}
       </div>

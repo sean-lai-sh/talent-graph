@@ -8,6 +8,7 @@ import {
   mostUnderRecognized,
   underRecognitionGaps,
 } from "../../../src/analysis/underRecognition.ts";
+import { type LoadedSpecs, loadSpecs } from "../../../src/config.ts";
 import { DIMENSION_PROMPTS, DIMENSIONS, PRODUCT_LANGUAGE } from "../../../src/domain/constants.ts";
 import type {
   Comparison,
@@ -25,12 +26,12 @@ import {
 } from "../../../src/inference/capabilityVector.ts";
 import { selectComparisons } from "../../../src/inference/comparisonSelection.ts";
 import { computeJudgeCalibration, judgeWeightOptions } from "../../../src/judges/reliability.ts";
-import { CURRENT_SPECS } from "../../../src/models/registry.ts";
 import {
   computeAllReferralSignals,
   displayReferralSignal,
   type ReferralSignalResult,
 } from "../../../src/scoring/referralSignal.ts";
+import { referralStrength } from "../../../src/scoring/referralStrength.ts";
 import { generateSeed } from "../../../src/seed/generate.ts";
 import { PERSONA_IDS } from "../../../src/seed/personas.ts";
 import {
@@ -41,6 +42,7 @@ import {
   clubToReferral,
   comparisonToClub,
   EXAMPLE_T_END,
+  EXAMPLE_T_START,
   evaluationToClub,
   opportunityToClub,
   outcomeToClub,
@@ -107,7 +109,7 @@ export function initialState(): ClubState {
   };
 }
 
-export function computeView(input: ClubState): ClubView {
+export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()): ClubView {
   const state = reviveState(input);
   const people = state.people.map(clubToPerson);
   const referrals = state.referrals.map(clubToReferral);
@@ -115,7 +117,6 @@ export function computeView(input: ClubState): ClubView {
   const outcomes = state.outcomes.map(clubToOutcome);
   const opportunities = state.opportunities.map(clubToOpportunity);
   const now = new Date(state.now);
-  const specs = CURRENT_SPECS;
 
   const v0 = computeAllReferralSignals(people, referrals, { spec: specs.referral_signal });
   const cap = computeCapabilityVectors(people, comparisons, { spec: specs.bradley_terry });
@@ -285,17 +286,7 @@ export function computeView(input: ClubState): ClubView {
     };
   });
 
-  const judges: JudgeView[] = [...cal.estimates.values()]
-    .filter((e) => e.evaluatedCount > 0)
-    .sort((a, b) => b.reliability - a.reliability || (a.judgeId < b.judgeId ? -1 : 1))
-    .map((e) => ({
-      judgeId: e.judgeId,
-      name: nameOf(state, e.judgeId),
-      reliability: e.reliability,
-      bias: e.bias,
-      meanSquaredError: e.meanSquaredError,
-      evaluatedCount: e.evaluatedCount,
-    }));
+  const judges: JudgeView[] = toJudgeViews(state, cal);
 
   const edges: GraphEdge[] = [];
   for (const r of referrals) {
@@ -303,7 +294,8 @@ export function computeView(input: ClubState): ClubView {
     edges.push({
       from: r.referrerId,
       to: r.candidateId,
-      strength: scored?.breakdown.strength ?? 0.4,
+      strength: scored?.breakdown.strength ?? referralStrength(r, specs.referral_signal),
+      contributing: scored !== undefined,
     });
   }
 
@@ -364,18 +356,46 @@ export function computeView(input: ClubState): ClubView {
     },
     nextCompare: proposals[0] ?? null,
     snapshots: state.snapshots,
-    timeline: liveJudgeTimeline(state, people, referrals, outcomes, opportunities, v0),
+    timeline: liveJudgeTimeline(state, people, referrals, outcomes, opportunities, v0, specs),
   };
 }
 
-/** First of each month in 2026, plus the year-end evaluation time. */
+/** First of each month from EXAMPLE_T_START through EXAMPLE_T_END, plus the end T. */
 export function exampleTimeSteps(): string[] {
+  const start = new Date(EXAMPLE_T_START);
+  const end = new Date(EXAMPLE_T_END);
   const steps: string[] = [];
-  for (let month = 0; month < 12; month++) {
-    steps.push(new Date(Date.UTC(2026, month, 1)).toISOString());
+  const seen = new Set<string>();
+  const push = (iso: string) => {
+    if (seen.has(iso)) return;
+    seen.add(iso);
+    steps.push(iso);
+  };
+  push(EXAMPLE_T_START);
+  const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
+  while (cursor.getTime() <= end.getTime()) {
+    if (cursor.getTime() >= start.getTime()) push(cursor.toISOString());
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
   }
-  if (steps[steps.length - 1] !== EXAMPLE_T_END) steps.push(EXAMPLE_T_END);
+  push(EXAMPLE_T_END);
   return steps;
+}
+
+function toJudgeViews(
+  state: ClubState,
+  cal: ReturnType<typeof computeJudgeCalibration>,
+): JudgeView[] {
+  return [...cal.estimates.values()]
+    .filter((e) => e.evaluatedCount > 0)
+    .sort((a, b) => b.reliability - a.reliability || (a.judgeId < b.judgeId ? -1 : 1))
+    .map((e) => ({
+      judgeId: e.judgeId,
+      name: nameOf(state, e.judgeId),
+      reliability: e.reliability,
+      bias: e.bias,
+      meanSquaredError: e.meanSquaredError,
+      evaluatedCount: e.evaluatedCount,
+    }));
 }
 
 /** Monthly frames: computeJudgeCalibration on the in-memory club at each T. */
@@ -386,8 +406,8 @@ function liveJudgeTimeline(
   outcomes: ReturnType<typeof clubToOutcome>[],
   opportunities: ReturnType<typeof clubToOpportunity>[],
   v0: ReturnType<typeof computeAllReferralSignals>,
+  specs: LoadedSpecs,
 ): TimelineFrame[] {
-  const specs = CURRENT_SPECS;
   const windowMs = specs.judge_reliability.observationWindowDays * 86_400_000;
   const earliestReferral = Math.min(...referrals.map((r) => r.createdAt.getTime()));
   const personaIds = state.people.filter((p) => personaSet.has(p.id));
@@ -412,6 +432,7 @@ function liveJudgeTimeline(
       evaluatedReferrals: cal.options.evaluatedReferrals,
       judgesWithEvidence: cal.options.judgesWithEvidence,
       windowOpen: now.getTime() - earliestReferral >= windowMs,
+      judges: toJudgeViews(state, cal),
       personas: personaIds.map((p) => {
         const s0 = v0.get(p.id);
         const s2 = v2.get(p.id);

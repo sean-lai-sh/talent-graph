@@ -1,16 +1,17 @@
 "use client";
 
-import { layoutGraph, selectGraphNodes } from "../lib/graphLayout.ts";
+import { layoutGraph, nodeRadius, selectGraphNodes } from "../lib/graphLayout.ts";
 import type { GraphEdge, GraphNode } from "../lib/types.ts";
 
 function firstName(name: string): string {
   return name.split(" ")[0] ?? name;
 }
 
-function nodeRadius(n: GraphNode, selected: boolean): number {
-  const signal = n.v2Signal ?? 0;
-  const base = 7 + (signal / 100) * 13;
-  return selected ? base + 2 : base;
+function edgeStroke(e: GraphEdge): { width: number; opacity: number } {
+  return {
+    width: 0.8 + e.strength * 2,
+    opacity: e.contributing ? 0.3 + e.strength * 0.55 : 0.16 + e.strength * 0.35,
+  };
 }
 
 export function PersonaGraph({
@@ -49,14 +50,16 @@ export function PersonaGraph({
         if (!a || !b) return null;
         const mx = (a.x + b.x) / 2;
         const my = (a.y + b.y) / 2 - 12;
+        const stroke = edgeStroke(e);
         return (
           <path
             key={`${e.from}-${e.to}`}
             d={`M ${a.x} ${a.y} Q ${mx} ${my} ${b.x} ${b.y}`}
             fill="none"
             stroke="#c4b8a8"
-            strokeWidth={0.8 + e.strength * 2}
-            opacity={0.7}
+            strokeWidth={stroke.width}
+            strokeDasharray={e.contributing ? undefined : "3 3"}
+            opacity={stroke.opacity}
           />
         );
       })}
