@@ -69,7 +69,9 @@ export function JudgeSim({
           max={view.timeline.length - 1}
           value={draft}
           disabled={busy}
-          onChange={(e) => setDraft(Number(e.target.value))}
+          data-clock={frame.now}
+          onInput={(e) => setDraft(Number(e.currentTarget.value))}
+          onChange={(e) => setDraft(Number(e.currentTarget.value))}
           onPointerUp={(e) => {
             const next = view.timeline[Number(e.currentTarget.value)];
             if (next && next.now !== view.now) onPickTime(next.now);
