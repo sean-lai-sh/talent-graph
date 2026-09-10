@@ -25,12 +25,15 @@ bun run club:web
 1. **Cleo vs Bram on load.** Cleo Marsh is selected. She is quiet (Referral
    Signal V2 **7**, one incoming). Bram Okafor is loud (V2 **62**, four
    incoming). Graph circles follow that signal. The Referral Signal list
-   has Loud and Quiet, so both are on the first screen.
+   has Loud and Quiet, so both are on the first screen. Click **Ife** or
+   **Noor** in Relative Capability; the dossier Referral Signal is
+   **Insufficient Evidence**, not 0. They do not appear as IE on load.
 2. **Try one referral or one slider.** Write a referral, or drag a
-   conviction / confidence slider on an existing one and let go. The club
-   re-runs. **Reset to seed** puts you back.
+   conviction / confidence / relationship slider on an existing one and
+   let go. The club re-runs. **Reset to seed** puts you back.
 3. **Drag T from January to Dec 31.** The clock starts on Dec 31. Drag it
-   back to January: V2 equals V0 and every judge is 1. Drag it to Dec 31:
+   back to January: persona cards show V2 = V0 and the caption reads
+   `window closed · V2 = V0`. The judge list is empty. Drag it to Dec 31:
    the observation window opens and weights move.
 
 Also on the board: Referral Signal stays next to Relative Capability
