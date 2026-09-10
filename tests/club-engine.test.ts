@@ -205,6 +205,51 @@ describe("example club engine", () => {
     expect(early.view.evaluatedReferrals).toBe(0);
   });
 
+  test("referrals created after T do not move earlier frames", () => {
+    const seed = loadClub();
+    const fox = seed.view.people.find((p) => p.id === "p-fox");
+    if (!fox) throw new Error("expected Fox");
+    const late = addReferral(seed.state, {
+      referrerId: "p-alice",
+      candidateId: "p-fox",
+      conviction: 5,
+      confidence: 5,
+      relationshipDepth: 5,
+      evidenceType: "firsthand_work",
+      evidenceText: "Watched the work land.",
+    });
+    const applied = late.error
+      ? addReferral(seed.state, {
+          referrerId: "p-bram",
+          candidateId: "p-fox",
+          conviction: 5,
+          confidence: 5,
+          relationshipDepth: 4,
+          evidenceType: "artifact",
+          evidenceText: "Read the work. It is unusually careful.",
+        })
+      : late;
+    expect(applied.error).toBeUndefined();
+    expect(applied.view.people.find((p) => p.id === "p-fox")?.v2Signal).not.toBe(fox.v2Signal);
+
+    const early = setNow(applied.state, EXAMPLE_T_START);
+    const seedEarly = computeView({ ...seed.state, now: EXAMPLE_T_START });
+    expect(early.view.people.find((p) => p.id === "p-fox")?.v2Signal).toBe(
+      seedEarly.people.find((p) => p.id === "p-fox")?.v2Signal,
+    );
+    expect(early.view.evaluatedReferrals).toBe(0);
+    const first = applied.view.timeline[0];
+    const seedFirst = seed.view.timeline[0];
+    if (!first || !seedFirst) throw new Error("expected first frames");
+    expect(first.evaluatedReferrals).toBe(0);
+    expect(first.personas.find((p) => p.id === "p-fox")?.v2).toBe(
+      seedFirst.personas.find((p) => p.id === "p-fox")?.v2,
+    );
+    const source = readFileSync(join(import.meta.dir, "../apps/club/lib/engine.ts"), "utf8");
+    expect(source).toContain("referralsAsOf");
+    expect(source).toContain("createdAt.getTime() <= t");
+  });
+
   test("graph nodes with no incoming evidence are not painted as signal 0", () => {
     const { view } = loadClub();
     const ife = view.graph.nodes.find((n) => n.name === "Ife Doyle");

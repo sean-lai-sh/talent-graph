@@ -46,7 +46,8 @@ That writes `NEXT_PUBLIC_CONVEX_*` into `.env.local`. Do not put those keys on t
    conviction / confidence / relationship slider on an existing one and
    let go. The club re-runs. **Reset to seed** puts you back.
 3. **Drag T from January to Dec 31.** The clock starts on Dec 31. Drag it
-   back to January: persona cards show V2 = V0 and the caption reads
+   back to January: persona cards show V2 = V0 (or Insufficient Evidence
+   if no referral exists yet at that T) and the caption reads
    `window closed · V2 = V0`. The judge list is empty. Drag it to Dec 31:
    the observation window opens and weights move.
 

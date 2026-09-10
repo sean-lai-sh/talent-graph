@@ -140,19 +140,20 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
   const outcomes = state.outcomes.map(clubToOutcome);
   const opportunities = state.opportunities.map(clubToOpportunity);
   const now = new Date(state.now);
+  const referralsNow = referralsAsOf(referrals, now);
 
-  const v0 = computeAllReferralSignals(people, referrals, { spec: specs.referral_signal });
+  const v0 = computeAllReferralSignals(people, referralsNow, { spec: specs.referral_signal });
   const cap = computeCapabilityVectors(people, comparisons, { spec: specs.bradley_terry });
   const cal = computeJudgeCalibration({
     people,
-    referrals,
+    referrals: referralsNow,
     outcomes,
     opportunities,
     now,
     spec: specs.judge_reliability,
     referralSpec: specs.referral_signal,
   });
-  const v2 = computeAllReferralSignals(people, referrals, {
+  const v2 = computeAllReferralSignals(people, referralsNow, {
     spec: specs.referral_signal,
     ...judgeWeightOptions(cal),
   });
@@ -160,7 +161,7 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
   const interesting = mostUnderRecognized(gaps, 8);
 
   const windowMs = specs.judge_reliability.observationWindowDays * 86_400_000;
-  const earliestReferral = Math.min(...referrals.map((r) => r.createdAt.getTime()));
+  const earliestReferral = Math.min(...referralsNow.map((r) => r.createdAt.getTime()));
   const windowOpen = now.getTime() - earliestReferral >= windowMs;
 
   const measured = [...v2.values()].filter((r) => r.incomingCount >= 1);
@@ -312,7 +313,7 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
   const judges: JudgeView[] = toJudgeViews(state, cal);
 
   const edges: GraphEdge[] = [];
-  for (const r of referrals) {
+  for (const r of referralsNow) {
     const scored = v2.get(r.candidateId)?.contributing.find((c) => c.referral.id === r.id);
     edges.push({
       from: r.referrerId,
@@ -379,8 +380,14 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
     },
     nextCompare: proposals[0] ?? null,
     snapshots: state.snapshots,
-    timeline: liveJudgeTimeline(state, people, referrals, outcomes, opportunities, v0, specs),
+    timeline: liveJudgeTimeline(state, people, referrals, outcomes, opportunities, specs),
   };
+}
+
+/** Score / draw only referrals that exist at T. Judge calibration already time-filters. */
+function referralsAsOf<T extends { createdAt: Date }>(rows: T[], now: Date): T[] {
+  const t = now.getTime();
+  return rows.filter((row) => row.createdAt.getTime() <= t);
 }
 
 function monthlySteps(startIso: string, endIso: string): string[] {
@@ -466,27 +473,28 @@ function liveJudgeTimeline(
   referrals: ReturnType<typeof clubToReferral>[],
   outcomes: ReturnType<typeof clubToOutcome>[],
   opportunities: ReturnType<typeof clubToOpportunity>[],
-  v0: ReturnType<typeof computeAllReferralSignals>,
   specs: LoadedSpecs,
 ): TimelineFrame[] {
   const windowMs = specs.judge_reliability.observationWindowDays * 86_400_000;
-  const earliestReferral = Math.min(...referrals.map((r) => r.createdAt.getTime()));
   const personaIds = state.people.filter((p) => personaSet.has(p.id));
   const tracked =
     personaIds.length > 0 ? personaIds : state.people.filter((p) => p.status !== "archived");
 
   return timeStepsFor(state).map((isoNow) => {
     const now = new Date(isoNow);
+    const asOf = referralsAsOf(referrals, now);
+    const earliestReferral = Math.min(...asOf.map((r) => r.createdAt.getTime()));
     const cal = computeJudgeCalibration({
       people,
-      referrals,
+      referrals: asOf,
       outcomes,
       opportunities,
       now,
       spec: specs.judge_reliability,
       referralSpec: specs.referral_signal,
     });
-    const v2 = computeAllReferralSignals(people, referrals, {
+    const v0 = computeAllReferralSignals(people, asOf, { spec: specs.referral_signal });
+    const v2 = computeAllReferralSignals(people, asOf, {
       spec: specs.referral_signal,
       ...judgeWeightOptions(cal),
     });
@@ -494,7 +502,7 @@ function liveJudgeTimeline(
       now: isoNow,
       evaluatedReferrals: cal.options.evaluatedReferrals,
       judgesWithEvidence: cal.options.judgesWithEvidence,
-      windowOpen: now.getTime() - earliestReferral >= windowMs,
+      windowOpen: Number.isFinite(earliestReferral) && now.getTime() - earliestReferral >= windowMs,
       judges: toJudgeViews(state, cal),
       personas: tracked.map((p) => {
         const s0 = v0.get(p.id);
