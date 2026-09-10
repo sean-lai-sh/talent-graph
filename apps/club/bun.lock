@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "demo",
+      "name": "club",
       "dependencies": {
         "next": "16.3.4",
         "react": "19.2.8",

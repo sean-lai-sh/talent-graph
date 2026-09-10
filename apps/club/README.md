@@ -20,6 +20,11 @@ bun run club:web
 Vercel: set **Root Directory** to `apps/club`. `next.config.ts` sets
 `outputFileTracingRoot` to the repo root so `src/` is bundled.
 
+`AGENTS.md` and `CLAUDE.md` here are **Next.js agent-rules files** (Next
+rewrites `AGENTS.md` on `next dev`). They are not product copy and are not
+the old `demo/` explainer voice. Commit the generated `AGENTS.md` so the
+tree stays clean.
+
 What you can do on the example:
 
 - Read Referral Signal next to Relative Capability (never merged)
