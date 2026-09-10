@@ -39,8 +39,8 @@ bun install
 bun run lint        # biome
 bun run typecheck   # tsc --noEmit
 bun test            # 170+ tests, including invariant checks
-bun run demo        # dashboard + the six persona reports from the seed
 bun run club:web    # Next.js example admin at http://127.0.0.1:3000
+bun run demo        # dashboard + the six persona reports from the seed
 bun run drift -- --kind referral_signal --before 0.1.0 --after 0.1.0
 ```
 
