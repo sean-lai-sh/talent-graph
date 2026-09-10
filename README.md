@@ -32,13 +32,21 @@ Vercel (one project away — exact steps in
 
 1. Import this repo. Set **Root Directory** to `apps/club` (dashboard
    **Edit** on import, or **Project Settings → Build and Deployment**).
+   Enable **Include source files outside of the Root Directory in the
+   Build Step** (new projects often default ON; confirm it). Required so
+   `../../src` and `outputFileTracingRoot` at the repo root work.
 2. Framework: Next.js. No env vars. Do not add Clerk / auth keys.
+   Optional `TG_*` keys are listed in
+   [`apps/club/.env.example`](apps/club/.env.example).
 3. Keep `outputFileTracingRoot` as the **repo root** in
    `apps/club/next.config.ts` so `src/` is traced into the bundle.
 
-CLI from this repo root (not from `apps/club`): `bunx vercel link` then
-`bunx vercel`. The public example has no auth and no database — refresh
-restores `generateSeed()`.
+CLI from this repo root (not from `apps/club`): `bunx vercel link` does
+not set Root Directory (no link flag for it). After link, run
+`bunx vercel project update --root-directory apps/club`, confirm the
+include-files-outside-root toggle in the dashboard, then `bunx vercel`.
+The public example has no auth and no database — refresh restores
+`generateSeed()`.
 
 Import from the barrel:
 
