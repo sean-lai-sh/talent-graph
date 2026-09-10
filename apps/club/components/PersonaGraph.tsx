@@ -21,6 +21,12 @@ function firstName(name: string): string {
   return name.split(" ")[0] ?? name;
 }
 
+function nodeRadius(n: GraphNode, selected: boolean): number {
+  const signal = n.v2Signal ?? 0;
+  const base = 7 + (signal / 100) * 13;
+  return selected ? base + 2 : base;
+}
+
 export function PersonaGraph({
   nodes,
   edges,
@@ -45,6 +51,10 @@ export function PersonaGraph({
   const pos = layout(ids);
   const drawn = edges.filter((e) => idSet.has(e.from) && idSet.has(e.to));
 
+  if (shown.length === 0) {
+    return <p className="text-sm text-muted">No one to show on this graph.</p>;
+  }
+
   return (
     <svg viewBox="0 0 320 270" className="h-auto w-full" role="img" aria-label="Referral network">
       {drawn.map((e) => {
@@ -68,24 +78,42 @@ export function PersonaGraph({
         const p = pos.get(n.id);
         if (!p) return null;
         const selected = n.id === selectedId;
+        const quiet = n.v2Signal !== null && n.v2Signal <= 15;
+        const loud = n.v2Signal !== null && n.v2Signal >= 50;
         return (
-          <g key={n.id} transform={`translate(${p.x}, ${p.y})`} className="cursor-pointer">
-            <circle
-              r={selected ? 18 : 15}
-              fill={n.status === "member" ? "#1e3a5f" : n.status === "archived" ? "#a8a29e" : "#fffdf8"}
-              stroke={selected ? "#9a3412" : "#1c1915"}
-              strokeWidth={selected ? 2.4 : 1.2}
-              onClick={() => onSelect(n.id)}
-            />
-            <text
-              y={28}
-              textAnchor="middle"
-              className="fill-ink"
-              style={{ fontSize: 9, fontFamily: "var(--font-geist-sans)" }}
-              onClick={() => onSelect(n.id)}
+          <g key={n.id} transform={`translate(${p.x}, ${p.y})`}>
+            <a
+              href={`#${n.id}`}
+              className="cursor-pointer"
+              aria-label={n.name}
+              onClick={(e) => {
+                e.preventDefault();
+                onSelect(n.id);
+              }}
             >
-              {firstName(n.name)}
-            </text>
+              <circle
+                r={nodeRadius(n, selected)}
+                fill={
+                  n.status === "member"
+                    ? "#1e3a5f"
+                    : n.status === "archived"
+                      ? "#a8a29e"
+                      : "#fffdf8"
+                }
+                stroke={selected ? "#9a3412" : "#1c1915"}
+                strokeWidth={selected ? 2.4 : 1.2}
+                strokeDasharray={n.v2Signal === null ? "2 2" : undefined}
+              />
+              <text
+                y={nodeRadius(n, selected) + 12}
+                textAnchor="middle"
+                className="fill-ink"
+                style={{ fontSize: 9, fontFamily: "var(--font-geist-sans)" }}
+              >
+                {firstName(n.name)}
+                {quiet ? " · quiet" : loud ? " · loud" : ""}
+              </text>
+            </a>
           </g>
         );
       })}

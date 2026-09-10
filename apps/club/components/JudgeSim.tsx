@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { PRODUCT_LANGUAGE } from "../../../src/domain/constants.ts";
 import type { ClubView, TimelineFrame } from "../lib/types.ts";
 
 function nearestIndex(timeline: TimelineFrame[], now: string): number {
@@ -28,8 +29,12 @@ export function JudgeSim({
   onPickTime: (now: string) => void;
   onSelectJudge?: (id: string) => void;
 }) {
-  const index = useMemo(() => nearestIndex(view.timeline, view.now), [view.timeline, view.now]);
-  const frame = view.timeline[index];
+  const committed = useMemo(() => nearestIndex(view.timeline, view.now), [view.timeline, view.now]);
+  const [draft, setDraft] = useState(committed);
+  useEffect(() => {
+    setDraft(committed);
+  }, [committed]);
+  const frame = view.timeline[draft] ?? view.timeline[committed];
   const first = view.timeline[0];
   const last = view.timeline[view.timeline.length - 1];
 
@@ -43,15 +48,14 @@ export function JudgeSim({
         <div>
           <h2 className="text-sm font-medium">Judge calibration over T</h2>
           <p className="mt-1 max-w-xl text-[11px] text-muted">
-            Each tick is a real <code>computeJudgeCalibration</code> on the club you are editing —
-            not a tape recorded from the untouched seed. Before the{" "}
+            Each tick reruns judge calibration on this club, including slider edits. Before the{" "}
             {view.observationWindowDays}-day window, every judge is 1 and V2 equals V0. After it,
             weights move and Referral Signal can shift.
           </p>
         </div>
         <p className="font-mono text-xs text-muted">
-          T {frame.now.slice(0, 10)} · {frame.evaluatedReferrals} scored · {frame.judgesWithEvidence}{" "}
-          judges
+          T {frame.now.slice(0, 10)} · {frame.evaluatedReferrals} scored ·{" "}
+          {frame.judgesWithEvidence} judges
         </p>
       </div>
 
@@ -61,22 +65,38 @@ export function JudgeSim({
           type="range"
           min={0}
           max={view.timeline.length - 1}
-          value={index}
-          onChange={(e) => {
-            const next = view.timeline[Number(e.target.value)];
-            if (next) onPickTime(next.now);
+          value={draft}
+          disabled={busy}
+          onChange={(e) => setDraft(Number(e.target.value))}
+          onPointerUp={(e) => {
+            const next = view.timeline[Number(e.currentTarget.value)];
+            if (next && next.now !== view.now) onPickTime(next.now);
           }}
-          className="w-full accent-signal"
+          onKeyUp={(e) => {
+            const next = view.timeline[Number(e.currentTarget.value)];
+            if (next && next.now !== view.now) onPickTime(next.now);
+          }}
+          className="w-full accent-signal disabled:opacity-50"
         />
         <span className="mt-1 flex justify-between text-[10px] text-muted">
           <span>{first.now.slice(0, 7)}</span>
-          <span>{frame.windowOpen ? "window open · V2 can differ" : "window closed · V2 = V0"}</span>
+          <span>
+            {frame.windowOpen ? "window open · V2 can differ" : "window closed · V2 = V0"}
+          </span>
           <span>{last.now.slice(0, 10)}</span>
         </span>
       </label>
 
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
         {frame.personas.map((p) => {
+          if (p.v0 === null || p.v2 === null) {
+            return (
+              <div key={p.id} className="rounded border border-line px-2 py-1.5 text-xs">
+                <p className="truncate">{p.name}</p>
+                <p className="text-muted">{PRODUCT_LANGUAGE.insufficientEvidence}</p>
+              </div>
+            );
+          }
           const delta = p.v2 - p.v0;
           return (
             <div key={p.id} className="rounded border border-line px-2 py-1.5 text-xs">
@@ -101,7 +121,11 @@ export function JudgeSim({
       <div className="mt-3 space-y-1">
         {view.judges.slice(0, 8).map((j) => (
           <div key={j.judgeId} className="flex items-center justify-between text-sm">
-            <button type="button" className="text-left hover:underline" onClick={() => onSelectJudge?.(j.judgeId)}>
+            <button
+              type="button"
+              className="text-left hover:underline"
+              onClick={() => onSelectJudge?.(j.judgeId)}
+            >
               {j.name}
             </button>
             <span className="font-mono text-xs text-muted">

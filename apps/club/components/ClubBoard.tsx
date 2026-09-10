@@ -1,14 +1,14 @@
 "use client";
 
-import { useMemo, useState, useTransition, type ReactNode } from "react";
 import {
-  actionAddComparison,
-  actionAddReferral,
-  actionMeddleReferral,
-  actionReset,
-  actionSetNow,
-  actionSetStatus,
-} from "../app/actions.ts";
+  Children,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import {
   EVIDENCE_TYPES,
   PRODUCT_LANGUAGE,
@@ -17,33 +17,79 @@ import {
   SCALE_LABELS,
 } from "../../../src/domain/constants.ts";
 import type { EvidenceType, PersonStatus, Scale5 } from "../../../src/domain/types.ts";
-import type { ClubState, ClubView, EngineResult, PersonView } from "../lib/types.ts";
+import {
+  actionAddComparison,
+  actionAddReferral,
+  actionMeddleReferral,
+  actionReset,
+  actionSetNow,
+  actionSetStatus,
+} from "../app/actions.ts";
+import type {
+  ClubSnapshot,
+  ClubState,
+  ClubView,
+  EngineResult,
+  PersonView,
+  SignalRow,
+} from "../lib/types.ts";
 import { JudgeSim } from "./JudgeSim.tsx";
 import { PersonaGraph } from "./PersonaGraph.tsx";
+
+function ordinal(n: number): string {
+  const v = Math.round(n);
+  const mod10 = v % 10;
+  const mod100 = v % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${v}st`;
+  if (mod10 === 2 && mod100 !== 12) return `${v}nd`;
+  if (mod10 === 3 && mod100 !== 13) return `${v}rd`;
+  return `${v}th`;
+}
 
 function Scale({
   label,
   value,
   captions,
   onChange,
+  onCommit,
+  disabled,
 }: {
   label: string;
   value: Scale5;
   captions: Record<Scale5, string>;
-  onChange: (v: Scale5) => void;
+  onChange?: (v: Scale5) => void;
+  onCommit?: (v: Scale5) => void;
+  disabled?: boolean;
 }) {
+  const [draft, setDraft] = useState<Scale5>(value);
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const set = (next: Scale5) => {
+    setDraft(next);
+    onChange?.(next);
+  };
+
+  const commit = () => {
+    if (onCommit && draft !== value) onCommit(draft);
+  };
+
   return (
     <label className="block text-xs">
       <span className="text-muted">
-        {label} · {captions[value]}
+        {label} · {captions[draft]}
       </span>
       <input
         type="range"
         min={1}
         max={5}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value) as Scale5)}
-        className="mt-1 w-full accent-signal"
+        value={draft}
+        disabled={disabled}
+        onChange={(e) => set(Number(e.target.value) as Scale5)}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        className="mt-1 w-full accent-signal disabled:opacity-50"
       />
     </label>
   );
@@ -63,12 +109,27 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
   const [error, setError] = useState<string | null>(initial.error ?? null);
   const [selectedId, setSelectedId] = useState<string>("p-cleo");
   const [personasOnly, setPersonasOnly] = useState(true);
+  const [dossierEpoch, setDossierEpoch] = useState(0);
   const [pending, start] = useTransition();
+  const stateRef = useRef(state);
+  const chainRef = useRef(Promise.resolve());
 
   const apply = (result: EngineResult) => {
     setState(result.state);
     setView(result.view);
     setError(result.error ?? null);
+    stateRef.current = result.state;
+  };
+
+  const mutate = (fn: (latest: ClubState) => Promise<EngineResult>) => {
+    chainRef.current = chainRef.current
+      .then(async () => {
+        apply(await fn(stateRef.current));
+      })
+      .catch(() => undefined);
+    start(async () => {
+      await chainRef.current;
+    });
   };
 
   const selected: PersonView | undefined = useMemo(
@@ -89,35 +150,36 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
           <p className="mt-1 max-w-2xl text-sm text-muted">
             You are the admin of this public example club. {PRODUCT_LANGUAGE.referralSignal} is how
             loud the network is. {PRODUCT_LANGUAGE.relativeCapability} is how they look on pairwise
-            compares. They are never merged. Refresh restores <code>generateSeed()</code>. No
-            sign-in.
+            compares. They are never merged. Reset restores this example club. No sign-in.
           </p>
-          <nav className="mt-2 flex flex-wrap gap-3 text-[11px] text-muted">
-            <span className="rounded-full border border-ink px-2 py-0.5 text-ink">
-              Example · / and /example
-            </span>
-            <a href="/club" className="rounded-full border border-line px-2 py-0.5 hover:border-ink">
-              Your club · later
-            </a>
-          </nav>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
-          <span>
-            {view.counts.candidates} candidates · {view.counts.members} members · {view.counts.archived}{" "}
-            archived · {view.counts.referrals} referrals · {view.counts.comparisons} compares
+          <span className="hidden lg:inline">
+            {view.counts.candidates} candidates · {view.counts.members} members ·{" "}
+            {view.counts.archived} archived · {view.counts.referrals} referrals ·{" "}
+            {view.counts.comparisons} compares
           </span>
           <button
             type="button"
             className="rounded-full border border-ink px-3 py-1 text-ink hover:bg-ink hover:text-paper"
-            onClick={() => start(async () => apply(await actionReset()))}
+            onClick={() => {
+              mutate(async () => {
+                const result = await actionReset();
+                setSelectedId("p-cleo");
+                setDossierEpoch((n) => n + 1);
+                return result;
+              });
+            }}
           >
-            Reset seed
+            Reset example
           </button>
         </div>
       </header>
 
       {error ? (
-        <div className="border-b border-amber-300 bg-amber-50 px-5 py-2 text-sm text-warn">{error}</div>
+        <div className="border-b border-amber-300 bg-amber-50 px-5 py-2 text-sm text-warn">
+          {error}
+        </div>
       ) : null}
 
       <div className="grid grid-cols-1 gap-4 p-4 xl:grid-cols-12 xl:grid-rows-[auto_1fr]">
@@ -142,47 +204,57 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
             onSelect={setSelectedId}
           />
           <p className="mt-2 text-[11px] leading-relaxed text-muted">
-            Node size is not a score. Click someone to open their dossier. Cleo is quiet; Bram is loud.
-            That is the product.
+            Circle size follows {PRODUCT_LANGUAGE.referralSignal} (V2). Cleo is quiet; Bram is loud.
           </p>
         </section>
 
-        <section className="grid gap-3 md:grid-cols-3 xl:col-span-5">
-          <ListCard title={`${PRODUCT_LANGUAGE.referralSignal} · V2`} hint="network volume, judge-weighted">
-            {view.topReferral.map((row) => (
-              <button
-                key={row.personId}
-                type="button"
-                onClick={() => setSelectedId(row.personId)}
-                className={`flex w-full items-baseline justify-between gap-2 rounded px-1 py-1 text-left text-sm hover:bg-paper ${
-                  row.personId === selectedId ? "bg-paper" : ""
-                }`}
-              >
-                <span>
-                  {row.name}
-                  {row.persona ? <span className="ml-1 text-[10px] text-signal">●</span> : null}
-                </span>
-                <span className="font-mono text-signal">
-                  {row.signal}
-                  <span className="text-muted">/100</span>
-                </span>
-              </button>
-            ))}
+        <section className="grid gap-3 xl:col-span-5 xl:grid-cols-3">
+          <ListCard
+            title={`${PRODUCT_LANGUAGE.referralSignal} · V2`}
+            hint="network volume, judge-weighted · loud and quiet on load"
+            empty={`No one has incoming referrals. ${PRODUCT_LANGUAGE.insufficientEvidence}.`}
+          >
+            <p className="px-1 pt-1 text-[10px] uppercase tracking-wide text-muted">Loud</p>
+            {view.topReferral
+              .filter((row) => row.signal > 20)
+              .slice(0, 6)
+              .map((row) => (
+                <SignalButton
+                  key={row.personId}
+                  row={row}
+                  selected={row.personId === selectedId}
+                  onSelect={setSelectedId}
+                />
+              ))}
+            <p className="px-1 pt-2 text-[10px] uppercase tracking-wide text-muted">Quiet</p>
+            {view.topReferral
+              .filter((row) => row.signal <= 20)
+              .map((row) => (
+                <SignalButton
+                  key={row.personId}
+                  row={row}
+                  selected={row.personId === selectedId}
+                  onSelect={setSelectedId}
+                />
+              ))}
           </ListCard>
           <ListCard
-            title={`${PRODUCT_LANGUAGE.relativeCapability}`}
-            hint="percentile in its own pool, not a scalar"
+            title={PRODUCT_LANGUAGE.relativeCapability}
+            hint="percentile in its own pool · not a network score"
+            empty={`No dimension has enough compares. ${PRODUCT_LANGUAGE.insufficientEvidence}.`}
           >
             {view.topCapability.map((row) => (
               <button
                 key={`${row.personId}-${row.dimension}`}
                 type="button"
                 onClick={() => setSelectedId(row.personId)}
-                className="flex w-full flex-col items-start rounded px-1 py-1 text-left text-sm hover:bg-paper"
+                className={`flex w-full flex-col items-start rounded border-l-2 border-capability/40 px-2 py-1 text-left text-sm hover:bg-paper ${
+                  row.personId === selectedId ? "bg-paper" : ""
+                }`}
               >
-                <span className="flex w-full justify-between">
+                <span className="flex w-full justify-between gap-2">
                   <span>{row.name}</span>
-                  <span className="font-mono text-capability">{Math.round(row.percentile)}</span>
+                  <span className="text-xs text-capability">{ordinal(row.percentile)}</span>
                 </span>
                 <span className="text-[10px] text-muted">
                   {row.dimensionLabel} · pool {row.poolSize} · {row.poolConfidence}
@@ -191,39 +263,49 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
             ))}
           </ListCard>
           <ListCard
-            title={`${PRODUCT_LANGUAGE.underRecognitionGap}`}
-            hint={`${PRODUCT_LANGUAGE.exploratory} · capability ≫ network`}
+            title={PRODUCT_LANGUAGE.exploratory}
+            hint={`${PRODUCT_LANGUAGE.underRecognitionGap} · V2 vs capability · both inputs`}
+            empty="No exploratory gap on this club."
           >
             {view.underRecognized.map((row) => (
               <button
                 key={`${row.personId}-${row.dimension}`}
                 type="button"
                 onClick={() => setSelectedId(row.personId)}
-                className="flex w-full flex-col items-start rounded px-1 py-1 text-left text-sm hover:bg-paper"
+                className={`flex w-full flex-col items-start rounded px-1 py-1 text-left text-sm hover:bg-paper ${
+                  row.personId === selectedId ? "bg-paper" : ""
+                }`}
               >
-                <span className="flex w-full justify-between">
+                <span className="flex w-full justify-between gap-2">
                   <span>{row.name}</span>
-                  <span className="font-mono text-gap">+{Math.round(row.gap)}</span>
+                  <span className="text-[10px] uppercase tracking-wide text-gap">
+                    {PRODUCT_LANGUAGE.exploratory}
+                  </span>
                 </span>
-                <span className="text-[10px] text-muted">{row.dimensionLabel}</span>
+                <span className="text-[10px] text-muted">
+                  {row.dimensionLabel} · cap {ordinal(row.capabilityPercentile)} · V2{" "}
+                  {ordinal(row.referralPercentile)}
+                  {row.gap >= 0 ? " · +" : " · "}
+                  {Math.round(row.gap)}
+                </span>
               </button>
             ))}
           </ListCard>
         </section>
 
-        <section className="board-scroll max-h-[70vh] overflow-y-auto rounded-lg border border-line bg-panel p-4 xl:col-span-4 xl:max-h-[calc(100vh-8rem)]">
+        <section className="rounded-lg border border-line bg-panel p-4 xl:col-span-4 xl:max-h-[calc(100vh-8rem)] xl:overflow-y-auto">
           {selected ? (
             <Dossier
+              key={`${selected.id}:${dossierEpoch}`}
               person={selected}
               busy={pending}
               referrers={referrers}
+              snapshots={view.snapshots}
               onStatus={(status) =>
-                start(async () => apply(await actionSetStatus(state, selected.id, status)))
+                mutate((latest) => actionSetStatus(latest, selected.id, status))
               }
-              onMeddle={(id, patch) =>
-                start(async () => apply(await actionMeddleReferral(state, id, patch)))
-              }
-              onRefer={(input) => start(async () => apply(await actionAddReferral(state, input)))}
+              onMeddle={(id, patch) => mutate((latest) => actionMeddleReferral(latest, id, patch))}
+              onRefer={(input) => mutate((latest) => actionAddReferral(latest, input))}
             />
           ) : (
             <p className="text-sm text-muted">Select someone in the graph.</p>
@@ -237,15 +319,13 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
             onCompare={(outcome) => {
               const next = view.nextCompare;
               if (!next) return;
-              start(async () =>
-                apply(
-                  await actionAddComparison(state, {
-                    personAId: next.personAId,
-                    personBId: next.personBId,
-                    dimension: next.dimension,
-                    outcome,
-                  }),
-                ),
+              mutate((latest) =>
+                actionAddComparison(latest, {
+                  personAId: next.personAId,
+                  personBId: next.personBId,
+                  dimension: next.dimension,
+                  outcome,
+                }),
               );
             }}
           />
@@ -255,7 +335,7 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
           <JudgeSim
             view={view}
             busy={pending}
-            onPickTime={(now) => start(async () => apply(await actionSetNow(state, now)))}
+            onPickTime={(now) => mutate((latest) => actionSetNow(latest, now))}
             onSelectJudge={setSelectedId}
           />
         </section>
@@ -264,20 +344,58 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
   );
 }
 
+function SignalButton({
+  row,
+  selected,
+  onSelect,
+}: {
+  row: SignalRow;
+  selected: boolean;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(row.personId)}
+      className={`flex w-full items-baseline justify-between gap-2 rounded px-1 py-1 text-left text-sm hover:bg-paper ${
+        selected ? "bg-paper" : ""
+      }`}
+    >
+      <span>
+        {row.name}
+        {row.persona ? <span className="ml-1 text-[10px] text-signal">●</span> : null}
+        <span className="ml-1 text-[10px] text-muted">{row.incomingCount} in</span>
+      </span>
+      <span className="font-mono text-signal">
+        {row.signal}
+        <span className="text-muted">/100</span>
+      </span>
+    </button>
+  );
+}
+
 function ListCard({
   title,
   hint,
+  empty,
   children,
 }: {
   title: string;
   hint: string;
+  empty: string;
   children: ReactNode;
 }) {
   return (
     <div className="rounded-lg border border-line bg-panel p-3">
       <h2 className="text-sm font-medium">{title}</h2>
       <p className="mb-2 text-[10px] text-muted">{hint}</p>
-      <div className="board-scroll max-h-72 space-y-0.5 overflow-y-auto">{children}</div>
+      <div className="board-scroll max-h-72 space-y-0.5 overflow-y-auto">
+        {Children.count(children) === 0 ? (
+          <p className="text-[11px] text-muted">{empty}</p>
+        ) : (
+          children
+        )}
+      </div>
     </div>
   );
 }
@@ -286,6 +404,7 @@ function Dossier({
   person,
   busy,
   referrers,
+  snapshots,
   onStatus,
   onMeddle,
   onRefer,
@@ -293,6 +412,7 @@ function Dossier({
   person: PersonView;
   busy: boolean;
   referrers: PersonView[];
+  snapshots: ClubSnapshot[];
   onStatus: (status: PersonStatus) => void;
   onMeddle: (
     referralId: string,
@@ -315,7 +435,11 @@ function Dossier({
   const [evidenceType, setEvidenceType] = useState<EvidenceType>("firsthand_work");
   const [evidenceText, setEvidenceText] = useState("");
 
-  const delta = person.v2Signal - person.v0Signal;
+  const measured = person.incomingCount >= 1 && person.v2Signal !== null;
+  const delta =
+    measured && person.v0Signal !== null && person.v2Signal !== null
+      ? person.v2Signal - person.v0Signal
+      : 0;
 
   return (
     <div className={busy ? "opacity-70" : ""}>
@@ -334,21 +458,24 @@ function Dossier({
       <div className="mt-3 flex gap-2">
         <button
           type="button"
-          className="rounded-full bg-capability px-3 py-1 text-xs text-white"
+          disabled={busy || person.status === "member"}
+          className="rounded-full bg-capability px-3 py-1 text-xs text-white disabled:opacity-40"
           onClick={() => onStatus("member")}
         >
           Accept as member
         </button>
         <button
           type="button"
-          className="rounded-full border border-line px-3 py-1 text-xs"
+          disabled={busy || person.status === "archived"}
+          className="rounded-full border border-line px-3 py-1 text-xs disabled:opacity-40"
           onClick={() => onStatus("archived")}
         >
           Archive
         </button>
         <button
           type="button"
-          className="rounded-full border border-line px-3 py-1 text-xs"
+          disabled={busy || person.status === "candidate"}
+          className="rounded-full border border-line px-3 py-1 text-xs disabled:opacity-40"
           onClick={() => onStatus("candidate")}
         >
           Back to candidate
@@ -357,17 +484,34 @@ function Dossier({
 
       <div className="mt-4 grid grid-cols-2 gap-3 border-y border-line py-3">
         <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted">{PRODUCT_LANGUAGE.referralSignal}</p>
-          <p className="font-mono text-3xl text-signal">{person.v2Signal}</p>
-          <p className="text-[11px] text-muted">
-            V0 {person.v0Signal}
-            {delta !== 0 ? ` → V2 ${person.v2Signal} (${delta > 0 ? "+" : ""}${delta})` : " · judges have not moved this number"}
-            {" · "}
-            {person.incomingCount} incoming · {person.firsthandCount} firsthand
+          <p className="text-[10px] uppercase tracking-wide text-muted">
+            {PRODUCT_LANGUAGE.referralSignal}
           </p>
+          {measured ? (
+            <>
+              <p className="font-mono text-3xl text-signal">{person.v2Signal}</p>
+              <p className="text-[11px] text-muted">
+                V0 {person.v0Signal}
+                {delta !== 0
+                  ? ` → V2 ${person.v2Signal} (${delta > 0 ? "+" : ""}${delta})`
+                  : " · judges have not moved this number"}
+                {" · "}
+                {person.incomingCount} incoming · {person.firsthandCount} firsthand
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-lg text-muted">{PRODUCT_LANGUAGE.insufficientEvidence}</p>
+              <p className="text-[11px] text-muted">
+                No incoming referrals. Missing evidence is not low ability.
+              </p>
+            </>
+          )}
         </div>
         <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted">{PRODUCT_LANGUAGE.relativeCapability}</p>
+          <p className="text-[10px] uppercase tracking-wide text-muted">
+            {PRODUCT_LANGUAGE.relativeCapability}
+          </p>
           <p className="text-sm text-capability">Seven dimensions. No overall number.</p>
         </div>
       </div>
@@ -379,7 +523,7 @@ function Dossier({
             <span>{d.label}</span>
             {d.state === "estimated" ? (
               <span className="font-mono text-xs text-capability">
-                {Math.round(d.percentile ?? 0)}th · {d.comparisonCount} cmp · pool {d.poolSize}
+                {ordinal(d.percentile ?? 0)} · {d.comparisonCount} cmp · pool {d.poolSize}
               </span>
             ) : (
               <span className="text-right text-[11px] text-muted">
@@ -391,17 +535,48 @@ function Dossier({
       </ul>
 
       {person.gaps.some((g) => g.gap >= 25) ? (
-        <p className="mt-3 text-xs text-gap">
-          {PRODUCT_LANGUAGE.underRecognitionGap} +
-          {Math.round(Math.max(...person.gaps.map((g) => g.gap)))} · {PRODUCT_LANGUAGE.exploratory}
-        </p>
+        <div className="mt-3 text-xs text-gap">
+          <p className="uppercase tracking-wide">{PRODUCT_LANGUAGE.exploratory}</p>
+          {person.gaps
+            .filter((g) => g.gap >= 25)
+            .map((g) => (
+              <p key={g.dimension}>
+                {g.dimensionLabel} · cap {ordinal(g.capabilityPercentile)} · V2{" "}
+                {ordinal(g.referralPercentile)} · +{Math.round(g.gap)}
+              </p>
+            ))}
+        </div>
       ) : null}
+
+      <h3 className="mt-5 text-xs font-medium uppercase tracking-wide text-muted">
+        Recent decisions
+      </h3>
+      {snapshots.length === 0 ? (
+        <p className="mt-1 text-[11px] text-muted">
+          Accept and archive record a local snapshot. None yet.
+        </p>
+      ) : (
+        <ul className="mt-1 space-y-1">
+          {snapshots.slice(0, 8).map((s) => (
+            <li key={s.id} className="text-[11px] text-muted">
+              <span className={s.personId === person.id ? "text-ink" : ""}>
+                {s.personName} · {s.decision} ·{" "}
+                {s.values.referralSignal === null
+                  ? PRODUCT_LANGUAGE.insufficientEvidence
+                  : `V2 ${s.values.referralSignal}`}{" "}
+                · {s.values.incomingCount} incoming · {s.createdAt.slice(0, 10)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <h3 className="mt-5 text-xs font-medium uppercase tracking-wide text-muted">
         Contributing referrals — meddle
       </h3>
       <p className="text-[11px] text-muted">
-        Sliders rewrite the original prediction in place (updatedAt stays put) so V2 still scores it.
+        Sliders rewrite the original prediction in place (updatedAt stays put) so V2 still scores
+        it.
       </p>
       <ul className="mt-2 space-y-3">
         {person.contributing.map((c) => (
@@ -416,7 +591,8 @@ function Dossier({
               label="Conviction"
               value={c.conviction}
               captions={SCALE_LABELS.conviction}
-              onChange={(conviction) =>
+              disabled={busy}
+              onCommit={(conviction) =>
                 onMeddle(c.referralId, {
                   conviction,
                   confidence: c.confidence,
@@ -428,7 +604,8 @@ function Dossier({
               label="Confidence"
               value={c.confidence}
               captions={SCALE_LABELS.confidence}
-              onChange={(confidence) =>
+              disabled={busy}
+              onCommit={(confidence) =>
                 onMeddle(c.referralId, {
                   conviction: c.conviction,
                   confidence,
@@ -440,7 +617,8 @@ function Dossier({
               label="Relationship"
               value={c.relationshipDepth}
               captions={SCALE_LABELS.relationshipDepth}
-              onChange={(relationshipDepth) =>
+              disabled={busy}
+              onCommit={(relationshipDepth) =>
                 onMeddle(c.referralId, {
                   conviction: c.conviction,
                   confidence: c.confidence,
@@ -459,7 +637,7 @@ function Dossier({
         className="mt-5 space-y-2 border-t border-line pt-4"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!referrerId || evidenceText.trim() === "") return;
+          if (busy || !referrerId || evidenceText.trim() === "") return;
           onRefer({
             referrerId,
             candidateId: person.id,
@@ -477,6 +655,7 @@ function Dossier({
         <select
           className="w-full border border-line bg-paper px-2 py-1 text-sm"
           value={referrerId}
+          disabled={busy}
           onChange={(e) => setReferrerId(e.target.value)}
         >
           {referrers.map((r) => (
@@ -488,6 +667,7 @@ function Dossier({
         <textarea
           required
           rows={3}
+          disabled={busy}
           className="w-full border border-line bg-paper px-2 py-2 text-sm"
           placeholder={REFERRAL_EVIDENCE_PROMPT}
           value={evidenceText}
@@ -496,6 +676,7 @@ function Dossier({
         <select
           className="w-full border border-line bg-paper px-2 py-1 text-sm"
           value={evidenceType}
+          disabled={busy}
           onChange={(e) => setEvidenceType(e.target.value as EvidenceType)}
         >
           {EVIDENCE_TYPES.map((t) => (
@@ -504,10 +685,32 @@ function Dossier({
             </option>
           ))}
         </select>
-        <Scale label="Conviction" value={conviction} captions={SCALE_LABELS.conviction} onChange={setConviction} />
-        <Scale label="Confidence" value={confidence} captions={SCALE_LABELS.confidence} onChange={setConfidence} />
-        <Scale label="Relationship" value={depth} captions={SCALE_LABELS.relationshipDepth} onChange={setDepth} />
-        <button type="submit" className="rounded-full bg-ink px-4 py-1.5 text-sm text-paper">
+        <Scale
+          label="Conviction"
+          value={conviction}
+          captions={SCALE_LABELS.conviction}
+          disabled={busy}
+          onChange={setConviction}
+        />
+        <Scale
+          label="Confidence"
+          value={confidence}
+          captions={SCALE_LABELS.confidence}
+          disabled={busy}
+          onChange={setConfidence}
+        />
+        <Scale
+          label="Relationship"
+          value={depth}
+          captions={SCALE_LABELS.relationshipDepth}
+          disabled={busy}
+          onChange={setDepth}
+        />
+        <button
+          type="submit"
+          disabled={busy}
+          className="rounded-full bg-ink px-4 py-1.5 text-sm text-paper disabled:opacity-40"
+        >
           Add referral
         </button>
       </form>
@@ -537,35 +740,40 @@ function ComparePanel({
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
-              className="rounded-full bg-capability px-4 py-1.5 text-sm text-white"
+              disabled={busy}
+              className="rounded-full bg-capability px-4 py-1.5 text-sm text-white disabled:opacity-40"
               onClick={() => onCompare("a")}
             >
               {next.personAName}
             </button>
             <button
               type="button"
-              className="rounded-full bg-capability px-4 py-1.5 text-sm text-white"
+              disabled={busy}
+              className="rounded-full bg-capability px-4 py-1.5 text-sm text-white disabled:opacity-40"
               onClick={() => onCompare("b")}
             >
               {next.personBName}
             </button>
             <button
               type="button"
-              className="rounded-full border border-line px-3 py-1.5 text-sm"
+              disabled={busy}
+              className="rounded-full border border-line px-3 py-1.5 text-sm disabled:opacity-40"
               onClick={() => onCompare("tie")}
             >
               Tie
             </button>
             <button
               type="button"
-              className="rounded-full border border-line px-3 py-1.5 text-sm"
+              disabled={busy}
+              className="rounded-full border border-line px-3 py-1.5 text-sm disabled:opacity-40"
               onClick={() => onCompare("skip")}
             >
               Skip
             </button>
             <button
               type="button"
-              className="rounded-full border border-line px-3 py-1.5 text-sm"
+              disabled={busy}
+              className="rounded-full border border-line px-3 py-1.5 text-sm disabled:opacity-40"
               onClick={() => onCompare("insufficient_observation")}
             >
               {PRODUCT_LANGUAGE.notObserved}
