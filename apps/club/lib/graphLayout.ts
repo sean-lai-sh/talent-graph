@@ -16,6 +16,11 @@ export function nodeRadius(n: Pick<GraphNode, "v2Signal">, selected: boolean): n
   return selected ? base + 2 : base;
 }
 
+/** Seed example defaults to personas-only; persisted /club must show org members. */
+export function defaultPersonasOnly(variant: "example" | "club"): boolean {
+  return variant !== "club";
+}
+
 export function selectGraphNodes(nodes: GraphNode[], personasOnly: boolean): GraphNode[] {
   const personas = PERSONA_ORDER.map((id) => nodes.find((n) => n.id === id)).filter(
     (n): n is GraphNode => n !== undefined,

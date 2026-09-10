@@ -17,15 +17,9 @@ import {
   SCALE_LABELS,
 } from "../../../src/domain/constants.ts";
 import type { EvidenceType, PersonStatus, Scale5 } from "../../../src/domain/types.ts";
-import {
-  actionAddComparison,
-  actionAddReferral,
-  actionMeddleReferral,
-  actionReset,
-  actionSetNow,
-  actionSetStatus,
-} from "../app/actions.ts";
 import { describeActionError } from "../lib/actionError.ts";
+import { resolveBoardActions } from "../lib/clubActions.ts";
+import { defaultPersonasOnly } from "../lib/graphLayout.ts";
 import type {
   ClubBoardActions,
   ClubSnapshot,
@@ -118,22 +112,14 @@ export function ClubBoard({
   actions?: Partial<ClubBoardActions>;
   sync?: EngineResult | null;
 }) {
-  const run: ClubBoardActions = {
-    setNow: actions?.setNow ?? actionSetNow,
-    setStatus: actions?.setStatus ?? actionSetStatus,
-    addReferral: actions?.addReferral ?? actionAddReferral,
-    meddleReferral: actions?.meddleReferral ?? actionMeddleReferral,
-    addComparison: actions?.addComparison ?? actionAddComparison,
-    addPerson: actions?.addPerson,
-    reset: actions?.reset ?? (variant === "example" ? actionReset : undefined),
-  };
+  const run: ClubBoardActions = resolveBoardActions(variant, actions);
   const firstId =
     initial.view.people.find((p) => p.id === "p-cleo")?.id ?? initial.view.people[0]?.id ?? "";
   const [state, setState] = useState<ClubState>(initial.state);
   const [view, setView] = useState<ClubView>(initial.view);
   const [error, setError] = useState<string | null>(initial.error ?? null);
   const [selectedId, setSelectedId] = useState<string>(firstId);
-  const [personasOnly, setPersonasOnly] = useState(true);
+  const [personasOnly, setPersonasOnly] = useState(defaultPersonasOnly(variant));
   const [dossierEpoch, setDossierEpoch] = useState(0);
   const [dirty, setDirty] = useState(false);
   const [newPersonName, setNewPersonName] = useState("");
@@ -346,10 +332,11 @@ export function ClubBoard({
             Circle size follows {PRODUCT_LANGUAGE.referralSignal} (V2) when there is incoming
             evidence. A dashed circle is {PRODUCT_LANGUAGE.insufficientEvidence} — missing evidence,
             not a score of 0. Solid edges contributed to the signal; dashed edges are real referrals
-            that did not. Cleo is quiet; Bram is loud.
-            {personasOnly
-              ? ""
-              : " Personas stay on the inner ring; other people sit outside so the graph stays readable."}
+            that did not.
+            {variant === "example" ? " Cleo is quiet; Bram is loud." : ""}
+            {variant === "example" && !personasOnly
+              ? " Personas stay on the inner ring; other people sit outside so the graph stays readable."
+              : ""}
           </p>
         </section>
 
@@ -760,7 +747,7 @@ function Dossier({
             <p className="text-sm">
               {c.referrerName}{" "}
               <span className="font-mono text-xs text-muted">
-                R {c.strength.toFixed(2)} · p̂ {c.reliability.toFixed(2)} · {c.evidenceType}
+                p̂·R {c.strength.toFixed(2)} · p̂ {c.reliability.toFixed(2)} · {c.evidenceType}
               </span>
             </p>
             <Scale

@@ -7,7 +7,8 @@ import { api } from "../../convex/_generated/api";
 
 /**
  * Real-org board. Inputs live in Convex; views come from lib/engine.ts → src/.
- * Only mount this under ConvexClientProvider when NEXT_PUBLIC_CONVEX_URL is set.
+ * Only mount this under ConvexClientProvider when convexConfigured() is true.
+ * Singleton org until SEA-12 — not per-org isolation.
  */
 export function PersistedClub() {
   const board = useQuery(api.club.getBoard);
@@ -23,8 +24,23 @@ export function PersistedClub() {
     void ensure({});
   }, [ensure]);
 
-  if (board === undefined || board === null) {
+  if (board === undefined) {
     return <p className="mt-6 text-sm text-muted">Loading club from Convex…</p>;
+  }
+
+  if (board === null) {
+    return (
+      <div className="mt-6 max-w-xl">
+        <p className="text-sm text-muted">No organization yet.</p>
+        <button
+          className="mt-3 rounded border border-line px-3 py-1.5 text-sm hover:bg-paper"
+          type="button"
+          onClick={() => void ensure({})}
+        >
+          Create club
+        </button>
+      </div>
+    );
   }
 
   return (
