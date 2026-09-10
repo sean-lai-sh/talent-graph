@@ -121,4 +121,34 @@ describe("owner demo engine", () => {
     expect(early.view.now).toBe(DEMO_T_START);
     expect(early.view.evaluatedReferrals).toBe(0);
   });
+
+  test("judge timeline is live: first frame V2=V0, last frame moves, meddling changes it", () => {
+    const start = loadClub();
+    expect(start.view.timeline.length).toBeGreaterThan(2);
+    const first = start.view.timeline[0];
+    const last = start.view.timeline[start.view.timeline.length - 1];
+    expect(first).toBeDefined();
+    expect(last).toBeDefined();
+    if (!first || !last) return;
+    expect(first.windowOpen).toBe(false);
+    expect(first.evaluatedReferrals).toBe(0);
+    for (const p of first.personas) expect(p.v2).toBe(p.v0);
+    expect(last.windowOpen).toBe(true);
+    expect(last.personas.some((p) => p.v2 !== p.v0)).toBe(true);
+
+    const alice = start.view.people.find((p) => p.id === "p-alice");
+    const referralId = alice?.contributing[0]?.referralId;
+    expect(referralId).toBeDefined();
+    if (!referralId) return;
+    const meddled = meddleReferral(start.state, referralId, {
+      conviction: 1,
+      confidence: 1,
+      relationshipDepth: 1,
+    });
+    const before = last.personas.find((p) => p.id === "p-alice")?.v2;
+    const after = meddled.view.timeline[meddled.view.timeline.length - 1]?.personas.find(
+      (p) => p.id === "p-alice",
+    )?.v2;
+    expect(after).not.toBe(before);
+  });
 });

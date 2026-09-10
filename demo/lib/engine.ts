@@ -52,6 +52,7 @@ import type {
   JudgeView,
   PersonView,
   ProposedView,
+  TimelineFrame,
 } from "./types.ts";
 
 export { DEMO_T_END, DEMO_T_START } from "./serialize.ts";
@@ -344,7 +345,70 @@ export function computeView(input: ClubState): ClubView {
     },
     nextCompare: proposals[0] ?? null,
     snapshots: state.snapshots,
+    timeline: liveJudgeTimeline(state, people, referrals, outcomes, opportunities, v0),
   };
+}
+
+/** First of each month in 2026, plus the year-end T the CLI demo uses. */
+export function demoTimeSteps(): string[] {
+  const steps: string[] = [];
+  for (let month = 0; month < 12; month++) {
+    steps.push(new Date(Date.UTC(2026, month, 1)).toISOString());
+  }
+  if (steps[steps.length - 1] !== DEMO_T_END) steps.push(DEMO_T_END);
+  return steps;
+}
+
+/**
+ * Recompute V2 on the *current* observations at each T.
+ * The old Bun.serve explainer baked frames from generateSeed() once; meddling
+ * the club could not move them. This one can.
+ */
+function liveJudgeTimeline(
+  state: ClubState,
+  people: ReturnType<typeof clubToPerson>[],
+  referrals: ReturnType<typeof clubToReferral>[],
+  outcomes: ReturnType<typeof clubToOutcome>[],
+  opportunities: ReturnType<typeof clubToOpportunity>[],
+  v0: ReturnType<typeof computeAllReferralSignals>,
+): TimelineFrame[] {
+  const specs = CURRENT_SPECS;
+  const windowMs = specs.judge_reliability.observationWindowDays * 86_400_000;
+  const earliestReferral = Math.min(...referrals.map((r) => r.createdAt.getTime()));
+  const personaIds = state.people.filter((p) => personaSet.has(p.id));
+
+  return demoTimeSteps().map((isoNow) => {
+    const now = new Date(isoNow);
+    const cal = computeJudgeCalibration({
+      people,
+      referrals,
+      outcomes,
+      opportunities,
+      now,
+      spec: specs.judge_reliability,
+      referralSpec: specs.referral_signal,
+    });
+    const v2 = computeAllReferralSignals(people, referrals, {
+      spec: specs.referral_signal,
+      ...judgeWeightOptions(cal),
+    });
+    return {
+      now: isoNow,
+      evaluatedReferrals: cal.options.evaluatedReferrals,
+      judgesWithEvidence: cal.options.judgesWithEvidence,
+      windowOpen: now.getTime() - earliestReferral >= windowMs,
+      personas: personaIds.map((p) => {
+        const s0 = v0.get(p.id);
+        const s2 = v2.get(p.id);
+        return {
+          id: p.id,
+          name: p.name,
+          v0: s0 ? displayReferralSignal(s0) : 0,
+          v2: s2 ? displayReferralSignal(s2) : 0,
+        };
+      }),
+    };
+  });
 }
 
 export function loadClub(): EngineResult {

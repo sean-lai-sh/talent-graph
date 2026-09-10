@@ -6,6 +6,7 @@ import {
   actionAddReferral,
   actionMeddleReferral,
   actionReset,
+  actionSetNow,
   actionSetStatus,
 } from "../app/actions.ts";
 import {
@@ -17,6 +18,7 @@ import {
 } from "../../src/domain/constants.ts";
 import type { EvidenceType, PersonStatus, Scale5 } from "../../src/domain/types.ts";
 import type { ClubState, ClubView, EngineResult, PersonView } from "../lib/types.ts";
+import { JudgeSim } from "./JudgeSim.tsx";
 import { PersonaGraph } from "./PersonaGraph.tsx";
 
 function Scale({
@@ -239,30 +241,12 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
         </section>
 
         <section className="rounded-lg border border-line bg-panel p-4 xl:col-span-5">
-          <h2 className="text-sm font-medium">Whose referrals to trust</h2>
-          <p className="mt-1 text-[11px] text-muted">
-            Judge weights come from later outcomes, not from agreeing with other judges. At T ={" "}
-            {view.now.slice(0, 10)} · {view.evaluatedReferrals} scored referrals ·{" "}
-            {view.judgesWithEvidence} judges with evidence.
-            {view.windowOpen
-              ? " The 180-day window is open, so V2 can differ from V0."
-              : " The observation window has not opened; every judge is still 1 and V2 equals V0."}
-          </p>
-          <div className="mt-3 space-y-1">
-            {view.judges.slice(0, 8).map((j) => (
-              <div key={j.judgeId} className="flex items-center justify-between text-sm">
-                <button type="button" className="text-left hover:underline" onClick={() => setSelectedId(j.judgeId)}>
-                  {j.name}
-                </button>
-                <span className="font-mono text-xs text-muted">
-                  p̂ {j.reliability.toFixed(2)} · {j.evaluatedCount} scored
-                </span>
-              </div>
-            ))}
-            {view.judges.length === 0 ? (
-              <p className="text-sm text-muted">No judges have cleared the observation window yet.</p>
-            ) : null}
-          </div>
+          <JudgeSim
+            view={view}
+            busy={pending}
+            onPickTime={(now) => start(async () => apply(await actionSetNow(state, now)))}
+            onSelectJudge={setSelectedId}
+          />
         </section>
       </div>
     </div>

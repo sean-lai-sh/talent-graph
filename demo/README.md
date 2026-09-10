@@ -20,5 +20,7 @@ What you can do:
 - Open a persona dossier (start with Cleo vs Bram)
 - Meddle referral sliders, write a referral, run a compare
 - Accept / archive — records a local snapshot, does not invent a score
+- Drag evaluation time T: each tick reruns judge calibration on the *current*
+  club (including slider meddles), not a pre-baked seed tape
 
 `club/` (Clerk + persistence) is a later app. Do not put auth in this folder.

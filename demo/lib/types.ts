@@ -210,6 +210,21 @@ export interface ProposedView {
   priority: number;
 }
 
+export interface TimelinePersona {
+  id: string;
+  name: string;
+  v0: number;
+  v2: number;
+}
+
+export interface TimelineFrame {
+  now: IsoDate;
+  evaluatedReferrals: number;
+  judgesWithEvidence: number;
+  windowOpen: boolean;
+  personas: TimelinePersona[];
+}
+
 export interface ClubView {
   counts: {
     people: number;
@@ -232,6 +247,11 @@ export interface ClubView {
   graph: { nodes: GraphNode[]; edges: GraphEdge[] };
   nextCompare: ProposedView | null;
   snapshots: ClubSnapshot[];
+  /**
+   * Monthly V2 preview on *this* club state (including slider meddles).
+   * Not a precomputed seed tape — that was the bug in the Bun.serve explainer.
+   */
+  timeline: TimelineFrame[];
 }
 
 export interface EngineResult {
