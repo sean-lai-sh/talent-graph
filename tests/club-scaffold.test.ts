@@ -57,7 +57,8 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
     expect(schema).toContain("referrals");
     expect(schema).toContain("snapshots");
     expect(schema).not.toContain("bradleyTerry");
-    expect(schema).not.toContain("referralSignal");
+    expect(schema).not.toContain("computeAllReferralSignals");
+    expect(schema).not.toContain("referralStrength");
     expect(club).toContain('from "../lib/engine.ts"');
     expect(club).toContain("computeView");
     expect(club).toContain("addPerson");
@@ -67,6 +68,7 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
     expect(club).toContain("getOrganization");
     expect(club).toContain("createOrganization");
     expect(club).not.toContain("bradleyTerry");
+    expect(club).not.toContain("computeAllReferralSignals");
     expect(club).not.toContain('from "../../../src/scoring');
   });
 
