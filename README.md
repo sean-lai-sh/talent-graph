@@ -1,8 +1,11 @@
 # Talent Graph — Algorithm Core
 
-**This repo is the algorithm core only** — no UI, no database, no application
+**`src/` is the algorithm core only** — no UI, no database, no application
 framework. It is a Bun + TypeScript library with zero runtime dependencies that
 a later application imports. Every function is pure: `(inputs, options) → result`.
+
+The owner-facing Next.js demo lives in [`demo/`](demo/) and imports that
+library. It is a hypothetical seed club, not the future `club/` product.
 
 - Theory (canonical): [`docs/theory/main.tex`](docs/theory/main.tex) · compiled
   [`talent_white_paper.pdf`](docs/theory/talent_white_paper.pdf)
@@ -19,8 +22,13 @@ bun run lint        # biome
 bun run typecheck   # tsc --noEmit
 bun test            # 170+ tests, including invariant checks
 bun run demo        # dashboard + the six persona reports from the seed
+bun run demo:web    # Next.js owner board at http://127.0.0.1:3000
 bun run drift -- --kind referral_signal --before 0.1.0 --after 0.1.0
 ```
+
+Vercel: set the project **Root Directory** to `demo`. The app traces `src/`
+from the repo root (`outputFileTracingRoot`). No auth, no database — refresh
+restores `generateSeed()`.
 
 Import from the barrel:
 
