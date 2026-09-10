@@ -27,9 +27,18 @@ bun run club:web    # Next.js example admin at http://127.0.0.1:3000
 bun run drift -- --kind referral_signal --before 0.1.0 --after 0.1.0
 ```
 
-Vercel: set the project **Root Directory** to `apps/club`. The app traces
-`src/` from the repo root (`outputFileTracingRoot`). The public example has
-no auth and no database — refresh restores `generateSeed()`.
+Vercel (one project away — exact steps in
+[`apps/club/README.md`](apps/club/README.md)):
+
+1. Import this repo. Set **Root Directory** to `apps/club` (dashboard
+   **Edit** on import, or **Project Settings → Build and Deployment**).
+2. Framework: Next.js. No env vars. Do not add Clerk / auth keys.
+3. Keep `outputFileTracingRoot` as the **repo root** in
+   `apps/club/next.config.ts` so `src/` is traced into the bundle.
+
+CLI from this repo root (not from `apps/club`): `bunx vercel link` then
+`bunx vercel`. The public example has no auth and no database — refresh
+restores `generateSeed()`.
 
 Import from the barrel:
 
