@@ -1,7 +1,9 @@
 /**
- * Example-admin view over the algorithm core. This is the public,
- * unauthenticated surface of the club product. No scoring lives here —
- * this file only serialises club state and calls `compute*` from `src/`.
+ * Club view over the algorithm core. No scoring lives here — this file
+ * only serialises club state and calls `compute*` from `src/`.
+ *
+ * `/` and `/example` start from `generateSeed()` via `initialState()`.
+ * `/club` persists domain inputs in Convex and calls the same helpers.
  */
 
 import {
@@ -51,6 +53,7 @@ import {
   reviveState,
 } from "./serialize.ts";
 import type {
+  ClubPerson,
   ClubReferral,
   ClubSnapshot,
   ClubState,
@@ -93,6 +96,19 @@ function nameOf(state: ClubState, id: string): string {
 
 function nextId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+export function emptyState(now: string = EXAMPLE_T_END): ClubState {
+  return {
+    people: [],
+    referrals: [],
+    comparisons: [],
+    evaluations: [],
+    outcomes: [],
+    opportunities: [],
+    snapshots: [],
+    now,
+  };
 }
 
 export function initialState(): ClubState {
@@ -459,6 +475,33 @@ export function resetClub(): EngineResult {
 export function setNow(state: ClubState, now: string): EngineResult {
   const next = reviveState(state);
   next.now = now;
+  return { state: next, view: computeView(next) };
+}
+
+export function addPerson(
+  state: ClubState,
+  input: {
+    name: string;
+    bio?: string;
+    affiliation?: string;
+    status?: PersonStatus;
+  },
+): EngineResult {
+  const next = reviveState(state);
+  const name = input.name.trim();
+  if (!name) return { state: next, view: computeView(next), error: "name required" };
+  const person: ClubPerson = {
+    id: nextId("p"),
+    name,
+    status: input.status ?? "candidate",
+    createdAt: next.now,
+    updatedAt: next.now,
+  };
+  if (input.bio !== undefined && input.bio.trim() !== "") person.bio = input.bio.trim();
+  if (input.affiliation !== undefined && input.affiliation.trim() !== "") {
+    person.affiliation = input.affiliation.trim();
+  }
+  next.people.push(person);
   return { state: next, view: computeView(next) };
 }
 

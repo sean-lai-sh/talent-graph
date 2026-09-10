@@ -11,9 +11,10 @@ compares say is strong.
   Do not add a login wall to `/` or `/example`.
 - `/` and `/example` — public example admin. No sign-in. Refresh restores
   the seed club.
-- `/club` — real-organization door. Convex client, schema stub, empty
-  mutations/queries, and Better Auth wiring live here. Persistence is still
-  empty (SEA-10). The auth gate is later (SEA-12).
+- `/club` — real-organization door. Convex + Better Auth live here. Domain
+  inputs (people, referrals, comparisons, snapshots, clock) persist in
+  Convex. Mutations re-run views via `lib/engine.ts` → `src/`. No login
+  wall yet (SEA-12). `/` and `/example` stay in-memory `generateSeed()`.
 
 ```sh
 bun --cwd apps/club install
@@ -89,8 +90,8 @@ in the build.
 5. Skip Environment Variables. Optional `TG_*` keys are in
    [`apps/club/.env.example`](.env.example); they are not required.
 6. Deploy. `/` and `/example` are the public seed club. Refresh restores
-   `generateSeed()`. `/club` is the Convex + Better Auth scaffold and does
-   not wall the example.
+   `generateSeed()`. `/club` persists club inputs in Convex and computes
+   views from `src/`. It does not wall the example.
 
 ### CLI (from the repository root)
 

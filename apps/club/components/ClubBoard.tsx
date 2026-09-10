@@ -1,6 +1,14 @@
 "use client";
 
-import { Children, type ReactNode, useMemo, useRef, useState, useTransition } from "react";
+import {
+  Children,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import {
   EVIDENCE_TYPES,
   PRODUCT_LANGUAGE,
@@ -19,6 +27,7 @@ import {
 } from "../app/actions.ts";
 import { describeActionError } from "../lib/actionError.ts";
 import type {
+  ClubBoardActions,
   ClubSnapshot,
   ClubState,
   ClubView,
@@ -98,14 +107,36 @@ function StatusChip({ status }: { status: PersonStatus }) {
   );
 }
 
-export function ClubBoard({ initial }: { initial: EngineResult }) {
+export function ClubBoard({
+  initial,
+  variant = "example",
+  actions,
+  sync,
+}: {
+  initial: EngineResult;
+  variant?: "example" | "club";
+  actions?: Partial<ClubBoardActions>;
+  sync?: EngineResult | null;
+}) {
+  const run: ClubBoardActions = {
+    setNow: actions?.setNow ?? actionSetNow,
+    setStatus: actions?.setStatus ?? actionSetStatus,
+    addReferral: actions?.addReferral ?? actionAddReferral,
+    meddleReferral: actions?.meddleReferral ?? actionMeddleReferral,
+    addComparison: actions?.addComparison ?? actionAddComparison,
+    addPerson: actions?.addPerson,
+    reset: actions?.reset ?? (variant === "example" ? actionReset : undefined),
+  };
+  const firstId =
+    initial.view.people.find((p) => p.id === "p-cleo")?.id ?? initial.view.people[0]?.id ?? "";
   const [state, setState] = useState<ClubState>(initial.state);
   const [view, setView] = useState<ClubView>(initial.view);
   const [error, setError] = useState<string | null>(initial.error ?? null);
-  const [selectedId, setSelectedId] = useState<string>("p-cleo");
+  const [selectedId, setSelectedId] = useState<string>(firstId);
   const [personasOnly, setPersonasOnly] = useState(true);
   const [dossierEpoch, setDossierEpoch] = useState(0);
   const [dirty, setDirty] = useState(false);
+  const [newPersonName, setNewPersonName] = useState("");
   const [pending, start] = useTransition();
   const stateRef = useRef(state);
   const chainRef = useRef(Promise.resolve());
@@ -115,7 +146,21 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
     setView(result.view);
     setError(result.error ?? null);
     stateRef.current = result.state;
+    setSelectedId((id) =>
+      result.view.people.some((p) => p.id === id) ? id : (result.view.people[0]?.id ?? ""),
+    );
   };
+
+  useEffect(() => {
+    if (!sync) return;
+    setState(sync.state);
+    setView(sync.view);
+    setError(sync.error ?? null);
+    stateRef.current = sync.state;
+    setSelectedId((id) =>
+      sync.view.people.some((p) => p.id === id) ? id : (sync.view.people[0]?.id ?? ""),
+    );
+  }, [sync]);
 
   const mutate = (fn: (latest: ClubState) => Promise<EngineResult>, opts?: { seed?: boolean }) => {
     chainRef.current = chainRef.current
@@ -138,9 +183,11 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
   };
 
   const resetToSeed = () => {
+    if (!run.reset) return;
     mutate(
       async () => {
-        const result = await actionReset();
+        const result = await run.reset?.();
+        if (!result) return { state: stateRef.current, view };
         setSelectedId("p-cleo");
         setDossierEpoch((n) => n + 1);
         return result;
@@ -161,15 +208,26 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
       <header className="board-header sticky top-0 z-10 flex flex-wrap items-end justify-between gap-3 border-b border-line bg-paper px-4 py-3 sm:px-5 sm:py-4">
         <div>
           <p className="text-[11px] uppercase tracking-[0.18em] text-muted">
-            Talent Graph · example admin
+            {variant === "club" ? "Talent Graph · your club" : "Talent Graph · example admin"}
           </p>
           <h1 className="font-serif text-xl tracking-tight sm:text-2xl">
             Who should this club look at?
           </h1>
           <p className="mt-1 hidden max-w-2xl text-sm text-muted md:block">
-            You are the admin of this public example club. {PRODUCT_LANGUAGE.referralSignal} is how
-            loud the network is. {PRODUCT_LANGUAGE.relativeCapability} is how they look on pairwise
-            compares. They are never merged. Reset to seed restores this example. No sign-in.
+            {variant === "club" ? (
+              <>
+                Members, referrals, and status persist in Convex. Views are computed by{" "}
+                <code className="font-mono text-[12px]">src/</code> — not copied here. The public
+                example stays open at / and /example with no sign-in.
+              </>
+            ) : (
+              <>
+                You are the admin of this public example club. {PRODUCT_LANGUAGE.referralSignal} is
+                how loud the network is. {PRODUCT_LANGUAGE.relativeCapability} is how they look on
+                pairwise compares. They are never merged. Reset to seed restores this example. No
+                sign-in.
+              </>
+            )}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
@@ -178,18 +236,58 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
             {view.counts.archived} archived · {view.counts.referrals} referrals ·{" "}
             {view.counts.comparisons} compares
           </span>
-          {dirty ? <span className="text-warn">Local edits · not the seed</span> : null}
-          <button
-            type="button"
-            className={
-              dirty
-                ? "rounded-full bg-ink px-3 py-1 text-paper hover:opacity-90"
-                : "rounded-full border border-ink px-3 py-1 text-ink hover:bg-ink hover:text-paper"
-            }
-            onClick={resetToSeed}
-          >
-            Reset to seed
-          </button>
+          {variant === "example" && dirty ? (
+            <span className="text-warn">Local edits · not the seed</span>
+          ) : null}
+          {variant === "club" && run.addPerson ? (
+            <form
+              className="flex items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const name = newPersonName.trim();
+                if (!name || !run.addPerson) return;
+                mutate(async (latest) => {
+                  const result = await run.addPerson?.(latest, { name });
+                  if (!result) return { state: latest, view };
+                  if (!result.error) {
+                    const created = result.state.people.find(
+                      (p) => !latest.people.some((row) => row.id === p.id),
+                    );
+                    if (created) setSelectedId(created.id);
+                  }
+                  return result;
+                });
+                setNewPersonName("");
+              }}
+            >
+              <input
+                className="rounded border border-line bg-paper px-2 py-1 text-ink"
+                name="personName"
+                placeholder="Add a person"
+                value={newPersonName}
+                onChange={(event) => setNewPersonName(event.target.value)}
+              />
+              <button
+                type="submit"
+                className="rounded-full bg-ink px-3 py-1 text-paper hover:opacity-90"
+              >
+                Add
+              </button>
+            </form>
+          ) : null}
+          {run.reset ? (
+            <button
+              type="button"
+              className={
+                dirty
+                  ? "rounded-full bg-ink px-3 py-1 text-paper hover:opacity-90"
+                  : "rounded-full border border-ink px-3 py-1 text-ink hover:bg-ink hover:text-paper"
+              }
+              onClick={resetToSeed}
+            >
+              Reset to seed
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -210,13 +308,15 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
             >
               Dismiss
             </button>
-            <button
-              type="button"
-              className="rounded-full bg-ink px-3 py-1 text-xs text-paper"
-              onClick={resetToSeed}
-            >
-              Reset to seed
-            </button>
+            {run.reset ? (
+              <button
+                type="button"
+                className="rounded-full bg-ink px-3 py-1 text-xs text-paper"
+                onClick={resetToSeed}
+              >
+                Reset to seed
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -329,15 +429,15 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
               busy={pending}
               referrers={referrers}
               snapshots={view.snapshots}
-              onStatus={(status) =>
-                mutate((latest) => actionSetStatus(latest, selected.id, status))
-              }
-              onMeddle={(id, patch) => mutate((latest) => actionMeddleReferral(latest, id, patch))}
-              onRefer={(input) => mutate((latest) => actionAddReferral(latest, input))}
+              onStatus={(status) => mutate((latest) => run.setStatus(latest, selected.id, status))}
+              onMeddle={(id, patch) => mutate((latest) => run.meddleReferral(latest, id, patch))}
+              onRefer={(input) => mutate((latest) => run.addReferral(latest, input))}
             />
           ) : (
             <p className="text-sm text-muted">
-              Nobody is selected. Pick a person on the graph, or reset to seed to open Cleo.
+              {variant === "club"
+                ? "Nobody is selected. Add a person to start this club."
+                : "Nobody is selected. Pick a person on the graph, or reset to seed to open Cleo."}
             </p>
           )}
         </section>
@@ -350,7 +450,7 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
               const next = view.nextCompare;
               if (!next) return;
               mutate((latest) =>
-                actionAddComparison(latest, {
+                run.addComparison(latest, {
                   personAId: next.personAId,
                   personBId: next.personBId,
                   dimension: next.dimension,
@@ -365,7 +465,7 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
           <JudgeSim
             view={view}
             busy={pending}
-            onPickTime={(now) => mutate((latest) => actionSetNow(latest, now))}
+            onPickTime={(now) => mutate((latest) => run.setNow(latest, now))}
             onSelectJudge={setSelectedId}
           />
         </section>

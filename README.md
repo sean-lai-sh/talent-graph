@@ -5,7 +5,8 @@ engine. It is one product, not two frontends.
 
 - **`apps/club/`** — the example admin. One Next.js app. `/` and `/example`
   are the public seed club (no sign-in). `/club` is the real-organization
-  door: Convex + Better Auth is scaffolded there only.
+  door: Convex + Better Auth, with club inputs persisted in Convex and
+  views computed from `src/`.
 - **`src/`** — the **engine**. Pure TypeScript, no UI, no database. Every
   function is `(inputs, options) → result`. The admin imports it; the
   engine does not know about Next.

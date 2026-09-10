@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { type FormEvent, useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import { PersistedClub } from "./PersistedClub";
 
 /**
  * Official Better Auth client on the /club door only.
- * Not a login wall: SEA-12 will gate. Persistence is SEA-10.
+ * Not a login wall: SEA-12 will gate. Persistence is Convex inputs + src/ views.
  */
 export function ClubShell() {
   const session = authClient.useSession();
@@ -41,8 +42,9 @@ export function ClubShell() {
       <h1 className="mt-2 font-serif text-3xl tracking-tight">Club door</h1>
       <p className="mt-3 max-w-xl text-sm text-muted">
         Convex + Better Auth is wired here through the official{" "}
-        <code className="font-mono text-[12px]">@convex-dev/better-auth</code> integration.
-        Persistence is still empty. The public example stays open at{" "}
+        <code className="font-mono text-[12px]">@convex-dev/better-auth</code> integration. Members,
+        referrals, and status persist in Convex; views are computed by{" "}
+        <code className="font-mono text-[12px]">src/</code>. The public example stays open at{" "}
         <Link className="underline decoration-line underline-offset-2 hover:text-ink" href="/">
           /
         </Link>{" "}
@@ -146,6 +148,7 @@ export function ClubShell() {
           {message ? <p className="text-sm text-warn">{message}</p> : null}
         </form>
       )}
+      {configured ? <PersistedClub /> : null}
     </main>
   );
 }

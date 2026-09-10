@@ -269,3 +269,44 @@ export interface EngineResult {
   view: ClubView;
   error?: string;
 }
+
+export interface AddPersonInput {
+  name: string;
+  bio?: string;
+  affiliation?: string;
+  status?: PersonStatus;
+}
+
+/** Optional persistence overrides for ClubBoard. Example uses server actions. */
+export interface ClubBoardActions {
+  setNow: (state: ClubState, now: string) => Promise<EngineResult>;
+  setStatus: (state: ClubState, personId: string, status: PersonStatus) => Promise<EngineResult>;
+  addReferral: (
+    state: ClubState,
+    input: {
+      referrerId: string;
+      candidateId: string;
+      conviction: Scale5;
+      confidence: Scale5;
+      relationshipDepth: Scale5;
+      evidenceType: EvidenceType;
+      evidenceText: string;
+    },
+  ) => Promise<EngineResult>;
+  meddleReferral: (
+    state: ClubState,
+    referralId: string,
+    patch: { conviction: Scale5; confidence: Scale5; relationshipDepth: Scale5 },
+  ) => Promise<EngineResult>;
+  addComparison: (
+    state: ClubState,
+    input: {
+      personAId: string;
+      personBId: string;
+      dimension: Dimension;
+      outcome: ComparisonOutcome;
+    },
+  ) => Promise<EngineResult>;
+  addPerson?: (state: ClubState, input: AddPersonInput) => Promise<EngineResult>;
+  reset?: () => Promise<EngineResult>;
+}

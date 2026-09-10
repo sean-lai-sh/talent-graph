@@ -49,15 +49,25 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
     expect(provider).toContain("ConvexBetterAuthProvider");
   });
 
-  test("club schema stub has no engine formulas", () => {
+  test("club Convex module stores inputs and imports engine compute", () => {
     const schema = read("apps/club/convex/schema.ts");
     const club = read("apps/club/convex/club.ts");
     expect(schema).toContain("defineSchema");
+    expect(schema).toContain("people");
+    expect(schema).toContain("referrals");
+    expect(schema).toContain("snapshots");
     expect(schema).not.toContain("bradleyTerry");
     expect(schema).not.toContain("referralSignal");
-    expect(club).toContain("return null");
+    expect(club).toContain('from "../lib/engine.ts"');
+    expect(club).toContain("computeView");
+    expect(club).toContain("addPerson");
+    expect(club).toContain("setStatus");
+    expect(club).toContain("addReferral");
+    expect(club).toContain("getBoard");
     expect(club).toContain("getOrganization");
     expect(club).toContain("createOrganization");
+    expect(club).not.toContain("bradleyTerry");
+    expect(club).not.toContain('from "../../../src/scoring');
   });
 
   test("README plan is Convex + Better Auth, not Clerk or Neon", () => {
