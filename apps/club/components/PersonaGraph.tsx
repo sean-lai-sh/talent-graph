@@ -1,21 +1,7 @@
 "use client";
 
+import { layoutGraph, selectGraphNodes } from "../lib/graphLayout.ts";
 import type { GraphEdge, GraphNode } from "../lib/types.ts";
-
-const PERSONA_ORDER = ["p-alice", "p-bram", "p-cleo", "p-dev", "p-ember", "p-fox"];
-
-function layout(ids: string[]): Map<string, { x: number; y: number }> {
-  const pos = new Map<string, { x: number; y: number }>();
-  const n = ids.length;
-  const cx = 160;
-  const cy = 130;
-  const r = n <= 6 ? 88 : 100;
-  ids.forEach((id, i) => {
-    const a = (Math.PI * 2 * i) / n - Math.PI / 2;
-    pos.set(id, { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) });
-  });
-  return pos;
-}
 
 function firstName(name: string): string {
   return name.split(" ")[0] ?? name;
@@ -40,23 +26,23 @@ export function PersonaGraph({
   personasOnly: boolean;
   onSelect: (id: string) => void;
 }) {
-  const shown = personasOnly
-    ? PERSONA_ORDER.map((id) => nodes.find((n) => n.id === id)).filter(
-        (n): n is GraphNode => n !== undefined,
-      )
-    : nodes.filter((n) => n.persona || n.status !== "archived").slice(0, 18);
-
-  const ids = shown.map((n) => n.id);
-  const idSet = new Set(ids);
-  const pos = layout(ids);
-  const drawn = edges.filter((e) => idSet.has(e.from) && idSet.has(e.to));
+  const shown = selectGraphNodes(nodes, personasOnly);
+  const ids = new Set(shown.map((n) => n.id));
+  const pos = layoutGraph(shown);
+  const drawn = edges.filter((e) => ids.has(e.from) && ids.has(e.to));
+  const others = shown.filter((n) => !n.persona).length;
 
   if (shown.length === 0) {
     return <p className="text-sm text-muted">No one to show on this graph.</p>;
   }
 
   return (
-    <svg viewBox="0 0 320 270" className="h-auto w-full" role="img" aria-label="Referral network">
+    <svg
+      viewBox="0 0 360 320"
+      className="board-graph h-auto w-full max-h-[42vh] xl:max-h-none"
+      role="img"
+      aria-label="Referral network"
+    >
       {drawn.map((e) => {
         const a = pos.get(e.from);
         const b = pos.get(e.to);
@@ -86,8 +72,8 @@ export function PersonaGraph({
               href={`#${n.id}`}
               className="cursor-pointer"
               aria-label={n.name}
-              onClick={(e) => {
-                e.preventDefault();
+              onClick={(ev) => {
+                ev.preventDefault();
                 onSelect(n.id);
               }}
             >
@@ -108,7 +94,7 @@ export function PersonaGraph({
                 y={nodeRadius(n, selected) + 12}
                 textAnchor="middle"
                 className="fill-ink"
-                style={{ fontSize: 9, fontFamily: "var(--font-geist-sans)" }}
+                style={{ fontSize: n.persona ? 9 : 8, fontFamily: "var(--font-geist-sans)" }}
               >
                 {firstName(n.name)}
                 {quiet ? " · quiet" : loud ? " · loud" : ""}
@@ -117,6 +103,17 @@ export function PersonaGraph({
           </g>
         );
       })}
+      {!personasOnly && others > 0 ? (
+        <text
+          x={180}
+          y={312}
+          textAnchor="middle"
+          className="fill-muted"
+          style={{ fontSize: 8, fontFamily: "var(--font-geist-sans)" }}
+        >
+          Personas inside · {others} other people on the outer ring
+        </text>
+      ) : null}
     </svg>
   );
 }
