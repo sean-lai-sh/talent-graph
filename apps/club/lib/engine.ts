@@ -29,6 +29,7 @@ import { CURRENT_SPECS } from "../../../src/models/registry.ts";
 import {
   computeAllReferralSignals,
   displayReferralSignal,
+  type ReferralSignalResult,
 } from "../../../src/scoring/referralSignal.ts";
 import { generateSeed } from "../../../src/seed/generate.ts";
 import { PERSONA_IDS } from "../../../src/seed/personas.ts";
@@ -39,7 +40,7 @@ import {
   clubToPerson,
   clubToReferral,
   comparisonToClub,
-  DEMO_T_END,
+  EXAMPLE_T_END,
   evaluationToClub,
   opportunityToClub,
   outcomeToClub,
@@ -62,8 +63,14 @@ import type {
   TimelineFrame,
 } from "./types.ts";
 
-export { DEMO_T_END, DEMO_T_START } from "./serialize.ts";
+export { EXAMPLE_T_END, EXAMPLE_T_START } from "./serialize.ts";
 export { PRODUCT_LANGUAGE };
+
+/** Display integer, or null when there is no incoming referral (not a score of 0). */
+function measuredSignal(result: ReferralSignalResult): number | null {
+  if (result.incomingCount < 1) return null;
+  return displayReferralSignal(result);
+}
 
 export const OWNER_EVALUATOR_ID = "example-admin";
 
@@ -96,7 +103,7 @@ export function initialState(): ClubState {
     outcomes: data.outcomes.map(outcomeToClub),
     opportunities: data.opportunities.map(opportunityToClub),
     snapshots: [],
-    now: DEMO_T_END,
+    now: EXAMPLE_T_END,
   };
 }
 
@@ -125,17 +132,21 @@ export function computeView(input: ClubState): ClubView {
     spec: specs.referral_signal,
     ...judgeWeightOptions(cal),
   });
-  const gaps = underRecognitionGaps(v0, cap);
+  const gaps = underRecognitionGaps(v2, cap);
   const interesting = mostUnderRecognized(gaps, 8);
 
   const windowMs = specs.judge_reliability.observationWindowDays * 86_400_000;
   const earliestReferral = Math.min(...referrals.map((r) => r.createdAt.getTime()));
   const windowOpen = now.getTime() - earliestReferral >= windowMs;
 
-  const topReferral = [...v2.values()]
-    .filter((r) => r.incomingCount >= 1)
+  const measured = [...v2.values()].filter((r) => r.incomingCount >= 1);
+  const personaSignals = measured.filter((r) => personaSet.has(r.personId));
+  const otherSignals = measured
+    .filter((r) => !personaSet.has(r.personId))
     .sort((a, b) => b.signal - a.signal || (a.personId < b.personId ? -1 : 1))
-    .slice(0, 10)
+    .slice(0, 6);
+  const topReferral = [...personaSignals, ...otherSignals]
+    .sort((a, b) => b.signal - a.signal || (a.personId < b.personId ? -1 : 1))
     .map((r) => ({
       personId: r.personId,
       name: nameOf(state, r.personId),
@@ -241,8 +252,8 @@ export function computeView(input: ClubState): ClubView {
       status: p.status,
       note: PERSONA_NOTES[p.id] ?? null,
       persona: personaSet.has(p.id),
-      v0Signal: s0 ? displayReferralSignal(s0) : 0,
-      v2Signal: s2 ? displayReferralSignal(s2) : 0,
+      v0Signal: s0 ? measuredSignal(s0) : null,
+      v2Signal: s2 ? measuredSignal(s2) : null,
       incomingCount: s2?.incomingCount ?? 0,
       firsthandCount: s2?.firsthandCount ?? 0,
       strongest: s2?.strongest ?? null,
@@ -288,7 +299,7 @@ export function computeView(input: ClubState): ClubView {
 
   const edges: GraphEdge[] = [];
   for (const r of referrals) {
-    const scored = v0.get(r.candidateId)?.contributing.find((c) => c.referral.id === r.id);
+    const scored = v2.get(r.candidateId)?.contributing.find((c) => c.referral.id === r.id);
     edges.push({
       from: r.referrerId,
       to: r.candidateId,
@@ -345,8 +356,9 @@ export function computeView(input: ClubState): ClubView {
         persona: personaSet.has(p.id),
         v2Signal: (() => {
           const sig = v2.get(p.id);
-          return sig ? displayReferralSignal(sig) : 0;
+          return sig ? measuredSignal(sig) : null;
         })(),
+        incomingCount: v2.get(p.id)?.incomingCount ?? 0,
       })),
       edges,
     },
@@ -356,21 +368,17 @@ export function computeView(input: ClubState): ClubView {
   };
 }
 
-/** First of each month in 2026, plus the year-end T the CLI demo uses. */
-export function demoTimeSteps(): string[] {
+/** First of each month in 2026, plus the year-end evaluation time. */
+export function exampleTimeSteps(): string[] {
   const steps: string[] = [];
   for (let month = 0; month < 12; month++) {
     steps.push(new Date(Date.UTC(2026, month, 1)).toISOString());
   }
-  if (steps[steps.length - 1] !== DEMO_T_END) steps.push(DEMO_T_END);
+  if (steps[steps.length - 1] !== EXAMPLE_T_END) steps.push(EXAMPLE_T_END);
   return steps;
 }
 
-/**
- * Recompute V2 on the *current* observations at each T.
- * The old Bun.serve explainer baked frames from generateSeed() once; meddling
- * the club could not move them. This one can.
- */
+/** Monthly frames: computeJudgeCalibration on the in-memory club at each T. */
 function liveJudgeTimeline(
   state: ClubState,
   people: ReturnType<typeof clubToPerson>[],
@@ -384,7 +392,7 @@ function liveJudgeTimeline(
   const earliestReferral = Math.min(...referrals.map((r) => r.createdAt.getTime()));
   const personaIds = state.people.filter((p) => personaSet.has(p.id));
 
-  return demoTimeSteps().map((isoNow) => {
+  return exampleTimeSteps().map((isoNow) => {
     const now = new Date(isoNow);
     const cal = computeJudgeCalibration({
       people,
@@ -410,8 +418,8 @@ function liveJudgeTimeline(
         return {
           id: p.id,
           name: p.name,
-          v0: s0 ? displayReferralSignal(s0) : 0,
-          v2: s2 ? displayReferralSignal(s2) : 0,
+          v0: s0 ? measuredSignal(s0) : null,
+          v2: s2 ? measuredSignal(s2) : null,
         };
       }),
     };
@@ -444,9 +452,11 @@ export function setStatus(state: ClubState, personId: string, status: PersonStat
   const snapshot: ClubSnapshot = {
     id: `snap:${personId}:${status}:${next.now}`,
     personId,
+    personName: person.name,
     decision: status,
     values: {
       referralSignal: dossier?.v2Signal ?? null,
+      incomingCount: dossier?.incomingCount ?? 0,
     },
     createdAt: next.now,
   };

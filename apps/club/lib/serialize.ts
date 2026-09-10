@@ -17,8 +17,8 @@ import type {
   IsoDate,
 } from "./types.ts";
 
-export const DEMO_T_START = "2026-01-01T00:00:00.000Z";
-export const DEMO_T_END = "2026-12-31T00:00:00.000Z";
+export const EXAMPLE_T_START = "2026-01-01T00:00:00.000Z";
+export const EXAMPLE_T_END = "2026-12-31T00:00:00.000Z";
 
 export function iso(d: Date): IsoDate {
   return d.toISOString();

@@ -80,8 +80,13 @@ export interface ClubOpportunity {
 export interface ClubSnapshot {
   id: string;
   personId: string;
+  personName: string;
   decision: string;
-  values: Record<string, number | null>;
+  /** Provenance at decision time — not a score threshold. */
+  values: {
+    referralSignal: number | null;
+    incomingCount: number;
+  };
   createdAt: IsoDate;
 }
 
@@ -166,8 +171,9 @@ export interface PersonView {
   status: PersonStatus;
   note: string | null;
   persona: boolean;
-  v0Signal: number;
-  v2Signal: number;
+  /** Null when incomingCount === 0 — missing evidence is not a score of 0. */
+  v0Signal: number | null;
+  v2Signal: number | null;
   incomingCount: number;
   firsthandCount: number;
   strongest: number | null;
@@ -187,7 +193,9 @@ export interface GraphNode {
   name: string;
   status: PersonStatus;
   persona: boolean;
-  v2Signal: number;
+  /** Null when the person has no incoming referrals. */
+  v2Signal: number | null;
+  incomingCount: number;
 }
 
 export interface JudgeView {
@@ -213,8 +221,8 @@ export interface ProposedView {
 export interface TimelinePersona {
   id: string;
   name: string;
-  v0: number;
-  v2: number;
+  v0: number | null;
+  v2: number | null;
 }
 
 export interface TimelineFrame {
@@ -247,10 +255,7 @@ export interface ClubView {
   graph: { nodes: GraphNode[]; edges: GraphEdge[] };
   nextCompare: ProposedView | null;
   snapshots: ClubSnapshot[];
-  /**
-   * Monthly V2 preview on *this* club state (including slider meddles).
-   * Not a precomputed seed tape — that was the bug in the Bun.serve explainer.
-   */
+  /** Monthly V2 frames: computeJudgeCalibration on this club at each T. */
   timeline: TimelineFrame[];
 }
 
