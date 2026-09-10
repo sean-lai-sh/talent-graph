@@ -1,10 +1,11 @@
 import { convexBetterAuthNextJs } from "@convex-dev/better-auth/nextjs";
+import { convexConfigured } from "./convexEnv.ts";
 
 type AuthServer = ReturnType<typeof convexBetterAuthNextJs>;
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL ?? "";
 const convexSiteUrl = process.env.NEXT_PUBLIC_CONVEX_SITE_URL ?? "";
-const configured = Boolean(convexUrl && convexSiteUrl.endsWith(".convex.site"));
+const configured = convexConfigured(convexUrl, convexSiteUrl);
 
 const authServer = configured ? convexBetterAuthNextJs({ convexUrl, convexSiteUrl }) : null;
 

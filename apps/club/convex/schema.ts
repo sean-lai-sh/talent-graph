@@ -115,6 +115,8 @@ const clubSnapshot = v.object({
   personName: v.string(),
   decision: v.string(),
   values: v.object({
+    // Provenance at accept/archive — not a stored score. Do not add
+    // referralSignal to clubPerson / clubOrgs source-of-truth fields.
     referralSignal: v.union(v.number(), v.null()),
     incomingCount: v.number(),
   }),

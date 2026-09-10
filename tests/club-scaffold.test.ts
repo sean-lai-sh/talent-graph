@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { convexConfigured } from "../apps/club/lib/convexEnv.ts";
 
 const root = join(import.meta.dir, "..");
 
@@ -43,7 +44,10 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
     expect(auth).toContain('from "@convex-dev/better-auth/plugins"');
     expect(http).toContain("authComponent.registerRoutes(http, createAuth)");
     expect(client).toContain("convexClient()");
-    expect(server).toContain("convexBetterAuthNextJs");
+    expect(server).toMatch(/convexBetterAuthNextJs\(\{/);
+    expect(server).toContain("convexConfigured");
+    expect(layout).toContain("convexConfigured");
+    expect(provider).toContain("convexConfigured");
     expect(route).toContain("export const { GET, POST } = handler");
     expect(layout).toContain("ConvexClientProvider");
     expect(provider).toContain("ConvexBetterAuthProvider");
@@ -59,6 +63,27 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
     expect(schema).not.toContain("bradleyTerry");
     expect(schema).not.toContain("computeAllReferralSignals");
     expect(schema).not.toContain("referralStrength");
+    expect(schema).toContain("Provenance at accept/archive");
+    for (const name of [
+      "clubPerson",
+      "clubReferral",
+      "clubComparison",
+      "clubEvaluation",
+      "clubOutcome",
+      "clubOpportunity",
+    ]) {
+      const start = schema.indexOf(`const ${name}`);
+      const next = schema.indexOf("const club", start + 1);
+      const block = schema.slice(start, next === -1 ? schema.length : next);
+      expect(block.includes("referralSignal"), `${name} must not persist referralSignal`).toBe(
+        false,
+      );
+    }
+    const snapshot = schema.slice(
+      schema.indexOf("const clubSnapshot"),
+      schema.indexOf("export default defineSchema"),
+    );
+    expect(snapshot).toContain("referralSignal");
     expect(club).toContain('from "../lib/engine.ts"');
     expect(club).toContain("computeView");
     expect(club).toContain("addPerson");
@@ -83,5 +108,14 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
     expect(env).toContain("/club");
     expect(env).toContain("NEXT_PUBLIC_CONVEX_URL");
     expect(env).toContain("Do not set these");
+  });
+
+  test("Convex env predicate is one helper and rejects .convex.cloud site URLs", () => {
+    expect(convexConfigured("https://x.convex.cloud", "https://x.convex.site")).toBe(true);
+    expect(convexConfigured("https://x.convex.cloud", "https://x.convex.cloud")).toBe(false);
+    expect(convexConfigured("", "https://x.convex.site")).toBe(false);
+    const shell = read("apps/club/app/club/ClubShell.tsx");
+    expect(shell).toContain("convexConfigured()");
+    expect(shell).not.toContain("Boolean(process.env.NEXT_PUBLIC_CONVEX_URL)");
   });
 });

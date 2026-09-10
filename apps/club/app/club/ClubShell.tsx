@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { type FormEvent, useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import { convexConfigured } from "@/lib/convexEnv";
 import { PersistedClub } from "./PersistedClub";
 
 /**
@@ -12,7 +13,7 @@ import { PersistedClub } from "./PersistedClub";
 export function ClubShell() {
   const session = authClient.useSession();
   const user = session.data?.user;
-  const configured = Boolean(process.env.NEXT_PUBLIC_CONVEX_URL);
+  const configured = convexConfigured();
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");

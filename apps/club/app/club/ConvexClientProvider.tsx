@@ -4,6 +4,7 @@ import { type AuthClient, ConvexBetterAuthProvider } from "@convex-dev/better-au
 import { ConvexReactClient } from "convex/react";
 import { type ReactNode, useMemo } from "react";
 import { authClient } from "@/lib/auth-client";
+import { convexConfigured } from "@/lib/convexEnv";
 
 // Official ConvexBetterAuthProvider AuthClient type is a plugin union; the
 // documented createAuthClient({ plugins: [convexClient()] }) client overlaps it.
@@ -17,7 +18,11 @@ export function ConvexClientProvider({
   initialToken?: string | null;
 }) {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  const client = useMemo(() => (convexUrl ? new ConvexReactClient(convexUrl) : null), [convexUrl]);
+  const configured = convexConfigured();
+  const client = useMemo(
+    () => (configured && convexUrl ? new ConvexReactClient(convexUrl) : null),
+    [configured, convexUrl],
+  );
 
   if (!client) {
     return children;
