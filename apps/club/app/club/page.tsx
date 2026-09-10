@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 /**
  * Real-organization door. Not installed in this slice:
  * no Clerk, no persistence, no login wall on the public example.
@@ -9,13 +11,16 @@ export default function RealClubStub() {
       <h1 className="mt-2 font-serif text-3xl tracking-tight">Not connected yet</h1>
       <p className="mt-3 max-w-xl text-sm text-muted">
         This door is for a real organization later. The public example admin is open at{" "}
-        <a className="underline decoration-line underline-offset-2 hover:text-ink" href="/">
+        <Link className="underline decoration-line underline-offset-2 hover:text-ink" href="/">
           /
-        </a>{" "}
+        </Link>{" "}
         and{" "}
-        <a className="underline decoration-line underline-offset-2 hover:text-ink" href="/example">
+        <Link
+          className="underline decoration-line underline-offset-2 hover:text-ink"
+          href="/example"
+        >
           /example
-        </a>
+        </Link>
         . Open, no sign-in.
       </p>
     </main>

@@ -41,3 +41,14 @@ body {
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
 }
+
+/* Landscape phones: keep the 12-col board from becoming one tall stack. */
+@media (orientation: landscape) and (max-height: 540px) {
+  .board-graph {
+    max-height: 38vh;
+  }
+
+  .board-scroll {
+    max-height: 7.5rem;
+  }
+}

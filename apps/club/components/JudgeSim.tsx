@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { PRODUCT_LANGUAGE } from "../../../src/domain/constants.ts";
 import type { ClubView, TimelineFrame } from "../lib/types.ts";
 
@@ -31,9 +31,11 @@ export function JudgeSim({
 }) {
   const committed = useMemo(() => nearestIndex(view.timeline, view.now), [view.timeline, view.now]);
   const [draft, setDraft] = useState(committed);
-  useEffect(() => {
+  const [seen, setSeen] = useState(committed);
+  if (committed !== seen) {
+    setSeen(committed);
     setDraft(committed);
-  }, [committed]);
+  }
   const frame = view.timeline[draft] ?? view.timeline[committed];
   const first = view.timeline[0];
   const last = view.timeline[view.timeline.length - 1];
@@ -54,7 +56,7 @@ export function JudgeSim({
           </p>
         </div>
         <p className="font-mono text-xs text-muted">
-          T {frame.now.slice(0, 10)} · {frame.evaluatedReferrals} scored ·{" "}
+          T {frame.now.slice(0, 10)} · {frame.evaluatedReferrals} evaluated ·{" "}
           {frame.judgesWithEvidence} judges
         </p>
       </div>
@@ -131,7 +133,7 @@ export function JudgeSim({
             <span className="font-mono text-xs text-muted">
               p̂ {j.reliability.toFixed(2)}
               {j.meanSquaredError !== null ? ` · Ē ${j.meanSquaredError.toFixed(3)}` : ""} ·{" "}
-              {j.evaluatedCount} scored
+              {j.evaluatedCount} evaluated
             </span>
           </div>
         ))}

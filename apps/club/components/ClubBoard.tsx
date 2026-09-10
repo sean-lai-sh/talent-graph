@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  Children,
-  type ReactNode,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useTransition,
-} from "react";
+import { Children, type ReactNode, useMemo, useRef, useState, useTransition } from "react";
 import {
   EVIDENCE_TYPES,
   PRODUCT_LANGUAGE,
@@ -25,6 +17,7 @@ import {
   actionSetNow,
   actionSetStatus,
 } from "../app/actions.ts";
+import { describeActionError } from "../lib/actionError.ts";
 import type {
   ClubSnapshot,
   ClubState,
@@ -62,9 +55,11 @@ function Scale({
   disabled?: boolean;
 }) {
   const [draft, setDraft] = useState<Scale5>(value);
-  useEffect(() => {
+  const [seen, setSeen] = useState<Scale5>(value);
+  if (value !== seen) {
+    setSeen(value);
     setDraft(value);
-  }, [value]);
+  }
 
   const set = (next: Scale5) => {
     setDraft(next);
@@ -110,6 +105,7 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
   const [selectedId, setSelectedId] = useState<string>("p-cleo");
   const [personasOnly, setPersonasOnly] = useState(true);
   const [dossierEpoch, setDossierEpoch] = useState(0);
+  const [dirty, setDirty] = useState(false);
   const [pending, start] = useTransition();
   const stateRef = useRef(state);
   const chainRef = useRef(Promise.resolve());
@@ -121,15 +117,36 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
     stateRef.current = result.state;
   };
 
-  const mutate = (fn: (latest: ClubState) => Promise<EngineResult>) => {
+  const mutate = (fn: (latest: ClubState) => Promise<EngineResult>, opts?: { seed?: boolean }) => {
     chainRef.current = chainRef.current
       .then(async () => {
-        apply(await fn(stateRef.current));
+        const result = await fn(stateRef.current);
+        apply(result);
+        if (opts?.seed) setDirty(false);
+        else if (!result.error) setDirty(true);
       })
-      .catch(() => undefined);
+      .catch((err: unknown) => {
+        setError(describeActionError(err));
+      });
     start(async () => {
-      await chainRef.current;
+      try {
+        await chainRef.current;
+      } catch (err) {
+        setError(describeActionError(err));
+      }
     });
+  };
+
+  const resetToSeed = () => {
+    mutate(
+      async () => {
+        const result = await actionReset();
+        setSelectedId("p-cleo");
+        setDossierEpoch((n) => n + 1);
+        return result;
+      },
+      { seed: true },
+    );
   };
 
   const selected: PersonView | undefined = useMemo(
@@ -141,16 +158,18 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
 
   return (
     <div className="min-h-screen bg-paper text-ink">
-      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-line px-5 py-4">
+      <header className="board-header sticky top-0 z-10 flex flex-wrap items-end justify-between gap-3 border-b border-line bg-paper px-4 py-3 sm:px-5 sm:py-4">
         <div>
           <p className="text-[11px] uppercase tracking-[0.18em] text-muted">
             Talent Graph · example admin
           </p>
-          <h1 className="font-serif text-2xl tracking-tight">Who should this club look at?</h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted">
+          <h1 className="font-serif text-xl tracking-tight sm:text-2xl">
+            Who should this club look at?
+          </h1>
+          <p className="mt-1 hidden max-w-2xl text-sm text-muted md:block">
             You are the admin of this public example club. {PRODUCT_LANGUAGE.referralSignal} is how
             loud the network is. {PRODUCT_LANGUAGE.relativeCapability} is how they look on pairwise
-            compares. They are never merged. Reset restores this example club. No sign-in.
+            compares. They are never merged. Reset to seed restores this example. No sign-in.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
@@ -159,31 +178,51 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
             {view.counts.archived} archived · {view.counts.referrals} referrals ·{" "}
             {view.counts.comparisons} compares
           </span>
+          {dirty ? <span className="text-warn">Local edits · not the seed</span> : null}
           <button
             type="button"
-            className="rounded-full border border-ink px-3 py-1 text-ink hover:bg-ink hover:text-paper"
-            onClick={() => {
-              mutate(async () => {
-                const result = await actionReset();
-                setSelectedId("p-cleo");
-                setDossierEpoch((n) => n + 1);
-                return result;
-              });
-            }}
+            className={
+              dirty
+                ? "rounded-full bg-ink px-3 py-1 text-paper hover:opacity-90"
+                : "rounded-full border border-ink px-3 py-1 text-ink hover:bg-ink hover:text-paper"
+            }
+            onClick={resetToSeed}
           >
-            Reset example
+            Reset to seed
           </button>
         </div>
       </header>
 
       {error ? (
-        <div className="border-b border-amber-300 bg-amber-50 px-5 py-2 text-sm text-warn">
-          {error}
+        <div
+          role="alert"
+          className="flex flex-wrap items-start justify-between gap-3 border-b border-amber-300 bg-amber-50 px-4 py-2 text-sm text-warn sm:px-5"
+        >
+          <div>
+            <p className="font-medium">Action did not apply</p>
+            <p>{error}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-full border border-warn px-3 py-1 text-xs"
+              onClick={() => setError(null)}
+            >
+              Dismiss
+            </button>
+            <button
+              type="button"
+              className="rounded-full bg-ink px-3 py-1 text-xs text-paper"
+              onClick={resetToSeed}
+            >
+              Reset to seed
+            </button>
+          </div>
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 p-4 xl:grid-cols-12 xl:grid-rows-[auto_1fr]">
-        <section className="rounded-lg border border-line bg-panel p-3 xl:col-span-3">
+      <div className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 sm:gap-4 sm:p-4 xl:grid-cols-12 xl:grid-rows-[auto_1fr]">
+        <section className="rounded-lg border border-line bg-panel p-3 sm:col-span-1 xl:col-span-3">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-medium">Referral network</h2>
             <label className="text-[11px] text-muted">
@@ -205,38 +244,24 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
           />
           <p className="mt-2 text-[11px] leading-relaxed text-muted">
             Circle size follows {PRODUCT_LANGUAGE.referralSignal} (V2). Cleo is quiet; Bram is loud.
+            {personasOnly
+              ? ""
+              : " Personas stay on the inner ring; other people sit outside so the graph stays readable."}
           </p>
         </section>
 
-        <section className="grid gap-3 xl:col-span-5 xl:grid-cols-3">
+        <section className="grid grid-cols-1 gap-3 min-[520px]:grid-cols-3 sm:col-span-1 sm:grid-cols-1 xl:col-span-5 xl:grid-cols-3">
           <ListCard
             title={`${PRODUCT_LANGUAGE.referralSignal} · V2`}
             hint="network volume, judge-weighted · loud and quiet on load"
             empty={`No one has incoming referrals. ${PRODUCT_LANGUAGE.insufficientEvidence}.`}
+            hasItems={view.topReferral.length > 0}
           >
-            <p className="px-1 pt-1 text-[10px] uppercase tracking-wide text-muted">Loud</p>
-            {view.topReferral
-              .filter((row) => row.signal > 20)
-              .slice(0, 6)
-              .map((row) => (
-                <SignalButton
-                  key={row.personId}
-                  row={row}
-                  selected={row.personId === selectedId}
-                  onSelect={setSelectedId}
-                />
-              ))}
-            <p className="px-1 pt-2 text-[10px] uppercase tracking-wide text-muted">Quiet</p>
-            {view.topReferral
-              .filter((row) => row.signal <= 20)
-              .map((row) => (
-                <SignalButton
-                  key={row.personId}
-                  row={row}
-                  selected={row.personId === selectedId}
-                  onSelect={setSelectedId}
-                />
-              ))}
+            <ReferralLists
+              rows={view.topReferral}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
           </ListCard>
           <ListCard
             title={PRODUCT_LANGUAGE.relativeCapability}
@@ -293,7 +318,7 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
           </ListCard>
         </section>
 
-        <section className="rounded-lg border border-line bg-panel p-4 xl:col-span-4 xl:max-h-[calc(100vh-8rem)] xl:overflow-y-auto">
+        <section className="rounded-lg border border-line bg-panel p-4 sm:col-span-2 xl:col-span-4 xl:max-h-[calc(100vh-8rem)] xl:overflow-y-auto">
           {selected ? (
             <Dossier
               key={`${selected.id}:${dossierEpoch}`}
@@ -308,11 +333,13 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
               onRefer={(input) => mutate((latest) => actionAddReferral(latest, input))}
             />
           ) : (
-            <p className="text-sm text-muted">Select someone in the graph.</p>
+            <p className="text-sm text-muted">
+              Nobody is selected. Pick a person on the graph, or reset to seed to open Cleo.
+            </p>
           )}
         </section>
 
-        <section className="rounded-lg border border-line bg-panel p-4 xl:col-span-7">
+        <section className="rounded-lg border border-line bg-panel p-4 sm:col-span-1 xl:col-span-7">
           <ComparePanel
             view={view}
             busy={pending}
@@ -331,7 +358,7 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
           />
         </section>
 
-        <section className="rounded-lg border border-line bg-panel p-4 xl:col-span-5">
+        <section className="rounded-lg border border-line bg-panel p-4 sm:col-span-1 xl:col-span-5">
           <JudgeSim
             view={view}
             busy={pending}
@@ -341,6 +368,53 @@ export function ClubBoard({ initial }: { initial: EngineResult }) {
         </section>
       </div>
     </div>
+  );
+}
+
+function ReferralLists({
+  rows,
+  selectedId,
+  onSelect,
+}: {
+  rows: SignalRow[];
+  selectedId: string;
+  onSelect: (id: string) => void;
+}) {
+  const loud = rows.filter((row) => row.signal > 20).slice(0, 6);
+  const quiet = rows.filter((row) => row.signal <= 20);
+  return (
+    <>
+      <p className="px-1 pt-1 text-[10px] uppercase tracking-wide text-muted">Loud</p>
+      {loud.length === 0 ? (
+        <p className="px-1 text-[11px] text-muted">
+          No loud {PRODUCT_LANGUAGE.referralSignal} on this club.
+        </p>
+      ) : (
+        loud.map((row) => (
+          <SignalButton
+            key={row.personId}
+            row={row}
+            selected={row.personId === selectedId}
+            onSelect={onSelect}
+          />
+        ))
+      )}
+      <p className="px-1 pt-2 text-[10px] uppercase tracking-wide text-muted">Quiet</p>
+      {quiet.length === 0 ? (
+        <p className="px-1 text-[11px] text-muted">
+          No quiet measured {PRODUCT_LANGUAGE.referralSignal}.
+        </p>
+      ) : (
+        quiet.map((row) => (
+          <SignalButton
+            key={row.personId}
+            row={row}
+            selected={row.personId === selectedId}
+            onSelect={onSelect}
+          />
+        ))
+      )}
+    </>
   );
 }
 
@@ -378,23 +452,22 @@ function ListCard({
   title,
   hint,
   empty,
+  hasItems,
   children,
 }: {
   title: string;
   hint: string;
   empty: string;
+  hasItems?: boolean;
   children: ReactNode;
 }) {
+  const showEmpty = hasItems === undefined ? Children.count(children) === 0 : !hasItems;
   return (
     <div className="rounded-lg border border-line bg-panel p-3">
       <h2 className="text-sm font-medium">{title}</h2>
       <p className="mb-2 text-[10px] text-muted">{hint}</p>
-      <div className="board-scroll max-h-72 space-y-0.5 overflow-y-auto">
-        {Children.count(children) === 0 ? (
-          <p className="text-[11px] text-muted">{empty}</p>
-        ) : (
-          children
-        )}
+      <div className="board-scroll max-h-56 space-y-0.5 overflow-y-auto xl:max-h-72">
+        {showEmpty ? <p className="text-[11px] text-muted">{empty}</p> : children}
       </div>
     </div>
   );
@@ -650,7 +723,9 @@ function Dossier({
           setEvidenceText("");
         }}
       >
-        <h3 className="text-xs font-medium uppercase tracking-wide text-muted">Write a referral</h3>
+        <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
+          Write a referral · {PRODUCT_LANGUAGE.structuredEvidence}
+        </h3>
         <p className="text-sm">{REFERRAL_PRIMARY_PROMPT}</p>
         <select
           className="w-full border border-line bg-paper px-2 py-1 text-sm"
@@ -777,6 +852,7 @@ function ComparePanel({
               onClick={() => onCompare("insufficient_observation")}
             >
               {PRODUCT_LANGUAGE.notObserved}
+              <span className="sr-only"> ({SCALE_LABELS.rubricNotObserved})</span>
             </button>
           </div>
         </>
