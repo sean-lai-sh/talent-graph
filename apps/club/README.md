@@ -6,8 +6,8 @@ compares say is strong.
 
 - **`src/`** is the **engine**. This app imports `../../src`. Scoring lives
   there, not here.
-- **Convex + Better Auth** is the plan for `/club` on this same app. Official
-  `@convex-dev/better-auth`. Not Clerk, not Neon, and **not a second frontend**.
+- **Convex + Better Auth** is the path for `/club` on this same app. Official
+  `@convex-dev/better-auth` — not Clerk, not Neon, and **not a second frontend**.
   Do not add a login wall to `/` or `/example`.
 - `/` and `/example` — public example admin. No sign-in. Refresh restores
   the seed club.
