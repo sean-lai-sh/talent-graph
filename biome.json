@@ -4,6 +4,7 @@
   "files": {
     "includes": [
       "**/*.ts",
+      "**/*.tsx",
       "**/*.json",
       "!**/bun.lock",
       "!**/node_modules",

@@ -14,7 +14,7 @@ surface of the product, not a side explainer.
 bun --cwd apps/club install
 bun --cwd apps/club dev          # http://127.0.0.1:3000
 # or from the repo root:
-bun run club:web                 # alias: bun run demo:web
+bun run club:web
 ```
 
 Vercel: set **Root Directory** to `apps/club`. `next.config.ts` sets
