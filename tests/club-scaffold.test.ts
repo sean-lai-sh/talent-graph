@@ -97,17 +97,46 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
     expect(club).not.toContain('from "../../../src/scoring');
   });
 
-  test("README plan is Convex + Better Auth, not Clerk or Neon", () => {
+  test("README path is Convex + Better Auth, not Clerk or Neon", () => {
     const rootReadme = read("README.md");
     const clubReadme = read("apps/club/README.md");
-    const env = read("apps/club/.env.example");
+    const clubEnv = read("apps/club/.env.example");
+    const rootEnv = read(".env.example");
+    const requiredEnv = [
+      "BETTER_AUTH_SECRET",
+      "SITE_URL",
+      "NEXT_PUBLIC_CONVEX_URL",
+      "NEXT_PUBLIC_CONVEX_SITE_URL",
+      "NEXT_PUBLIC_SITE_URL",
+    ];
     for (const source of [rootReadme, clubReadme]) {
       expect(source).toContain("Convex + Better Auth");
+      expect(source).toContain("@convex-dev/better-auth");
+      expect(source).toContain("not Clerk, not Neon");
+      expect(source).toContain("is the path for");
       expect(source).not.toContain("Clerk and Neon come next");
+      expect(source).toContain("`/` and `/example`");
+      expect(source).toContain("/club");
+      expect(source).toContain("npx convex dev");
+      expect(source).toContain("vercel project update --root-directory apps/club");
+      expect(source).toContain("vercel link");
+      for (const name of requiredEnv) {
+        expect(source).toContain(name);
+      }
     }
-    expect(env).toContain("/club");
-    expect(env).toContain("NEXT_PUBLIC_CONVEX_URL");
-    expect(env).toContain("Do not set these");
+    expect(rootReadme).toContain("does not set");
+    expect(clubReadme).toContain("does not set it");
+    expect(clubReadme).toContain("Include source files outside of the Root Directory");
+    expect(rootReadme).toContain("Include source files outside of the Root Directory");
+    expect(clubEnv).toContain("/club");
+    expect(clubEnv).toContain("Do not set these");
+    expect(clubEnv).toContain("@convex-dev/better-auth");
+    expect(clubEnv).toContain("Not Clerk, not Neon");
+    expect(rootEnv).toContain("Do not add");
+    for (const name of requiredEnv) {
+      expect(clubEnv).toContain(name);
+      expect(rootEnv).toContain(name);
+    }
   });
 
   test("Convex env predicate is one helper and rejects .convex.cloud site URLs", () => {

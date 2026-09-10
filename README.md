@@ -3,20 +3,47 @@
 This is the **example admin of the club product**, sitting on the algorithm
 engine. It is one product, not two frontends.
 
-- **`apps/club/`** — the example admin. One Next.js app. `/` and `/example`
-  are the public seed club (no sign-in). `/club` is the real-organization
-  door: Convex + Better Auth session/org gate, club inputs persisted in
-  Convex, views computed from `src/`. Unauthenticated `/club` is sign-in
-  only. Env list: [`apps/club/.env.example`](apps/club/.env.example).
+- **`apps/club/`** — the example admin. One Next.js app.
 - **`src/`** — the **engine**. Pure TypeScript, no UI, no database. Every
   function is `(inputs, options) → result`. The admin imports it; the
   engine does not know about Next.
 
-**Convex + Better Auth is the plan for `/club`.** Official
+**Convex + Better Auth is the path for `/club`.** Official
 `@convex-dev/better-auth` on this same admin — not Clerk, not Neon, and
 not a second frontend. Do not add a login wall to `/` or `/example`.
 
-Deploy is one Vercel project away. The settings that must be exact:
+| Route | Access | Data |
+|---|---|---|
+| `/` and `/example` | public seed — no sign-in | in-memory `generateSeed()` |
+| `/club` | signed-in owner | Better Auth gate + Convex persist; views from `src/` |
+
+Unauthenticated `/club` is sign-in only. The seed board never mounts there.
+
+### Env for a live `/club` door (Sean)
+
+Do **not** set these on the public example deploy. `/` and `/example` need
+none of them. From `apps/club`, run `npx convex dev` (writes the Next keys
+into `.env.local`), then set the Convex deployment keys. Full comments:
+[`apps/club/.env.example`](apps/club/.env.example).
+
+| Where | Variable | What it is |
+|---|---|---|
+| Next `.env.local` (from `npx convex dev`) | `NEXT_PUBLIC_CONVEX_URL` | `https://….convex.cloud` |
+| Next `.env.local` | `NEXT_PUBLIC_CONVEX_SITE_URL` | `https://….convex.site` — not `.cloud` |
+| Next `.env.local` | `NEXT_PUBLIC_SITE_URL` | Origin you open, e.g. `http://127.0.0.1:3000` |
+| Convex deployment (`npx convex env set`) | `BETTER_AUTH_SECRET` | `openssl rand -base64 32` |
+| Convex deployment | `SITE_URL` | Same origin as `NEXT_PUBLIC_SITE_URL` |
+
+```sh
+# from apps/club
+npx convex dev
+npx convex env set BETTER_AUTH_SECRET=$(openssl rand -base64 32)
+npx convex env set SITE_URL http://127.0.0.1:3000
+```
+
+### Deploy on Vercel (one project away)
+
+Settings that must be exact:
 
 | Setting | Value |
 |---|---|
@@ -24,7 +51,15 @@ Deploy is one Vercel project away. The settings that must be exact:
 | **Include source files outside of the Root Directory in the Build Step** | ON |
 | **`outputFileTracingRoot`** | repository root (`apps/club/next.config.ts`) |
 
-Full dashboard and CLI steps:
+`bunx vercel link` only links the directory to a project — it does not set
+Root Directory. After link, from the **repo root**:
+
+```sh
+bunx vercel project update --root-directory apps/club
+```
+
+Then confirm include-files-outside-root is ON in the dashboard (same Root
+Directory control). Full dashboard and CLI steps:
 [apps/club/README.md — Deploy on Vercel](apps/club/README.md#deploy-on-vercel-one-project-away).
 
 - Theory (canonical): [`docs/theory/main.tex`](docs/theory/main.tex) · compiled
