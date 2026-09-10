@@ -13,8 +13,11 @@ compares say is strong.
   the seed club.
 - `/club` — real-organization door. Convex + Better Auth live here. Domain
   inputs (people, referrals, comparisons, snapshots, clock) persist in
-  Convex. Mutations re-run views via `lib/engine.ts` → `src/`. No login
-  wall yet (SEA-12). `/` and `/example` stay in-memory `generateSeed()`.
+  Convex. Mutations re-run views via `lib/engine.ts` → `src/`. The session
+  / org gate is on: unauthenticated visitors see the Better Auth sign-in
+  UI only (not the seed board, not PersistedClub). Signed-in owners get
+  the Convex-backed board when Convex env is configured. `/` and
+  `/example` stay in-memory `generateSeed()` with no auth.
 
 ```sh
 bun --cwd apps/club install
@@ -23,7 +26,8 @@ bun --cwd apps/club dev          # http://127.0.0.1:3000
 bun run club:web
 ```
 
-`/` and `/example` need no Convex project. To connect `/club`:
+`/` and `/example` need no Convex project. To connect `/club` (signed-in
+owners only):
 
 ```sh
 # from apps/club
@@ -33,6 +37,19 @@ npx convex env set SITE_URL http://127.0.0.1:3000
 ```
 
 That writes `NEXT_PUBLIC_CONVEX_*` into `.env.local`. Do not put those keys on the public example deploy.
+
+Required env for a live `/club` door (Sean):
+
+| Where | Variable | What it is |
+|---|---|---|
+| Next `.env.local` (from `npx convex dev`) | `CONVEX_DEPLOYMENT` | Convex CLI deployment slug |
+| Next `.env.local` | `NEXT_PUBLIC_CONVEX_URL` | `https://….convex.cloud` |
+| Next `.env.local` | `NEXT_PUBLIC_CONVEX_SITE_URL` | `https://….convex.site` — not `.cloud` |
+| Next `.env.local` | `NEXT_PUBLIC_SITE_URL` | Origin you open, e.g. `http://127.0.0.1:3000` |
+| Convex deployment (`npx convex env set`) | `BETTER_AUTH_SECRET` | `openssl rand -base64 32` |
+| Convex deployment | `SITE_URL` | Same origin as `NEXT_PUBLIC_SITE_URL` |
+
+Without those, `/club` stays on the sign-in UI plus a "Convex is not connected" warning. The seed board does not appear there. A live session / persist round-trip still needs `npx convex dev`.
 
 ## What to look at
 

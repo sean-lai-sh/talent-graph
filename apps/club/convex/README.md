@@ -8,8 +8,10 @@ evaluations, outcomes, opportunities, snapshots, and clock `now` (wall
 time for new orgs; not `EXAMPLE_T_*`). Snapshot `values.referralSignal`
 is accept/archive provenance only.
 
-**Not yet:** per-org isolation or an auth gate. `loadOrg` is
-`clubOrgs.first()` and mutations are public until SEA-12.
+**Auth (SEA-12):** board reads and all mutations require a Better Auth
+session via `authComponent.safeGetAuthUser` / `getAuthUser`. Each
+signed-in owner gets a `clubOrgs` row keyed by `ownerUserId` (index
+`by_owner`). Owner-keyed club, not a membership / invite model.
 
 **Computed:** every mutation and `getBoard` call `computeView` / `addPerson`
 / `setStatus` / `addReferral` / … from `lib/engine.ts`, which imports
@@ -26,4 +28,7 @@ npx convex env set SITE_URL http://127.0.0.1:3000
 ```
 
 `npx convex dev` regenerates `_generated/` and writes `NEXT_PUBLIC_CONVEX_*`
-into `.env.local`. The auth gate is SEA-12.
+into `.env.local`. Also set `BETTER_AUTH_SECRET` and `SITE_URL` on the
+Convex deployment (see `apps/club/.env.example`). Without a live
+deployment, `/club` compiles and shows the sign-in UI; it does not
+open the seed board.

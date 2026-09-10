@@ -13,14 +13,17 @@ import {
 import type { ClubState, EngineResult } from "../lib/types.ts";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
+import { authComponent } from "./auth";
 import { comparisonOutcome, dimension, evidenceType, personStatus, scale5 } from "./schema";
 
 /**
  * Persist club *inputs* here. Every write re-runs views via `lib/engine.ts`
  * (`src/` compute). Do not reimplement scoring / inference / judges.
  *
- * Singleton `clubOrgs.first()` until SEA-12. Mutations are public. This is
- * not per-org isolation — do not treat SEA-10 as a multi-tenant gate.
+ * SEA-12: writes and board reads require a Better Auth session
+ * (`authComponent.getAuthUser` / `safeGetAuthUser`). Each signed-in owner
+ * gets a `clubOrgs` row keyed by `ownerUserId`.
+ * Owner-keyed club, not a membership / invite model.
  */
 
 type QueryCtx = GenericQueryCtx<DataModel>;
@@ -54,9 +57,21 @@ function stateFields(state: ClubState) {
   };
 }
 
-/** One shared document until SEA-12 owns org keys + auth on the data plane. */
-async function loadOrg(ctx: QueryCtx | MutationCtx): Promise<Doc<"clubOrgs"> | null> {
-  return await ctx.db.query("clubOrgs").first();
+async function loadOwnedOrg(
+  ctx: QueryCtx | MutationCtx,
+  ownerUserId: string,
+): Promise<Doc<"clubOrgs"> | null> {
+  return await ctx.db
+    .query("clubOrgs")
+    .withIndex("by_owner", (q) => q.eq("ownerUserId", ownerUserId))
+    .first();
+}
+
+/** Board reads: missing session → no org. Mutations use getAuthUser and throw. */
+async function loadOrgForSession(ctx: QueryCtx | MutationCtx): Promise<Doc<"clubOrgs"> | null> {
+  const user = await authComponent.safeGetAuthUser(ctx);
+  if (!user) return null;
+  return await loadOwnedOrg(ctx, user._id);
 }
 
 async function ensureOrg(
@@ -68,7 +83,8 @@ async function ensureOrg(
   state: ClubState;
   view: ReturnType<typeof computeView>;
 }> {
-  const existing = await loadOrg(ctx);
+  const user = await authComponent.getAuthUser(ctx);
+  const existing = await loadOwnedOrg(ctx, user._id);
   if (existing) {
     const state = orgToState(existing);
     return {
@@ -81,6 +97,7 @@ async function ensureOrg(
   const state = emptyState();
   const orgName = name?.trim() || "Club";
   const orgId = await ctx.db.insert("clubOrgs", {
+    ownerUserId: user._id,
     name: orgName,
     ...stateFields(state),
   });
@@ -107,7 +124,7 @@ async function applyEngine(
 export const getOrganization = query({
   args: {},
   handler: async (ctx) => {
-    const org = await loadOrg(ctx);
+    const org = await loadOrgForSession(ctx);
     if (!org) return null;
     return {
       id: org._id,
@@ -123,7 +140,7 @@ export const getOrganization = query({
 export const getBoard = query({
   args: {},
   handler: async (ctx) => {
-    const org = await loadOrg(ctx);
+    const org = await loadOrgForSession(ctx);
     if (!org) return null;
     const state = orgToState(org);
     return { state, view: computeView(state) } satisfies EngineResult;

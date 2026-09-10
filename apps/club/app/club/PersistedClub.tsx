@@ -7,8 +7,8 @@ import { api } from "../../convex/_generated/api";
 
 /**
  * Real-org board. Inputs live in Convex; views come from lib/engine.ts → src/.
- * Only mount this under ConvexClientProvider when convexConfigured() is true.
- * Singleton org until SEA-12 — not per-org isolation.
+ * Only mount this under <Authenticated> after convexConfigured() is true.
+ * Org is keyed by the Better Auth owner — not a membership / invite model.
  */
 export function PersistedClub() {
   const board = useQuery(api.club.getBoard);

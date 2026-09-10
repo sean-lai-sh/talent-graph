@@ -125,6 +125,7 @@ const clubSnapshot = v.object({
 
 export default defineSchema({
   clubOrgs: defineTable({
+    ownerUserId: v.string(),
     name: v.string(),
     now: v.string(),
     people: v.array(clubPerson),
@@ -134,5 +135,5 @@ export default defineSchema({
     outcomes: v.array(clubOutcome),
     opportunities: v.array(clubOpportunity),
     snapshots: v.array(clubSnapshot),
-  }),
+  }).index("by_owner", ["ownerUserId"]),
 });

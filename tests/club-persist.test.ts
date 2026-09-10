@@ -125,7 +125,11 @@ describe("SEA-10 Convex persistence path", () => {
       expect(source).not.toContain("PersistedClub");
       expect(source).not.toContain("api.club");
     }
-    expect(shell).toContain("configured ? <PersistedClub");
+    expect(shell).toContain("<Authenticated>");
+    expect(shell).toContain("<Unauthenticated>");
+    expect(shell).toContain("<AuthLoading>");
+    expect(shell.indexOf("<PersistedClub")).toBeGreaterThan(shell.indexOf("<Authenticated>"));
+    expect(shell).not.toContain("configured ? <PersistedClub");
     expect(shell).toContain("convexConfigured()");
     expect(persisted).toContain("api.club.getBoard");
     expect(persisted).toContain("api.club.addPerson");
@@ -142,7 +146,9 @@ describe("SEA-10 Convex persistence path", () => {
     expect(club).toContain("addPersonEngine");
     expect(club).toContain("emptyState()");
     expect(club).not.toContain("EXAMPLE_T");
-    expect(club).toContain("not per-org isolation");
+    expect(club).toContain("authComponent.getAuthUser");
+    expect(club).toContain("ownerUserId");
+    expect(club).toContain("not a membership / invite model");
   });
 
   test("persisted graph defaults to all org members; personas-only hides them", () => {
