@@ -6,19 +6,21 @@ import { ClubBoard } from "../../components/ClubBoard";
 import { api } from "../../convex/_generated/api";
 
 /**
- * Real-org board. Inputs live in Convex; views come from lib/engine.ts → src/.
+ * Real-org council page. Inputs live in Convex; views come from lib/engine.ts → src/.
  * Only mount this under <Authenticated> after convexConfigured() is true.
  * Org is keyed by the Better Auth owner — not a membership / invite model.
+ *
+ * `api.club.setStatus` and `api.club.addReferral` exist for other pages; the
+ * council page decides through `api.club.decide`.
  */
 export function PersistedClub() {
   const board = useQuery(api.club.getBoard);
   const ensure = useMutation(api.club.ensureOrganization);
   const addPerson = useMutation(api.club.addPerson);
-  const setStatus = useMutation(api.club.setStatus);
-  const addReferral = useMutation(api.club.addReferral);
-  const meddleReferral = useMutation(api.club.meddleReferral);
-  const addComparison = useMutation(api.club.addComparison);
-  const setNow = useMutation(api.club.setNow);
+  const decide = useMutation(api.club.decide);
+  const requestFeedback = useMutation(api.club.requestFeedback);
+  const recordFeedback = useMutation(api.club.recordFeedback);
+  const setReviewConfig = useMutation(api.club.setReviewConfig);
 
   useEffect(() => {
     void ensure({});
@@ -33,7 +35,7 @@ export function PersistedClub() {
       <div className="mt-6 max-w-xl">
         <p className="text-sm text-muted">No organization yet.</p>
         <button
-          className="mt-3 rounded border border-line px-3 py-1.5 text-sm hover:bg-paper"
+          className="press mt-3 rounded-md border border-line px-3 py-1.5 text-sm hover:bg-subtle"
           type="button"
           onClick={() => void ensure({})}
         >
@@ -44,18 +46,17 @@ export function PersistedClub() {
   }
 
   return (
-    <div className="mt-8 -mx-6">
+    <div className="mt-6 -mx-6">
       <ClubBoard
         initial={board}
         sync={board}
         variant="club"
+        clock="wall"
         actions={{
-          setNow: async (_state, now) => await setNow({ now }),
-          setStatus: async (_state, personId, status) => await setStatus({ personId, status }),
-          addReferral: async (_state, input) => await addReferral(input),
-          meddleReferral: async (_state, referralId, patch) =>
-            await meddleReferral({ referralId, ...patch }),
-          addComparison: async (_state, input) => await addComparison(input),
+          decide: async (_state, personId, decision) => await decide({ personId, decision }),
+          requestFeedback: async (_state, input) => await requestFeedback(input),
+          recordFeedback: async (_state, input) => await recordFeedback(input),
+          setReviewConfig: async (_state, input) => await setReviewConfig(input),
           addPerson: async (_state, input) => await addPerson(input),
         }}
       />

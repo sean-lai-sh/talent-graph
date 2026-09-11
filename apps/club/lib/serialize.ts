@@ -1,3 +1,4 @@
+import { DIMENSIONS } from "../../../src/domain/constants.ts";
 import type {
   Comparison,
   Evaluation,
@@ -6,6 +7,7 @@ import type {
   Person,
   Referral,
 } from "../../../src/domain/types.ts";
+import { defaultReviewStatus } from "./review.ts";
 import type {
   ClubComparison,
   ClubEvaluation,
@@ -15,6 +17,7 @@ import type {
   ClubReferral,
   ClubState,
   IsoDate,
+  ReviewConfig,
 } from "./types.ts";
 
 export const EXAMPLE_T_START = "2026-01-01T00:00:00.000Z";
@@ -33,6 +36,7 @@ export function personToClub(p: Person): ClubPerson {
     id: p.id,
     name: p.name,
     status: p.status,
+    reviewStatus: defaultReviewStatus(p.status),
     createdAt: iso(p.createdAt),
     updatedAt: iso(p.updatedAt),
   };
@@ -192,15 +196,31 @@ export function clubToOpportunity(o: ClubOpportunity): Opportunity {
   };
 }
 
+export function defaultReviewConfig(): ReviewConfig {
+  return { requiredDimensions: [...DIMENSIONS] };
+}
+
+/**
+ * Deep copy plus defaults for fields added after the first persisted orgs:
+ * `reviewStatus`, `feedbackRequests`, `config`.
+ */
 export function reviveState(state: ClubState): ClubState {
+  const partial = state as Partial<ClubState> & Pick<ClubState, "people" | "now">;
   return {
     ...state,
-    people: state.people.map((p) => ({ ...p })),
-    referrals: state.referrals.map((r) => ({ ...r })),
-    comparisons: state.comparisons.map((c) => ({ ...c })),
-    evaluations: state.evaluations.map((e) => ({ ...e })),
-    outcomes: state.outcomes.map((o) => ({ ...o })),
-    opportunities: state.opportunities.map((o) => ({ ...o })),
-    snapshots: state.snapshots.map((s) => ({ ...s, values: { ...s.values } })),
+    people: state.people.map((p) => ({
+      ...p,
+      reviewStatus: p.reviewStatus ?? defaultReviewStatus(p.status),
+    })),
+    referrals: (partial.referrals ?? []).map((r) => ({ ...r })),
+    comparisons: (partial.comparisons ?? []).map((c) => ({ ...c })),
+    evaluations: (partial.evaluations ?? []).map((e) => ({ ...e })),
+    outcomes: (partial.outcomes ?? []).map((o) => ({ ...o })),
+    opportunities: (partial.opportunities ?? []).map((o) => ({ ...o })),
+    snapshots: (partial.snapshots ?? []).map((s) => ({ ...s, values: { ...s.values } })),
+    feedbackRequests: (partial.feedbackRequests ?? []).map((f) => ({ ...f })),
+    config: partial.config
+      ? { requiredDimensions: [...partial.config.requiredDimensions] }
+      : defaultReviewConfig(),
   };
 }

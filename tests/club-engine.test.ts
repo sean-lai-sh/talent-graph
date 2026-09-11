@@ -1,102 +1,180 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describeActionError } from "../apps/club/lib/actionError.ts";
 import {
   addComparison,
+  addEvaluation,
+  addPerson,
   addReferral,
   computeView,
+  decide,
+  EXAMPLE_REQUIRED_DIMENSIONS,
   EXAMPLE_T_END,
   EXAMPLE_T_START,
-  exampleTimeSteps,
   initialState,
   loadClub,
-  meddleReferral,
+  OWNER_EVALUATOR_ID,
+  recordFeedback,
+  requestFeedback,
   resetClub,
-  setNow,
+  setReviewConfig,
   setStatus,
 } from "../apps/club/lib/engine.ts";
 import {
-  nodeRadius,
-  OTHER_GRAPH_LIMIT,
-  selectGraphNodes,
-  UNMEASURED_NODE_RADIUS,
-} from "../apps/club/lib/graphLayout.ts";
+  availableDecisions,
+  daysBetween,
+  FEEDBACK_WINDOW_HOURS,
+  feedbackState,
+  nextReviewStatus,
+  statusForReview,
+} from "../apps/club/lib/review.ts";
+import { sortRows } from "../apps/club/lib/tableModel.ts";
 import { loadSpecs } from "../src/config.ts";
 import { BANNED_LANGUAGE, PRODUCT_LANGUAGE, SCALE_LABELS } from "../src/domain/constants.ts";
-import { referralStrength } from "../src/scoring/referralStrength.ts";
+import { TRACK_RECORD_ORDER } from "../src/judges/trackRecord.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 
-describe("example club engine", () => {
-  test("seed view pins Cleo quiet, Bram loud, and never emits a single accept score", () => {
-    const { view } = loadClub();
-    const personas = view.people.filter((p) => p.persona);
-    expect(personas.map((p) => p.id).sort()).toEqual(
-      ["p-alice", "p-bram", "p-cleo", "p-dev", "p-ember", "p-fox"].sort(),
-    );
+const root = join(import.meta.dir, "..");
+const read = (rel: string) => readFileSync(join(root, rel), "utf8");
 
-    const cleo = view.people.find((p) => p.id === "p-cleo");
-    const bram = view.people.find((p) => p.id === "p-bram");
-    if (!cleo) throw new Error("expected Cleo on the seed");
-    if (!bram) throw new Error("expected Bram on the seed");
+function personNamed(view: ReturnType<typeof computeView>, name: string) {
+  const p = view.people.find((row) => row.name === name);
+  if (!p) throw new Error(`expected ${name} on the seed`);
+  return p;
+}
+
+describe("council page engine: seed pins", () => {
+  test("Cleo quiet, Bram loud, no incoming is Insufficient Evidence not 0, never a merged score", () => {
+    const { view } = loadClub();
+    const cleo = personNamed(view, "Cleo Marsh");
+    const bram = personNamed(view, "Bram Okafor");
     expect(cleo.v2Signal).toBe(7);
     expect(cleo.incomingCount).toBe(1);
     expect(bram.v2Signal).toBe(62);
     expect(bram.incomingCount).toBe(4);
-    expect(view.topReferral.some((row) => row.personId === "p-cleo" && row.signal === 7)).toBe(
-      true,
-    );
-    expect(view.topReferral.some((row) => row.personId === "p-bram" && row.signal === 62)).toBe(
-      true,
-    );
-    expect(
-      view.topReferral.filter((row) => row.signal <= 20).some((row) => row.personId === "p-cleo"),
-    ).toBe(true);
-    expect(view.graph.nodes.find((n) => n.id === "p-cleo")?.v2Signal).toBe(7);
-    expect(view.graph.nodes.find((n) => n.id === "p-bram")?.v2Signal).toBe(62);
-
-    expect(view.topReferral.length).toBeGreaterThan(0);
-    expect(view.topCapability.length).toBeGreaterThan(0);
-    expect(view.now).toBe(EXAMPLE_T_END);
-    expect(JSON.stringify(view)).not.toContain("Talent Score");
-    expect(JSON.stringify(view)).not.toContain("Capability Score");
-  });
-
-  test("zero incoming is Insufficient Evidence, not Referral Signal 0", () => {
-    const { view } = loadClub();
-    const zero = view.people.filter((p) => p.incomingCount === 0);
-    expect(zero.length).toBeGreaterThan(0);
-    for (const person of zero) {
-      expect(person.v2Signal).toBeNull();
-      expect(person.v0Signal).toBeNull();
+    for (const name of ["Ife Doyle", "Noor Petrov"]) {
+      const p = personNamed(view, name);
+      expect(p.incomingCount).toBe(0);
+      expect(p.v2Signal).toBeNull();
+      expect(p.v0Signal).toBeNull();
     }
-    const ife = view.people.find((p) => p.name === "Ife Doyle");
-    const noor = view.people.find((p) => p.name === "Noor Petrov");
-    if (!ife) throw new Error("expected Ife Doyle on the seed");
-    if (!noor) throw new Error("expected Noor Petrov on the seed");
-    expect(ife.incomingCount).toBe(0);
-    expect(noor.incomingCount).toBe(0);
-    expect(ife.v2Signal).toBeNull();
-    expect(noor.v2Signal).toBeNull();
-    expect(view.topReferral.every((row) => row.incomingCount >= 1)).toBe(true);
+    const rows = new Map(view.candidates.map((c) => [c.personId, c]));
+    expect(rows.get("p-cleo")?.v2Signal).toBe(7);
+    expect(rows.get("p-bram")?.v2Signal).toBe(62);
     expect(
-      view.graph.nodes.filter((n) => n.incomingCount === 0).every((n) => n.v2Signal === null),
+      view.candidates.filter((c) => c.incomingCount === 0).every((c) => c.v2Signal === null),
     ).toBe(true);
+    expect(view.now).toBe(EXAMPLE_T_END);
+    const json = JSON.stringify(view);
+    for (const phrase of BANNED_LANGUAGE) expect(json).not.toContain(phrase);
   });
 
-  test("Fox Agency is insufficient evidence; gaps carry both V2 inputs", () => {
+  test("review queue buckets on the seed, and members/archived carry no bucket", () => {
     const { view } = loadClub();
-    const fox = view.people.find((p) => p.id === "p-fox");
-    if (!fox) throw new Error("expected Fox on the seed");
+    const bucketOf = (id: string) => view.people.find((p) => p.id === id)?.queue?.bucket ?? null;
+    expect(bucketOf("p-cleo")).toBe("under_recognized");
+    expect(personNamed(view, "Cleo Marsh").queue?.flags).toEqual([
+      "under_recognized",
+      "single_source",
+    ]);
+    expect(bucketOf("p-dev")).toBe("single_source");
+    expect(bucketOf("p-alice")).toBe("ready_to_decide");
+    expect(bucketOf("p-bram")).toBe("ready_to_decide");
+    expect(bucketOf("p-ember")).toBe("under_recognized");
+    expect(bucketOf("p-fox")).toBe("under_recognized");
+    expect(personNamed(view, "Ife Doyle").queue?.bucket).toBe("no_referrals");
+    for (const p of view.people.filter((row) => row.status !== "candidate")) {
+      expect(p.queue).toBeNull();
+    }
+  });
+
+  test("three channels on Cleo: signal, seven dimensions, rubric rows; required marks follow config", () => {
+    const { view } = loadClub();
+    const cleo = personNamed(view, "Cleo Marsh");
+    expect(view.config.requiredDimensions).toEqual([...EXAMPLE_REQUIRED_DIMENSIONS]);
+    expect(cleo.dimensions).toHaveLength(7);
+    expect(cleo.dimensions.find((d) => d.dimension === "agency")?.state).toBe("estimated");
+    expect(cleo.dimensions.find((d) => d.dimension === "agency")?.required).toBe(true);
+    expect(cleo.dimensions.find((d) => d.dimension === "taste")?.required).toBe(false);
+    expect(cleo.rubric).toHaveLength(7);
+    const output = cleo.rubric.find((r) => r.dimension === "output");
+    expect(output?.scored).toBe(1);
+    expect(output?.mean).toBe(2);
+    expect(output?.anchor).toBe(SCALE_LABELS.rubric[2]);
+    expect(cleo.rubric.find((r) => r.dimension === "agency")?.mean).toBeNull();
+    expect(cleo.gaps.some((g) => g.dimension === "agency" && g.gap >= 25)).toBe(true);
+  });
+
+  test("missing evidence names required dimensions Cleo lacks and her single source", () => {
+    const { view } = loadClub();
+    const cleo = personNamed(view, "Cleo Marsh");
+    const kinds = cleo.missingEvidence.map((m) => `${m.kind}:${m.dimension ?? ""}`);
+    expect(kinds).toContain("single_source:");
+    expect(kinds).toContain("rubric_missing:problem_solving");
+    expect(kinds).toContain("rubric_missing:agency");
+    expect(kinds).not.toContain("rubric_missing:output");
+    expect(kinds).toContain("capability_insufficient:output");
+    const fox = personNamed(view, "Fox Delacroix");
     expect(fox.dimensions.find((d) => d.dimension === "agency")?.state).toBe(
       "insufficient_evidence",
     );
-    expect(view.underRecognized.length).toBeGreaterThan(0);
-    for (const row of view.underRecognized) {
-      expect(typeof row.capabilityPercentile).toBe("number");
-      expect(typeof row.referralPercentile).toBe("number");
-      expect(row.tag).toBe("exploratory");
+  });
+
+  test("evidence by judge: grouped by author, ordered by track record then count, no raw weights", () => {
+    const { view } = loadClub();
+    const cleo = personNamed(view, "Cleo Marsh");
+    const referrerGroups = cleo.judgeEvidence.filter((g) =>
+      g.items.some((i) => i.kind === "referral"),
+    );
+    expect(referrerGroups).toHaveLength(1);
+    expect(referrerGroups[0]?.name).toBe("Rafael de Vries");
+    expect(referrerGroups[0]?.trackRecord.label).toBe("tends_to_underrate");
+    const ranks = cleo.judgeEvidence.map((g) => TRACK_RECORD_ORDER[g.trackRecord.label]);
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
+    for (const g of cleo.judgeEvidence) {
+      for (const item of g.items) {
+        if (item.kind === "referral") expect(item.evidenceText.length).toBeGreaterThan(0);
+      }
     }
+    const json = JSON.stringify(view);
+    for (const key of [
+      '"reliability":',
+      '"meanSquaredError":',
+      '"rawBias":',
+      '"bias":',
+      '"rawReliability":',
+    ]) {
+      expect(json).not.toContain(key);
+    }
+    const tomas = view.members.find((m) => m.name === "Tomas Lindqvist");
+    expect(tomas?.trackRecord.label).toBe("calibrated");
+    expect(view.members.every((m) => m.trackRecord.label !== undefined)).toBe(true);
+  });
+
+  test("seeded feedback requests: pending, overdue, responded — against the example clock", () => {
+    const { view } = loadClub();
+    const cleo = personNamed(view, "Cleo Marsh");
+    const dev = personNamed(view, "Dev Raman");
+    const bram = personNamed(view, "Bram Okafor");
+    expect(cleo.feedback.map((f) => f.state)).toEqual(["pending"]);
+    expect(cleo.reviewStatus).toBe("under_review");
+    expect(dev.feedback.map((f) => f.state)).toEqual(["overdue"]);
+    expect(dev.reviewStatus).toBe("needs_data");
+    expect(bram.feedback.map((f) => f.state)).toEqual(["responded"]);
+    expect(bram.feedback[0]?.evaluationId).toBe(bram.evaluations[0]?.id ?? "");
+    expect(view.counts.pendingFeedback).toBe(1);
+    expect(view.counts.overdueFeedback).toBe(1);
+    expect(personNamed(view, "Alice Tanaka").reviewStatus).toBe("new");
+    expect(personNamed(view, "Noor Petrov").reviewStatus).toBe("admitted");
+    const suggested = cleo.suggestedMembers.map((m) => m.name);
+    expect(suggested).not.toContain("Tomas Lindqvist"); // pending request
+    expect(suggested).toContain("Rafael de Vries"); // referred her, no rubric on required dims
+    expect(cleo.suggestedMembers.map((m) => TRACK_RECORD_ORDER[m.trackRecord.label])).toEqual(
+      cleo.suggestedMembers
+        .map((m) => TRACK_RECORD_ORDER[m.trackRecord.label])
+        .sort((a, b) => a - b),
+    );
   });
 
   test("load and reset match generateSeed identity", () => {
@@ -106,61 +184,227 @@ describe("example club engine", () => {
     expect(loaded.state.people.map((p) => p.id)).toEqual(seed.people.map((p) => p.id));
     expect(loaded.state.referrals.map((r) => r.id)).toEqual(seed.referrals.map((r) => r.id));
     expect(reset.state.people.map((p) => p.id)).toEqual(seed.people.map((p) => p.id));
-    expect(reset.state.referrals.map((r) => r.id)).toEqual(seed.referrals.map((r) => r.id));
     expect(reset.view.people.find((p) => p.id === "p-cleo")?.v2Signal).toBe(7);
   });
 
-  test("at the start of the year V2 equals V0; by year end some signals move", () => {
+  test("at the start of the year the judge window is closed and V2 equals V0", () => {
     const state = initialState();
     const early = computeView({ ...state, now: EXAMPLE_T_START });
-    expect(early.windowOpen).toBe(false);
-    expect(early.evaluatedReferrals).toBe(0);
-    for (const p of early.people.filter((row) => row.persona)) {
-      expect(p.v2Signal).toBe(p.v0Signal);
-    }
-
+    expect(early.calibration.windowOpen).toBe(false);
+    expect(early.calibration.evaluatedReferrals).toBe(0);
+    for (const p of early.people.filter((row) => row.persona)) expect(p.v2Signal).toBe(p.v0Signal);
     const late = computeView({ ...state, now: EXAMPLE_T_END });
-    expect(late.windowOpen).toBe(true);
-    expect(late.evaluatedReferrals).toBeGreaterThan(0);
-    expect(late.judgesWithEvidence).toBeGreaterThan(0);
-    const moved = late.people.filter((p) => p.persona && p.v2Signal !== p.v0Signal);
-    expect(moved.length).toBeGreaterThan(0);
+    expect(late.calibration.windowOpen).toBe(true);
+    expect(late.calibration.judgesWithEvidence).toBeGreaterThan(0);
+    expect(late.people.some((p) => p.persona && p.v2Signal !== p.v0Signal)).toBe(true);
+    const source = read("apps/club/lib/engine.ts");
+    expect(source).toContain("referralsAsOf");
+    expect(source).toContain("createdAt.getTime() <= t");
+    expect(source).toContain("loadSpecs()");
+    expect(source).not.toContain("CURRENT_SPECS");
+    expect(source).not.toContain("Date.UTC(2026");
   });
 
-  test("accepting a candidate records a snapshot without changing scores", () => {
+  test("club view applies loadSpecs TG_* the same way as the CLI", () => {
+    const state = initialState();
+    const tightened = loadSpecs({ TG_TOP_K_REFERRALS: "1" }, { warn: () => {} });
+    const view = computeView(state, tightened);
+    const ember = view.people.find((p) => p.id === "p-ember");
+    if (!ember) throw new Error("expected Ember on the seed");
+    expect(ember.referrals).toHaveLength(6);
+    expect(ember.contributing).toHaveLength(1);
+    expect(ember.referrals.filter((r) => !r.contributing)).toHaveLength(5);
+    expect(ember.neighbourhood.referrers).toHaveLength(6);
+  });
+});
+
+describe("council page engine: decisions", () => {
+  test("transition table", () => {
+    expect(nextReviewStatus("new", "start_review")).toBe("under_review");
+    expect(nextReviewStatus("new", "admit")).toBe("admitted");
+    expect(nextReviewStatus("under_review", "deny")).toBe("denied");
+    expect(nextReviewStatus("under_review", "request_data")).toBe("needs_data");
+    expect(nextReviewStatus("needs_data", "request_data")).toBeNull();
+    expect(nextReviewStatus("needs_data", "start_review")).toBe("under_review");
+    expect(nextReviewStatus("admitted", "admit")).toBeNull();
+    expect(nextReviewStatus("admitted", "reopen")).toBe("under_review");
+    expect(nextReviewStatus("denied", "reopen")).toBe("under_review");
+    expect(availableDecisions("new").sort()).toEqual([
+      "admit",
+      "deny",
+      "request_data",
+      "start_review",
+    ]);
+    expect(availableDecisions("admitted")).toEqual(["reopen"]);
+    expect(statusForReview("admitted")).toBe("member");
+    expect(statusForReview("denied")).toBe("archived");
+    expect(statusForReview("needs_data")).toBe("candidate");
+  });
+
+  test("admit records a snapshot, maps to member, and changes no number", () => {
     const start = loadClub();
-    const cleo = start.view.people.find((p) => p.id === "p-cleo");
-    expect(cleo?.status).toBe("candidate");
-    const after = setStatus(start.state, "p-cleo", "member");
-    expect(after.view.people.find((p) => p.id === "p-cleo")?.status).toBe("member");
-    expect(after.view.counts.members).toBe(start.view.counts.members + 1);
-    expect(after.state.snapshots[0]?.decision).toBe("member");
+    const before = start.view.people.find((p) => p.id === "p-cleo");
+    const after = decide(start.state, "p-cleo", "admit");
+    expect(after.error).toBeUndefined();
+    const cleo = after.view.people.find((p) => p.id === "p-cleo");
+    expect(cleo?.reviewStatus).toBe("admitted");
+    expect(cleo?.status).toBe("member");
+    expect(cleo?.queue).toBeNull();
+    expect(cleo?.v2Signal).toBe(before?.v2Signal ?? -1);
+    expect(after.view.counts.admitted).toBe(start.view.counts.admitted + 1);
+    expect(after.state.snapshots[0]?.decision).toBe("admitted");
     expect(after.state.snapshots[0]?.personName).toBe("Cleo Marsh");
     expect(after.state.snapshots[0]?.values.referralSignal).toBe(7);
     expect(after.state.snapshots[0]?.values.incomingCount).toBe(1);
-    expect(after.view.snapshots[0]?.decision).toBe("member");
-    expect(after.view.people.find((p) => p.id === "p-cleo")?.v2Signal).toBe(cleo?.v2Signal);
+    const invalid = decide(after.state, "p-cleo", "admit");
+    expect(invalid.error).toContain("cannot admit from admitted");
+    const reopened = decide(after.state, "p-cleo", "reopen");
+    expect(reopened.view.people.find((p) => p.id === "p-cleo")?.reviewStatus).toBe("under_review");
+    expect(reopened.view.people.find((p) => p.id === "p-cleo")?.status).toBe("candidate");
   });
 
-  test("meddling a referral slider changes Referral Signal and does not bump updatedAt", () => {
+  test("deny and request-more-data; setStatus stays consistent with review status", () => {
     const start = loadClub();
-    const alice = start.view.people.find((p) => p.id === "p-alice");
-    if (!alice) throw new Error("expected Alice on the seed");
-    const first = alice.contributing[0];
-    if (!first) throw new Error("expected Alice to have a contributing referral");
-    const before = start.state.referrals.find((r) => r.id === first.referralId);
-    if (!before) throw new Error("expected the contributing referral in state");
-    const after = meddleReferral(start.state, first.referralId, {
-      conviction: 1,
-      confidence: 1,
-      relationshipDepth: 1,
+    const denied = decide(start.state, "p-bram", "deny");
+    expect(denied.view.people.find((p) => p.id === "p-bram")?.status).toBe("archived");
+    expect(denied.view.counts.denied).toBe(start.view.counts.denied + 1);
+    const needs = decide(start.state, "p-alice", "request_data");
+    expect(needs.view.people.find((p) => p.id === "p-alice")?.reviewStatus).toBe("needs_data");
+    expect(needs.view.counts.needsData).toBe(start.view.counts.needsData + 1);
+    const viaStatus = setStatus(start.state, "p-alice", "member");
+    expect(viaStatus.view.people.find((p) => p.id === "p-alice")?.reviewStatus).toBe("admitted");
+    expect(viaStatus.state.snapshots[0]?.decision).toBe("member");
+    expect(decide(start.state, "nobody", "admit").error).toBe("unknown person");
+  });
+});
+
+describe("council page engine: feedback loop", () => {
+  test("request feedback opens a 48-hour window and moves a new case under review", () => {
+    const start = loadClub();
+    const tomas = start.state.people.find((p) => p.name === "Tomas Lindqvist");
+    const hana = start.state.people.find((p) => p.name === "Hana Nakamura");
+    if (!tomas || !hana) throw new Error("expected members");
+    const after = requestFeedback(start.state, {
+      candidateId: "p-alice",
+      memberIds: [tomas.id, hana.id],
+      note: "Anything on agency?",
     });
     expect(after.error).toBeUndefined();
-    const row = after.state.referrals.find((r) => r.id === first.referralId);
-    expect(row?.updatedAt).toBe(before.updatedAt);
-    expect(after.view.people.find((p) => p.id === "p-alice")?.v2Signal).not.toBe(alice.v2Signal);
+    const alice = after.view.people.find((p) => p.id === "p-alice");
+    expect(alice?.reviewStatus).toBe("under_review");
+    expect(alice?.feedback).toHaveLength(2);
+    const req = alice?.feedback[0];
+    if (!req) throw new Error("expected a request");
+    expect(req.state).toBe("pending");
+    expect(new Date(req.dueAt).getTime() - new Date(req.requestedAt).getTime()).toBe(
+      FEEDBACK_WINDOW_HOURS * 3_600_000,
+    );
+    expect(feedbackState(req, req.dueAt)).toBe("pending");
+    expect(feedbackState(req, new Date(new Date(req.dueAt).getTime() + 1).toISOString())).toBe(
+      "overdue",
+    );
+    expect(alice?.suggestedMembers.some((m) => m.personId === tomas.id)).toBe(false);
+    const dup = requestFeedback(after.state, {
+      candidateId: "p-alice",
+      memberIds: [tomas.id],
+      note: "",
+    });
+    expect(dup.error).toContain("already has a pending request");
+    expect(
+      requestFeedback(start.state, { candidateId: "p-alice", memberIds: ["p-alice"], note: "" })
+        .error,
+    ).toContain("cannot review themselves");
+    expect(
+      requestFeedback(start.state, { candidateId: "p-alice", memberIds: [], note: "" }).error,
+    ).toContain("at least one");
   });
 
+  test("record feedback stores a rubric evaluation, closes the request, and updates the rubric row", () => {
+    const start = loadClub();
+    const cleoBefore = start.view.people.find((p) => p.id === "p-cleo");
+    const pending = cleoBefore?.feedback.find((f) => f.state === "pending");
+    if (!pending) throw new Error("expected Cleo's pending request");
+    const after = recordFeedback(start.state, {
+      requestId: pending.id,
+      evaluatorId: pending.memberId,
+      candidateId: "p-cleo",
+      dimension: "agency",
+      score: 3,
+      confidence: 4,
+      evidenceText: "Took an underspecified brief and shipped without check-ins.",
+    });
+    expect(after.error).toBeUndefined();
+    const cleo = after.view.people.find((p) => p.id === "p-cleo");
+    expect(cleo?.feedback.find((f) => f.id === pending.id)?.state).toBe("responded");
+    expect(cleo?.rubric.find((r) => r.dimension === "agency")?.mean).toBe(3);
+    expect(
+      cleo?.missingEvidence.some((m) => m.kind === "rubric_missing" && m.dimension === "agency"),
+    ).toBe(false);
+    expect(
+      cleo?.judgeEvidence.some(
+        (g) => g.judgeId === pending.memberId && g.items.some((i) => i.kind === "evaluation"),
+      ),
+    ).toBe(true);
+    expect(after.view.counts.evaluations).toBe(start.view.counts.evaluations + 1);
+    expect(after.view.counts.pendingFeedback).toBe(start.view.counts.pendingFeedback - 1);
+    expect(cleo?.v2Signal).toBe(cleoBefore?.v2Signal ?? -1);
+  });
+
+  test("evaluation validation: self, blank text, not-observed keeps no confidence", () => {
+    const start = loadClub();
+    expect(
+      addEvaluation(start.state, {
+        evaluatorId: "p-cleo",
+        candidateId: "p-cleo",
+        dimension: "agency",
+        score: 2,
+        confidence: 3,
+        evidenceText: "x",
+      }).error,
+    ).toContain("must differ");
+    expect(
+      addEvaluation(start.state, {
+        evaluatorId: "p-alice",
+        candidateId: "p-cleo",
+        dimension: "agency",
+        score: 2,
+        confidence: 3,
+        evidenceText: "   ",
+      }).error,
+    ).toContain("non-empty");
+    const notObserved = addEvaluation(start.state, {
+      evaluatorId: "p-alice",
+      candidateId: "p-cleo",
+      dimension: "taste",
+      score: null,
+      confidence: 3,
+      evidenceText: "Never saw her choose a problem.",
+    });
+    expect(notObserved.error).toBeUndefined();
+    const row = notObserved.view.people
+      .find((p) => p.id === "p-cleo")
+      ?.evaluations.find((e) => e.dimension === "taste");
+    expect(row?.score).toBeNull();
+    expect(row?.confidence).toBeNull();
+    expect(row?.scoreLabel).toBe(SCALE_LABELS.rubricNotObserved);
+  });
+
+  test("round settings change required marks and the missing-evidence list", () => {
+    const start = loadClub();
+    const after = setReviewConfig(start.state, { requiredDimensions: ["taste"] });
+    expect(after.error).toBeUndefined();
+    const cleo = after.view.people.find((p) => p.id === "p-cleo");
+    expect(cleo?.dimensions.filter((d) => d.required).map((d) => d.dimension)).toEqual(["taste"]);
+    expect(
+      cleo?.missingEvidence.filter((m) => m.kind === "rubric_missing").map((m) => m.dimension),
+    ).toEqual(["taste"]);
+    expect(setReviewConfig(start.state, { requiredDimensions: [] }).error).toContain(
+      "at least one",
+    );
+  });
+});
+
+describe("council page engine: referrals and compares still validate", () => {
   test("a new referral and a compare are validated then folded into the view", () => {
     const start = loadClub();
     const referred = addReferral(start.state, {
@@ -172,196 +416,67 @@ describe("example club engine", () => {
       evidenceType: "firsthand_work",
       evidenceText: "Watched her rewrite a stuck systems problem in a day.",
     });
-    const applied = referred.error
-      ? addReferral(start.state, {
-          referrerId: "p-fox",
-          candidateId: "p-dev",
-          conviction: 5,
-          confidence: 4,
-          relationshipDepth: 3,
-          evidenceType: "artifact",
-          evidenceText: "Read the work. It is unusually careful.",
-        })
-      : referred;
-    expect(applied.error).toBeUndefined();
-    expect(applied.view.counts.referrals).toBe(start.view.counts.referrals + 1);
+    expect(referred.error).toBeUndefined();
+    expect(referred.view.counts.referrals).toBe(start.view.counts.referrals + 1);
+    expect(referred.view.people.find((p) => p.id === "p-cleo")?.incomingCount).toBe(2);
+    expect(addReferral(start.state, { ...referredInput(), referrerId: "ghost" }).error).toContain(
+      "unknown person",
+    );
 
-    const pair = applied.view.nextCompare;
-    if (!pair) throw new Error("expected a proposed compare");
-    const compared = addComparison(applied.state, {
-      personAId: pair.personAId,
-      personBId: pair.personBId,
-      dimension: pair.dimension,
+    const compared = addComparison(referred.state, {
+      personAId: "p-cleo",
+      personBId: "p-bram",
+      dimension: "agency",
       outcome: "a",
+      confidence: 3,
+      evidenceText: "Cleo drove; Bram waited for direction.",
     });
     expect(compared.error).toBeUndefined();
-    expect(compared.view.counts.comparisons).toBe(applied.view.counts.comparisons + 1);
-  });
-
-  test("setNow is a pure time-step change", () => {
-    const start = loadClub();
-    const early = setNow(start.state, EXAMPLE_T_START);
-    expect(early.view.now).toBe(EXAMPLE_T_START);
-    expect(early.view.evaluatedReferrals).toBe(0);
-  });
-
-  test("referrals created after T do not move earlier frames", () => {
-    const seed = loadClub();
-    const fox = seed.view.people.find((p) => p.id === "p-fox");
-    if (!fox) throw new Error("expected Fox");
-    const late = addReferral(seed.state, {
-      referrerId: "p-alice",
-      candidateId: "p-fox",
-      conviction: 5,
+    expect(compared.view.counts.comparisons).toBe(referred.view.counts.comparisons + 1);
+    const last = compared.state.comparisons[compared.state.comparisons.length - 1];
+    expect(last?.confidence).toBe(3);
+    expect(last?.evaluatorId).toBe(OWNER_EVALUATOR_ID);
+    expect(last?.evidenceText).toContain("Cleo drove");
+    const skipped = addComparison(compared.state, {
+      personAId: "p-cleo",
+      personBId: "p-bram",
+      dimension: "agency",
+      outcome: "skip",
       confidence: 5,
-      relationshipDepth: 5,
-      evidenceType: "firsthand_work",
-      evidenceText: "Watched the work land.",
     });
-    const applied = late.error
-      ? addReferral(seed.state, {
-          referrerId: "p-bram",
-          candidateId: "p-fox",
-          conviction: 5,
-          confidence: 5,
-          relationshipDepth: 4,
-          evidenceType: "artifact",
-          evidenceText: "Read the work. It is unusually careful.",
-        })
-      : late;
-    expect(applied.error).toBeUndefined();
-    expect(applied.view.people.find((p) => p.id === "p-fox")?.v2Signal).not.toBe(fox.v2Signal);
-
-    const early = setNow(applied.state, EXAMPLE_T_START);
-    const seedEarly = computeView({ ...seed.state, now: EXAMPLE_T_START });
-    expect(early.view.people.find((p) => p.id === "p-fox")?.v2Signal).toBe(
-      seedEarly.people.find((p) => p.id === "p-fox")?.v2Signal,
-    );
-    expect(early.view.evaluatedReferrals).toBe(0);
-    const first = applied.view.timeline[0];
-    const seedFirst = seed.view.timeline[0];
-    if (!first || !seedFirst) throw new Error("expected first frames");
-    expect(first.evaluatedReferrals).toBe(0);
-    expect(first.personas.find((p) => p.id === "p-fox")?.v2).toBe(
-      seedFirst.personas.find((p) => p.id === "p-fox")?.v2,
-    );
-    const source = readFileSync(join(import.meta.dir, "../apps/club/lib/engine.ts"), "utf8");
-    expect(source).toContain("referralsAsOf");
-    expect(source).toContain("createdAt.getTime() <= t");
+    expect(skipped.state.comparisons[skipped.state.comparisons.length - 1]?.confidence).toBeNull();
   });
 
-  test("graph nodes with no incoming evidence are not painted as signal 0", () => {
-    const { view } = loadClub();
-    const ife = view.graph.nodes.find((n) => n.name === "Ife Doyle");
-    const cleo = view.graph.nodes.find((n) => n.id === "p-cleo");
-    const bram = view.graph.nodes.find((n) => n.id === "p-bram");
-    if (!ife || !cleo || !bram) throw new Error("expected Ife, Cleo, and Bram on the graph");
-    expect(ife.v2Signal).toBeNull();
-    expect(nodeRadius(ife, false)).toBe(UNMEASURED_NODE_RADIUS);
-    expect(nodeRadius({ v2Signal: 0 }, false)).toBe(7);
-    expect(nodeRadius(ife, false)).not.toBe(nodeRadius({ v2Signal: 0 }, false));
-    expect(nodeRadius(ife, false)).not.toBe(nodeRadius(cleo, false));
-    expect(nodeRadius(cleo, false)).toBeLessThan(nodeRadius(bram, false));
-    expect(nodeRadius(ife, false)).toBeGreaterThan(nodeRadius(cleo, false));
-  });
-
-  test("graph edges use real R_uv and mark TopK-dropped referrals", () => {
-    const { view } = loadClub();
-    const ember = view.people.find((p) => p.id === "p-ember");
-    if (!ember) throw new Error("expected Ember on the seed");
-    expect(ember.incomingCount).toBe(6);
-    expect(ember.contributing).toHaveLength(5);
-    const edges = view.graph.edges.filter((e) => e.to === "p-ember");
-    expect(edges).toHaveLength(6);
-    expect(edges.filter((e) => e.contributing)).toHaveLength(5);
-    const dropped = edges.filter((e) => !e.contributing);
-    expect(dropped).toHaveLength(1);
-    const droppedEdge = dropped[0];
-    if (!droppedEdge) throw new Error("expected a dropped Ember edge");
-    const pair = generateSeed().referrals.find(
-      (r) => r.referrerId === droppedEdge.from && r.candidateId === "p-ember",
-    );
-    if (!pair) throw new Error("expected the dropped Ember referral in the seed");
-    expect(droppedEdge.strength).toBe(referralStrength(pair));
-    expect(droppedEdge.strength).not.toBe(0.4);
-  });
-
-  test("exampleTimeSteps follows EXAMPLE_T_* and the judge panel shares one clock", () => {
-    const steps = exampleTimeSteps();
-    expect(steps[0]).toBe(EXAMPLE_T_START);
-    expect(steps[steps.length - 1]).toBe(EXAMPLE_T_END);
-    expect(steps).toContain(
-      new Date(
-        Date.UTC(
-          new Date(EXAMPLE_T_START).getUTCFullYear(),
-          new Date(EXAMPLE_T_START).getUTCMonth() + 1,
-          1,
-        ),
-      ).toISOString(),
-    );
-    const source = readFileSync(join(import.meta.dir, "../apps/club/lib/engine.ts"), "utf8");
-    expect(source).not.toContain("Date.UTC(2026");
-    expect(source).toContain("loadSpecs()");
-    expect(source).not.toContain("CURRENT_SPECS");
-
-    const { view } = loadClub();
-    expect(view.timeline.map((f) => f.now)).toEqual(steps);
-    const first = view.timeline[0];
-    const last = view.timeline[view.timeline.length - 1];
-    if (!first || !last) throw new Error("expected timeline frames");
-    expect(first.judges).toEqual([]);
-    expect(last.judges.map((j) => [j.judgeId, j.reliability, j.evaluatedCount])).toEqual(
-      view.judges.map((j) => [j.judgeId, j.reliability, j.evaluatedCount]),
-    );
-    const judgeSim = readFileSync(
-      join(import.meta.dir, "../apps/club/components/JudgeSim.tsx"),
-      "utf8",
-    );
-    expect(judgeSim).toContain("frame.judges");
-    expect(judgeSim).not.toContain("view.judges");
-  });
-
-  test("club view applies loadSpecs TG_* the same way as the CLI", () => {
-    const state = initialState();
-    const tightened = loadSpecs({ TG_TOP_K_REFERRALS: "1" }, { warn: () => {} });
-    const view = computeView(state, tightened);
-    const ember = view.people.find((p) => p.id === "p-ember");
-    if (!ember) throw new Error("expected Ember on the seed");
-    expect(ember.contributing).toHaveLength(1);
-    expect(view.graph.edges.filter((e) => e.to === "p-ember" && e.contributing)).toHaveLength(1);
-    expect(view.graph.edges.filter((e) => e.to === "p-ember" && !e.contributing)).toHaveLength(5);
-  });
-
-  test("judge timeline is live: first frame V2=V0, last frame moves, meddling changes it", () => {
+  test("addPerson stores contact metadata and starts a case as new", () => {
     const start = loadClub();
-    expect(start.view.timeline.length).toBeGreaterThan(2);
-    const first = start.view.timeline[0];
-    const last = start.view.timeline[start.view.timeline.length - 1];
-    if (!first) throw new Error("expected a first timeline frame");
-    if (!last) throw new Error("expected a last timeline frame");
-    expect(first.windowOpen).toBe(false);
-    expect(first.evaluatedReferrals).toBe(0);
-    for (const p of first.personas) expect(p.v2).toBe(p.v0);
-    expect(last.windowOpen).toBe(true);
-    expect(last.personas.some((p) => p.v2 !== p.v0)).toBe(true);
-
-    const alice = start.view.people.find((p) => p.id === "p-alice");
-    const referralId = alice?.contributing[0]?.referralId;
-    if (!referralId) throw new Error("expected Alice to have a contributing referral");
-    const meddled = meddleReferral(start.state, referralId, {
-      conviction: 1,
-      confidence: 1,
-      relationshipDepth: 1,
+    const added = addPerson(start.state, {
+      name: "Ada Cole",
+      phone: "+1 555 0100",
+      linkedin: "linkedin.com/in/adacole",
     });
-    const before = last.personas.find((p) => p.id === "p-alice")?.v2;
-    const after = meddled.view.timeline[meddled.view.timeline.length - 1]?.personas.find(
-      (p) => p.id === "p-alice",
-    )?.v2;
-    expect(after).not.toBe(before);
+    expect(added.error).toBeUndefined();
+    const ada = added.view.people.find((p) => p.name === "Ada Cole");
+    expect(ada?.reviewStatus).toBe("new");
+    expect(ada?.phone).toBe("+1 555 0100");
+    expect(ada?.queue?.bucket).toBe("no_evidence");
+    expect(ada?.missingEvidence[0]?.kind).toBe("no_referrals");
+    expect(daysBetween(ada?.createdAt ?? "", added.view.now)).toBe(0);
   });
 });
 
-describe("example club UX pins", () => {
+function referredInput() {
+  return {
+    referrerId: "p-alice",
+    candidateId: "p-cleo",
+    conviction: 5 as const,
+    confidence: 5 as const,
+    relationshipDepth: 4 as const,
+    evidenceType: "firsthand_work" as const,
+    evidenceText: "Watched her rewrite a stuck systems problem in a day.",
+  };
+}
+
+describe("council page UX pins", () => {
   test("failed actions surface a recoverable message", () => {
     expect(describeActionError(new Error("unknown referral"))).toBe("unknown referral");
     expect(describeActionError("self-referral is not allowed")).toBe(
@@ -370,26 +485,17 @@ describe("example club UX pins", () => {
     expect(describeActionError({})).toContain("Reset to seed");
   });
 
-  test("personas-off keeps personas plus a short outer ring, not a hairball", () => {
-    const { view } = loadClub();
-    const only = selectGraphNodes(view.graph.nodes, true);
-    const all = selectGraphNodes(view.graph.nodes, false);
-    expect(only.map((n) => n.id)).toEqual([
-      "p-alice",
-      "p-bram",
-      "p-cleo",
-      "p-dev",
-      "p-ember",
-      "p-fox",
-    ]);
-    expect(view.graph.nodes.length).toBeGreaterThan(18);
-    expect(all.length).toBeLessThanOrEqual(6 + OTHER_GRAPH_LIMIT);
-    expect(all.filter((n) => n.persona).length).toBe(6);
-    expect(all.some((n) => !n.persona)).toBe(true);
+  test("table model sorts nulls last in both directions", () => {
+    const rows = [
+      { id: "a", n: 5 as number | null },
+      { id: "b", n: null },
+      { id: "c", n: 1 as number | null },
+    ];
+    expect(sortRows(rows, (r) => r.n, "desc").map((r) => r.id)).toEqual(["a", "c", "b"]);
+    expect(sortRows(rows, (r) => r.n, "asc").map((r) => r.id)).toEqual(["c", "a", "b"]);
   });
 
-  test("club UI copy uses product language and never banned phrases", () => {
-    const root = join(import.meta.dir, "..");
+  test("club UI copy uses product language, hides weights, and never uses banned phrases", () => {
     const glob = new Bun.Glob("apps/club/{app,components,lib}/**/*.{ts,tsx}");
     const files = [...glob.scanSync({ cwd: root, absolute: true })];
     expect(files.length).toBeGreaterThan(5);
@@ -404,6 +510,21 @@ describe("example club UX pins", () => {
     expect(joined.includes("SCALE_LABELS.rubricNotObserved")).toBe(true);
     expect(joined.includes("not a score of 0")).toBe(true);
     expect(joined.includes("Reset to seed")).toBe(true);
-    expect(SCALE_LABELS.rubricNotObserved).toBe("not observed");
+    const components = files
+      .filter((f) => f.includes("/components/"))
+      .map((f) => readFileSync(f, "utf8"))
+      .join("\n");
+    for (const forbidden of [
+      "p̂",
+      "Ē",
+      "reliability.toFixed",
+      "bias.toFixed",
+      'type="range"',
+      "transition-all",
+    ]) {
+      expect(components.includes(forbidden), `components contain ${forbidden}`).toBe(false);
+    }
+    expect(existsSync(join(root, "apps/club/components/JudgeSim.tsx"))).toBe(false);
+    expect(existsSync(join(root, "apps/club/components/GraphPanel.tsx"))).toBe(false);
   });
 });

@@ -30,7 +30,8 @@ Concretely, in code:
   from each other. The only places they meet are explicit and enumerated in
   `tests/invariants.test.ts`: `analysis/underRecognition.ts` (the diagnostic,
   explicitly labelled exploratory), `analysis/dashboard.ts` (presentation of
-  both, computes nothing), `analysis/drift.ts` and `modelRun.ts`
+  both, computes nothing), `analysis/reviewQueue.ts` (categorical review
+  buckets, no merged number), `analysis/drift.ts` and `modelRun.ts`
   (bookkeeping: comparing and recording runs of either kind), and `index.ts`
   (the public barrel).
 - Rubric `Evaluation` records are stored and summarised but feed **no** score.

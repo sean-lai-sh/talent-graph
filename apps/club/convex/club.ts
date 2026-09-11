@@ -1,20 +1,29 @@
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
 import {
-  addComparison as addComparisonEngine,
   addPerson as addPersonEngine,
   addReferral as addReferralEngine,
   computeView,
+  decide as decideEngine,
   emptyState,
-  meddleReferral as meddleReferralEngine,
-  setNow as setNowEngine,
+  recordFeedback as recordFeedbackEngine,
+  requestFeedback as requestFeedbackEngine,
+  setReviewConfig as setReviewConfigEngine,
   setStatus as setStatusEngine,
 } from "../lib/engine.ts";
+import { reviveState } from "../lib/serialize.ts";
 import type { ClubState, EngineResult } from "../lib/types.ts";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { authComponent } from "./auth";
-import { comparisonOutcome, dimension, evidenceType, personStatus, scale5 } from "./schema";
+import {
+  comparisonOutcome,
+  dimension,
+  evidenceType,
+  personStatus,
+  rubricScore,
+  scale5,
+} from "./schema";
 
 /**
  * Persist club *inputs* here. Every write re-runs views via `lib/engine.ts`
@@ -24,15 +33,20 @@ import { comparisonOutcome, dimension, evidenceType, personStatus, scale5 } from
  * (`authComponent.getAuthUser` / `safeGetAuthUser`). Each signed-in owner
  * gets a `clubOrgs` row keyed by `ownerUserId`.
  * Owner-keyed club, not a membership / invite model.
+ *
+ * Clock: the engine never reads a clock. Each mutation stamps `now` with
+ * wall time before running so referrals, decisions, and the 48-hour
+ * feedback window carry real timestamps; `getBoard` reads at the last write.
  */
 
 type QueryCtx = GenericQueryCtx<DataModel>;
 type MutationCtx = GenericMutationCtx<DataModel>;
 
 const optionalName = v.optional(v.string());
+const nullableScale5 = v.union(scale5, v.null());
 
 function orgToState(org: Doc<"clubOrgs">): ClubState {
-  return {
+  return reviveState({
     people: org.people,
     referrals: org.referrals,
     comparisons: org.comparisons,
@@ -40,8 +54,10 @@ function orgToState(org: Doc<"clubOrgs">): ClubState {
     outcomes: org.outcomes,
     opportunities: org.opportunities,
     snapshots: org.snapshots,
+    feedbackRequests: org.feedbackRequests ?? [],
+    config: org.config ?? { requiredDimensions: [] },
     now: org.now,
-  };
+  } as ClubState);
 }
 
 function stateFields(state: ClubState) {
@@ -54,6 +70,8 @@ function stateFields(state: ClubState) {
     outcomes: state.outcomes,
     opportunities: state.opportunities,
     snapshots: state.snapshots,
+    feedbackRequests: state.feedbackRequests,
+    config: state.config,
   };
 }
 
@@ -114,7 +132,9 @@ async function applyEngine(
     const state = emptyState();
     return { state, view: computeView(state), error: "no organization" };
   }
-  const result = fn(orgToState(org));
+  const state = orgToState(org);
+  state.now = new Date().toISOString();
+  const result = fn(state);
   if (!result.error) {
     await ctx.db.patch(org._id, stateFields(result.state));
   }
@@ -166,6 +186,8 @@ export const addPerson = mutation({
     name: v.string(),
     bio: optionalName,
     affiliation: optionalName,
+    phone: optionalName,
+    linkedin: optionalName,
     status: v.optional(personStatus),
   },
   handler: async (ctx, args) => {
@@ -183,6 +205,23 @@ export const setStatus = mutation({
   },
 });
 
+export const decide = mutation({
+  args: {
+    personId: v.string(),
+    decision: v.union(
+      v.literal("start_review"),
+      v.literal("admit"),
+      v.literal("deny"),
+      v.literal("request_data"),
+      v.literal("reopen"),
+    ),
+  },
+  handler: async (ctx, args) => {
+    return await applyEngine(ctx, (state) => decideEngine(state, args.personId, args.decision));
+  },
+});
+
+/** Member referral entry (spec page 1). The council page reads these; it does not write them. */
 export const addReferral = mutation({
   args: {
     referrerId: v.string(),
@@ -198,39 +237,38 @@ export const addReferral = mutation({
   },
 });
 
-export const meddleReferral = mutation({
+export const requestFeedback = mutation({
   args: {
-    referralId: v.string(),
-    conviction: scale5,
-    confidence: scale5,
-    relationshipDepth: scale5,
+    candidateId: v.string(),
+    memberIds: v.array(v.string()),
+    note: v.string(),
   },
   handler: async (ctx, args) => {
-    return await applyEngine(ctx, (state) =>
-      meddleReferralEngine(state, args.referralId, {
-        conviction: args.conviction,
-        confidence: args.confidence,
-        relationshipDepth: args.relationshipDepth,
-      }),
-    );
+    return await applyEngine(ctx, (state) => requestFeedbackEngine(state, args));
   },
 });
 
-export const addComparison = mutation({
+export const recordFeedback = mutation({
   args: {
-    personAId: v.string(),
-    personBId: v.string(),
+    requestId: v.optional(v.string()),
+    evaluatorId: v.string(),
+    candidateId: v.string(),
     dimension,
-    outcome: comparisonOutcome,
+    score: rubricScore,
+    confidence: nullableScale5,
+    evidenceText: v.string(),
   },
   handler: async (ctx, args) => {
-    return await applyEngine(ctx, (state) => addComparisonEngine(state, args));
+    return await applyEngine(ctx, (state) => recordFeedbackEngine(state, args));
   },
 });
 
-export const setNow = mutation({
-  args: { now: v.string() },
+export const setReviewConfig = mutation({
+  args: { requiredDimensions: v.array(dimension) },
   handler: async (ctx, args) => {
-    return await applyEngine(ctx, (state) => setNowEngine(state, args.now));
+    return await applyEngine(ctx, (state) => setReviewConfigEngine(state, args));
   },
 });
+
+// Kept exported for schema consumers; the council page records compares elsewhere.
+export { comparisonOutcome };
