@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { describeActionError } from "../../lib/actionError.ts";
 import { resolveBoardActions } from "../../lib/clubActions.ts";
 import { defaultPersonasOnly } from "../../lib/graphLayout.ts";
@@ -105,6 +105,10 @@ export function useClubSession({
     [view.people, selectedId],
   );
 
+  const queueAfterStatus = useCallback((nextId: string) => {
+    nextAfterActionRef.current = nextId;
+  }, []);
+
   const referrers = view.people.filter((p) => p.id !== selected?.id);
   const createdAtById = useMemo(
     () => new Map(state.people.map((p) => [p.id, p.createdAt])),
@@ -131,8 +135,6 @@ export function useClubSession({
     pending,
     mutate,
     resetToSeed,
-    queueAfterStatus: (nextId: string) => {
-      nextAfterActionRef.current = nextId;
-    },
+    queueAfterStatus,
   };
 }

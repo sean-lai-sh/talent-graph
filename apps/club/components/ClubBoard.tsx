@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
 import type { PersonStatus } from "../../../src/domain/types.ts";
 import type { ClubBoardActions, EngineResult, PersonView } from "../lib/types.ts";
 import { BoardError, BoardHeader } from "./board/BoardHeader.tsx";
@@ -20,16 +21,74 @@ export function ClubBoard({
   sync?: EngineResult | null;
 }) {
   const session = useClubSession({ initial, variant, actions, sync });
-  const { view, selected, selectedId, setSelectedId, pending, mutate, run } = session;
+  const { view, selected, selectedId, setSelectedId, pending, mutate, run, queueAfterStatus } =
+    session;
+  const [showMath, setShowMath] = useState(false);
+  const [referralOpen, setReferralOpen] = useState(false);
 
   const queue = sortByReadiness(view.people.filter((p) => p.status === "candidate"));
 
-  const changeStatus = (person: PersonView, status: PersonStatus) => {
-    if (status === "member" || status === "archived") {
-      session.queueAfterStatus(nextQueueId(queue, person.id));
-    }
-    mutate((latest) => run.setStatus(latest, person.id, status));
-  };
+  const changeStatus = useCallback(
+    (person: PersonView, status: PersonStatus) => {
+      if (status === "member" || status === "archived") {
+        queueAfterStatus(nextQueueId(queue, person.id));
+      }
+      mutate((latest) => run.setStatus(latest, person.id, status));
+    },
+    [mutate, queue, queueAfterStatus, run],
+  );
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      const key = event.key;
+      if (key === "j" || key === "ArrowDown") {
+        event.preventDefault();
+        const i = queue.findIndex((p) => p.id === selectedId);
+        const next = queue[i + 1] ?? queue[0];
+        if (next) {
+          setReferralOpen(false);
+          setSelectedId(next.id);
+        }
+        return;
+      }
+      if (key === "k" || key === "ArrowUp") {
+        event.preventDefault();
+        const i = queue.findIndex((p) => p.id === selectedId);
+        const prev = queue[i - 1] ?? queue[queue.length - 1];
+        if (prev) {
+          setReferralOpen(false);
+          setSelectedId(prev.id);
+        }
+        return;
+      }
+      if (key === "a" && selected && selected.status !== "member") {
+        event.preventDefault();
+        changeStatus(selected, "member");
+        return;
+      }
+      if (key === "x" && selected && selected.status !== "archived") {
+        event.preventDefault();
+        changeStatus(selected, "archived");
+        return;
+      }
+      if (key === "r") {
+        event.preventDefault();
+        setReferralOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [queue, selected, selectedId, setSelectedId, changeStatus]);
 
   return (
     <div className="flex min-h-screen flex-col bg-paper text-ink">
@@ -61,6 +120,17 @@ export function ClubBoard({
             : undefined
         }
         onReset={run.reset ? session.resetToSeed : undefined}
+        extra={
+          <label className="flex items-center gap-1.5 text-xs text-ink">
+            <input
+              type="checkbox"
+              className="accent-ink"
+              checked={showMath}
+              onChange={(e) => setShowMath(e.target.checked)}
+            />
+            Show the math
+          </label>
+        }
       />
       {session.error ? (
         <BoardError
@@ -70,14 +140,23 @@ export function ClubBoard({
         />
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 lg:grid-cols-[minmax(18rem,26rem)_1fr] lg:items-stretch sm:gap-4 sm:p-4">
-        <CandidateQueue
-          title="Candidates"
-          people={queue}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-          empty="No candidates in this club."
-        />
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 sm:gap-4 sm:p-4 lg:grid-cols-[minmax(18rem,26rem)_1fr] lg:items-stretch">
+        <div className="flex min-h-0 flex-col">
+          <CandidateQueue
+            title="Candidates"
+            people={queue}
+            selectedId={selectedId}
+            onSelect={(id) => {
+              setReferralOpen(false);
+              setSelectedId(id);
+            }}
+            showMath={showMath}
+            empty="No candidates in this club."
+          />
+          <p className="mt-2 px-1 text-[11px] text-muted">
+            j/k or ↑/↓ move · a accept · x archive · r write a referral
+          </p>
+        </div>
 
         <section className="rounded-lg border border-line bg-panel p-4 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto">
           {selected ? (
@@ -87,7 +166,9 @@ export function ClubBoard({
               busy={pending}
               referrers={session.referrers}
               snapshots={view.snapshots}
-              internalsMode="details"
+              internalsMode={showMath ? "expanded" : "hidden"}
+              referralOpen={referralOpen}
+              onReferralOpenChange={setReferralOpen}
               onStatus={(status) => changeStatus(selected, status)}
               onMeddle={(id, patch) => mutate((latest) => run.meddleReferral(latest, id, patch))}
               onRefer={(input) => mutate((latest) => run.addReferral(latest, input))}
