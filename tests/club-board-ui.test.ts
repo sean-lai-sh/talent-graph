@@ -6,6 +6,11 @@ import {
   sortByChip,
   sortByReadiness,
 } from "../apps/club/components/board/readiness.ts";
+import {
+  incomingReferrals,
+  referrerSummary,
+  splitIncoming,
+} from "../apps/club/components/board/referralOrigin.ts";
 import { loadClub } from "../apps/club/lib/engine.ts";
 import type { PersonView } from "../apps/club/lib/types.ts";
 import { BANNED_LANGUAGE, PRODUCT_LANGUAGE } from "../src/domain/constants.ts";
@@ -129,5 +134,22 @@ describe("review queue readiness", () => {
     expect(nextQueueId([{ id: "a" }, { id: "b" }, { id: "c" }], "a")).toBe("b");
     expect(nextQueueId([{ id: "a" }, { id: "b" }, { id: "c" }], "c")).toBe("b");
     expect(nextQueueId([{ id: "a" }], "a")).toBe("");
+  });
+});
+
+describe("who referred", () => {
+  test("Cleo's Referral Signal is one outside reputation check, not the inner network", () => {
+    const { state, view } = loadClub();
+    const cleo = view.people.find((p) => p.id === "p-cleo");
+    if (!cleo) throw new Error("expected Cleo");
+    const rows = incomingReferrals(cleo.id, state.referrals, view.people, cleo.contributing);
+    const { network, outside } = splitIncoming(rows);
+    expect(network).toHaveLength(0);
+    expect(outside).toHaveLength(1);
+    expect(outside[0]?.referrer?.name).toBe("Rafael de Vries");
+    expect(outside[0]?.referrer?.status).toBe("candidate");
+    expect(outside[0]?.referrer?.persona).toBe(false);
+    expect(outside[0]?.referral.evidenceType).toBe("reputation");
+    expect(referrerSummary(rows)).toBe("Rafael de Vries");
   });
 });

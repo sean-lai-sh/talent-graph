@@ -11,6 +11,7 @@ import {
 import type { EvidenceType, PersonStatus, Scale5 } from "../../../../src/domain/types.ts";
 import type { ClubSnapshot, PersonView } from "../../lib/types.ts";
 import { ordinal, Scale, StatusChip } from "./primitives.tsx";
+import { type IncomingReferralRow, referrerSummary } from "./referralOrigin.ts";
 
 export type InternalsMode = "details" | "hidden" | "expanded";
 
@@ -22,6 +23,9 @@ export function DecisionCard({
   internalsMode,
   referralOpen,
   onReferralOpenChange,
+  incoming,
+  referrersOpen,
+  onOpenReferrers,
   onStatus,
   onMeddle,
   onRefer,
@@ -33,6 +37,9 @@ export function DecisionCard({
   internalsMode: InternalsMode;
   referralOpen?: boolean;
   onReferralOpenChange?: (open: boolean) => void;
+  incoming?: IncomingReferralRow[];
+  referrersOpen?: boolean;
+  onOpenReferrers?: () => void;
   onStatus: (status: PersonStatus) => void;
   onMeddle: (
     referralId: string,
@@ -119,6 +126,24 @@ export function DecisionCard({
           ) : (
             <p className="text-lg text-muted">{PRODUCT_LANGUAGE.insufficientEvidence}</p>
           )}
+          {incoming ? (
+            <div className="mt-1">
+              <p className="text-[11px] text-muted">
+                {incoming.length === 0
+                  ? "No incoming referrals"
+                  : `Referred by ${referrerSummary(incoming)}`}
+              </p>
+              {onOpenReferrers ? (
+                <button
+                  type="button"
+                  className="mt-1 text-[11px] underline decoration-line underline-offset-2 hover:text-ink"
+                  onClick={onOpenReferrers}
+                >
+                  {referrersOpen ? "Who referred · showing" : "Who referred"}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         <div>
           <p className="text-[10px] uppercase tracking-wide text-muted">

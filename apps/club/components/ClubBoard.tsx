@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { PersonStatus } from "../../../src/domain/types.ts";
 import type { ClubBoardActions, EngineResult, PersonView } from "../lib/types.ts";
 import { BoardError, BoardHeader } from "./board/BoardHeader.tsx";
 import { CandidateQueue } from "./board/CandidateQueue.tsx";
 import { DecisionCard } from "./board/DecisionCard.tsx";
+import { ReferralPane } from "./board/ReferralPane.tsx";
 import { nextQueueId, sortByReadiness } from "./board/readiness.ts";
+import { incomingReferrals, splitIncoming } from "./board/referralOrigin.ts";
 import { useClubSession } from "./board/useClubSession.ts";
 
 export function ClubBoard({
@@ -25,8 +27,22 @@ export function ClubBoard({
     session;
   const [showMath, setShowMath] = useState(false);
   const [referralOpen, setReferralOpen] = useState(false);
+  const [referrersOpen, setReferrersOpen] = useState(true);
 
   const queue = sortByReadiness(view.people.filter((p) => p.status === "candidate"));
+  const incoming = useMemo(
+    () =>
+      selected
+        ? incomingReferrals(
+            selected.id,
+            session.state.referrals,
+            view.people,
+            selected.contributing,
+          )
+        : [],
+    [selected, session.state.referrals, view.people],
+  );
+  const { network, outside } = splitIncoming(incoming);
 
   const changeStatus = useCallback(
     (person: PersonView, status: PersonStatus) => {
@@ -84,6 +100,11 @@ export function ClubBoard({
       if (key === "r") {
         event.preventDefault();
         setReferralOpen(true);
+        return;
+      }
+      if (key === "w") {
+        event.preventDefault();
+        setReferrersOpen((open) => !open);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -140,7 +161,13 @@ export function ClubBoard({
         />
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 sm:gap-4 sm:p-4 lg:grid-cols-[minmax(18rem,26rem)_1fr] lg:items-stretch lg:overflow-hidden">
+      <div
+        className={`grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 sm:gap-4 sm:p-4 lg:items-stretch lg:overflow-hidden ${
+          referrersOpen
+            ? "lg:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)_minmax(16rem,22rem)]"
+            : "lg:grid-cols-[minmax(18rem,26rem)_1fr]"
+        }`}
+      >
         <div className="flex min-h-0 flex-col lg:overflow-hidden">
           <CandidateQueue
             title="Candidates"
@@ -154,7 +181,7 @@ export function ClubBoard({
             empty="No candidates in this club."
           />
           <p className="mt-2 px-1 text-[11px] text-muted">
-            j/k or ↑/↓ move · a accept · x archive · r write a referral
+            j/k or ↑/↓ move · a accept · x archive · r write a referral · w who referred
           </p>
         </div>
 
@@ -169,6 +196,9 @@ export function ClubBoard({
               internalsMode={showMath ? "expanded" : "hidden"}
               referralOpen={referralOpen}
               onReferralOpenChange={setReferralOpen}
+              incoming={incoming}
+              referrersOpen={referrersOpen}
+              onOpenReferrers={() => setReferrersOpen(true)}
               onStatus={(status) => changeStatus(selected, status)}
               onMeddle={(id, patch) => mutate((latest) => run.meddleReferral(latest, id, patch))}
               onRefer={(input) => mutate((latest) => run.addReferral(latest, input))}
@@ -181,6 +211,16 @@ export function ClubBoard({
             </p>
           )}
         </section>
+
+        {referrersOpen && selected ? (
+          <ReferralPane
+            personName={selected.name}
+            network={network}
+            outside={outside}
+            onClose={() => setReferrersOpen(false)}
+            onSelectReferrer={setSelectedId}
+          />
+        ) : null}
       </div>
     </div>
   );
