@@ -116,44 +116,38 @@ export function DecisionCard({
         ) : null}
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 border-y border-line py-3">
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted">
-            {PRODUCT_LANGUAGE.referralSignal}
-          </p>
-          {measured ? (
-            <p className="font-mono text-3xl text-signal">{person.v2Signal}</p>
-          ) : (
-            <p className="text-lg text-muted">{PRODUCT_LANGUAGE.insufficientEvidence}</p>
-          )}
-          {incoming ? (
-            <div className="mt-1">
-              <p className="text-[11px] text-muted">
-                {incoming.length === 0
-                  ? "No incoming referrals"
-                  : `Referred by ${referrerSummary(incoming)}`}
-              </p>
-              {onOpenReferrers ? (
-                <button
-                  type="button"
-                  className="mt-1 text-[11px] underline decoration-line underline-offset-2 hover:text-ink"
-                  onClick={onOpenReferrers}
-                >
-                  {referrersOpen ? "Who referred · showing" : "Who referred"}
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted">
-            {PRODUCT_LANGUAGE.relativeCapability}
-          </p>
-          <p className="text-sm text-capability">Seven dimensions. No overall number.</p>
-        </div>
+      <div className="mt-4 border-y border-line py-3">
+        <p className="text-[10px] uppercase tracking-wide text-muted">
+          {PRODUCT_LANGUAGE.referralSignal}
+        </p>
+        {measured ? (
+          <p className="font-mono text-3xl text-signal">{person.v2Signal}</p>
+        ) : (
+          <p className="text-lg text-muted">{PRODUCT_LANGUAGE.insufficientEvidence}</p>
+        )}
+        {incoming ? (
+          <div className="mt-1">
+            <p className="text-[11px] text-muted">
+              {incoming.length === 0
+                ? "No incoming referrals"
+                : `Referred by ${referrerSummary(incoming)}`}
+            </p>
+            {onOpenReferrers ? (
+              <button
+                type="button"
+                className="mt-1 text-[11px] underline decoration-line underline-offset-2 hover:text-ink"
+                onClick={onOpenReferrers}
+              >
+                {referrersOpen ? "Who referred · showing" : "Who referred"}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
-      <h3 className="mt-4 text-xs font-medium uppercase tracking-wide text-muted">Dimensions</h3>
+      <h3 className="mt-4 text-xs font-medium uppercase tracking-wide text-muted">
+        {PRODUCT_LANGUAGE.relativeCapability}
+      </h3>
       <ul className="mt-1 space-y-1">
         {person.dimensions.map((d) => (
           <li key={d.dimension} className="flex items-baseline justify-between gap-2 text-sm">
