@@ -174,9 +174,9 @@ describe("SEA-10 Convex persistence path", () => {
     ];
     expect(selectGraphNodes(nodes, true)).toEqual([]);
     expect(selectGraphNodes(nodes, false).map((node) => node.id)).toEqual(["p-bea", "p-ada"]);
-    const board = read("apps/club/components/ClubBoard.tsx");
-    expect(board).toContain("defaultPersonasOnly(variant)");
-    expect(board).toContain("resolveBoardActions(variant, actions)");
+    const session = read("apps/club/components/board/useClubSession.ts");
+    expect(session).toContain("defaultPersonasOnly(variant)");
+    expect(session).toContain("resolveBoardActions(variant, actions)");
   });
 
   test("/club does not fall through to in-memory example actions", async () => {
