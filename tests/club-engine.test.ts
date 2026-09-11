@@ -21,6 +21,7 @@ import {
   setReviewConfig,
   setStatus,
 } from "../apps/club/lib/engine.ts";
+import { rankAmong, rankLabel, relativeRankText } from "../apps/club/lib/format.ts";
 import {
   availableDecisions,
   daysBetween,
@@ -29,6 +30,12 @@ import {
   nextReviewStatus,
   statusForReview,
 } from "../apps/club/lib/review.ts";
+import {
+  CASE_DECISION_BAR,
+  CASE_OPEN_AFTER_IDENTITY,
+  caseOpenPath,
+  OPEN_REVIEWERS_PAGE,
+} from "../apps/club/lib/reviewLoop.ts";
 import { sortRows } from "../apps/club/lib/tableModel.ts";
 import { loadSpecs } from "../src/config.ts";
 import { BANNED_LANGUAGE, PRODUCT_LANGUAGE, SCALE_LABELS } from "../src/domain/constants.ts";
@@ -478,6 +485,133 @@ function referredInput() {
     evidenceText: "Watched her rewrite a stuck systems problem in a day.",
   };
 }
+
+describe("review-loop display (SEA-13/14/15)", () => {
+  test("relative ranks: 1 is best, last place is not Insufficient Evidence, null is", () => {
+    expect(rankAmong(100, 6)).toBe(1);
+    expect(rankAmong(0, 6)).toBe(6);
+    expect(rankLabel(100, 6)).toBe("1st of 6");
+    expect(relativeRankText(80, 6, "Agency")).toBe("2nd of 6 on Agency");
+    expect(relativeRankText(0, 6, "Agency")).toBe("6th of 6 on Agency");
+    expect(relativeRankText(null, 6, "Agency")).toBe(PRODUCT_LANGUAGE.insufficientEvidence);
+    expect(relativeRankText(50, null, "Agency")).toBe(PRODUCT_LANGUAGE.insufficientEvidence);
+    expect(relativeRankText(null, null)).toBe(PRODUCT_LANGUAGE.insufficientEvidence);
+    expect(relativeRankText(null, null)).not.toBe("0");
+    expect(relativeRankText(0, 6)).not.toBe("0");
+    const { view } = loadClub();
+    const cleo = personNamed(view, "Cleo Marsh");
+    const agency = cleo.dimensions.find((d) => d.dimension === "agency");
+    expect(relativeRankText(agency?.percentile, agency?.poolSize, agency?.label)).toBe(
+      "1st of 4 on Agency",
+    );
+    const ife = personNamed(view, "Ife Doyle");
+    const ifeAgency = ife.dimensions.find((d) => d.dimension === "agency");
+    expect(ifeAgency?.state).toBe("insufficient_evidence");
+    expect(relativeRankText(ifeAgency?.percentile, ifeAgency?.poolSize, ifeAgency?.label)).toBe(
+      PRODUCT_LANGUAGE.insufficientEvidence,
+    );
+    expect(String(ifeAgency?.percentile ?? PRODUCT_LANGUAGE.insufficientEvidence)).not.toBe("0");
+  });
+
+  test("CaseView opens on evaluator feedback; ranks and channel hero are off the open path", () => {
+    const { view } = loadClub();
+    const cleo = personNamed(view, "Cleo Marsh");
+    const path = caseOpenPath(cleo);
+    expect(path.afterIdentity[0]).toBe("evaluator_feedback");
+    expect(path.afterIdentity).toEqual([...CASE_OPEN_AFTER_IDENTITY]);
+    expect(path.ranksOnOpenPath).toBe(false);
+    expect(path.decisionBar).toBe(CASE_DECISION_BAR);
+    expect(path.reviewers.length).toBeGreaterThan(0);
+    expect(path.reviewers.length).toBeGreaterThanOrEqual(1);
+    const first = path.reviewers[0];
+    if (!first) throw new Error("expected a reviewer on Cleo");
+    expect(first.blocks[0]?.kind).toBe("evidence");
+    if (first.blocks[0]?.kind !== "evidence") throw new Error("expected evidence first");
+    expect(first.blocks[0].text.length).toBeGreaterThan(0);
+    expect(first.blocks.at(-1)?.kind).toBe("who");
+    expect(first.blocks.findIndex((b) => b.kind === "evidence")).toBeLessThan(
+      first.blocks.findIndex((b) => b.kind === "who"),
+    );
+    for (const reviewer of path.reviewers) {
+      const evidenceAt = reviewer.blocks.findIndex((b) => b.kind === "evidence");
+      const whoAt = reviewer.blocks.findIndex((b) => b.kind === "who");
+      expect(evidenceAt).toBe(0);
+      expect(whoAt).toBeGreaterThan(evidenceAt);
+    }
+
+    const src = read("apps/club/components/case/CaseView.tsx");
+    const scrollAt = src.indexOf("data-case-scroll");
+    const barAt = src.indexOf(`data-decision-bar={CASE_DECISION_BAR}`);
+    const reviewsAt = src.indexOf("<Reviews");
+    const moreAt = src.indexOf("<details");
+    const channelAt = src.indexOf("<ChannelSummary");
+    expect(scrollAt).toBeGreaterThan(0);
+    expect(reviewsAt).toBeGreaterThan(scrollAt);
+    expect(moreAt).toBeGreaterThan(reviewsAt);
+    expect(channelAt).toBeGreaterThan(moreAt);
+    expect(barAt).toBeGreaterThan(moreAt);
+    expect(src.indexOf("<NeighbourhoodPane")).toBeGreaterThan(moreAt);
+    expect(src.indexOf("<ComparisonsPane")).toBeGreaterThan(moreAt);
+    expect(src.indexOf("<DecisionContext")).toBeGreaterThan(moreAt);
+
+    const scrollPane = src.slice(scrollAt, barAt);
+    expect(scrollPane).toContain("overflow-y-auto");
+    expect(scrollPane).toContain("<Reviews");
+    expect(scrollPane).toContain("openByDefault");
+    expect(scrollPane).toContain("<details");
+    expect(scrollPane).toMatch(/<summary[\s\S]*?>\s*More\s*<\/summary>/);
+    expect(scrollPane).toContain("<ChannelSummary");
+    expect(scrollPane).not.toContain("relativeRankText");
+    expect(scrollPane).not.toContain("Need more");
+    expect(scrollPane).not.toContain("DECISION_COPY");
+
+    const bar = src.slice(barAt, src.indexOf("<Sheet"));
+    expect(bar).toContain("shrink-0");
+    expect(bar).toContain("Need more");
+    expect(bar).toContain("Request feedback");
+    expect(bar).not.toContain("overflow-y-auto");
+    expect(bar).not.toContain("<Reviews");
+    expect(bar).not.toContain("<details");
+    expect(src).toContain('data-case-layout="scroll-plus-bar"');
+    expect(src).not.toContain("sticky bottom-0");
+    expect(src).not.toContain("relativeRankText");
+    expect(src).not.toContain("JudgeSim");
+    expect(src).not.toContain("meddle");
+
+    const board = read("apps/club/components/ClubBoard.tsx");
+    expect(board).toContain("h-dvh");
+    expect(board).toContain("overflow-hidden");
+    expect(board).toContain("flex-col overflow-hidden");
+
+    const reviews = read("apps/club/components/case/Evidence.tsx");
+    const openCardAt = reviews.indexOf("data-reviewer-open");
+    const opinionAt = reviews.indexOf("<Opinion", openCardAt);
+    const whoAt = reviews.indexOf("<WhoRow", opinionAt);
+    expect(openCardAt).toBeGreaterThan(0);
+    expect(opinionAt).toBeGreaterThan(openCardAt);
+    expect(whoAt).toBeGreaterThan(opinionAt);
+    expect(reviews).toContain("TRACK_RECORD_COPY");
+    expect(reviews).toContain("Evaluator feedback");
+    expect(reviews).toContain("defaultOpen");
+    expect(reviews).toContain("OPEN_REVIEWERS_PAGE");
+    expect(OPEN_REVIEWERS_PAGE).toBe(5);
+    expect(reviews).not.toContain("JudgeSim");
+    expect(reviews).not.toContain("meddle");
+  });
+
+  test("queue defaults are lean and list ranks use peer-order copy, not percentiles", () => {
+    const list = read("apps/club/components/candidates/CandidateList.tsx");
+    const board = read("apps/club/components/ClubBoard.tsx");
+    expect(list).toContain("Who to review next");
+    expect(list).toContain('dimension: "agency"');
+    expect(list).toContain("To review");
+    expect(list).toContain("Hide filters");
+    expect(list).toContain("relativeRankText");
+    expect(list).not.toContain("Dimension percentile");
+    expect(list).not.toContain("signalText");
+    expect(board).toContain("DEFAULT_SORT");
+  });
+});
 
 describe("council page UX pins", () => {
   test("failed actions surface a recoverable message", () => {

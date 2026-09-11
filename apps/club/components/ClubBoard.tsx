@@ -20,6 +20,7 @@ import type {
 import {
   CandidateList,
   DEFAULT_FILTERS,
+  DEFAULT_SORT,
   type ListFilters,
   type SortKey,
 } from "./candidates/CandidateList.tsx";
@@ -61,7 +62,7 @@ export function ClubBoard({
   const [error, setError] = useState<string | null>(initial.error ?? null);
   const [selectedId, setSelectedId] = useState<string | null>(firstId);
   const [filters, setFilters] = useState<ListFilters>(DEFAULT_FILTERS);
-  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "name", dir: "asc" });
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>(DEFAULT_SORT);
   const [present, setPresent] = useState(false);
   const [pane, setPane] = useState<"list" | "case">(variant === "club" ? "list" : "case");
   const [dirty, setDirty] = useState(false);
@@ -116,6 +117,7 @@ export function ClubBoard({
         if (!result) return { state: stateRef.current, view };
         setSelectedId("p-cleo");
         setFilters(DEFAULT_FILTERS);
+        setSort(DEFAULT_SORT);
         return result;
       },
       { seed: true },
@@ -234,7 +236,7 @@ export function ClubBoard({
   return (
     <div
       data-present={present ? "" : undefined}
-      className="flex min-h-screen flex-col bg-canvas text-ink"
+      className="flex h-dvh flex-col overflow-hidden bg-canvas text-ink"
     >
       {!present ? (
         <TopBar
@@ -268,11 +270,11 @@ export function ClubBoard({
         />
       ) : null}
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {!present ? (
           <aside
             aria-label="Candidates"
-            className={`w-full shrink-0 border-r border-line md:sticky md:top-12 md:block md:h-[calc(100vh-3rem)] md:w-[380px] ${
+            className={`h-full min-h-0 w-full shrink-0 overflow-hidden border-r border-line md:block md:w-[380px] ${
               pane === "case" ? "hidden" : ""
             }`}
           >
@@ -288,7 +290,11 @@ export function ClubBoard({
             />
           </aside>
         ) : null}
-        <main className={`min-w-0 flex-1 ${pane === "list" && !present ? "hidden md:block" : ""}`}>
+        <main
+          className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${
+            pane === "list" && !present ? "hidden md:block" : ""
+          }`}
+        >
           {selected ? (
             <CaseView
               key={selected.id}

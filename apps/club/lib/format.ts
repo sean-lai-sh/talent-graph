@@ -43,6 +43,7 @@ export function plural(n: number, word: string): string {
 /**
  * 1 = best in the comparison pool. Recovers rank from the engine's
  * percentile (100 → 1st, 0 → last) among members and people we've compared.
+ * A measured last place (percentile 0) is last, not Insufficient Evidence.
  */
 export function rankAmong(percentile: number, poolSize: number): number {
   if (poolSize <= 1) return 1;
@@ -54,4 +55,28 @@ export function rankAmong(percentile: number, poolSize: number): number {
 
 export function rankLabel(percentile: number, poolSize: number): string {
   return `${ordinal(rankAmong(percentile, poolSize))} of ${poolSize}`;
+}
+
+/**
+ * Peer-order copy for list + case: "2nd of 6 on Agency".
+ * Missing evidence is Insufficient Evidence — never a 0th / 0 of N.
+ */
+export function relativeRankText(
+  percentile: number | null | undefined,
+  poolSize: number | null | undefined,
+  dimensionLabel?: string,
+): string {
+  if (
+    percentile === null ||
+    percentile === undefined ||
+    poolSize === null ||
+    poolSize === undefined ||
+    !Number.isFinite(percentile) ||
+    !Number.isFinite(poolSize) ||
+    poolSize < 1
+  ) {
+    return PRODUCT_LANGUAGE.insufficientEvidence;
+  }
+  const rank = rankLabel(percentile, poolSize);
+  return dimensionLabel ? `${rank} on ${dimensionLabel}` : rank;
 }

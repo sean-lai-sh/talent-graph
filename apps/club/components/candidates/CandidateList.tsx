@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   REVIEW_BUCKET_COPY,
   REVIEW_BUCKET_ORDER,
@@ -8,8 +9,8 @@ import {
 import { DIMENSIONS, PRODUCT_LANGUAGE } from "../../../../src/domain/constants.ts";
 import type { Dimension } from "../../../../src/domain/types.ts";
 import { dimensionLabel } from "../../../../src/inference/capabilityVector.ts";
-import { BUCKET_TONE, REVIEW_STATUS_TONE } from "../../lib/copy.ts";
-import { rankAmong, signalText } from "../../lib/format.ts";
+import { REVIEW_STATUS_TONE } from "../../lib/copy.ts";
+import { relativeRankText } from "../../lib/format.ts";
 import { REVIEW_STATUS_COPY, REVIEW_STATUS_ORDER } from "../../lib/review.ts";
 import type { SortDir } from "../../lib/tableModel.ts";
 import type { CandidateRow, ReviewStatus } from "../../lib/types.ts";
@@ -34,24 +35,32 @@ export interface ListFilters {
   query: string;
 }
 
+export const REVIEW_NEXT_STATUSES: ReviewStatus[] = ["new", "under_review", "needs_data"];
+
 export const DEFAULT_FILTERS: ListFilters = {
-  statuses: ["new", "under_review", "needs_data"],
+  statuses: [...REVIEW_NEXT_STATUSES],
   bucket: "all",
-  dimension: "problem_solving",
+  dimension: "agency",
   overdueOnly: false,
   query: "",
 };
+
+export const DEFAULT_SORT: { key: SortKey; dir: SortDir } = { key: "days", dir: "desc" };
 
 export const SORT_LABELS: Record<SortKey, string> = {
   name: "Name",
   status: "Status",
   signal: PRODUCT_LANGUAGE.referralSignal,
   incoming: "Incoming",
-  dimension: "Dimension rank",
+  dimension: "Relative rank",
   rubric: "Rubric evaluations",
   days: "Days in review",
   created: "Created",
 };
+
+function sameStatuses(a: ReviewStatus[], b: ReviewStatus[]): boolean {
+  return a.length === b.length && a.every((s) => b.includes(s));
+}
 
 export function CandidateList({
   rows,
@@ -72,6 +81,10 @@ export function CandidateList({
   onSort: (next: { key: SortKey; dir: SortDir }) => void;
   onSelect: (id: string) => void;
 }) {
+  const [more, setMore] = useState(false);
+  const reviewingNext = sameStatuses(filters.statuses, REVIEW_NEXT_STATUSES);
+  const allStatuses = sameStatuses(filters.statuses, [...REVIEW_STATUS_ORDER]);
+
   const toggleStatus = (s: ReviewStatus) =>
     onFilters({
       ...filters,
@@ -85,91 +98,125 @@ export function CandidateList({
       <div className="space-y-2 border-b border-line px-3 py-2">
         <input
           type="search"
-          placeholder="Search candidates"
+          placeholder="Who to review next"
           value={filters.query}
           onChange={(e) => onFilters({ ...filters, query: e.target.value })}
           className="h-7 w-full rounded-md border border-line bg-surface px-2 text-xs placeholder:text-faint"
         />
-        <div className="flex flex-wrap gap-1">
-          {REVIEW_STATUS_ORDER.map((s) => {
-            const on = filters.statuses.includes(s);
-            return (
-              <button
-                key={s}
-                type="button"
-                aria-pressed={on}
-                onClick={() => toggleStatus(s)}
-                className={`press caps rounded border px-1.5 py-0.5 ${
-                  on
-                    ? "border-ink bg-ink text-canvas"
-                    : "border-line text-secondary hover:bg-subtle"
-                }`}
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            aria-pressed={reviewingNext}
+            onClick={() => onFilters({ ...filters, statuses: [...REVIEW_NEXT_STATUSES] })}
+            className={`press rounded-md px-2 py-1 text-xs ${
+              reviewingNext ? "bg-ink text-canvas" : "text-secondary hover:bg-subtle"
+            }`}
+          >
+            To review
+          </button>
+          <button
+            type="button"
+            aria-pressed={allStatuses}
+            onClick={() => onFilters({ ...filters, statuses: [...REVIEW_STATUS_ORDER] })}
+            className={`press rounded-md px-2 py-1 text-xs ${
+              allStatuses ? "bg-ink text-canvas" : "text-secondary hover:bg-subtle"
+            }`}
+          >
+            All
+          </button>
+          <button
+            type="button"
+            aria-expanded={more}
+            onClick={() => setMore((v) => !v)}
+            className="press ml-auto text-xs text-secondary hover:text-ink"
+          >
+            {more ? "Hide filters" : "Filters"}
+          </button>
+        </div>
+        {more ? (
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap gap-1">
+              {REVIEW_STATUS_ORDER.map((s) => {
+                const on = filters.statuses.includes(s);
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => toggleStatus(s)}
+                    className={`press caps rounded border px-1.5 py-0.5 ${
+                      on
+                        ? "border-ink bg-ink text-canvas"
+                        : "border-line text-secondary hover:bg-subtle"
+                    }`}
+                  >
+                    {REVIEW_STATUS_COPY[s]}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <select
+                aria-label="Queue bucket"
+                value={filters.bucket}
+                onChange={(e) =>
+                  onFilters({ ...filters, bucket: e.target.value as ListFilters["bucket"] })
+                }
+                className="h-7 rounded-md border border-line bg-surface px-1.5 text-xs"
               >
-                {REVIEW_STATUS_COPY[s]}
-              </button>
-            );
-          })}
-        </div>
-        <div className="grid grid-cols-2 gap-1.5">
-          <select
-            aria-label="Queue bucket"
-            value={filters.bucket}
-            onChange={(e) =>
-              onFilters({ ...filters, bucket: e.target.value as ListFilters["bucket"] })
-            }
-            className="h-7 rounded-md border border-line bg-surface px-1.5 text-xs"
-          >
-            <option value="all">Any evidence state</option>
-            {REVIEW_BUCKET_ORDER.map((b) => (
-              <option key={b} value={b}>
-                {REVIEW_BUCKET_COPY[b].label}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Capability dimension shown"
-            value={filters.dimension}
-            onChange={(e) => onFilters({ ...filters, dimension: e.target.value as Dimension })}
-            className="h-7 rounded-md border border-line bg-surface px-1.5 text-xs"
-          >
-            {DIMENSIONS.map((d) => (
-              <option key={d} value={d}>
-                {dimensionLabel(d)}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Sort by"
-            value={sort.key}
-            onChange={(e) => onSort({ ...sort, key: e.target.value as SortKey })}
-            className="h-7 rounded-md border border-line bg-surface px-1.5 text-xs"
-          >
-            {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
-              <option key={k} value={k}>
-                Sort: {SORT_LABELS[k]}
-              </option>
-            ))}
-          </select>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => onSort({ ...sort, dir: sort.dir === "asc" ? "desc" : "asc" })}
-              className="press h-7 rounded-md border border-line bg-surface px-2 text-xs text-secondary hover:bg-subtle"
-              title="Toggle sort direction"
-            >
-              {sort.dir === "asc" ? "Ascending" : "Descending"}
-            </button>
-            <label className="flex items-center gap-1 text-[11px] text-secondary">
-              <input
-                type="checkbox"
-                className="accent-ink"
-                checked={filters.overdueOnly}
-                onChange={(e) => onFilters({ ...filters, overdueOnly: e.target.checked })}
-              />
-              overdue
-            </label>
+                <option value="all">Any evidence state</option>
+                {REVIEW_BUCKET_ORDER.map((b) => (
+                  <option key={b} value={b}>
+                    {REVIEW_BUCKET_COPY[b].label}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Capability dimension shown"
+                value={filters.dimension}
+                onChange={(e) => onFilters({ ...filters, dimension: e.target.value as Dimension })}
+                className="h-7 rounded-md border border-line bg-surface px-1.5 text-xs"
+              >
+                {DIMENSIONS.map((d) => (
+                  <option key={d} value={d}>
+                    {dimensionLabel(d)}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Sort by"
+                value={sort.key}
+                onChange={(e) => onSort({ ...sort, key: e.target.value as SortKey })}
+                className="h-7 rounded-md border border-line bg-surface px-1.5 text-xs"
+              >
+                {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
+                  <option key={k} value={k}>
+                    Sort: {SORT_LABELS[k]}
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => onSort({ ...sort, dir: sort.dir === "asc" ? "desc" : "asc" })}
+                  className="press h-7 rounded-md border border-line bg-surface px-2 text-xs text-secondary hover:bg-subtle"
+                  title="Toggle sort direction"
+                >
+                  {sort.dir === "asc" ? "Ascending" : "Descending"}
+                </button>
+                <label className="flex items-center gap-1 text-[11px] text-secondary">
+                  <input
+                    type="checkbox"
+                    className="accent-ink"
+                    checked={filters.overdueOnly}
+                    onChange={(e) => onFilters({ ...filters, overdueOnly: e.target.checked })}
+                  />
+                  overdue
+                </label>
+              </div>
+            </div>
           </div>
-        </div>
+        ) : null}
         <p className="text-[11px] text-muted">
           <Num>{rows.length}</Num> of <Num>{total}</Num>
         </p>
@@ -205,6 +252,7 @@ function Row({
   onSelect: (id: string) => void;
 }) {
   const est = row.estimated[dimension];
+  const rank = relativeRankText(est?.percentile, est?.poolSize, dimensionLabel(dimension));
   return (
     <li>
       <button
@@ -228,36 +276,14 @@ function Row({
         </div>
         <div className="mt-1 flex items-center gap-2 text-[11px] text-muted">
           <span className="min-w-0 flex-1 truncate">{row.affiliation || "—"}</span>
-          {row.bucket ? (
-            <Badge tone={BUCKET_TONE[row.bucket]}>{REVIEW_BUCKET_COPY[row.bucket].label}</Badge>
-          ) : null}
         </div>
-        <div className="mt-1 grid grid-cols-3 gap-2 text-[11px] text-ink">
-          <span>
-            {row.v2Signal === null ? (
-              <span className="insufficient">{signalText(null)}</span>
-            ) : (
-              <>
-                <Num>{row.v2Signal}</Num>
-                <span className="text-muted"> · {row.incomingCount}</span>
-              </>
-            )}
-          </span>
-          <span>
-            {est ? (
-              <>
-                <Num>{rankAmong(est.percentile, est.poolSize)}</Num>
-                <span className="text-muted">/{est.poolSize}</span>
-              </>
-            ) : (
-              <span className="insufficient">{PRODUCT_LANGUAGE.insufficientEvidence}</span>
-            )}
-          </span>
-          <span>
-            <Num>{row.evaluationCount}</Num>
-            <span className="text-muted"> eval</span>
-          </span>
-        </div>
+        <p className="mt-1 text-[11px] text-ink">
+          {est ? (
+            rank
+          ) : (
+            <span className="insufficient">{PRODUCT_LANGUAGE.insufficientEvidence}</span>
+          )}
+        </p>
       </button>
     </li>
   );

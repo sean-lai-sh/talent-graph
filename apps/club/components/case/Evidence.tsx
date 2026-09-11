@@ -7,9 +7,11 @@ import {
   REFERRAL_EVIDENCE_PROMPT,
   SCALE_LABELS,
 } from "../../../../src/domain/constants.ts";
-import { FEEDBACK_TONE } from "../../lib/copy.ts";
-import { hoursLabel } from "../../lib/format.ts";
-import { feedbackState, hoursUntil } from "../../lib/review.ts";
+import { TRACK_RECORD_COPY } from "../../../../src/judges/trackRecord.ts";
+import { FEEDBACK_TONE, TRACK_RECORD_TONE } from "../../lib/copy.ts";
+import { daysLabel, hoursLabel } from "../../lib/format.ts";
+import { feedbackState, hoursUntil, REVIEW_STATUS_COPY } from "../../lib/review.ts";
+import { OPEN_REVIEWERS_PAGE, orderReviewers, trustOf } from "../../lib/reviewLoop.ts";
 import type {
   ComparisonHistoryRow,
   EvidenceItem,
@@ -19,24 +21,6 @@ import type {
   PersonView,
 } from "../../lib/types.ts";
 import { Badge } from "../ui/Badge.tsx";
-
-/** Same window as referral Top-K. Reveal the next five each time. */
-const PAGE = 5;
-
-function isOpinion(group: JudgeEvidenceGroup): boolean {
-  return group.items.some((i) => i.kind === "referral" || i.kind === "evaluation");
-}
-
-function trustOf(group: { trackRecord: { trust: number | null } }): number {
-  return group.trackRecord.trust ?? Number.NEGATIVE_INFINITY;
-}
-
-/** Most trusted first. Missing a track record is not a trust of 0 — those go last. */
-function orderReviewers(groups: JudgeEvidenceGroup[]): JudgeEvidenceGroup[] {
-  return groups.filter(isOpinion).sort((a, b) => {
-    return trustOf(b) - trustOf(a) || a.name.localeCompare(b.name);
-  });
-}
 
 function kindLabel(items: EvidenceItem[]): string {
   const kinds = new Set(items.map((i) => i.kind));
@@ -100,35 +84,59 @@ function Opinion({ items }: { items: EvidenceItem[] }) {
   );
 }
 
-function Reviewer({
+function WhoRow({
   group,
   pending,
+  open,
+  onToggle,
 }: {
   group: JudgeEvidenceGroup;
   pending: FeedbackView | undefined;
+  open: boolean;
+  onToggle: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      className="flex w-full cursor-pointer items-center gap-2 py-2.5 text-left text-sm"
+    >
+      <span className="min-w-0 flex-1 truncate font-medium">{group.name}</span>
+      <Badge tone={TRACK_RECORD_TONE[group.trackRecord.label]}>
+        {TRACK_RECORD_COPY[group.trackRecord.label]}
+      </Badge>
+      <span className="text-xs text-muted">{kindLabel(group.items)}</span>
+      {pending ? (
+        <Badge tone={FEEDBACK_TONE[pending.state]}>
+          {pending.state === "overdue" ? "overdue" : "asked"}
+        </Badge>
+      ) : null}
+    </button>
+  );
+}
+
+function Reviewer({
+  group,
+  pending,
+  defaultOpen,
+}: {
+  group: JudgeEvidenceGroup;
+  pending: FeedbackView | undefined;
+  defaultOpen: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const toggle = () => setOpen((v) => !v);
   return (
     <div className="border-b border-line">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full cursor-pointer items-center gap-2 py-2.5 text-left text-sm"
-      >
-        <span className="min-w-0 flex-1 truncate font-medium">{group.name}</span>
-        <span className="text-xs text-muted">{kindLabel(group.items)}</span>
-        {pending ? (
-          <Badge tone={FEEDBACK_TONE[pending.state]}>
-            {pending.state === "overdue" ? "overdue" : "asked"}
-          </Badge>
-        ) : null}
-      </button>
       {open ? (
-        <div className="pb-2">
+        <div data-reviewer-open="">
           <Opinion items={group.items} />
+          <WhoRow group={group} pending={pending} open onToggle={toggle} />
         </div>
-      ) : null}
+      ) : (
+        <WhoRow group={group} pending={pending} open={false} onToggle={toggle} />
+      )}
     </div>
   );
 }
@@ -177,32 +185,85 @@ export function ComparisonsPane({ person }: { person: PersonView }) {
   const informative = person.comparisonHistory.filter((c) => SHOWN_RESULTS.has(c.result));
   const members = informative.filter((c) => c.otherStatus === "member");
   const others = informative.filter((c) => c.otherStatus !== "member");
-  if (informative.length === 0) {
-    return <p className="text-sm text-muted">{PRODUCT_LANGUAGE.insufficientEvidence}</p>;
-  }
   return (
-    <div className="space-y-6">
-      <p className="sr-only">{PRODUCT_LANGUAGE.relativeCapability}</p>
-      <CompareGroup title="Members" rows={members} />
-      <CompareGroup title="Others we've seen" rows={others} />
-    </div>
+    <section>
+      <h3 className="caps mb-2 text-muted">Pairwise</h3>
+      {informative.length === 0 ? (
+        <p className="text-sm text-muted">{PRODUCT_LANGUAGE.insufficientEvidence}</p>
+      ) : (
+        <div className="space-y-6">
+          <p className="sr-only">{PRODUCT_LANGUAGE.relativeCapability}</p>
+          <CompareGroup title="Members" rows={members} />
+          <CompareGroup title="Others we've seen" rows={others} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function NeighbourhoodPane({ person }: { person: PersonView }) {
+  const { referrers, referred } = person.neighbourhood;
+  return (
+    <section>
+      <h3 className="caps mb-2 text-muted">Neighbourhood</h3>
+      {referrers.length === 0 && referred.length === 0 ? (
+        <p className="text-sm text-muted">{PRODUCT_LANGUAGE.insufficientEvidence}</p>
+      ) : (
+        <div className="space-y-3 text-sm">
+          {referrers.length > 0 ? (
+            <p>
+              <span className="text-muted">Referred by </span>
+              {referrers.map((n) => n.name).join(", ")}
+            </p>
+          ) : null}
+          {referred.length > 0 ? (
+            <p>
+              <span className="text-muted">Referred </span>
+              {referred.map((n) => n.name).join(", ")}
+            </p>
+          ) : null}
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function DecisionContext({ person }: { person: PersonView }) {
+  return (
+    <section>
+      <h3 className="caps mb-2 text-muted">Decision</h3>
+      <p className="text-sm">
+        {REVIEW_STATUS_COPY[person.reviewStatus]}
+        <span className="text-muted"> · {daysLabel(person.daysInReview)} in review</span>
+      </p>
+      {person.queue?.reasons[0] ? (
+        <p className="mt-1 text-sm text-secondary">{person.queue.reasons[0]}</p>
+      ) : null}
+      {person.missingEvidence.length > 0 ? (
+        <ul className="mt-2 space-y-1 text-sm text-secondary">
+          {person.missingEvidence.map((m) => (
+            <li key={`${m.kind}:${m.dimension ?? ""}`}>{m.text}</li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
   );
 }
 
 export function Reviews({
   person,
   clock,
+  openByDefault = false,
   onAsk,
-  onCompare,
   onRecord,
 }: {
   person: PersonView;
   clock: IsoDate;
+  openByDefault?: boolean;
   onAsk: () => void;
-  onCompare: () => void;
   onRecord: (request: FeedbackView) => void;
 }) {
-  const [shown, setShown] = useState(PAGE);
+  const [shown, setShown] = useState(OPEN_REVIEWERS_PAGE);
   const pendingByMember = new Map(
     person.feedback.filter((f) => f.state !== "responded").map((f) => [f.memberId, f]),
   );
@@ -213,21 +274,11 @@ export function Reviews({
   const waiting = person.feedback
     .filter((f) => f.state !== "responded" && !seen.has(f.memberId))
     .sort((a, b) => trustOf(b) - trustOf(a) || a.memberName.localeCompare(b.memberName));
-  const hasCompares = person.comparisonHistory.some((c) => SHOWN_RESULTS.has(c.result));
 
   return (
-    <section className="border-t border-line pt-4">
+    <section>
       <div className="mb-1 flex items-center gap-2">
-        <h3 className="min-w-0 flex-1 text-sm font-semibold">Reviews</h3>
-        {hasCompares ? (
-          <button
-            type="button"
-            onClick={onCompare}
-            className="press text-xs text-secondary hover:text-ink"
-          >
-            View comparisons ›
-          </button>
-        ) : null}
+        <h3 className="min-w-0 flex-1 text-sm font-semibold">Evaluator feedback</h3>
         <button
           type="button"
           onClick={onAsk}
@@ -238,22 +289,29 @@ export function Reviews({
         </button>
       </div>
       {ranked.length > 0 ? (
-        <p className="mb-2 text-xs text-muted">Ranked by whose opinion we should trust first.</p>
+        <p className="mb-2 text-xs text-muted">
+          Evidence first, then who wrote it and their record.
+        </p>
       ) : null}
       {ranked.length === 0 && waiting.length === 0 ? (
         <p className="py-3 text-sm text-muted">Nobody has written anything yet.</p>
       ) : (
         <div>
           {visible.map((g) => (
-            <Reviewer key={g.judgeId} group={g} pending={pendingByMember.get(g.judgeId)} />
+            <Reviewer
+              key={g.judgeId}
+              group={g}
+              pending={pendingByMember.get(g.judgeId)}
+              defaultOpen={openByDefault}
+            />
           ))}
           {hidden > 0 ? (
             <button
               type="button"
-              onClick={() => setShown((n) => n + PAGE)}
+              onClick={() => setShown((n) => n + OPEN_REVIEWERS_PAGE)}
               className="press w-full py-2 text-left text-xs text-secondary hover:text-ink"
             >
-              {Math.min(PAGE, hidden)} more
+              {Math.min(OPEN_REVIEWERS_PAGE, hidden)} more
             </button>
           ) : null}
           {waiting.map((f) => {
@@ -264,6 +322,9 @@ export function Reviews({
                 className="flex items-center gap-2 border-b border-line py-2.5 text-sm"
               >
                 <span className="min-w-0 flex-1 truncate font-medium">{f.memberName}</span>
+                <Badge tone={TRACK_RECORD_TONE[f.trackRecord.label]}>
+                  {TRACK_RECORD_COPY[f.trackRecord.label]}
+                </Badge>
                 <span className="text-xs text-muted">{hoursLabel(hoursUntil(f.dueAt, clock))}</span>
                 <Badge tone={FEEDBACK_TONE[state]}>{state}</Badge>
                 <button
