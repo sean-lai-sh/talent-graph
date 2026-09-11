@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "club",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "cd apps/club && exec bun run dev"],
+      "port": 3000
+    }
+  ]
+}

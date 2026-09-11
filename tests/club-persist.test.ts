@@ -6,16 +6,15 @@ import {
   addPerson,
   addReferral,
   computeView,
+  decide,
   EXAMPLE_T_END,
   emptyState,
-  exampleTimeSteps,
   initialState,
   setStatus,
-  usesExampleCalendar,
   wallClockNow,
 } from "../apps/club/lib/engine.ts";
-import { defaultPersonasOnly, selectGraphNodes } from "../apps/club/lib/graphLayout.ts";
-import type { GraphNode } from "../apps/club/lib/types.ts";
+import { reviveState } from "../apps/club/lib/serialize.ts";
+import type { ClubState } from "../apps/club/lib/types.ts";
 
 const root = join(import.meta.dir, "..");
 
@@ -24,24 +23,45 @@ function read(rel: string): string {
 }
 
 describe("SEA-10 Convex persistence path", () => {
-  test("emptyState uses a wall clock, not EXAMPLE_T_END, and skips the example tape", () => {
+  test("emptyState uses a wall clock, not EXAMPLE_T_END; old documents revive with defaults", () => {
     const start = emptyState();
     expect(start.people).toEqual([]);
+    expect(start.feedbackRequests).toEqual([]);
+    expect(start.config.requiredDimensions.length).toBe(7);
     expect(start.now).not.toBe(EXAMPLE_T_END);
     expect(Number.isNaN(Date.parse(start.now))).toBe(false);
     expect(Math.abs(Date.parse(start.now) - Date.now())).toBeLessThan(5_000);
-    expect(usesExampleCalendar(start)).toBe(false);
-
     const view = computeView(start);
     expect(view.now).toBe(start.now);
-    expect(view.timeline.map((frame) => frame.now)).not.toEqual(exampleTimeSteps());
-    expect(view.timeline.some((frame) => frame.now === start.now)).toBe(true);
-
-    const stamped = emptyState(EXAMPLE_T_END);
-    expect(usesExampleCalendar(stamped)).toBe(false);
-    expect(computeView(stamped).timeline.map((frame) => frame.now)).not.toEqual(exampleTimeSteps());
-    expect(usesExampleCalendar(initialState())).toBe(true);
+    expect(view.candidates).toEqual([]);
+    expect(view.counts.underConsideration).toBe(0);
     expect(wallClockNow()).not.toBe(EXAMPLE_T_END);
+
+    // A document written before the council fields existed.
+    const legacy = {
+      people: [
+        {
+          id: "p-old",
+          name: "Old Member",
+          status: "member",
+          createdAt: start.now,
+          updatedAt: start.now,
+        },
+      ],
+      referrals: [],
+      comparisons: [],
+      evaluations: [],
+      outcomes: [],
+      opportunities: [],
+      snapshots: [],
+      now: start.now,
+    } as unknown as ClubState;
+    const revived = reviveState(legacy);
+    expect(revived.people[0]?.reviewStatus).toBe("admitted");
+    expect(revived.feedbackRequests).toEqual([]);
+    expect(revived.config.requiredDimensions.length).toBe(7);
+    expect(computeView(legacy).people[0]?.reviewStatus).toBe("admitted");
+    expect(initialState().now).toBe(EXAMPLE_T_END);
   });
 
   test("engine compile-path stand-in: members / referrals / status via engine (not a live Convex write)", () => {
@@ -53,7 +73,7 @@ describe("SEA-10 Convex persistence path", () => {
     const emptyView = computeView(start);
     expect(emptyView.counts.people).toBe(0);
     expect(emptyView.counts.referrals).toBe(0);
-    expect(emptyView.counts.members).toBe(0);
+    expect(emptyView.counts.admitted).toBe(0);
 
     const ada = addPerson(start, { name: "Ada Cole" });
     expect(ada.error).toBeUndefined();
@@ -84,11 +104,16 @@ describe("SEA-10 Convex persistence path", () => {
     expect(beaView?.incomingCount).toBe(1);
     expect(beaView?.v2Signal).not.toBeNull();
 
-    const accepted = setStatus(referred.state, beaId, "member");
+    expect(beaView?.reviewStatus).toBe("new");
+    expect(beaView?.queue?.bucket).toBe("referred_not_compared");
+    const accepted = decide(referred.state, beaId, "admit");
     expect(accepted.error).toBeUndefined();
     expect(accepted.state.people.find((p) => p.id === beaId)?.status).toBe("member");
-    expect(accepted.view.counts.members).toBe(1);
-    expect(accepted.state.snapshots[0]?.decision).toBe("member");
+    expect(accepted.state.people.find((p) => p.id === beaId)?.reviewStatus).toBe("admitted");
+    expect(accepted.view.counts.admitted).toBe(1);
+    expect(accepted.state.snapshots[0]?.decision).toBe("admitted");
+    const viaStatus = setStatus(referred.state, beaId, "archived");
+    expect(viaStatus.view.people.find((p) => p.id === beaId)?.reviewStatus).toBe("denied");
     expect(accepted.state.snapshots[0]?.personName).toBe("Bea Shah");
     expect(accepted.view.people.find((p) => p.id === beaId)?.v2Signal).toBe(beaView?.v2Signal);
   });
@@ -133,6 +158,10 @@ describe("SEA-10 Convex persistence path", () => {
     expect(shell).toContain("convexConfigured()");
     expect(persisted).toContain("api.club.getBoard");
     expect(persisted).toContain("api.club.addPerson");
+    expect(persisted).toContain("api.club.decide");
+    expect(persisted).toContain("api.club.requestFeedback");
+    expect(persisted).toContain("api.club.recordFeedback");
+    expect(persisted).toContain("api.club.setReviewConfig");
     expect(persisted).toContain("api.club.setStatus");
     expect(persisted).toContain("api.club.addReferral");
     expect(persisted).toContain('variant="club"');
@@ -144,6 +173,13 @@ describe("SEA-10 Convex persistence path", () => {
     expect(club).toContain("setStatusEngine");
     expect(club).toContain("addReferralEngine");
     expect(club).toContain("addPersonEngine");
+    expect(club).toContain("decideEngine");
+    expect(club).toContain("requestFeedbackEngine");
+    expect(club).toContain("recordFeedbackEngine");
+    expect(club).toContain("setReviewConfigEngine");
+    expect(club).not.toContain("meddleReferral");
+    expect(club).not.toContain("setNow");
+    expect(club).toContain("state.now = new Date().toISOString()");
     expect(club).toContain("emptyState()");
     expect(club).not.toContain("EXAMPLE_T");
     expect(club).toContain("authComponent.getAuthUser");
@@ -151,51 +187,39 @@ describe("SEA-10 Convex persistence path", () => {
     expect(club).toContain("not a membership / invite model");
   });
 
-  test("persisted graph defaults to all org members; personas-only hides them", () => {
-    expect(defaultPersonasOnly("club")).toBe(false);
-    expect(defaultPersonasOnly("example")).toBe(true);
-    const nodes: GraphNode[] = [
-      {
-        id: "p-ada",
-        name: "Ada Cole",
-        status: "member",
-        persona: false,
-        v2Signal: null,
-        incomingCount: 0,
-      },
-      {
-        id: "p-bea",
-        name: "Bea Shah",
-        status: "candidate",
-        persona: false,
-        v2Signal: 40,
-        incomingCount: 1,
-      },
-    ];
-    expect(selectGraphNodes(nodes, true)).toEqual([]);
-    expect(selectGraphNodes(nodes, false).map((node) => node.id)).toEqual(["p-bea", "p-ada"]);
+  test("board component resolves actions per variant", () => {
     const board = read("apps/club/components/ClubBoard.tsx");
-    expect(board).toContain("defaultPersonasOnly(variant)");
     expect(board).toContain("resolveBoardActions(variant, actions)");
+    expect(board).toContain('variant === "club"');
   });
 
   test("/club does not fall through to in-memory example actions", async () => {
     const closed = resolveBoardActions("club", {});
-    await expect(closed.setNow(emptyState(), wallClockNow())).rejects.toThrow("is not wired");
-    await expect(closed.setStatus(emptyState(), "p-ada", "member")).rejects.toThrow("is not wired");
+    await expect(closed.decide(emptyState(), "p-ada", "admit")).rejects.toThrow("is not wired");
     await expect(
-      closed.addReferral(emptyState(), {
-        referrerId: "p-ada",
-        candidateId: "p-bea",
-        conviction: 4,
-        confidence: 4,
-        relationshipDepth: 3,
-        evidenceType: "firsthand_work",
-        evidenceText: "Shipped together.",
+      closed.requestFeedback(emptyState(), {
+        candidateId: "p-ada",
+        memberIds: ["p-bea"],
+        note: "",
       }),
+    ).rejects.toThrow("is not wired");
+    await expect(
+      closed.recordFeedback(emptyState(), {
+        evaluatorId: "p-bea",
+        candidateId: "p-ada",
+        dimension: "agency",
+        score: 2,
+        confidence: 3,
+        evidenceText: "Seen it.",
+      }),
+    ).rejects.toThrow("is not wired");
+    await expect(
+      closed.setReviewConfig(emptyState(), { requiredDimensions: ["agency"] }),
     ).rejects.toThrow("is not wired");
     expect(closed.addPerson).toBeUndefined();
     expect(closed.reset).toBeUndefined();
-    expect(resolveBoardActions("example", {}).reset).toBeDefined();
+    const open = resolveBoardActions("example", {});
+    expect(open.reset).toBeDefined();
+    expect(open.addPerson).toBeDefined();
   });
 });

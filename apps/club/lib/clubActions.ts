@@ -1,17 +1,23 @@
 import {
-  actionAddComparison,
-  actionAddReferral,
-  actionMeddleReferral,
+  actionAddPerson,
+  actionDecide,
+  actionRecordFeedback,
+  actionRequestFeedback,
   actionReset,
-  actionSetNow,
-  actionSetStatus,
+  actionSetReviewConfig,
 } from "../app/actions.ts";
 import type { ClubBoardActions } from "./types.ts";
 
-function unwired(name: keyof ClubBoardActions): ClubBoardActions["setNow"] {
-  return async () => {
+type Required = Pick<
+  ClubBoardActions,
+  "decide" | "requestFeedback" | "recordFeedback" | "setReviewConfig"
+>;
+
+function unwired<K extends keyof Required>(name: K): Required[K] {
+  const thrower = async () => {
     throw new Error(`${name} is not wired for this board`);
   };
+  return thrower as unknown as Required[K];
 }
 
 /**
@@ -22,24 +28,21 @@ export function resolveBoardActions(
   variant: "example" | "club",
   actions?: Partial<ClubBoardActions>,
 ): ClubBoardActions {
-  const pick = <K extends keyof ClubBoardActions>(
-    name: K,
-    exampleFn: ClubBoardActions[K],
-  ): ClubBoardActions[K] => {
+  const pick = <K extends keyof Required>(name: K, exampleFn: Required[K]): Required[K] => {
     const override = actions?.[name];
-    if (override) return override as ClubBoardActions[K];
+    if (override) return override as Required[K];
     if (variant === "example") return exampleFn;
-    return unwired(name) as ClubBoardActions[K];
+    return unwired(name);
   };
 
   const resolved: ClubBoardActions = {
-    setNow: pick("setNow", actionSetNow),
-    setStatus: pick("setStatus", actionSetStatus),
-    addReferral: pick("addReferral", actionAddReferral),
-    meddleReferral: pick("meddleReferral", actionMeddleReferral),
-    addComparison: pick("addComparison", actionAddComparison),
+    decide: pick("decide", actionDecide),
+    requestFeedback: pick("requestFeedback", actionRequestFeedback),
+    recordFeedback: pick("recordFeedback", actionRecordFeedback),
+    setReviewConfig: pick("setReviewConfig", actionSetReviewConfig),
   };
-  if (actions?.addPerson) resolved.addPerson = actions.addPerson;
+  const addPerson = actions?.addPerson ?? (variant === "example" ? actionAddPerson : undefined);
+  if (addPerson) resolved.addPerson = addPerson;
   const reset = actions?.reset ?? (variant === "example" ? actionReset : undefined);
   if (reset) resolved.reset = reset;
   return resolved;

@@ -54,6 +54,7 @@ describe("invariants: Referral Signal ≠ Relative Capability", () => {
       "src/analysis/underRecognition.ts", // the diagnostic itself
       "src/analysis/dashboard.ts", // presentation of both, computes nothing
       "src/analysis/drift.ts", // compares runs of either kind (types only)
+      "src/analysis/reviewQueue.ts", // categorical review buckets over both channels; no merged number
       "src/modelRun.ts", // wraps either kind in a ModelRun
       "src/index.ts", // public barrel
     ]);

@@ -1,34 +1,150 @@
 @import "tailwindcss";
 
+/*
+ * Council page design tokens. Three colours: ink (and its greys), one accent,
+ * and danger. Channel hues collapse onto ink so the three evidence columns
+ * stay distinct by content, not by colour. Motion is limited to press
+ * feedback, hover, and popovers; selection, sorting, filtering, and keyboard
+ * navigation never animate.
+ */
 :root {
-  --paper: #f4efe6;
-  --ink: #1c1915;
-  --muted: #6b6458;
-  --line: #d8d0c4;
-  --panel: #fffdf8;
-  --signal: #9a3412;
-  --capability: #1e3a5f;
-  --gap: #3f6212;
-  --warn: #92400e;
+  --gray-0: #ffffff;
+  --gray-50: #fafafa;
+  --gray-100: #f4f4f5;
+  --gray-200: #ebebee;
+  --gray-300: #dcdce0;
+  --gray-400: #b9b9c1;
+  --gray-500: #8a8f98;
+  --gray-600: #62666d;
+  --gray-700: #3f4249;
+  --gray-800: #28282c;
+  --gray-900: #17171a;
+  --gray-950: #0f0f10;
+
+  --canvas: var(--gray-0);
+  --subtle: var(--gray-50);
+  --surface: var(--gray-0);
+  --raised: var(--gray-100);
+  --line: var(--gray-200);
+  --line-strong: var(--gray-300);
+  --ink: var(--gray-900);
+  --secondary: var(--gray-600);
+  --muted: var(--gray-500);
+  --faint: var(--gray-400);
+
+  --accent: #5e6ad2;
+  --accent-hover: #4f5ac0;
+  --accent-tint: #eef0fb;
+  --accent-text: #3d47a8;
+
+  --referral: var(--ink);
+  --referral-tint: var(--subtle);
+  --capability: var(--ink);
+  --capability-tint: var(--subtle);
+  --rubric: var(--ink);
+  --rubric-tint: var(--subtle);
+  --gap: var(--ink);
+  --gap-tint: var(--subtle);
+
+  --warn: var(--muted);
+  --warn-tint: var(--subtle);
+  --danger: #dc2626;
+  --danger-tint: #fdecec;
+  --success: var(--accent-text);
+  --success-tint: var(--accent-tint);
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur-press: 120ms;
+  --dur-hover: 100ms;
+  --dur-popover: 160ms;
+  --shadow-popover: 0 0 0 1px var(--line), 0 4px 12px rgba(15, 15, 16, 0.06);
+  --focus-ring: 0 0 0 2px var(--canvas), 0 0 0 4px var(--accent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --gray-0: #0f0f10;
+    --gray-50: #141416;
+    --gray-100: #19191c;
+    --gray-200: #232326;
+    --gray-300: #2e2e33;
+    --gray-400: #4a4a52;
+    --gray-500: #8a8f98;
+    --gray-600: #a3a7ae;
+    --gray-700: #c6c8cd;
+    --gray-800: #e2e3e6;
+    --gray-900: #f0f0f2;
+    --gray-950: #fafafa;
+    --accent: #7c86e6;
+    --accent-hover: #8f98ec;
+    --accent-tint: #1c1e33;
+    --accent-text: #aab1f0;
+    --referral: var(--ink);
+    --referral-tint: var(--subtle);
+    --capability: var(--ink);
+    --capability-tint: var(--subtle);
+    --rubric: var(--ink);
+    --rubric-tint: var(--subtle);
+    --gap: var(--ink);
+    --gap-tint: var(--subtle);
+    --warn: var(--muted);
+    --warn-tint: var(--subtle);
+    --danger: #f06868;
+    --danger-tint: #2f1414;
+    --success: var(--accent-text);
+    --success-tint: var(--accent-tint);
+    --shadow-popover: 0 0 0 1px var(--line), 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
 }
 
 @theme inline {
-  --color-paper: var(--paper);
-  --color-ink: var(--ink);
-  --color-muted: var(--muted);
+  --color-canvas: var(--canvas);
+  --color-subtle: var(--subtle);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
   --color-line: var(--line);
-  --color-panel: var(--panel);
-  --color-signal: var(--signal);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-secondary: var(--secondary);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-tint: var(--accent-tint);
+  --color-accent-text: var(--accent-text);
+  --color-referral: var(--referral);
+  --color-referral-tint: var(--referral-tint);
   --color-capability: var(--capability);
+  --color-capability-tint: var(--capability-tint);
+  --color-rubric: var(--rubric);
+  --color-rubric-tint: var(--rubric-tint);
   --color-gap: var(--gap);
+  --color-gap-tint: var(--gap-tint);
+  --color-warn: var(--warn);
+  --color-warn-tint: var(--warn-tint);
+  --color-danger: var(--danger);
+  --color-danger-tint: var(--danger-tint);
+  --color-success: var(--success);
+  --color-success-tint: var(--success-tint);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --font-serif: var(--font-newsreader), "Times New Roman", serif;
+}
+
+html {
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Present mode (screen share): one case, larger type. Nothing animates. */
+html:has([data-present]) {
+  font-size: 16px;
 }
 
 html,
 body {
-  background: var(--paper);
+  background: var(--canvas);
   color: var(--ink);
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
 }
@@ -37,18 +153,84 @@ body {
   min-height: 100vh;
 }
 
-.board-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
+.num {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
 }
 
-/* Landscape phones: keep the 12-col board from becoming one tall stack. */
-@media (orientation: landscape) and (max-height: 540px) {
-  .board-graph {
-    max-height: 38vh;
-  }
+.caps {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
 
-  .board-scroll {
-    max-height: 7.5rem;
+/* Press feedback. The one animation every pressable element gets. */
+.press {
+  transition: transform var(--dur-press) var(--ease-out);
+}
+.press:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.row-hover {
+  transition: background-color var(--dur-hover) ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .row-hover:hover {
+    background: var(--subtle);
+  }
+}
+
+.popover {
+  transform-origin: var(--origin, top right);
+  box-shadow: var(--shadow-popover);
+  transition:
+    transform var(--dur-popover) var(--ease-out),
+    opacity var(--dur-popover) var(--ease-out);
+  @starting-style {
+    transform: scale(0.97);
+    opacity: 0;
+  }
+}
+
+.sheet {
+  box-shadow: var(--shadow-popover);
+  transition: transform var(--dur-popover) var(--ease-drawer);
+  @starting-style {
+    transform: translateX(100%);
+  }
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: 6px;
+}
+
+/* Insufficient Evidence is a state, not a low value: muted with a dashed underline. */
+.insufficient {
+  color: var(--muted);
+  text-decoration: underline dashed var(--line-strong);
+  text-underline-offset: 3px;
+}
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .press,
+  .popover,
+  .row-hover {
+    transition-property: opacity, background-color;
+  }
+  .press:active:not(:disabled) {
+    transform: none;
+  }
+  .popover {
+    @starting-style {
+      transform: none;
+    }
   }
 }

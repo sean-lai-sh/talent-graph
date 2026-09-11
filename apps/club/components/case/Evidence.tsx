@@ -1,0 +1,283 @@
+"use client";
+
+import { useState } from "react";
+import {
+  DIMENSION_PROMPTS,
+  PRODUCT_LANGUAGE,
+  REFERRAL_EVIDENCE_PROMPT,
+  SCALE_LABELS,
+} from "../../../../src/domain/constants.ts";
+import { FEEDBACK_TONE } from "../../lib/copy.ts";
+import { hoursLabel } from "../../lib/format.ts";
+import { feedbackState, hoursUntil } from "../../lib/review.ts";
+import type {
+  ComparisonHistoryRow,
+  EvidenceItem,
+  FeedbackView,
+  IsoDate,
+  JudgeEvidenceGroup,
+  PersonView,
+} from "../../lib/types.ts";
+import { Badge } from "../ui/Badge.tsx";
+
+/** Same window as referral Top-K. Reveal the next five each time. */
+const PAGE = 5;
+
+function isOpinion(group: JudgeEvidenceGroup): boolean {
+  return group.items.some((i) => i.kind === "referral" || i.kind === "evaluation");
+}
+
+function trustOf(group: { trackRecord: { trust: number | null } }): number {
+  return group.trackRecord.trust ?? Number.NEGATIVE_INFINITY;
+}
+
+/** Most trusted first. Missing a track record is not a trust of 0 — those go last. */
+function orderReviewers(groups: JudgeEvidenceGroup[]): JudgeEvidenceGroup[] {
+  return groups.filter(isOpinion).sort((a, b) => {
+    return trustOf(b) - trustOf(a) || a.name.localeCompare(b.name);
+  });
+}
+
+function kindLabel(items: EvidenceItem[]): string {
+  const kinds = new Set(items.map((i) => i.kind));
+  const parts = [
+    kinds.has("referral") ? "referred" : "",
+    kinds.has("evaluation") ? "wrote" : "",
+  ].filter(Boolean);
+  return parts.join(" · ") || "reviewed";
+}
+
+function Answer({
+  question,
+  note,
+  children,
+}: {
+  question: string;
+  note?: string;
+  children: string;
+}) {
+  return (
+    <div className="border-b border-line py-2 last:border-b-0">
+      <p className="text-sm text-ink">{question}</p>
+      {note ? <p className="mt-0.5 text-xs text-muted">{note}</p> : null}
+      <p className="mt-1 text-sm leading-snug text-secondary">{children}</p>
+    </div>
+  );
+}
+
+function Opinion({ items }: { items: EvidenceItem[] }) {
+  const rows = items.filter((i) => i.kind === "referral" || i.kind === "evaluation");
+  if (rows.length === 0) return null;
+  return (
+    <div>
+      <p className="sr-only">{PRODUCT_LANGUAGE.structuredEvidence}</p>
+      {rows.map((item) => {
+        if (item.kind === "referral") {
+          return (
+            <Answer
+              key={item.id}
+              question={REFERRAL_EVIDENCE_PROMPT}
+              note={SCALE_LABELS.conviction[item.conviction]}
+            >
+              {item.evidenceText}
+            </Answer>
+          );
+        }
+        if (item.kind === "evaluation") {
+          const note =
+            item.score === null
+              ? PRODUCT_LANGUAGE.notObserved
+              : item.scoreLabel || SCALE_LABELS.rubricNotObserved;
+          return (
+            <Answer key={item.id} question={DIMENSION_PROMPTS[item.dimension]} note={note}>
+              {item.evidenceText || SCALE_LABELS.rubricNotObserved}
+            </Answer>
+          );
+        }
+        return null;
+      })}
+    </div>
+  );
+}
+
+function Reviewer({
+  group,
+  pending,
+}: {
+  group: JudgeEvidenceGroup;
+  pending: FeedbackView | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-b border-line">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full cursor-pointer items-center gap-2 py-2.5 text-left text-sm"
+      >
+        <span className="min-w-0 flex-1 truncate font-medium">{group.name}</span>
+        <span className="text-xs text-muted">{kindLabel(group.items)}</span>
+        {pending ? (
+          <Badge tone={FEEDBACK_TONE[pending.state]}>
+            {pending.state === "overdue" ? "overdue" : "asked"}
+          </Badge>
+        ) : null}
+      </button>
+      {open ? (
+        <div className="pb-2">
+          <Opinion items={group.items} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const SHOWN_RESULTS = new Set(["won", "lost", "tie"]);
+
+function CompareGroup({ title, rows }: { title: string; rows: ComparisonHistoryRow[] }) {
+  if (rows.length === 0) return null;
+  const byOther = new Map<string, ComparisonHistoryRow[]>();
+  for (const row of rows) {
+    const list = byOther.get(row.otherId);
+    if (list) list.push(row);
+    else byOther.set(row.otherId, [row]);
+  }
+  return (
+    <div>
+      <h3 className="caps mb-2 text-muted">{title}</h3>
+      <ul className="space-y-3">
+        {[...byOther.entries()].map(([id, items]) => {
+          const name = items[0]?.otherName ?? id;
+          return (
+            <li key={id}>
+              <p className="text-sm font-medium">{name}</p>
+              <ul className="mt-1 space-y-1">
+                {items.map((c) => (
+                  <li key={c.id} className="text-sm">
+                    <span className={c.result === "won" ? "text-ink" : "text-secondary"}>
+                      {c.result.replace("_", " ")}
+                    </span>
+                    <span className="text-muted"> · {c.dimensionLabel}</span>
+                    {c.evidenceText ? (
+                      <p className="mt-0.5 text-secondary">{c.evidenceText}</p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+export function ComparisonsPane({ person }: { person: PersonView }) {
+  const informative = person.comparisonHistory.filter((c) => SHOWN_RESULTS.has(c.result));
+  const members = informative.filter((c) => c.otherStatus === "member");
+  const others = informative.filter((c) => c.otherStatus !== "member");
+  if (informative.length === 0) {
+    return <p className="text-sm text-muted">{PRODUCT_LANGUAGE.insufficientEvidence}</p>;
+  }
+  return (
+    <div className="space-y-6">
+      <p className="sr-only">{PRODUCT_LANGUAGE.relativeCapability}</p>
+      <CompareGroup title="Members" rows={members} />
+      <CompareGroup title="Others we've seen" rows={others} />
+    </div>
+  );
+}
+
+export function Reviews({
+  person,
+  clock,
+  onAsk,
+  onCompare,
+  onRecord,
+}: {
+  person: PersonView;
+  clock: IsoDate;
+  onAsk: () => void;
+  onCompare: () => void;
+  onRecord: (request: FeedbackView) => void;
+}) {
+  const [shown, setShown] = useState(PAGE);
+  const pendingByMember = new Map(
+    person.feedback.filter((f) => f.state !== "responded").map((f) => [f.memberId, f]),
+  );
+  const ranked = orderReviewers(person.judgeEvidence);
+  const visible = ranked.slice(0, shown);
+  const hidden = ranked.length - visible.length;
+  const seen = new Set(ranked.map((g) => g.judgeId));
+  const waiting = person.feedback
+    .filter((f) => f.state !== "responded" && !seen.has(f.memberId))
+    .sort((a, b) => trustOf(b) - trustOf(a) || a.memberName.localeCompare(b.memberName));
+  const hasCompares = person.comparisonHistory.some((c) => SHOWN_RESULTS.has(c.result));
+
+  return (
+    <section className="border-t border-line pt-4">
+      <div className="mb-1 flex items-center gap-2">
+        <h3 className="min-w-0 flex-1 text-sm font-semibold">Reviews</h3>
+        {hasCompares ? (
+          <button
+            type="button"
+            onClick={onCompare}
+            className="press text-xs text-secondary hover:text-ink"
+          >
+            View comparisons ›
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={onAsk}
+          aria-label="Ask someone"
+          className="press flex h-7 w-7 items-center justify-center rounded-md text-lg leading-none text-secondary hover:bg-subtle hover:text-ink"
+        >
+          +
+        </button>
+      </div>
+      {ranked.length > 0 ? (
+        <p className="mb-2 text-xs text-muted">Ranked by whose opinion we should trust first.</p>
+      ) : null}
+      {ranked.length === 0 && waiting.length === 0 ? (
+        <p className="py-3 text-sm text-muted">Nobody has written anything yet.</p>
+      ) : (
+        <div>
+          {visible.map((g) => (
+            <Reviewer key={g.judgeId} group={g} pending={pendingByMember.get(g.judgeId)} />
+          ))}
+          {hidden > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShown((n) => n + PAGE)}
+              className="press w-full py-2 text-left text-xs text-secondary hover:text-ink"
+            >
+              {Math.min(PAGE, hidden)} more
+            </button>
+          ) : null}
+          {waiting.map((f) => {
+            const state = feedbackState(f, clock);
+            return (
+              <div
+                key={f.id}
+                className="flex items-center gap-2 border-b border-line py-2.5 text-sm"
+              >
+                <span className="min-w-0 flex-1 truncate font-medium">{f.memberName}</span>
+                <span className="text-xs text-muted">{hoursLabel(hoursUntil(f.dueAt, clock))}</span>
+                <Badge tone={FEEDBACK_TONE[state]}>{state}</Badge>
+                <button
+                  type="button"
+                  className="press text-xs text-secondary hover:text-ink"
+                  onClick={() => onRecord(f)}
+                >
+                  Record
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}

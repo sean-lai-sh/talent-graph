@@ -2,6 +2,8 @@
 
 export * from "./analysis/dashboard.ts";
 export * from "./analysis/drift.ts";
+export * from "./analysis/reviewQueue.ts";
+export * from "./analysis/rubricSummary.ts";
 export * from "./analysis/underRecognition.ts";
 export * from "./config.ts";
 export * from "./domain/constants.ts";
@@ -17,6 +19,7 @@ export * from "./inference/logistic.ts";
 export * from "./inference/percentile.ts";
 export * from "./judges/outcomes.ts";
 export * from "./judges/reliability.ts";
+export * from "./judges/trackRecord.ts";
 export * from "./modelRun.ts";
 export * from "./models/blend.ts";
 export * from "./models/registry.ts";
