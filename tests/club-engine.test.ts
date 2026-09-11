@@ -21,6 +21,7 @@ import {
   setReviewConfig,
   setStatus,
 } from "../apps/club/lib/engine.ts";
+import { rankAmong, rankLabel, relativeRankText } from "../apps/club/lib/format.ts";
 import {
   availableDecisions,
   daysBetween,
@@ -478,6 +479,71 @@ function referredInput() {
     evidenceText: "Watched her rewrite a stuck systems problem in a day.",
   };
 }
+
+describe("review-loop display (SEA-13/14/15)", () => {
+  test("relative ranks: 1 is best, last place is not Insufficient Evidence, null is", () => {
+    expect(rankAmong(100, 6)).toBe(1);
+    expect(rankAmong(0, 6)).toBe(6);
+    expect(rankLabel(100, 6)).toBe("1st of 6");
+    expect(relativeRankText(80, 6, "Agency")).toBe("2nd of 6 on Agency");
+    expect(relativeRankText(0, 6, "Agency")).toBe("6th of 6 on Agency");
+    expect(relativeRankText(null, 6, "Agency")).toBe(PRODUCT_LANGUAGE.insufficientEvidence);
+    expect(relativeRankText(50, null, "Agency")).toBe(PRODUCT_LANGUAGE.insufficientEvidence);
+    expect(relativeRankText(null, null)).toBe(PRODUCT_LANGUAGE.insufficientEvidence);
+    expect(relativeRankText(null, null)).not.toBe("0");
+    expect(relativeRankText(0, 6)).not.toBe("0");
+    const { view } = loadClub();
+    const cleo = personNamed(view, "Cleo Marsh");
+    const agency = cleo.dimensions.find((d) => d.dimension === "agency");
+    expect(relativeRankText(agency?.percentile, agency?.poolSize, agency?.label)).toBe(
+      "1st of 4 on Agency",
+    );
+    const ife = personNamed(view, "Ife Doyle");
+    const ifeAgency = ife.dimensions.find((d) => d.dimension === "agency");
+    expect(ifeAgency?.state).toBe("insufficient_evidence");
+    expect(relativeRankText(ifeAgency?.percentile, ifeAgency?.poolSize, ifeAgency?.label)).toBe(
+      PRODUCT_LANGUAGE.insufficientEvidence,
+    );
+    expect(String(ifeAgency?.percentile ?? PRODUCT_LANGUAGE.insufficientEvidence)).not.toBe("0");
+  });
+
+  test("CaseView opens on evaluator feedback with sticky Admit/Deny; More is collapsed", () => {
+    const view = read("apps/club/components/case/CaseView.tsx");
+    const reviews = read("apps/club/components/case/Evidence.tsx");
+    const feedbackAt = view.indexOf("<Reviews");
+    const moreAt = view.indexOf("<details");
+    expect(feedbackAt).toBeGreaterThan(0);
+    expect(moreAt).toBeGreaterThan(feedbackAt);
+    expect(view).toContain("openByDefault");
+    expect(view).toContain("sticky bottom-0");
+    expect(view).toContain("Need more");
+    expect(view).toContain("Request feedback");
+    expect(view).toContain("<details");
+    expect(view).toMatch(/<summary[\s\S]*?>\s*More\s*<\/summary>/);
+    expect(view.indexOf("<ChannelSummary")).toBeGreaterThan(moreAt);
+    expect(view.indexOf("<NeighbourhoodPane")).toBeGreaterThan(moreAt);
+    expect(view.indexOf("<ComparisonsPane")).toBeGreaterThan(moreAt);
+    expect(view.indexOf("<DecisionContext")).toBeGreaterThan(moreAt);
+    expect(reviews).toContain("TRACK_RECORD_COPY");
+    expect(reviews).toContain("Evaluator feedback");
+    expect(reviews).toContain("defaultOpen");
+    expect(reviews).not.toContain("JudgeSim");
+    expect(reviews).not.toContain("meddle");
+  });
+
+  test("queue defaults are lean and list ranks use peer-order copy, not percentiles", () => {
+    const list = read("apps/club/components/candidates/CandidateList.tsx");
+    const board = read("apps/club/components/ClubBoard.tsx");
+    expect(list).toContain("Who to review next");
+    expect(list).toContain('dimension: "agency"');
+    expect(list).toContain("To review");
+    expect(list).toContain("Hide filters");
+    expect(list).toContain("relativeRankText");
+    expect(list).not.toContain("Dimension percentile");
+    expect(list).not.toContain("signalText");
+    expect(board).toContain("DEFAULT_SORT");
+  });
+});
 
 describe("council page UX pins", () => {
   test("failed actions surface a recoverable message", () => {

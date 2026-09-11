@@ -1,6 +1,6 @@
 import { REVIEW_BUCKET_COPY, type ReviewBucket } from "../../../../src/analysis/reviewQueue.ts";
 import { PRODUCT_LANGUAGE } from "../../../../src/domain/constants.ts";
-import { rankLabel } from "../../lib/format.ts";
+import { relativeRankText } from "../../lib/format.ts";
 import type { PersonView } from "../../lib/types.ts";
 import { Num } from "../ui/Num.tsx";
 
@@ -50,8 +50,7 @@ export function ChannelSummary({ person }: { person: PersonView }) {
           <ul className="space-y-0.5 text-sm">
             {ranks.map((d) => (
               <li key={d.dimension} className={d.required ? "text-ink" : "text-secondary"}>
-                <Num>{rankLabel(d.percentile as number, d.poolSize as number)}</Num>
-                <span className="text-muted"> · {d.label}</span>
+                {relativeRankText(d.percentile, d.poolSize, d.label)}
               </li>
             ))}
           </ul>

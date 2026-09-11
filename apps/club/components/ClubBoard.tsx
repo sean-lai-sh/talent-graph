@@ -20,6 +20,7 @@ import type {
 import {
   CandidateList,
   DEFAULT_FILTERS,
+  DEFAULT_SORT,
   type ListFilters,
   type SortKey,
 } from "./candidates/CandidateList.tsx";
@@ -61,7 +62,7 @@ export function ClubBoard({
   const [error, setError] = useState<string | null>(initial.error ?? null);
   const [selectedId, setSelectedId] = useState<string | null>(firstId);
   const [filters, setFilters] = useState<ListFilters>(DEFAULT_FILTERS);
-  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "name", dir: "asc" });
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>(DEFAULT_SORT);
   const [present, setPresent] = useState(false);
   const [pane, setPane] = useState<"list" | "case">(variant === "club" ? "list" : "case");
   const [dirty, setDirty] = useState(false);
@@ -116,6 +117,7 @@ export function ClubBoard({
         if (!result) return { state: stateRef.current, view };
         setSelectedId("p-cleo");
         setFilters(DEFAULT_FILTERS);
+        setSort(DEFAULT_SORT);
         return result;
       },
       { seed: true },

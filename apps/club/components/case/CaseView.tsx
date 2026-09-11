@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { PRODUCT_LANGUAGE } from "../../../../src/domain/constants.ts";
 import { REVIEW_STATUS_TONE } from "../../lib/copy.ts";
+import { relativeRankText } from "../../lib/format.ts";
 import { availableDecisions, DECISION_COPY, REVIEW_STATUS_COPY } from "../../lib/review.ts";
 import type {
   Decision,
@@ -19,17 +21,17 @@ import { Badge } from "../ui/Badge.tsx";
 import { Button } from "../ui/Button.tsx";
 import { Sheet } from "../ui/Sheet.tsx";
 import { ChannelSummary } from "./ChannelSummary.tsx";
-import { ComparisonsPane, Reviews } from "./Evidence.tsx";
+import { ComparisonsPane, DecisionContext, NeighbourhoodPane, Reviews } from "./Evidence.tsx";
 
 const DECISION_VARIANT: Record<Decision, "primary" | "secondary" | "danger" | "ghost"> = {
   start_review: "secondary",
   admit: "primary",
   deny: "danger",
-  request_data: "secondary",
+  request_data: "ghost",
   reopen: "secondary",
 };
 
-const AFTER_READING: ReadonlySet<Decision> = new Set(["admit", "deny", "reopen"]);
+const PRIMARY = new Set<Decision>(["admit", "deny"]);
 
 export function CaseView({
   person,
@@ -57,13 +59,17 @@ export function CaseView({
   onBack: () => void;
 }) {
   const [asking, setAsking] = useState(false);
-  const [comparing, setComparing] = useState(false);
   const [recording, setRecording] = useState<FeedbackView | null>(null);
-  const decisions = availableDecisions(person.reviewStatus).filter((d) => AFTER_READING.has(d));
+  const decisions = availableDecisions(person.reviewStatus);
+  const primary = decisions.filter((d) => PRIMARY.has(d));
+  const secondary = decisions.filter((d) => !PRIMARY.has(d));
+  const ranks = person.dimensions.filter(
+    (d) => d.state === "estimated" && d.percentile !== null && d.poolSize !== null,
+  );
 
   return (
     <article
-      className={`mx-auto w-full ${present ? "max-w-5xl px-8 py-8" : "max-w-4xl px-6 py-5"}`}
+      className={`relative mx-auto w-full pb-24 ${present ? "max-w-5xl px-8 py-8" : "max-w-4xl px-6 py-5"}`}
     >
       <div className="min-w-0">
         <button
@@ -114,18 +120,26 @@ export function CaseView({
             {person.phone ? <span>{person.phone}</span> : null}
           </p>
         )}
-      </div>
-
-      <div className="mt-5">
-        <ChannelSummary person={person} />
+        <p className="mt-3 text-sm">
+          {ranks.length > 0 ? (
+            ranks.map((d, i) => (
+              <span key={d.dimension} className={d.required ? "text-ink" : "text-secondary"}>
+                {i > 0 ? <span className="text-muted"> · </span> : null}
+                {relativeRankText(d.percentile, d.poolSize, d.label)}
+              </span>
+            ))
+          ) : (
+            <span className="insufficient">{PRODUCT_LANGUAGE.insufficientEvidence}</span>
+          )}
+        </p>
       </div>
 
       <div className="mt-6">
         <Reviews
           person={person}
           clock={clock}
+          openByDefault
           onAsk={() => setAsking(true)}
-          onCompare={() => setComparing(true)}
           onRecord={(f) => setRecording(f)}
         />
       </div>
@@ -151,24 +165,50 @@ export function CaseView({
         </div>
       ) : null}
 
-      {decisions.length > 0 ? (
-        <div
-          className={`mt-8 flex flex-wrap items-center gap-2 border-t border-line pt-4 ${
-            present ? "sticky bottom-0 -mx-8 bg-canvas/95 px-8 py-3 backdrop-blur" : ""
-          }`}
-        >
-          {decisions.map((d) => (
-            <Button
-              key={d}
-              variant={DECISION_VARIANT[d]}
-              disabled={busy || !canDecide}
-              onClick={() => onDecide(d)}
-            >
-              {DECISION_COPY[d]}
-            </Button>
-          ))}
+      <details className="mt-8 border-t border-line pt-4">
+        <summary className="press cursor-pointer text-sm font-medium text-secondary hover:text-ink">
+          More
+        </summary>
+        <div className="mt-4 space-y-8">
+          <ChannelSummary person={person} />
+          <NeighbourhoodPane person={person} />
+          <ComparisonsPane person={person} />
+          <DecisionContext person={person} />
         </div>
-      ) : null}
+      </details>
+
+      <div
+        className={`sticky bottom-0 z-10 mt-8 flex flex-wrap items-center gap-2 border-t border-line bg-canvas/95 py-3 backdrop-blur ${
+          present ? "-mx-8 px-8" : "-mx-6 px-6"
+        }`}
+      >
+        {(primary.length > 0 ? primary : secondary).map((d) => (
+          <Button
+            key={d}
+            variant={DECISION_VARIANT[d]}
+            disabled={busy || !canDecide}
+            onClick={() => onDecide(d)}
+          >
+            {DECISION_COPY[d]}
+          </Button>
+        ))}
+        {primary.length > 0
+          ? secondary.map((d) => (
+              <Button
+                key={d}
+                variant={DECISION_VARIANT[d]}
+                size="sm"
+                disabled={busy || !canDecide}
+                onClick={() => onDecide(d)}
+              >
+                {d === "request_data" ? "Need more" : DECISION_COPY[d]}
+              </Button>
+            ))
+          : null}
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => setAsking(true)}>
+          Request feedback
+        </Button>
+      </div>
 
       <Sheet open={asking} title="Ask someone" onClose={() => setAsking(false)}>
         <RequestFeedbackForm
@@ -180,9 +220,6 @@ export function CaseView({
             setAsking(false);
           }}
         />
-      </Sheet>
-      <Sheet open={comparing} title="Comparisons" onClose={() => setComparing(false)}>
-        <ComparisonsPane person={person} />
       </Sheet>
     </article>
   );
