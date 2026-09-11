@@ -98,6 +98,7 @@ import type {
   JudgeEvidenceGroup,
   MemberOption,
   MissingEvidenceItem,
+  NetworkHint,
   PersonView,
   RecordFeedbackInput,
   ReferralView,
@@ -124,7 +125,43 @@ export const EXAMPLE_REQUIRED_DIMENSIONS: readonly Dimension[] = [
 
 const personaSet = new Set<string>(PERSONA_IDS);
 const HOUR = 3_600_000;
-const NOT_SCORED: TrackRecordView = { label: "not_scored", evaluatedCount: 0 };
+const NOT_SCORED: TrackRecordView = { label: "not_scored", evaluatedCount: 0, trust: null };
+
+function networkHintFor(
+  status: PersonStatus,
+  referrers: { status: PersonStatus }[],
+  bucket: ReviewBucket | null,
+  incomingCount: number,
+): NetworkHint | null {
+  if (status === "member") return { lean: "invite", text: "Already in the club." };
+  if (status === "archived") return { lean: "hold", text: "Previously declined." };
+  const members = referrers.filter((r) => r.status === "member").length;
+  if (bucket === "under_recognized" && members >= 1) {
+    return {
+      lean: "look",
+      text: `Quiet on paper, but ${members === 1 ? "a member" : `${members} members`} in the graph referred them.`,
+    };
+  }
+  if (bucket === "ready_to_decide" && members >= 2) {
+    return {
+      lean: "invite",
+      text: `${members} members already sit next to them in the referral graph.`,
+    };
+  }
+  if (bucket === "ready_to_decide") {
+    return { lean: "invite", text: "The observed network has already spoken more than once." };
+  }
+  if (incomingCount <= 1) {
+    return { lean: "hold", text: "Thin graph so far. One edge is not enough to invite." };
+  }
+  if (members >= 2) {
+    return { lean: "look", text: `${members} members are in their neighbourhood.` };
+  }
+  if (incomingCount === 0) {
+    return { lean: "hold", text: "No edges from the club yet." };
+  }
+  return { lean: "look", text: "Some signal in the graph; not enough to lean invite." };
+}
 
 /** Display integer, or null when there is no incoming referral (not a score of 0). */
 function measuredSignal(result: ReferralSignalResult): number | null {
@@ -196,6 +233,11 @@ export function initialState(): ClubState {
     config: { requiredDimensions: [...EXAMPLE_REQUIRED_DIMENSIONS] },
     now: EXAMPLE_T_END,
   };
+  for (const p of state.people) {
+    const slug = p.name.toLowerCase().replace(/[^a-z]+/g, "");
+    p.linkedin ??= `https://www.linkedin.com/in/${slug}`;
+    p.resume ??= `https://example.com/resume/${p.id}`;
+  }
   const idOf = (name: string) => state.people.find((p) => p.name === name)?.id;
   const setReview = (id: string | undefined, review: ReviewStatus) => {
     const p = state.people.find((row) => row.id === id);
@@ -303,7 +345,11 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
     const e = cal.estimates.get(id);
     if (!e) return NOT_SCORED;
     const t = judgeTrackRecord(e, specs.judge_reliability);
-    return { label: t.label, evaluatedCount: t.evaluatedCount };
+    return {
+      label: t.label,
+      evaluatedCount: t.evaluatedCount,
+      trust: e.evaluatedCount === 0 ? null : e.reliability,
+    };
   };
   const trackRank = (t: TrackRecordView) => TRACK_RECORD_ORDER[t.label];
 
@@ -446,6 +492,7 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
           dimensionLabel: dimensionLabel(c.dimension),
           otherId,
           otherName: nameOf(state, otherId),
+          otherStatus: byId.get(otherId)?.status ?? "candidate",
           evaluatorId: c.evaluatorId,
           evaluatorName: nameOf(state, c.evaluatorId),
           outcome: c.outcome,
@@ -516,12 +563,11 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
           (a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id),
         ),
       }))
-      .sort(
-        (a, b) =>
-          trackRank(a.trackRecord) - trackRank(b.trackRecord) ||
-          b.items.length - a.items.length ||
-          a.name.localeCompare(b.name),
-      );
+      .sort((a, b) => {
+        const left = a.trackRecord.trust ?? Number.NEGATIVE_INFINITY;
+        const right = b.trackRecord.trust ?? Number.NEGATIVE_INFINITY;
+        return right - left || a.name.localeCompare(b.name);
+      });
 
     // Missing evidence: built only from engine states and the round's required dimensions.
     const missingEvidence: MissingEvidenceItem[] = [];
@@ -637,6 +683,7 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
       affiliation: p.affiliation ?? "",
       phone: p.phone ?? null,
       linkedin: p.linkedin ?? null,
+      resume: p.resume ?? null,
       status: p.status,
       reviewStatus: review,
       persona: personaSet.has(p.id),
@@ -671,6 +718,12 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
       evaluations: evaluationViews,
       comparisonHistory,
       neighbourhood,
+      networkHint: networkHintFor(
+        p.status,
+        neighbourhood.referrers,
+        entry?.bucket ?? null,
+        incomingCount,
+      ),
     };
   });
 
@@ -678,8 +731,17 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
     .map((p) => {
       const estimated: CandidateRow["estimated"] = {};
       for (const d of p.dimensions) {
-        if (d.state === "estimated" && d.percentile !== null && d.poolConfidence !== null) {
-          estimated[d.dimension] = { percentile: d.percentile, poolConfidence: d.poolConfidence };
+        if (
+          d.state === "estimated" &&
+          d.percentile !== null &&
+          d.poolSize !== null &&
+          d.poolConfidence !== null
+        ) {
+          estimated[d.dimension] = {
+            percentile: d.percentile,
+            poolSize: d.poolSize,
+            poolConfidence: d.poolConfidence,
+          };
         }
       }
       return {
@@ -810,10 +872,12 @@ export function addPerson(state: ClubState, input: AddPersonInput): EngineResult
   const affiliation = trimmed(input.affiliation);
   const phone = trimmed(input.phone);
   const linkedin = trimmed(input.linkedin);
+  const resume = trimmed(input.resume);
   if (bio !== undefined) person.bio = bio;
   if (affiliation !== undefined) person.affiliation = affiliation;
   if (phone !== undefined) person.phone = phone;
   if (linkedin !== undefined) person.linkedin = linkedin;
+  if (resume !== undefined) person.resume = resume;
   next.people.push(person);
   return ok(next);
 }

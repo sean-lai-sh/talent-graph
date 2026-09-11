@@ -1,10 +1,8 @@
 "use client";
 
-import { PRODUCT_LANGUAGE } from "../../../../src/domain/constants.ts";
 import type { AddPersonInput, ClubView, SetReviewConfigInput } from "../../lib/types.ts";
 import { AddPersonForm } from "../forms/AddPersonForm.tsx";
 import { Button } from "../ui/Button.tsx";
-import { Kbd } from "../ui/Kbd.tsx";
 import { Num } from "../ui/Num.tsx";
 import { Popover } from "../ui/Popover.tsx";
 import { RoundSettings } from "./RoundSettings.tsx";
@@ -103,13 +101,6 @@ export function TopBar({
           ) : null}
         </div>
       </div>
-      <p className="hidden border-t border-line px-4 py-1 text-[11px] text-muted xl:block">
-        {PRODUCT_LANGUAGE.referralSignal} is how loud the network is.{" "}
-        {PRODUCT_LANGUAGE.relativeCapability} is how they look on pairwise compares.{" "}
-        {PRODUCT_LANGUAGE.structuredEvidence} is what evaluators wrote on the rubric. Three
-        channels, never one number. Missing evidence is not low ability, and not a score of 0.{" "}
-        <Kbd>J</Kbd> <Kbd>K</Kbd> move between cases.
-      </p>
     </header>
   );
 }

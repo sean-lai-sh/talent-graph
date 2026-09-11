@@ -66,6 +66,7 @@ const clubPerson = v.object({
   // Display metadata for the council page. Never read by src/.
   phone: v.optional(v.string()),
   linkedin: v.optional(v.string()),
+  resume: v.optional(v.string()),
   status: personStatus,
   // Council workflow state; optional so older documents stay valid.
   reviewStatus: v.optional(reviewStatus),

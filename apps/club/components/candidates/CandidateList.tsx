@@ -9,7 +9,7 @@ import { DIMENSIONS, PRODUCT_LANGUAGE } from "../../../../src/domain/constants.t
 import type { Dimension } from "../../../../src/domain/types.ts";
 import { dimensionLabel } from "../../../../src/inference/capabilityVector.ts";
 import { BUCKET_TONE, REVIEW_STATUS_TONE } from "../../lib/copy.ts";
-import { ordinal, signalText } from "../../lib/format.ts";
+import { rankAmong, signalText } from "../../lib/format.ts";
 import { REVIEW_STATUS_COPY, REVIEW_STATUS_ORDER } from "../../lib/review.ts";
 import type { SortDir } from "../../lib/tableModel.ts";
 import type { CandidateRow, ReviewStatus } from "../../lib/types.ts";
@@ -47,7 +47,7 @@ export const SORT_LABELS: Record<SortKey, string> = {
   status: "Status",
   signal: PRODUCT_LANGUAGE.referralSignal,
   incoming: "Incoming",
-  dimension: "Dimension percentile",
+  dimension: "Dimension rank",
   rubric: "Rubric evaluations",
   days: "Days in review",
   created: "Created",
@@ -171,8 +171,7 @@ export function CandidateList({
           </div>
         </div>
         <p className="text-[11px] text-muted">
-          <Num>{rows.length}</Num> of <Num>{total}</Num> · {dimensionLabel(filters.dimension)}{" "}
-          column shows the percentile in its own pool
+          <Num>{rows.length}</Num> of <Num>{total}</Num>
         </p>
       </div>
       <ul className="scroll-thin min-h-0 flex-1 overflow-y-auto" aria-label="Candidates">
@@ -233,30 +232,30 @@ function Row({
             <Badge tone={BUCKET_TONE[row.bucket]}>{REVIEW_BUCKET_COPY[row.bucket].label}</Badge>
           ) : null}
         </div>
-        <div className="mt-1 grid grid-cols-3 gap-2 text-[11px]">
-          <span className="text-referral">
+        <div className="mt-1 grid grid-cols-3 gap-2 text-[11px] text-ink">
+          <span>
             {row.v2Signal === null ? (
               <span className="insufficient">{signalText(null)}</span>
             ) : (
               <>
                 <Num>{row.v2Signal}</Num>
-                <span className="text-muted"> · {row.incomingCount} in</span>
+                <span className="text-muted"> · {row.incomingCount}</span>
               </>
             )}
           </span>
-          <span className="text-capability">
+          <span>
             {est ? (
               <>
-                <Num>{ordinal(est.percentile)}</Num>
-                <span className="text-muted"> · {est.poolConfidence}</span>
+                <Num>{rankAmong(est.percentile, est.poolSize)}</Num>
+                <span className="text-muted">/{est.poolSize}</span>
               </>
             ) : (
               <span className="insufficient">{PRODUCT_LANGUAGE.insufficientEvidence}</span>
             )}
           </span>
-          <span className="text-rubric">
+          <span>
             <Num>{row.evaluationCount}</Num>
-            <span className="text-muted"> rubric</span>
+            <span className="text-muted"> eval</span>
           </span>
         </div>
       </button>

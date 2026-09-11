@@ -121,7 +121,7 @@ describe("council page engine: seed pins", () => {
     );
   });
 
-  test("evidence by judge: grouped by author, ordered by track record then count, no raw weights", () => {
+  test("evidence by judge: grouped by author, ordered by trust, no raw weights", () => {
     const { view } = loadClub();
     const cleo = personNamed(view, "Cleo Marsh");
     const referrerGroups = cleo.judgeEvidence.filter((g) =>
@@ -130,8 +130,9 @@ describe("council page engine: seed pins", () => {
     expect(referrerGroups).toHaveLength(1);
     expect(referrerGroups[0]?.name).toBe("Rafael de Vries");
     expect(referrerGroups[0]?.trackRecord.label).toBe("tends_to_underrate");
-    const ranks = cleo.judgeEvidence.map((g) => TRACK_RECORD_ORDER[g.trackRecord.label]);
-    expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
+    const trusts = cleo.judgeEvidence.map((g) => g.trackRecord.trust ?? Number.NEGATIVE_INFINITY);
+    expect(trusts).toEqual([...trusts].sort((a, b) => b - a));
+    expect(cleo.judgeEvidence.some((g) => g.trackRecord.trust !== null)).toBe(true);
     for (const g of cleo.judgeEvidence) {
       for (const item of g.items) {
         if (item.kind === "referral") expect(item.evidenceText.length).toBeGreaterThan(0);
@@ -453,11 +454,13 @@ describe("council page engine: referrals and compares still validate", () => {
       name: "Ada Cole",
       phone: "+1 555 0100",
       linkedin: "linkedin.com/in/adacole",
+      resume: "https://example.com/ada.pdf",
     });
     expect(added.error).toBeUndefined();
     const ada = added.view.people.find((p) => p.name === "Ada Cole");
     expect(ada?.reviewStatus).toBe("new");
     expect(ada?.phone).toBe("+1 555 0100");
+    expect(ada?.resume).toBe("https://example.com/ada.pdf");
     expect(ada?.queue?.bucket).toBe("no_evidence");
     expect(ada?.missingEvidence[0]?.kind).toBe("no_referrals");
     expect(daysBetween(ada?.createdAt ?? "", added.view.now)).toBe(0);

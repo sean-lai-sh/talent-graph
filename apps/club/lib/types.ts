@@ -29,6 +29,7 @@ export interface ClubPerson {
   /** Display metadata (spec page 1/2). No function in src/ reads these. */
   phone?: string;
   linkedin?: string;
+  resume?: string;
   status: PersonStatus;
   /** Optional so documents written before the council page stay valid. */
   reviewStatus?: ReviewStatus;
@@ -146,10 +147,14 @@ export interface ClubState {
  * View model
  * ------------------------------------------------------------------ */
 
-/** Categorical only. The raw calibration numbers never enter the view. */
 export interface TrackRecordView {
   label: TrackRecordLabel;
   evaluatedCount: number;
+  /**
+   * How much to trust this judge's opinion, in [0, 1]. Null when they have
+   * no scored predictions yet — that is not a trust of 0.
+   */
+  trust: number | null;
 }
 
 export interface CandidateRow {
@@ -166,7 +171,9 @@ export interface CandidateRow {
   firsthandCount: number;
   evaluationCount: number;
   comparisonCount: number;
-  estimated: Partial<Record<Dimension, { percentile: number; poolConfidence: PoolConfidence }>>;
+  estimated: Partial<
+    Record<Dimension, { percentile: number; poolSize: number; poolConfidence: PoolConfidence }>
+  >;
   pendingFeedback: number;
   overdueFeedback: number;
   daysInReview: number;
@@ -321,6 +328,7 @@ export interface ComparisonHistoryRow {
   dimensionLabel: string;
   otherId: string;
   otherName: string;
+  otherStatus: PersonStatus;
   evaluatorId: string;
   evaluatorName: string;
   outcome: ComparisonOutcome;
@@ -336,6 +344,11 @@ export interface NeighbourRef {
   status: PersonStatus;
   referralId: string;
   strength: number;
+}
+
+export interface NetworkHint {
+  lean: "invite" | "look" | "hold";
+  text: string;
 }
 
 export interface GapRow {
@@ -356,6 +369,7 @@ export interface PersonView {
   affiliation: string;
   phone: string | null;
   linkedin: string | null;
+  resume: string | null;
   status: PersonStatus;
   reviewStatus: ReviewStatus;
   persona: boolean;
@@ -380,6 +394,8 @@ export interface PersonView {
   evaluations: EvaluationView[];
   comparisonHistory: ComparisonHistoryRow[];
   neighbourhood: { referrers: NeighbourRef[]; referred: NeighbourRef[] };
+  /** Categorical lean from the referral graph. Not a score. */
+  networkHint: NetworkHint | null;
 }
 
 export interface MemberOption {
@@ -433,6 +449,7 @@ export interface AddPersonInput {
   affiliation?: string;
   phone?: string;
   linkedin?: string;
+  resume?: string;
   status?: PersonStatus;
 }
 

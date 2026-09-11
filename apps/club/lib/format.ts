@@ -39,3 +39,19 @@ export function daysLabel(days: number): string {
 export function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
+
+/**
+ * 1 = best in the comparison pool. Recovers rank from the engine's
+ * percentile (100 → 1st, 0 → last) among members and people we've compared.
+ */
+export function rankAmong(percentile: number, poolSize: number): number {
+  if (poolSize <= 1) return 1;
+  return Math.max(
+    1,
+    Math.min(poolSize, Math.round(poolSize - (percentile / 100) * (poolSize - 1))),
+  );
+}
+
+export function rankLabel(percentile: number, poolSize: number): string {
+  return `${ordinal(rankAmong(percentile, poolSize))} of ${poolSize}`;
+}

@@ -15,6 +15,7 @@ export function AddPersonForm({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [linkedin, setLinkedin] = useState("");
+  const [resume, setResume] = useState("");
   const [affiliation, setAffiliation] = useState("");
   return (
     <form
@@ -22,10 +23,11 @@ export function AddPersonForm({
       onSubmit={(e) => {
         e.preventDefault();
         if (!name.trim() || !phone.trim()) return;
-        onSubmit({ name, phone, linkedin, affiliation });
+        onSubmit({ name, phone, linkedin, resume, affiliation });
         setName("");
         setPhone("");
         setLinkedin("");
+        setResume("");
         setAffiliation("");
       }}
     >
@@ -56,6 +58,9 @@ export function AddPersonForm({
           value={linkedin}
           onChange={(e) => setLinkedin(e.target.value)}
         />
+      </Field>
+      <Field label="Resume">
+        <input className={inputClass} value={resume} onChange={(e) => setResume(e.target.value)} />
       </Field>
       <Field label="Affiliation" hint="Context only. Never influences a number.">
         <input

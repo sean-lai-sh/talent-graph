@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { PRODUCT_LANGUAGE } from "../../../src/domain/constants.ts";
 import { describeActionError } from "../lib/actionError.ts";
 import { resolveBoardActions } from "../lib/clubActions.ts";
+import { rankAmong } from "../lib/format.ts";
 import { type SortDir, sortRows } from "../lib/tableModel.ts";
 import type {
   AddPersonInput,
@@ -141,8 +141,10 @@ export function ClubBoard({
           return c.v2Signal;
         case "incoming":
           return c.incomingCount;
-        case "dimension":
-          return c.estimated[filters.dimension]?.percentile ?? null;
+        case "dimension": {
+          const est = c.estimated[filters.dimension];
+          return est ? rankAmong(est.percentile, est.poolSize) : null;
+        }
         case "rubric":
           return c.evaluationCount;
         case "days":
@@ -293,7 +295,6 @@ export function ClubBoard({
               person={selected}
               members={view.members}
               config={view.config}
-              snapshots={view.snapshots}
               clock={clockIso}
               busy={pending}
               present={present}
@@ -301,7 +302,6 @@ export function ClubBoard({
               onDecide={onDecide}
               onRequestFeedback={onRequestFeedback}
               onRecordFeedback={onRecordFeedback}
-              onSelect={select}
               onBack={() => setPane("list")}
             />
           ) : (
@@ -310,11 +310,6 @@ export function ClubBoard({
                 {variant === "club"
                   ? "Add a person; referrals arrive from the member referral page."
                   : "Reset to seed restores the example."}
-                <p className="mt-2">
-                  Every case shows {PRODUCT_LANGUAGE.referralSignal},{" "}
-                  {PRODUCT_LANGUAGE.relativeCapability}, and {PRODUCT_LANGUAGE.structuredEvidence}{" "}
-                  side by side.
-                </p>
               </EmptyState>
             </div>
           )}

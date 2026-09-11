@@ -188,6 +188,7 @@ export const addPerson = mutation({
     affiliation: optionalName,
     phone: optionalName,
     linkedin: optionalName,
+    resume: optionalName,
     status: v.optional(personStatus),
   },
   handler: async (ctx, args) => {

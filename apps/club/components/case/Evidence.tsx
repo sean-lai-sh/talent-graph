@@ -1,443 +1,283 @@
 "use client";
 
-import { REVIEW_BUCKET_COPY } from "../../../../src/analysis/reviewQueue.ts";
-import { PRODUCT_LANGUAGE, SCALE_LABELS } from "../../../../src/domain/constants.ts";
-import { TRACK_RECORD_COPY } from "../../../../src/judges/trackRecord.ts";
-import { BUCKET_TONE, FEEDBACK_TONE, TRACK_RECORD_TONE } from "../../lib/copy.ts";
-import { fmtDate, fmtDateTime, hoursLabel, ordinal, plural } from "../../lib/format.ts";
+import { useState } from "react";
+import {
+  DIMENSION_PROMPTS,
+  PRODUCT_LANGUAGE,
+  REFERRAL_EVIDENCE_PROMPT,
+  SCALE_LABELS,
+} from "../../../../src/domain/constants.ts";
+import { FEEDBACK_TONE } from "../../lib/copy.ts";
+import { hoursLabel } from "../../lib/format.ts";
 import { feedbackState, hoursUntil } from "../../lib/review.ts";
 import type {
-  ClubSnapshot,
+  ComparisonHistoryRow,
   EvidenceItem,
   FeedbackView,
   IsoDate,
   JudgeEvidenceGroup,
   PersonView,
-  TrackRecordView,
 } from "../../lib/types.ts";
 import { Badge } from "../ui/Badge.tsx";
-import { Button } from "../ui/Button.tsx";
-import { Num } from "../ui/Num.tsx";
-import { Section } from "../ui/Section.tsx";
 
-export function TrackBadge({ track }: { track: TrackRecordView }) {
-  const label = TRACK_RECORD_COPY[track.label];
-  const scored = track.evaluatedCount > 0 ? ` · ${track.evaluatedCount} scored` : "";
-  return (
-    <Badge
-      tone={TRACK_RECORD_TONE[track.label]}
-      title="Track record: how this judge's past referrals matched later outcomes. Referrals only; a label, not a weight."
-    >
-      {label}
-      {scored}
-    </Badge>
-  );
+/** Same window as referral Top-K. Reveal the next five each time. */
+const PAGE = 5;
+
+function isOpinion(group: JudgeEvidenceGroup): boolean {
+  return group.items.some((i) => i.kind === "referral" || i.kind === "evaluation");
 }
 
-export function QueueNote({ person }: { person: PersonView }) {
-  if (!person.queue) return null;
+function trustOf(group: { trackRecord: { trust: number | null } }): number {
+  return group.trackRecord.trust ?? Number.NEGATIVE_INFINITY;
+}
+
+/** Most trusted first. Missing a track record is not a trust of 0 — those go last. */
+function orderReviewers(groups: JudgeEvidenceGroup[]): JudgeEvidenceGroup[] {
+  return groups.filter(isOpinion).sort((a, b) => {
+    return trustOf(b) - trustOf(a) || a.name.localeCompare(b.name);
+  });
+}
+
+function kindLabel(items: EvidenceItem[]): string {
+  const kinds = new Set(items.map((i) => i.kind));
+  const parts = [
+    kinds.has("referral") ? "referred" : "",
+    kinds.has("evaluation") ? "wrote" : "",
+  ].filter(Boolean);
+  return parts.join(" · ") || "reviewed";
+}
+
+function Answer({
+  question,
+  note,
+  children,
+}: {
+  question: string;
+  note?: string;
+  children: string;
+}) {
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs text-secondary">
-      <Badge tone={BUCKET_TONE[person.queue.bucket]}>
-        {REVIEW_BUCKET_COPY[person.queue.bucket].label}
-      </Badge>
-      {person.queue.flags
-        .filter((f) => f !== person.queue?.bucket)
-        .map((f) => (
-          <Badge key={f} tone={BUCKET_TONE[f]}>
-            {REVIEW_BUCKET_COPY[f].label}
-          </Badge>
-        ))}
-      <span>{person.queue.reasons.join(" · ")}</span>
+    <div className="border-b border-line py-2 last:border-b-0">
+      <p className="text-sm text-ink">{question}</p>
+      {note ? <p className="mt-0.5 text-xs text-muted">{note}</p> : null}
+      <p className="mt-1 text-sm leading-snug text-secondary">{children}</p>
     </div>
   );
 }
 
-export function MissingEvidence({
-  person,
-  onAsk,
-}: {
-  person: PersonView;
-  onAsk: (memberId: string) => void;
-}) {
+function Opinion({ items }: { items: EvidenceItem[] }) {
+  const rows = items.filter((i) => i.kind === "referral" || i.kind === "evaluation");
+  if (rows.length === 0) return null;
   return (
-    <Section
-      title="Missing evidence"
-      hint="Built only from engine states and this round's required dimensions."
-    >
-      {person.missingEvidence.length === 0 ? (
-        <p className="text-sm text-muted">Nothing required is missing.</p>
-      ) : (
-        <ul className="list-disc space-y-0.5 pl-5 text-sm">
-          {person.missingEvidence.map((m) => (
-            <li key={`${m.kind}:${m.dimension ?? ""}`}>{m.text}</li>
-          ))}
-        </ul>
-      )}
-      {person.suggestedMembers.length > 0 ? (
-        <div className="mt-3">
-          <p className="caps mb-1 text-muted">Suggested members to ask</p>
-          <ul className="divide-y divide-line rounded-md border border-line">
-            {person.suggestedMembers.map((m) => (
-              <li key={m.personId} className="flex items-center gap-2 px-2 py-1.5 text-sm">
-                <span className="min-w-0 flex-1 truncate">
-                  {m.name} <span className="text-muted">· {m.because}</span>
-                </span>
-                <TrackBadge track={m.trackRecord} />
-                <Button size="sm" variant="ghost" onClick={() => onAsk(m.personId)}>
-                  Request feedback
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-    </Section>
+    <div>
+      <p className="sr-only">{PRODUCT_LANGUAGE.structuredEvidence}</p>
+      {rows.map((item) => {
+        if (item.kind === "referral") {
+          return (
+            <Answer
+              key={item.id}
+              question={REFERRAL_EVIDENCE_PROMPT}
+              note={SCALE_LABELS.conviction[item.conviction]}
+            >
+              {item.evidenceText}
+            </Answer>
+          );
+        }
+        if (item.kind === "evaluation") {
+          const note =
+            item.score === null
+              ? PRODUCT_LANGUAGE.notObserved
+              : item.scoreLabel || SCALE_LABELS.rubricNotObserved;
+          return (
+            <Answer key={item.id} question={DIMENSION_PROMPTS[item.dimension]} note={note}>
+              {item.evidenceText || SCALE_LABELS.rubricNotObserved}
+            </Answer>
+          );
+        }
+        return null;
+      })}
+    </div>
   );
 }
 
-export function FeedbackRequests({
+function Reviewer({
+  group,
+  pending,
+}: {
+  group: JudgeEvidenceGroup;
+  pending: FeedbackView | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-b border-line">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full cursor-pointer items-center gap-2 py-2.5 text-left text-sm"
+      >
+        <span className="min-w-0 flex-1 truncate font-medium">{group.name}</span>
+        <span className="text-xs text-muted">{kindLabel(group.items)}</span>
+        {pending ? (
+          <Badge tone={FEEDBACK_TONE[pending.state]}>
+            {pending.state === "overdue" ? "overdue" : "asked"}
+          </Badge>
+        ) : null}
+      </button>
+      {open ? (
+        <div className="pb-2">
+          <Opinion items={group.items} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const SHOWN_RESULTS = new Set(["won", "lost", "tie"]);
+
+function CompareGroup({ title, rows }: { title: string; rows: ComparisonHistoryRow[] }) {
+  if (rows.length === 0) return null;
+  const byOther = new Map<string, ComparisonHistoryRow[]>();
+  for (const row of rows) {
+    const list = byOther.get(row.otherId);
+    if (list) list.push(row);
+    else byOther.set(row.otherId, [row]);
+  }
+  return (
+    <div>
+      <h3 className="caps mb-2 text-muted">{title}</h3>
+      <ul className="space-y-3">
+        {[...byOther.entries()].map(([id, items]) => {
+          const name = items[0]?.otherName ?? id;
+          return (
+            <li key={id}>
+              <p className="text-sm font-medium">{name}</p>
+              <ul className="mt-1 space-y-1">
+                {items.map((c) => (
+                  <li key={c.id} className="text-sm">
+                    <span className={c.result === "won" ? "text-ink" : "text-secondary"}>
+                      {c.result.replace("_", " ")}
+                    </span>
+                    <span className="text-muted"> · {c.dimensionLabel}</span>
+                    {c.evidenceText ? (
+                      <p className="mt-0.5 text-secondary">{c.evidenceText}</p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+export function ComparisonsPane({ person }: { person: PersonView }) {
+  const informative = person.comparisonHistory.filter((c) => SHOWN_RESULTS.has(c.result));
+  const members = informative.filter((c) => c.otherStatus === "member");
+  const others = informative.filter((c) => c.otherStatus !== "member");
+  if (informative.length === 0) {
+    return <p className="text-sm text-muted">{PRODUCT_LANGUAGE.insufficientEvidence}</p>;
+  }
+  return (
+    <div className="space-y-6">
+      <p className="sr-only">{PRODUCT_LANGUAGE.relativeCapability}</p>
+      <CompareGroup title="Members" rows={members} />
+      <CompareGroup title="Others we've seen" rows={others} />
+    </div>
+  );
+}
+
+export function Reviews({
   person,
   clock,
+  onAsk,
+  onCompare,
   onRecord,
 }: {
   person: PersonView;
   clock: IsoDate;
+  onAsk: () => void;
+  onCompare: () => void;
   onRecord: (request: FeedbackView) => void;
 }) {
-  return (
-    <Section
-      title="Feedback requests"
-      hint="Members have 48 hours. A response is a rubric evaluation from that member."
-    >
-      {person.feedback.length === 0 ? (
-        <p className="text-sm text-muted">No requests yet.</p>
-      ) : (
-        <ul className="divide-y divide-line rounded-md border border-line">
-          {person.feedback.map((f) => {
-            const state = feedbackState(f, clock);
-            return (
-              <li key={f.id} className="flex flex-wrap items-center gap-2 px-2 py-1.5 text-sm">
-                <span className="min-w-0 flex-1">
-                  <span className="font-medium">{f.memberName}</span>{" "}
-                  <TrackBadge track={f.trackRecord} />
-                  {f.note ? <span className="block text-xs text-secondary">{f.note}</span> : null}
-                </span>
-                <span className="text-xs text-muted">requested {fmtDateTime(f.requestedAt)}</span>
-                <Badge tone={FEEDBACK_TONE[state]}>
-                  {state === "responded"
-                    ? `responded ${f.respondedAt ? fmtDate(f.respondedAt) : ""}`
-                    : hoursLabel(hoursUntil(f.dueAt, clock))}
-                </Badge>
-                {state !== "responded" ? (
-                  <Button size="sm" variant="ghost" onClick={() => onRecord(f)}>
-                    Record response
-                  </Button>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </Section>
+  const [shown, setShown] = useState(PAGE);
+  const pendingByMember = new Map(
+    person.feedback.filter((f) => f.state !== "responded").map((f) => [f.memberId, f]),
   );
-}
+  const ranked = orderReviewers(person.judgeEvidence);
+  const visible = ranked.slice(0, shown);
+  const hidden = ranked.length - visible.length;
+  const seen = new Set(ranked.map((g) => g.judgeId));
+  const waiting = person.feedback
+    .filter((f) => f.state !== "responded" && !seen.has(f.memberId))
+    .sort((a, b) => trustOf(b) - trustOf(a) || a.memberName.localeCompare(b.memberName));
+  const hasCompares = person.comparisonHistory.some((c) => SHOWN_RESULTS.has(c.result));
 
-function ItemLine({ item }: { item: EvidenceItem }) {
-  if (item.kind === "referral") {
-    return (
-      <div>
-        <p className="text-sm leading-snug">{item.evidenceText}</p>
-        <p className="mt-0.5 text-[11px] text-muted">
-          <Badge tone="referral">referral</Badge> {item.evidenceType.replace("_", " ")} ·{" "}
-          {SCALE_LABELS.conviction[item.conviction]} · {SCALE_LABELS.confidence[item.confidence]} ·{" "}
-          {SCALE_LABELS.relationshipDepth[item.relationshipDepth]}
-          {item.contributing ? "" : " · outside Top-K"} · {fmtDate(item.createdAt)}
-        </p>
+  return (
+    <section className="border-t border-line pt-4">
+      <div className="mb-1 flex items-center gap-2">
+        <h3 className="min-w-0 flex-1 text-sm font-semibold">Reviews</h3>
+        {hasCompares ? (
+          <button
+            type="button"
+            onClick={onCompare}
+            className="press text-xs text-secondary hover:text-ink"
+          >
+            View comparisons ›
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={onAsk}
+          aria-label="Ask someone"
+          className="press flex h-7 w-7 items-center justify-center rounded-md text-lg leading-none text-secondary hover:bg-subtle hover:text-ink"
+        >
+          +
+        </button>
       </div>
-    );
-  }
-  if (item.kind === "evaluation") {
-    return (
-      <div>
-        <p className="text-sm leading-snug">{item.evidenceText}</p>
-        <p className="mt-0.5 text-[11px] text-muted">
-          <Badge tone="rubric">rubric</Badge> {item.dimensionLabel} ·{" "}
-          {item.score === null
-            ? PRODUCT_LANGUAGE.notObserved
-            : `${item.score}/4 · ${item.scoreLabel}`}
-          {item.confidence !== null ? ` · ${SCALE_LABELS.confidence[item.confidence]}` : ""} ·{" "}
-          {fmtDate(item.createdAt)}
-        </p>
-      </div>
-    );
-  }
-  return (
-    <div>
-      {item.evidenceText ? <p className="text-sm leading-snug">{item.evidenceText}</p> : null}
-      <p className="mt-0.5 text-[11px] text-muted">
-        <Badge tone="capability">compare</Badge> {item.dimensionLabel} ·{" "}
-        {item.result.replace("_", " ")} vs {item.otherName} · {fmtDate(item.createdAt)}
-      </p>
-    </div>
-  );
-}
-
-/** Compares without a note are tallied, not listed: the feed is about what judges said. */
-function silentCompareSummary(items: EvidenceItem[]): string | null {
-  const silent = items.filter((i) => i.kind === "comparison" && !i.evidenceText);
-  if (silent.length === 0) return null;
-  const tally = { won: 0, lost: 0, tie: 0, skip: 0, not_observed: 0 };
-  for (const i of silent) if (i.kind === "comparison") tally[i.result]++;
-  const parts = [
-    tally.won ? `${tally.won} won` : "",
-    tally.lost ? `${tally.lost} lost` : "",
-    tally.tie ? `${tally.tie} tie` : "",
-    tally.skip ? `${tally.skip} skipped` : "",
-    tally.not_observed ? `${tally.not_observed} not observed` : "",
-  ].filter(Boolean);
-  return `${plural(silent.length, "compare")} without a note · ${parts.join(" · ")}`;
-}
-
-export function EvidenceByJudge({ groups }: { groups: JudgeEvidenceGroup[] }) {
-  return (
-    <Section
-      title="Evidence by judge"
-      hint="Every comment on this person, grouped by who wrote it. Judges with a track record come first."
-    >
-      {groups.length === 0 ? (
-        <p className="text-sm text-muted">Nobody has written anything about this person yet.</p>
+      {ranked.length > 0 ? (
+        <p className="mb-2 text-xs text-muted">Ranked by whose opinion we should trust first.</p>
+      ) : null}
+      {ranked.length === 0 && waiting.length === 0 ? (
+        <p className="py-3 text-sm text-muted">Nobody has written anything yet.</p>
       ) : (
-        <ul className="space-y-3">
-          {groups.map((g) => {
-            const comments = g.items.filter((i) => i.kind !== "comparison" || i.evidenceText);
-            const silent = silentCompareSummary(g.items);
-            return (
-              <li key={g.judgeId} className="rounded-lg border border-line">
-                <div className="flex items-center gap-2 border-b border-line bg-subtle px-3 py-1.5">
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{g.name}</span>
-                  <span className="text-[11px] text-muted">
-                    {plural(comments.length, "comment")}
-                  </span>
-                  <TrackBadge track={g.trackRecord} />
-                </div>
-                <ul className="divide-y divide-line">
-                  {comments.map((item) => (
-                    <li key={item.id} className="px-3 py-2">
-                      <ItemLine item={item} />
-                    </li>
-                  ))}
-                  {silent ? <li className="px-3 py-1.5 text-[11px] text-muted">{silent}</li> : null}
-                </ul>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </Section>
-  );
-}
-
-export function Referrals({ person }: { person: PersonView }) {
-  return (
-    <Section
-      title="Why this signal exists"
-      hint={`Incoming referrals. Strength R = X · m, Top-${Math.max(1, person.contributing.length)} contribute.`}
-    >
-      {person.referrals.length === 0 ? (
-        <p className="text-sm text-muted">No incoming referrals.</p>
-      ) : (
-        <ul className="divide-y divide-line rounded-md border border-line">
-          {person.referrals.map((r) => (
-            <li key={r.referralId} className="px-3 py-2">
-              <p className="text-sm leading-snug">{r.evidenceText}</p>
-              <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-                <span className="font-medium text-ink">{r.referrerName}</span>
-                <TrackBadge track={r.judgeTrackRecord} />
-                <span>
-                  {r.evidenceType.replace("_", " ")} · R <Num>{r.strength.toFixed(2)}</Num>
-                  {r.contributing ? "" : " · outside Top-K"}
-                </span>
-              </p>
-            </li>
+        <div>
+          {visible.map((g) => (
+            <Reviewer key={g.judgeId} group={g} pending={pendingByMember.get(g.judgeId)} />
           ))}
-        </ul>
-      )}
-    </Section>
-  );
-}
-
-export function StructuredEvidence({ person }: { person: PersonView }) {
-  return (
-    <Section title={PRODUCT_LANGUAGE.structuredEvidence} hint="Rubric observations, one row each.">
-      {person.evaluations.length === 0 ? (
-        <p className="text-sm text-muted">No rubric evaluations yet.</p>
-      ) : (
-        <table className="w-full text-sm">
-          <thead className="caps text-muted">
-            <tr className="text-left">
-              <th className="py-1 font-medium">Evaluator</th>
-              <th className="py-1 font-medium">Dimension</th>
-              <th className="py-1 font-medium">Score</th>
-              <th className="py-1 font-medium">Evidence</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line">
-            {person.evaluations.map((e) => (
-              <tr key={e.id} className="align-top">
-                <td className="py-1.5 pr-2 whitespace-nowrap">
-                  {e.evaluatorName} <TrackBadge track={e.trackRecord} />
-                </td>
-                <td className="py-1.5 pr-2 whitespace-nowrap text-secondary">{e.dimensionLabel}</td>
-                <td className="py-1.5 pr-2 whitespace-nowrap">
-                  {e.score === null ? (
-                    <span className="text-muted">{SCALE_LABELS.rubricNotObserved}</span>
-                  ) : (
-                    <>
-                      <Num>{e.score}</Num>
-                      <span className="text-muted">/4 · {e.scoreLabel}</span>
-                    </>
-                  )}
-                </td>
-                <td className="py-1.5 text-secondary">{e.evidenceText}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </Section>
-  );
-}
-
-export function PairwiseHistory({ person }: { person: PersonView }) {
-  return (
-    <Section
-      title="Pairwise history"
-      hint="Comparisons involving this person. Skips never count against them."
-    >
-      {person.comparisonHistory.length === 0 ? (
-        <p className="text-sm text-muted">Not compared yet.</p>
-      ) : (
-        <ul className="divide-y divide-line text-sm">
-          {person.comparisonHistory.slice(0, 12).map((c) => (
-            <li key={c.id} className="flex flex-wrap items-baseline gap-2 py-1">
-              <span className="w-32 shrink-0 text-secondary">{c.dimensionLabel}</span>
-              <span
-                className={
-                  c.result === "won"
-                    ? "text-ink"
-                    : c.result === "lost"
-                      ? "text-muted"
-                      : "text-faint"
-                }
-              >
-                {c.result.replace("_", " ")}
-              </span>
-              <span>vs {c.otherName}</span>
-              <span className="text-[11px] text-muted">
-                by {c.evaluatorName} · {fmtDate(c.createdAt)}
-              </span>
-              {c.evidenceText ? (
-                <span className="w-full text-xs text-secondary">{c.evidenceText}</span>
-              ) : null}
-            </li>
-          ))}
-          {person.comparisonHistory.length > 12 ? (
-            <li className="py-1 text-[11px] text-muted">
-              and {person.comparisonHistory.length - 12} more
-            </li>
-          ) : null}
-        </ul>
-      )}
-    </Section>
-  );
-}
-
-export function Neighbourhood({
-  person,
-  onSelect,
-}: {
-  person: PersonView;
-  onSelect: (id: string) => void;
-}) {
-  const list = (rows: PersonView["neighbourhood"]["referrers"], empty: string) =>
-    rows.length === 0 ? (
-      <p className="text-xs text-muted">{empty}</p>
-    ) : (
-      <ul className="flex flex-wrap gap-1.5">
-        {rows.map((n) => (
-          <li key={n.personId}>
+          {hidden > 0 ? (
             <button
               type="button"
-              onClick={() => onSelect(n.personId)}
-              className="press rounded-md border border-line px-2 py-0.5 text-xs hover:bg-subtle"
+              onClick={() => setShown((n) => n + PAGE)}
+              className="press w-full py-2 text-left text-xs text-secondary hover:text-ink"
             >
-              {n.name} <Num className="text-muted">{n.strength.toFixed(2)}</Num>
+              {Math.min(PAGE, hidden)} more
             </button>
-          </li>
-        ))}
-      </ul>
-    );
-  return (
-    <Section title="Referral neighbourhood" hint="Who referred them, and whom they referred.">
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <div>
-          <p className="caps mb-1 text-muted">Referred by</p>
-          {list(person.neighbourhood.referrers, "Nobody.")}
+          ) : null}
+          {waiting.map((f) => {
+            const state = feedbackState(f, clock);
+            return (
+              <div
+                key={f.id}
+                className="flex items-center gap-2 border-b border-line py-2.5 text-sm"
+              >
+                <span className="min-w-0 flex-1 truncate font-medium">{f.memberName}</span>
+                <span className="text-xs text-muted">{hoursLabel(hoursUntil(f.dueAt, clock))}</span>
+                <Badge tone={FEEDBACK_TONE[state]}>{state}</Badge>
+                <button
+                  type="button"
+                  className="press text-xs text-secondary hover:text-ink"
+                  onClick={() => onRecord(f)}
+                >
+                  Record
+                </button>
+              </div>
+            );
+          })}
         </div>
-        <div>
-          <p className="caps mb-1 text-muted">Referred</p>
-          {list(person.neighbourhood.referred, "Nobody.")}
-        </div>
-      </div>
-      {person.gaps.some((g) => g.gap >= 25) ? (
-        <p className="mt-3 text-xs text-gap">
-          <Badge tone="gap">{PRODUCT_LANGUAGE.exploratory}</Badge>{" "}
-          {PRODUCT_LANGUAGE.underRecognitionGap}:{" "}
-          {person.gaps
-            .filter((g) => g.gap >= 25)
-            .map(
-              (g) =>
-                `${g.dimensionLabel} capability ${ordinal(g.capabilityPercentile)} vs referral ${ordinal(g.referralPercentile)} (+${Math.round(g.gap)})`,
-            )
-            .join(" · ")}
-        </p>
-      ) : null}
-    </Section>
-  );
-}
-
-export function DecisionHistory({
-  snapshots,
-  personId,
-}: {
-  snapshots: ClubSnapshot[];
-  personId: string;
-}) {
-  const rows = snapshots.filter((s) => s.personId === personId);
-  return (
-    <Section
-      title="Decision history"
-      hint="What the council recorded, with the evidence at the time."
-    >
-      {rows.length === 0 ? (
-        <p className="text-sm text-muted">No decisions recorded for this person.</p>
-      ) : (
-        <ul className="divide-y divide-line text-sm">
-          {rows.map((s) => (
-            <li key={s.id} className="flex flex-wrap items-baseline gap-2 py-1">
-              <span className="font-medium">{s.decision.replace("_", " ")}</span>
-              <span className="text-xs text-muted">
-                {fmtDateTime(s.createdAt)} · {PRODUCT_LANGUAGE.referralSignal}{" "}
-                {s.values.referralSignal === null
-                  ? PRODUCT_LANGUAGE.insufficientEvidence
-                  : s.values.referralSignal}{" "}
-                · {s.values.incomingCount} incoming
-              </span>
-            </li>
-          ))}
-        </ul>
       )}
-    </Section>
+    </section>
   );
 }

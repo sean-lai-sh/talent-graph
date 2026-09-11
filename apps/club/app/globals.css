@@ -1,10 +1,11 @@
 @import "tailwindcss";
 
 /*
- * Council page design tokens. Linear-style neutrals, one accent, and one hue
- * per evidence channel (the channels are never shown as one number, so they
- * never share a colour). Motion is limited to press feedback, hover, and
- * popovers; selection, sorting, filtering, and keyboard navigation never animate.
+ * Council page design tokens. Three colours: ink (and its greys), one accent,
+ * and danger. Channel hues collapse onto ink so the three evidence columns
+ * stay distinct by content, not by colour. Motion is limited to press
+ * feedback, hover, and popovers; selection, sorting, filtering, and keyboard
+ * navigation never animate.
  */
 :root {
   --gray-0: #ffffff;
@@ -36,21 +37,21 @@
   --accent-tint: #eef0fb;
   --accent-text: #3d47a8;
 
-  --referral: #a16207;
-  --referral-tint: #fdf6e3;
-  --capability: #1d4ed8;
-  --capability-tint: #e8effd;
-  --rubric: #7c3aed;
-  --rubric-tint: #f1ebfd;
-  --gap: #15803d;
-  --gap-tint: #e7f6ec;
+  --referral: var(--ink);
+  --referral-tint: var(--subtle);
+  --capability: var(--ink);
+  --capability-tint: var(--subtle);
+  --rubric: var(--ink);
+  --rubric-tint: var(--subtle);
+  --gap: var(--ink);
+  --gap-tint: var(--subtle);
 
-  --warn: #b45309;
-  --warn-tint: #fff4e5;
+  --warn: var(--muted);
+  --warn-tint: var(--subtle);
   --danger: #dc2626;
   --danger-tint: #fdecec;
-  --success: #16a34a;
-  --success-tint: #e7f6ec;
+  --success: var(--accent-text);
+  --success-tint: var(--accent-tint);
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
@@ -79,20 +80,20 @@
     --accent-hover: #8f98ec;
     --accent-tint: #1c1e33;
     --accent-text: #aab1f0;
-    --referral: #e0a63a;
-    --referral-tint: #2b2411;
-    --capability: #6b93f5;
-    --capability-tint: #121c33;
-    --rubric: #a98af7;
-    --rubric-tint: #1f1733;
-    --gap: #4ade80;
-    --gap-tint: #0f2a1a;
-    --warn: #f0a44a;
-    --warn-tint: #2c2011;
+    --referral: var(--ink);
+    --referral-tint: var(--subtle);
+    --capability: var(--ink);
+    --capability-tint: var(--subtle);
+    --rubric: var(--ink);
+    --rubric-tint: var(--subtle);
+    --gap: var(--ink);
+    --gap-tint: var(--subtle);
+    --warn: var(--muted);
+    --warn-tint: var(--subtle);
     --danger: #f06868;
     --danger-tint: #2f1414;
-    --success: #4ade80;
-    --success-tint: #0f2a1a;
+    --success: var(--accent-text);
+    --success-tint: var(--accent-tint);
     --shadow-popover: 0 0 0 1px var(--line), 0 8px 24px rgba(0, 0, 0, 0.4);
   }
 }
@@ -189,6 +190,14 @@ body {
   @starting-style {
     transform: scale(0.97);
     opacity: 0;
+  }
+}
+
+.sheet {
+  box-shadow: var(--shadow-popover);
+  transition: transform var(--dur-popover) var(--ease-drawer);
+  @starting-style {
+    transform: translateX(100%);
   }
 }
 

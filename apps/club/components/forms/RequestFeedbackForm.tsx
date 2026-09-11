@@ -39,11 +39,7 @@ export function RequestFeedbackForm({
         setNote("");
       }}
     >
-      <p className="text-sm font-medium">Request feedback</p>
-      <p className="text-[11px] text-muted">
-        Members have {FEEDBACK_WINDOW_HOURS} hours. Their answer is a rubric evaluation and lands in
-        Structured Evidence.
-      </p>
+      <p className="text-xs text-muted">{FEEDBACK_WINDOW_HOURS} hours to respond.</p>
       <ul className="scroll-thin max-h-48 space-y-0.5 overflow-y-auto rounded-md border border-line p-1">
         {options.length === 0 ? (
           <li className="px-2 py-1 text-xs text-muted">Nobody to ask yet.</li>
