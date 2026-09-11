@@ -40,7 +40,7 @@ export function PersonaGraph({
   return (
     <svg
       viewBox="0 0 360 320"
-      className="board-graph h-auto w-full max-h-[42vh] xl:max-h-none"
+      className="board-graph h-auto w-full"
       role="img"
       aria-label="Referral network"
     >

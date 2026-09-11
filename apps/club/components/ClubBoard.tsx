@@ -29,8 +29,8 @@ import type {
   PersonView,
   SignalRow,
 } from "../lib/types.ts";
+import { type GraphMode, GraphPanel, useDefaultGraphMode } from "./GraphPanel.tsx";
 import { JudgeSim } from "./JudgeSim.tsx";
-import { PersonaGraph } from "./PersonaGraph.tsx";
 
 function ordinal(n: number): string {
   const v = Math.round(n);
@@ -120,6 +120,8 @@ export function ClubBoard({
   const [error, setError] = useState<string | null>(initial.error ?? null);
   const [selectedId, setSelectedId] = useState<string>(firstId);
   const [personasOnly, setPersonasOnly] = useState(defaultPersonasOnly(variant));
+  const [graphMode, setGraphMode] = useState<GraphMode | null>(null);
+  const defaultGraphMode = useDefaultGraphMode();
   const [dossierEpoch, setDossierEpoch] = useState(0);
   const [dirty, setDirty] = useState(false);
   const [newPersonName, setNewPersonName] = useState("");
@@ -191,15 +193,15 @@ export function ClubBoard({
 
   return (
     <div className="min-h-screen bg-paper text-ink">
-      <header className="board-header sticky top-0 z-10 flex flex-wrap items-end justify-between gap-3 border-b border-line bg-paper px-4 py-3 sm:px-5 sm:py-4">
+      <header className="board-header sticky top-0 z-10 flex flex-wrap items-end justify-between gap-x-4 gap-y-2 border-b border-line bg-paper px-4 py-2.5 sm:px-5">
         <div>
           <p className="text-[11px] uppercase tracking-[0.18em] text-muted">
             {variant === "club" ? "Talent Graph · your club" : "Talent Graph · example admin"}
           </p>
-          <h1 className="font-serif text-xl tracking-tight sm:text-2xl">
+          <h1 className="font-serif text-lg tracking-tight sm:text-xl">
             Who should this club look at?
           </h1>
-          <p className="mt-1 hidden max-w-2xl text-sm text-muted md:block">
+          <p className="mt-0.5 hidden max-w-2xl text-xs text-muted lg:block">
             {variant === "club" ? (
               <>
                 Members, referrals, and status persist in Convex. Views are computed by{" "}
@@ -217,7 +219,7 @@ export function ClubBoard({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
-          <span className="hidden lg:inline">
+          <span className="hidden xl:inline">
             {view.counts.candidates} candidates · {view.counts.members} members ·{" "}
             {view.counts.archived} archived · {view.counts.referrals} referrals ·{" "}
             {view.counts.comparisons} compares
@@ -307,28 +309,17 @@ export function ClubBoard({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 sm:gap-4 sm:p-4 xl:grid-cols-12 xl:grid-rows-[auto_1fr]">
-        <section className="rounded-lg border border-line bg-panel p-3 sm:col-span-1 xl:col-span-3">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-medium">Referral network</h2>
-            <label className="text-[11px] text-muted">
-              <input
-                type="checkbox"
-                className="mr-1 accent-ink"
-                checked={personasOnly}
-                onChange={(e) => setPersonasOnly(e.target.checked)}
-              />
-              personas
-            </label>
-          </div>
-          <PersonaGraph
-            nodes={view.graph.nodes}
-            edges={view.graph.edges}
-            selectedId={selectedId}
-            personasOnly={personasOnly}
-            onSelect={setSelectedId}
-          />
-          <p className="mt-2 text-[11px] leading-relaxed text-muted">
+      <GraphPanel
+        mode={graphMode ?? defaultGraphMode}
+        onMode={setGraphMode}
+        nodes={view.graph.nodes}
+        edges={view.graph.edges}
+        selectedId={selectedId}
+        personasOnly={personasOnly}
+        onPersonasOnly={setPersonasOnly}
+        onSelect={setSelectedId}
+        caption={
+          <>
             Circle size follows {PRODUCT_LANGUAGE.referralSignal} (V2) when there is incoming
             evidence. A dashed circle is {PRODUCT_LANGUAGE.insufficientEvidence} — missing evidence,
             not a score of 0. Solid edges contributed to the signal; dashed edges are real referrals
@@ -337,10 +328,12 @@ export function ClubBoard({
             {variant === "example" && !personasOnly
               ? " Personas stay on the inner ring; other people sit outside so the graph stays readable."
               : ""}
-          </p>
-        </section>
+          </>
+        }
+      />
 
-        <section className="grid grid-cols-1 gap-3 min-[520px]:grid-cols-3 sm:col-span-1 sm:grid-cols-1 xl:col-span-5 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-12 md:gap-4 md:p-4">
+        <section className="grid grid-cols-1 gap-3 min-[520px]:grid-cols-3 md:col-span-5 md:grid-cols-1 md:self-start xl:col-span-4">
           <ListCard
             title={`${PRODUCT_LANGUAGE.referralSignal} · V2`}
             hint="network volume, judge-weighted · loud and quiet on load"
@@ -408,7 +401,7 @@ export function ClubBoard({
           </ListCard>
         </section>
 
-        <section className="rounded-lg border border-line bg-panel p-4 sm:col-span-2 xl:col-span-4 xl:max-h-[calc(100vh-8rem)] xl:overflow-y-auto">
+        <section className="board-scroll rounded-lg border border-line bg-panel p-4 md:sticky md:top-[4.25rem] md:col-span-7 md:max-h-[calc(100vh-5.25rem)] md:overflow-y-auto xl:col-span-8">
           {selected ? (
             <Dossier
               key={`${selected.id}:${dossierEpoch}`}
@@ -429,7 +422,7 @@ export function ClubBoard({
           )}
         </section>
 
-        <section className="rounded-lg border border-line bg-panel p-4 sm:col-span-1 xl:col-span-7">
+        <section className="rounded-lg border border-line bg-panel p-4 md:col-span-7">
           <ComparePanel
             view={view}
             busy={pending}
@@ -448,7 +441,7 @@ export function ClubBoard({
           />
         </section>
 
-        <section className="rounded-lg border border-line bg-panel p-4 sm:col-span-1 xl:col-span-5">
+        <section className="rounded-lg border border-line bg-panel p-4 md:col-span-5">
           <JudgeSim
             view={view}
             busy={pending}
@@ -556,7 +549,7 @@ function ListCard({
     <div className="rounded-lg border border-line bg-panel p-3">
       <h2 className="text-sm font-medium">{title}</h2>
       <p className="mb-2 text-[10px] text-muted">{hint}</p>
-      <div className="board-scroll max-h-56 space-y-0.5 overflow-y-auto xl:max-h-72">
+      <div className="board-scroll max-h-56 space-y-0.5 overflow-y-auto md:max-h-48 xl:max-h-60">
         {showEmpty ? <p className="text-[11px] text-muted">{empty}</p> : children}
       </div>
     </div>

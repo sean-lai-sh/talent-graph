@@ -11,9 +11,10 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "demo": "bun run scripts/demo.ts",
-    "club:web": "bun --cwd apps/club dev",
-    "club:build": "bun --cwd apps/club build",
-    "drift": "bun run scripts/drift.ts"
+    "club:web": "doppler run -- bun --cwd apps/club dev",
+    "club:build": "doppler run -- bun --cwd apps/club build",
+    "drift": "bun run scripts/drift.ts",
+    "club:convex": "doppler run -- bun --cwd apps/club convex:dev"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.14",

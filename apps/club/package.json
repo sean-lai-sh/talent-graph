@@ -3,10 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -H 127.0.0.1",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "dev:doppler": "doppler run -- next dev -H 127.0.0.1",
+    "convex:dev": "convex dev",
+    "convex:doppler": "doppler run -- convex dev",
+    "convex:deploy": "doppler run -- convex deploy"
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.12.5",

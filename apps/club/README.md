@@ -26,17 +26,40 @@ bun --cwd apps/club dev          # http://127.0.0.1:3000
 bun run club:web
 ```
 
-`/` and `/example` need no Convex project. To connect `/club` (signed-in
-owners only):
+`/` and `/example` need no Convex project. `/club` (signed-in owners only)
+is wired to the Convex project `talent-graph` (dev deployment
+`youthful-capybara-14`) with every env var in Doppler `talent-graph/dev`.
+No `.env.local`:
 
 ```sh
-# from apps/club
-npx convex dev
-npx convex env set BETTER_AUTH_SECRET=$(openssl rand -base64 32)
-npx convex env set SITE_URL http://127.0.0.1:3000
+doppler setup            # once per clone; reads repo-root doppler.yaml
+bun run club:convex      # doppler run -- convex dev   (pushes convex/ on change)
+bun run club:web         # doppler run -- next dev     (http://127.0.0.1:3000)
 ```
 
-That writes `NEXT_PUBLIC_CONVEX_*` into `.env.local`. Do not put those keys on the public example deploy.
+Doppler `dev` holds the Next side (`CONVEX_DEPLOYMENT`, `NEXT_PUBLIC_CONVEX_URL`,
+`NEXT_PUBLIC_CONVEX_SITE_URL`, `NEXT_PUBLIC_SITE_URL`) and a mirror of the
+Convex side (`BETTER_AUTH_SECRET`, `SITE_URL`), which is also set on the
+deployment itself via `npx convex env set`. Rotate the secret in both places.
+
+Production is the same shape with its own values. Doppler `talent-graph/prd`
+points at the Convex **prod** deployment `polished-shrimp-424` with
+`SITE_URL` / `NEXT_PUBLIC_SITE_URL` = `https://club-gold-nine.vercel.app`,
+and the prod deployment carries its own `BETTER_AUTH_SECRET`. Vercel does
+not read Doppler on its own: sync `prd` → the Vercel **Production**
+environment (Doppler → Integrations → Vercel), or `vercel env add` the four
+`NEXT_PUBLIC_*` / `CONVEX_DEPLOYMENT` keys. To have Vercel builds also push
+`convex/` to prod, add a `CONVEX_DEPLOY_KEY` (Convex dashboard → Settings →
+Deploy keys) and use `npx convex deploy --cmd 'next build'` as the build
+command. Until then, push prod functions by hand:
+
+```sh
+bun --cwd apps/club run convex:deploy   # doppler run -- convex deploy (targets PROD)
+```
+
+Without Doppler: `npx convex dev` in `apps/club` writes `NEXT_PUBLIC_CONVEX_*`
+into `.env.local`; add `NEXT_PUBLIC_SITE_URL` and set the two Convex vars with
+`npx convex env set`. Do not put any of these keys on the public example deploy.
 
 Required env for a live `/club` door (Sean):
 
