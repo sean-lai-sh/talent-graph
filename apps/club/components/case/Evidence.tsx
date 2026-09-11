@@ -11,6 +11,7 @@ import { TRACK_RECORD_COPY } from "../../../../src/judges/trackRecord.ts";
 import { FEEDBACK_TONE, TRACK_RECORD_TONE } from "../../lib/copy.ts";
 import { daysLabel, hoursLabel } from "../../lib/format.ts";
 import { feedbackState, hoursUntil, REVIEW_STATUS_COPY } from "../../lib/review.ts";
+import { OPEN_REVIEWERS_PAGE, orderReviewers, trustOf } from "../../lib/reviewLoop.ts";
 import type {
   ComparisonHistoryRow,
   EvidenceItem,
@@ -20,24 +21,6 @@ import type {
   PersonView,
 } from "../../lib/types.ts";
 import { Badge } from "../ui/Badge.tsx";
-
-/** Same window as referral Top-K. Reveal the next five each time. */
-const PAGE = 5;
-
-function isOpinion(group: JudgeEvidenceGroup): boolean {
-  return group.items.some((i) => i.kind === "referral" || i.kind === "evaluation");
-}
-
-function trustOf(group: { trackRecord: { trust: number | null } }): number {
-  return group.trackRecord.trust ?? Number.NEGATIVE_INFINITY;
-}
-
-/** Most trusted first. Missing a track record is not a trust of 0 — those go last. */
-function orderReviewers(groups: JudgeEvidenceGroup[]): JudgeEvidenceGroup[] {
-  return groups.filter(isOpinion).sort((a, b) => {
-    return trustOf(b) - trustOf(a) || a.name.localeCompare(b.name);
-  });
-}
 
 function kindLabel(items: EvidenceItem[]): string {
   const kinds = new Set(items.map((i) => i.kind));
@@ -101,6 +84,38 @@ function Opinion({ items }: { items: EvidenceItem[] }) {
   );
 }
 
+function WhoRow({
+  group,
+  pending,
+  open,
+  onToggle,
+}: {
+  group: JudgeEvidenceGroup;
+  pending: FeedbackView | undefined;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      className="flex w-full cursor-pointer items-center gap-2 py-2.5 text-left text-sm"
+    >
+      <span className="min-w-0 flex-1 truncate font-medium">{group.name}</span>
+      <Badge tone={TRACK_RECORD_TONE[group.trackRecord.label]}>
+        {TRACK_RECORD_COPY[group.trackRecord.label]}
+      </Badge>
+      <span className="text-xs text-muted">{kindLabel(group.items)}</span>
+      {pending ? (
+        <Badge tone={FEEDBACK_TONE[pending.state]}>
+          {pending.state === "overdue" ? "overdue" : "asked"}
+        </Badge>
+      ) : null}
+    </button>
+  );
+}
+
 function Reviewer({
   group,
   pending,
@@ -111,30 +126,17 @@ function Reviewer({
   defaultOpen: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const toggle = () => setOpen((v) => !v);
   return (
     <div className="border-b border-line">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full cursor-pointer items-center gap-2 py-2.5 text-left text-sm"
-      >
-        <span className="min-w-0 flex-1 truncate font-medium">{group.name}</span>
-        <Badge tone={TRACK_RECORD_TONE[group.trackRecord.label]}>
-          {TRACK_RECORD_COPY[group.trackRecord.label]}
-        </Badge>
-        <span className="text-xs text-muted">{kindLabel(group.items)}</span>
-        {pending ? (
-          <Badge tone={FEEDBACK_TONE[pending.state]}>
-            {pending.state === "overdue" ? "overdue" : "asked"}
-          </Badge>
-        ) : null}
-      </button>
       {open ? (
-        <div className="pb-2">
+        <div data-reviewer-open="">
           <Opinion items={group.items} />
+          <WhoRow group={group} pending={pending} open onToggle={toggle} />
         </div>
-      ) : null}
+      ) : (
+        <WhoRow group={group} pending={pending} open={false} onToggle={toggle} />
+      )}
     </div>
   );
 }
@@ -261,7 +263,7 @@ export function Reviews({
   onAsk: () => void;
   onRecord: (request: FeedbackView) => void;
 }) {
-  const [shown, setShown] = useState(PAGE);
+  const [shown, setShown] = useState(OPEN_REVIEWERS_PAGE);
   const pendingByMember = new Map(
     person.feedback.filter((f) => f.state !== "responded").map((f) => [f.memberId, f]),
   );
@@ -306,10 +308,10 @@ export function Reviews({
           {hidden > 0 ? (
             <button
               type="button"
-              onClick={() => setShown((n) => n + PAGE)}
+              onClick={() => setShown((n) => n + OPEN_REVIEWERS_PAGE)}
               className="press w-full py-2 text-left text-xs text-secondary hover:text-ink"
             >
-              {Math.min(PAGE, hidden)} more
+              {Math.min(OPEN_REVIEWERS_PAGE, hidden)} more
             </button>
           ) : null}
           {waiting.map((f) => {

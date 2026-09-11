@@ -30,6 +30,12 @@ import {
   nextReviewStatus,
   statusForReview,
 } from "../apps/club/lib/review.ts";
+import {
+  CASE_DECISION_BAR,
+  CASE_OPEN_AFTER_IDENTITY,
+  caseOpenPath,
+  OPEN_REVIEWERS_PAGE,
+} from "../apps/club/lib/reviewLoop.ts";
 import { sortRows } from "../apps/club/lib/tableModel.ts";
 import { loadSpecs } from "../src/config.ts";
 import { BANNED_LANGUAGE, PRODUCT_LANGUAGE, SCALE_LABELS } from "../src/domain/constants.ts";
@@ -507,26 +513,88 @@ describe("review-loop display (SEA-13/14/15)", () => {
     expect(String(ifeAgency?.percentile ?? PRODUCT_LANGUAGE.insufficientEvidence)).not.toBe("0");
   });
 
-  test("CaseView opens on evaluator feedback with sticky Admit/Deny; More is collapsed", () => {
-    const view = read("apps/club/components/case/CaseView.tsx");
+  test("CaseView opens on evaluator feedback; ranks and channel hero are off the open path", () => {
+    const { view } = loadClub();
+    const cleo = personNamed(view, "Cleo Marsh");
+    const path = caseOpenPath(cleo);
+    expect(path.afterIdentity[0]).toBe("evaluator_feedback");
+    expect(path.afterIdentity).toEqual([...CASE_OPEN_AFTER_IDENTITY]);
+    expect(path.ranksOnOpenPath).toBe(false);
+    expect(path.decisionBar).toBe(CASE_DECISION_BAR);
+    expect(path.reviewers.length).toBeGreaterThan(0);
+    expect(path.reviewers.length).toBeGreaterThanOrEqual(1);
+    const first = path.reviewers[0];
+    if (!first) throw new Error("expected a reviewer on Cleo");
+    expect(first.blocks[0]?.kind).toBe("evidence");
+    if (first.blocks[0]?.kind !== "evidence") throw new Error("expected evidence first");
+    expect(first.blocks[0].text.length).toBeGreaterThan(0);
+    expect(first.blocks.at(-1)?.kind).toBe("who");
+    expect(first.blocks.findIndex((b) => b.kind === "evidence")).toBeLessThan(
+      first.blocks.findIndex((b) => b.kind === "who"),
+    );
+    for (const reviewer of path.reviewers) {
+      const evidenceAt = reviewer.blocks.findIndex((b) => b.kind === "evidence");
+      const whoAt = reviewer.blocks.findIndex((b) => b.kind === "who");
+      expect(evidenceAt).toBe(0);
+      expect(whoAt).toBeGreaterThan(evidenceAt);
+    }
+
+    const src = read("apps/club/components/case/CaseView.tsx");
+    const scrollAt = src.indexOf("data-case-scroll");
+    const barAt = src.indexOf(`data-decision-bar={CASE_DECISION_BAR}`);
+    const reviewsAt = src.indexOf("<Reviews");
+    const moreAt = src.indexOf("<details");
+    const channelAt = src.indexOf("<ChannelSummary");
+    expect(scrollAt).toBeGreaterThan(0);
+    expect(reviewsAt).toBeGreaterThan(scrollAt);
+    expect(moreAt).toBeGreaterThan(reviewsAt);
+    expect(channelAt).toBeGreaterThan(moreAt);
+    expect(barAt).toBeGreaterThan(moreAt);
+    expect(src.indexOf("<NeighbourhoodPane")).toBeGreaterThan(moreAt);
+    expect(src.indexOf("<ComparisonsPane")).toBeGreaterThan(moreAt);
+    expect(src.indexOf("<DecisionContext")).toBeGreaterThan(moreAt);
+
+    const scrollPane = src.slice(scrollAt, barAt);
+    expect(scrollPane).toContain("overflow-y-auto");
+    expect(scrollPane).toContain("<Reviews");
+    expect(scrollPane).toContain("openByDefault");
+    expect(scrollPane).toContain("<details");
+    expect(scrollPane).toMatch(/<summary[\s\S]*?>\s*More\s*<\/summary>/);
+    expect(scrollPane).toContain("<ChannelSummary");
+    expect(scrollPane).not.toContain("relativeRankText");
+    expect(scrollPane).not.toContain("Need more");
+    expect(scrollPane).not.toContain("DECISION_COPY");
+
+    const bar = src.slice(barAt, src.indexOf("<Sheet"));
+    expect(bar).toContain("shrink-0");
+    expect(bar).toContain("Need more");
+    expect(bar).toContain("Request feedback");
+    expect(bar).not.toContain("overflow-y-auto");
+    expect(bar).not.toContain("<Reviews");
+    expect(bar).not.toContain("<details");
+    expect(src).toContain('data-case-layout="scroll-plus-bar"');
+    expect(src).not.toContain("sticky bottom-0");
+    expect(src).not.toContain("relativeRankText");
+    expect(src).not.toContain("JudgeSim");
+    expect(src).not.toContain("meddle");
+
+    const board = read("apps/club/components/ClubBoard.tsx");
+    expect(board).toContain("h-dvh");
+    expect(board).toContain("overflow-hidden");
+    expect(board).toContain("flex-col overflow-hidden");
+
     const reviews = read("apps/club/components/case/Evidence.tsx");
-    const feedbackAt = view.indexOf("<Reviews");
-    const moreAt = view.indexOf("<details");
-    expect(feedbackAt).toBeGreaterThan(0);
-    expect(moreAt).toBeGreaterThan(feedbackAt);
-    expect(view).toContain("openByDefault");
-    expect(view).toContain("sticky bottom-0");
-    expect(view).toContain("Need more");
-    expect(view).toContain("Request feedback");
-    expect(view).toContain("<details");
-    expect(view).toMatch(/<summary[\s\S]*?>\s*More\s*<\/summary>/);
-    expect(view.indexOf("<ChannelSummary")).toBeGreaterThan(moreAt);
-    expect(view.indexOf("<NeighbourhoodPane")).toBeGreaterThan(moreAt);
-    expect(view.indexOf("<ComparisonsPane")).toBeGreaterThan(moreAt);
-    expect(view.indexOf("<DecisionContext")).toBeGreaterThan(moreAt);
+    const openCardAt = reviews.indexOf("data-reviewer-open");
+    const opinionAt = reviews.indexOf("<Opinion", openCardAt);
+    const whoAt = reviews.indexOf("<WhoRow", opinionAt);
+    expect(openCardAt).toBeGreaterThan(0);
+    expect(opinionAt).toBeGreaterThan(openCardAt);
+    expect(whoAt).toBeGreaterThan(opinionAt);
     expect(reviews).toContain("TRACK_RECORD_COPY");
     expect(reviews).toContain("Evaluator feedback");
     expect(reviews).toContain("defaultOpen");
+    expect(reviews).toContain("OPEN_REVIEWERS_PAGE");
+    expect(OPEN_REVIEWERS_PAGE).toBe(5);
     expect(reviews).not.toContain("JudgeSim");
     expect(reviews).not.toContain("meddle");
   });
