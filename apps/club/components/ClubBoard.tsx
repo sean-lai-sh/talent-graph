@@ -32,7 +32,7 @@ export function ClubBoard({
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-paper text-ink">
+    <div className="flex min-h-screen flex-col bg-paper text-ink lg:h-screen lg:overflow-hidden">
       <BoardHeader
         variant={variant}
         surface="review"
@@ -70,7 +70,7 @@ export function ClubBoard({
         />
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 lg:grid-cols-[minmax(18rem,26rem)_1fr] lg:items-stretch sm:gap-4 sm:p-4">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 sm:gap-4 sm:p-4 lg:grid-cols-[minmax(18rem,26rem)_1fr] lg:items-stretch lg:overflow-hidden">
         <CandidateQueue
           title="Candidates"
           people={queue}
