@@ -56,7 +56,7 @@ export function ClubBoard({
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-paper text-ink">
+    <div className="flex min-h-screen flex-col bg-paper text-ink lg:h-screen lg:overflow-hidden">
       <BoardHeader
         variant={variant}
         surface="review"
@@ -97,8 +97,8 @@ export function ClubBoard({
         />
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 sm:gap-4 sm:p-4 lg:grid-cols-[minmax(18rem,26rem)_1fr] lg:items-stretch">
-        <div className="flex min-h-0 flex-col gap-2">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 sm:gap-4 sm:p-4 lg:grid-cols-[minmax(18rem,26rem)_1fr] lg:items-stretch lg:overflow-hidden">
+        <div className="flex min-h-0 flex-col gap-2 lg:overflow-hidden">
           <div className="flex rounded-lg border border-line bg-panel p-1">
             {TABS.map((t) => (
               <button
