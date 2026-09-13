@@ -1,0 +1,76 @@
+# Shared paths and process helpers for verify-club. Source this; do not run it.
+
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$SKILL_DIR/../../.." && pwd)"
+RUNS_DIR="$SKILL_DIR/runs"
+EVIDENCE_ROOT="$SKILL_DIR/evidence"
+CURRENT_FILE="$RUNS_DIR/current"
+
+VERIFY_CLUB_HOST="${VERIFY_CLUB_HOST:-127.0.0.1}"
+VERIFY_CLUB_PORT="${VERIFY_CLUB_PORT:-43173}"
+
+die() {
+  echo "verify-club: $*" >&2
+  exit 1
+}
+
+run_dir() {
+  local id="${1:-}"
+  if [[ -z "$id" ]]; then
+    [[ -f "$CURRENT_FILE" ]] || die "no current run (launch first)"
+    id="$(cat "$CURRENT_FILE")"
+  fi
+  echo "$RUNS_DIR/$id"
+}
+
+read_meta() {
+  local dir
+  dir="$(run_dir "${1:-}")"
+  [[ -f "$dir/pid" && -f "$dir/port" && -f "$dir/url" ]] || die "run metadata missing in $dir"
+  RUN_ID="$(basename "$dir")"
+  RUN_PID="$(cat "$dir/pid")"
+  RUN_PORT="$(cat "$dir/port")"
+  RUN_URL="$(cat "$dir/url")"
+  RUN_LOG="$dir/log"
+  EVIDENCE_DIR="$EVIDENCE_ROOT/$RUN_ID"
+}
+
+pid_alive() {
+  local pid="$1"
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
+listening_pid() {
+  local port="$1"
+  lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -n 1
+}
+
+is_in_tree() {
+  local target="$1"
+  local ancestor="$2"
+  local cur="$target"
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    [[ -n "$cur" ]] || return 1
+    [[ "$cur" == "$ancestor" ]] && return 0
+    [[ "$cur" == "1" || "$cur" == "0" ]] && return 1
+    cur="$(ps -o ppid= -p "$cur" 2>/dev/null | tr -d ' ')"
+  done
+  return 1
+}
+
+kill_tree() {
+  local pid="$1"
+  local child
+  [[ -n "$pid" ]] || return 0
+  for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+    kill_tree "$child"
+  done
+  if pid_alive "$pid"; then
+    kill "$pid" 2>/dev/null || true
+    sleep 0.2
+    if pid_alive "$pid"; then
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+  fi
+}
