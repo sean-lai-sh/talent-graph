@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
-import { Button } from "./Button.tsx";
+import { Button, type ButtonSize, type ButtonVariant } from "./Button.tsx";
 
 /** Trigger + anchored panel. Scales in from its trigger; closes on Esc or outside click. */
 export function Popover({
@@ -15,8 +15,8 @@ export function Popover({
   label: ReactNode;
   children: (close: () => void) => ReactNode;
   align?: "left" | "right";
-  variant?: "primary" | "secondary" | "ghost";
-  size?: "sm" | "md";
+  variant?: Exclude<ButtonVariant, "danger">;
+  size?: ButtonSize;
   width?: string;
 }) {
   const [open, setOpen] = useState(false);
