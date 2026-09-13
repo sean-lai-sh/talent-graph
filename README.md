@@ -3,7 +3,7 @@
 This is the **example admin of the club product**, sitting on the algorithm
 engine. It is one product, not two frontends.
 
-- **`apps/club/`** — the example admin. One Next.js app.
+- **`apps/club/`** — the example admin: the Admin / Council Review page. One Next.js app.
 - **`src/`** — the **engine**. Pure TypeScript, no UI, no database. Every
   function is `(inputs, options) → result`. The admin imports it; the
   engine does not know about Next.
@@ -77,7 +77,7 @@ bun run lint        # biome
 bun run typecheck   # tsc --noEmit
 bun test            # 170+ tests, including invariant checks
 bun run club:web    # Next.js example admin at http://127.0.0.1:3000
-bun run demo        # dashboard + the six persona reports from the seed
+bun run demo        # dashboard, review queue, persona reports (with rubric summary), judge track record
 bun run drift -- --kind referral_signal --before 0.1.0 --after 0.1.0
 ```
 

@@ -18,6 +18,7 @@ import {
   toJudgeBias,
   toJudgeCalibration,
 } from "../src/judges/reliability.ts";
+import * as trackRecord from "../src/judges/trackRecord.ts";
 import { JUDGE_RELIABILITY_V2_0_0 } from "../src/models/registry.ts";
 import type { JudgeReliabilitySpec } from "../src/models/spec.ts";
 import { computeAllReferralSignals } from "../src/scoring/referralSignal.ts";
@@ -734,5 +735,101 @@ describe("seed longitudinal records", () => {
     const t = residualOutcomes(data.outcomes, data.opportunities, flat, now);
     const expected = new Set([...t.values()].map((r) => r.expected.toFixed(12)));
     expect(expected.size).toBe(1);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Track record — categorical label, no weights
+ * ------------------------------------------------------------------ */
+
+describe("judgeTrackRecord", () => {
+  const { judgeTrackRecord, TRACK_RECORD_ORDER, TRACK_RECORD_COPY } = trackRecord;
+
+  test("nothing evaluated ⇒ not scored; below λ ⇒ unproven; λ can be lowered by spec", () => {
+    const est = estimateJudgeReliability(
+      ["good", "silent"],
+      score(
+        [referral("good", "hi", 5), referral("good", "lo", 1)],
+        [outcome("hi", 9), outcome("lo", 1), outcome("mid", 5)],
+      ),
+      SPEC,
+    );
+    const silent = est.get("silent");
+    const good = est.get("good");
+    if (!silent || !good) throw new Error("expected estimates");
+    expect(judgeTrackRecord(silent, SPEC)).toEqual({
+      label: "not_scored",
+      evaluatedCount: 0,
+      minEvaluated: 3,
+    });
+    expect(judgeTrackRecord(good, SPEC).label).toBe("unproven");
+    expect(judgeTrackRecord(good, { ...SPEC, shrinkage: 1 }).label).toBe("calibrated");
+  });
+
+  test("direction: an overrater and an underrater, then often off with no direction", () => {
+    const spec: JudgeReliabilitySpec = { ...SPEC, shrinkage: 1 };
+    const outcomes = [outcome("hi", 9), outcome("mid", 5), outcome("lo", 1)];
+    const est = estimateJudgeReliability(
+      ["over", "under", "noisy"],
+      score(
+        [
+          referral("over", "lo", 5),
+          referral("over", "mid", 5),
+          referral("under", "hi", 1),
+          referral("under", "mid", 1),
+          referral("noisy", "lo", 5),
+          referral("noisy", "hi", 1),
+        ],
+        outcomes,
+      ),
+      spec,
+    );
+    const over = est.get("over");
+    const under = est.get("under");
+    const noisy = est.get("noisy");
+    if (!over || !under || !noisy) throw new Error("expected estimates");
+    expect(judgeTrackRecord(over, spec).label).toBe("tends_to_overrate");
+    expect(judgeTrackRecord(under, spec).label).toBe("tends_to_underrate");
+    const n = judgeTrackRecord(noisy, spec);
+    expect(["often_off", "tends_to_overrate", "tends_to_underrate"]).toContain(n.label);
+    expect(n.label).not.toBe("calibrated");
+  });
+
+  test("seed at T: Tomas is calibrated, Rafael tends to underrate, non-referrers are not scored", () => {
+    const data = generateSeed();
+    const run = computeJudgeCalibration({
+      people: data.people,
+      referrals: data.referrals,
+      outcomes: data.outcomes,
+      opportunities: data.opportunities,
+      now: new Date("2026-12-31T00:00:00.000Z"),
+    });
+    const idOf = (name: string) => data.people.find((p) => p.name === name)?.id ?? name;
+    const labelOf = (name: string) => {
+      const e = run.estimates.get(idOf(name));
+      if (!e) throw new Error(`no estimate for ${name}`);
+      return judgeTrackRecord(e).label;
+    };
+    expect(labelOf("Tomas Lindqvist")).toBe("calibrated");
+    expect(labelOf("Rafael de Vries")).toBe("tends_to_underrate");
+    expect(labelOf("Alice Tanaka")).toBe("not_scored");
+    const labels = new Set([...run.estimates.values()].map((e) => judgeTrackRecord(e).label));
+    expect(labels.has("unproven")).toBe(true);
+  });
+
+  test("order and copy cover every label", () => {
+    const labels = Object.keys(TRACK_RECORD_COPY).sort();
+    expect(Object.keys(TRACK_RECORD_ORDER).sort()).toEqual(labels);
+    expect(labels).toEqual(
+      [
+        "calibrated",
+        "not_scored",
+        "often_off",
+        "tends_to_overrate",
+        "tends_to_underrate",
+        "unproven",
+      ].sort(),
+    );
+    expect(TRACK_RECORD_ORDER.calibrated).toBeLessThan(TRACK_RECORD_ORDER.unproven);
   });
 });

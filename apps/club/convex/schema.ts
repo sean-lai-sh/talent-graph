@@ -41,12 +41,35 @@ export const comparisonOutcome = v.union(
   v.literal("insufficient_observation"),
 );
 
+export const reviewStatus = v.union(
+  v.literal("new"),
+  v.literal("under_review"),
+  v.literal("needs_data"),
+  v.literal("admitted"),
+  v.literal("denied"),
+);
+
+export const rubricScore = v.union(
+  v.literal(0),
+  v.literal(1),
+  v.literal(2),
+  v.literal(3),
+  v.literal(4),
+  v.null(),
+);
+
 const clubPerson = v.object({
   id: v.string(),
   name: v.string(),
   bio: v.optional(v.string()),
   affiliation: v.optional(v.string()),
+  // Display metadata for the council page. Never read by src/.
+  phone: v.optional(v.string()),
+  linkedin: v.optional(v.string()),
+  resume: v.optional(v.string()),
   status: personStatus,
+  // Council workflow state; optional so older documents stay valid.
+  reviewStatus: v.optional(reviewStatus),
   createdAt: v.string(),
   updatedAt: v.string(),
 });
@@ -82,7 +105,7 @@ const clubEvaluation = v.object({
   evaluatorId: v.string(),
   candidateId: v.string(),
   dimension,
-  score: v.union(v.literal(0), v.literal(1), v.literal(2), v.literal(3), v.literal(4), v.null()),
+  score: rubricScore,
   confidence: v.union(scale5, v.null()),
   evidenceText: v.string(),
   createdAt: v.string(),
@@ -123,6 +146,21 @@ const clubSnapshot = v.object({
   createdAt: v.string(),
 });
 
+const clubFeedbackRequest = v.object({
+  id: v.string(),
+  candidateId: v.string(),
+  memberId: v.string(),
+  requestedAt: v.string(),
+  dueAt: v.string(),
+  note: v.string(),
+  respondedAt: v.union(v.string(), v.null()),
+  evaluationId: v.union(v.string(), v.null()),
+});
+
+const clubReviewConfig = v.object({
+  requiredDimensions: v.array(dimension),
+});
+
 export default defineSchema({
   clubOrgs: defineTable({
     ownerUserId: v.string(),
@@ -135,5 +173,8 @@ export default defineSchema({
     outcomes: v.array(clubOutcome),
     opportunities: v.array(clubOpportunity),
     snapshots: v.array(clubSnapshot),
+    // Council layer, added after the first orgs: optional so old docs load.
+    feedbackRequests: v.optional(v.array(clubFeedbackRequest)),
+    config: v.optional(clubReviewConfig),
   }).index("by_owner", ["ownerUserId"]),
 });

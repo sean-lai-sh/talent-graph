@@ -9,10 +9,22 @@
  */
 
 import { buildDashboard, formatDashboard, personReport } from "../src/analysis/dashboard.ts";
+import {
+  buildReviewQueue,
+  groupReviewQueue,
+  REVIEW_BUCKET_COPY,
+} from "../src/analysis/reviewQueue.ts";
+import { summarizeEvaluations } from "../src/analysis/rubricSummary.ts";
 import { underRecognitionGaps } from "../src/analysis/underRecognition.ts";
 import { loadSpecs } from "../src/config.ts";
-import { computeCapabilityVectors } from "../src/inference/capabilityVector.ts";
+import { DIMENSIONS, SCALE_LABELS } from "../src/domain/constants.ts";
+import { computeCapabilityVectors, dimensionLabel } from "../src/inference/capabilityVector.ts";
 import { computeJudgeCalibration, judgeWeightOptions } from "../src/judges/reliability.ts";
+import {
+  judgeTrackRecord,
+  TRACK_RECORD_COPY,
+  TRACK_RECORD_ORDER,
+} from "../src/judges/trackRecord.ts";
 import { computeAllReferralSignals, displayReferralSignal } from "../src/scoring/referralSignal.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 import { PERSONA_IDS } from "../src/seed/personas.ts";
@@ -31,9 +43,40 @@ console.log(formatDashboard(buildDashboard(data, signals, capRun, gaps), data.pe
 console.log();
 console.log("=".repeat(72));
 
+const nameOf = (id: string) => data.people.find((p) => p.id === id)?.name ?? id;
+
+// Review queue — categorical buckets over both channels, no merged number.
+console.log();
+console.log("Review queue (candidates, by evidence state):");
+const queue = buildReviewQueue({ people: data.people, signals, capRun, gaps });
+for (const group of groupReviewQueue(queue)) {
+  console.log(`  ${REVIEW_BUCKET_COPY[group.bucket].label}`);
+  for (const e of group.entries) {
+    console.log(`    ${nameOf(e.personId).padEnd(18)} ${e.reasons.join(" · ")}`);
+  }
+}
+console.log();
+console.log("=".repeat(72));
+
 for (const id of PERSONA_IDS) {
   console.log();
   console.log(personReport(id, data, signals, capRun, gaps));
+  const rubric = summarizeEvaluations(data.evaluations.filter((e) => e.candidateId === id));
+  const written = DIMENSIONS.filter((d) => rubric[d].scored + rubric[d].notObserved > 0);
+  if (written.length > 0) {
+    console.log();
+    console.log("Structured Evidence (rubric, feeds no score)");
+    for (const d of written) {
+      const r = rubric[d];
+      const mean =
+        r.mean === null
+          ? SCALE_LABELS.rubricNotObserved
+          : `${r.mean.toFixed(1)} / 4 · ${SCALE_LABELS.rubric[Math.round(r.mean) as 0 | 1 | 2 | 3 | 4]}`;
+      console.log(
+        `${dimensionLabel(d).padEnd(20)}${mean} · ${r.scored} scored · ${r.notObserved} not observed · ${r.evaluators} evaluator${r.evaluators === 1 ? "" : "s"}`,
+      );
+    }
+  }
   console.log();
   console.log("-".repeat(72));
 }
@@ -49,19 +92,24 @@ const calibration = computeJudgeCalibration({
   spec: specs.judge_reliability,
   referralSpec: specs.referral_signal,
 });
-const nameOf = (id: string) => data.people.find((p) => p.id === id)?.name ?? id;
 const judged = [...calibration.estimates.values()]
   .filter((e) => e.evaluatedCount > 0)
-  .sort((a, b) => b.reliability - a.reliability || (a.judgeId < b.judgeId ? -1 : 1));
+  .map((e) => ({ e, track: judgeTrackRecord(e, specs.judge_reliability) }))
+  .sort(
+    (a, b) =>
+      TRACK_RECORD_ORDER[a.track.label] - TRACK_RECORD_ORDER[b.track.label] ||
+      b.e.evaluatedCount - a.e.evaluatedCount ||
+      (a.e.judgeId < b.e.judgeId ? -1 : 1),
+  );
 
 console.log();
 console.log(`Judge calibration at T = ${T.toISOString().slice(0, 10)} (V2, Exploratory)`);
 console.log(
-  `${calibration.options.evaluatedReferrals} referrals scored against ${calibration.truths.size} people with outcomes · ${judged.length} judges with evidence · others stay at prior ${specs.judge_reliability.priorReliability}`,
+  `${calibration.options.evaluatedReferrals} referrals scored against ${calibration.truths.size} people with outcomes · ${judged.length} judges with evidence · track record is a display label, not a weight`,
 );
-for (const e of judged) {
+for (const { e, track } of judged) {
   console.log(
-    `  ${nameOf(e.judgeId).padEnd(18)} p̂ ${e.reliability.toFixed(2)} · Ē ${(e.meanSquaredError ?? 0).toFixed(3)} · bias ${e.bias >= 0 ? "+" : ""}${e.bias.toFixed(2)} · ${e.evaluatedCount} scored`,
+    `  ${nameOf(e.judgeId).padEnd(18)} ${TRACK_RECORD_COPY[track.label].padEnd(18)} · ${e.evaluatedCount} scored`,
   );
 }
 

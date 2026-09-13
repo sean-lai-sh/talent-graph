@@ -11,11 +11,11 @@
 import {
   actionGeneric,
   httpActionGeneric,
+  queryGeneric,
+  mutationGeneric,
   internalActionGeneric,
   internalMutationGeneric,
   internalQueryGeneric,
-  mutationGeneric,
-  queryGeneric,
 } from "convex/server";
 
 /**
@@ -92,4 +92,10 @@ export const internalAction = internalActionGeneric;
  */
 export const httpAction = httpActionGeneric;
 
+/**
+ * Typesafe environment variables.
+ *
+ * This includes platform-provided env vars and any variables declared in
+ * `convex.config.ts`.
+ */
 export const env = process.env;

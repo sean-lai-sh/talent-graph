@@ -1,0 +1,8 @@
+# `doppler setup` reads this so every clone lands on the same project/config.
+setup:
+  - project: talent-graph
+    config: dev
+    path: .
+  - project: talent-graph
+    config: dev
+    path: apps/club

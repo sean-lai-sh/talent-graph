@@ -1,22 +1,25 @@
 "use server";
 
-import type {
-  ComparisonOutcome,
-  Dimension,
-  EvidenceType,
-  PersonStatus,
-  Scale5,
-} from "../../../src/domain/types.ts";
 import {
-  addComparison,
-  addReferral,
+  addPerson,
+  decide,
   loadClub,
-  meddleReferral,
+  recordFeedback,
+  requestFeedback,
   resetClub,
-  setNow,
-  setStatus,
+  setReviewConfig,
 } from "../lib/engine.ts";
-import type { ClubState, EngineResult } from "../lib/types.ts";
+import type {
+  AddPersonInput,
+  ClubState,
+  Decision,
+  EngineResult,
+  RecordFeedbackInput,
+  RequestFeedbackInput,
+  SetReviewConfigInput,
+} from "../lib/types.ts";
+
+/** In-memory example. Nothing persists; the whole state rides along with each call. */
 
 export async function actionLoad(): Promise<EngineResult> {
   return loadClub();
@@ -26,49 +29,38 @@ export async function actionReset(): Promise<EngineResult> {
   return resetClub();
 }
 
-export async function actionSetNow(state: ClubState, now: string): Promise<EngineResult> {
-  return setNow(state, now);
+export async function actionAddPerson(
+  state: ClubState,
+  input: AddPersonInput,
+): Promise<EngineResult> {
+  return addPerson(state, input);
 }
 
-export async function actionSetStatus(
+export async function actionDecide(
   state: ClubState,
   personId: string,
-  status: PersonStatus,
+  decision: Decision,
 ): Promise<EngineResult> {
-  return setStatus(state, personId, status);
+  return decide(state, personId, decision);
 }
 
-export async function actionAddReferral(
+export async function actionRequestFeedback(
   state: ClubState,
-  input: {
-    referrerId: string;
-    candidateId: string;
-    conviction: Scale5;
-    confidence: Scale5;
-    relationshipDepth: Scale5;
-    evidenceType: EvidenceType;
-    evidenceText: string;
-  },
+  input: RequestFeedbackInput,
 ): Promise<EngineResult> {
-  return addReferral(state, input);
+  return requestFeedback(state, input);
 }
 
-export async function actionMeddleReferral(
+export async function actionRecordFeedback(
   state: ClubState,
-  referralId: string,
-  patch: { conviction: Scale5; confidence: Scale5; relationshipDepth: Scale5 },
+  input: RecordFeedbackInput,
 ): Promise<EngineResult> {
-  return meddleReferral(state, referralId, patch);
+  return recordFeedback(state, input);
 }
 
-export async function actionAddComparison(
+export async function actionSetReviewConfig(
   state: ClubState,
-  input: {
-    personAId: string;
-    personBId: string;
-    dimension: Dimension;
-    outcome: ComparisonOutcome;
-  },
+  input: SetReviewConfigInput,
 ): Promise<EngineResult> {
-  return addComparison(state, input);
+  return setReviewConfig(state, input);
 }
