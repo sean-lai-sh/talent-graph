@@ -106,6 +106,7 @@ Identity handles (stable; prefer these over CSS or DOM position):
 | Close sheet | button `Close` | sheet |
 | Sign in | button `Sign in` | `/login` card tab |
 | Create account | button `Create account` | `/login` card tab |
+| Submit | button `Submit` | `/login` card. Visible label is Sign in or Create account. Do not click. |
 | Email | textbox `Email` | `/login` card |
 | Password | textbox `Password` | `/login` card |
 

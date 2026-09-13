@@ -50,6 +50,8 @@ describe("SEA-12 Better Auth gate on /club", () => {
     expect(existsSync(join(root, "apps/club/middleware.ts"))).toBe(false);
     expect(existsSync(join(root, "apps/club/src/middleware.ts"))).toBe(false);
     expect(existsSync(join(root, "middleware.ts"))).toBe(false);
+    expect(existsSync(join(root, "apps/club/proxy.ts"))).toBe(false);
+    expect(existsSync(join(root, "proxy.ts"))).toBe(false);
   });
 
   test("Convex mutations lock to Better Auth sessions and owner orgs", () => {

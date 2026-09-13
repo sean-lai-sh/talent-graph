@@ -50,6 +50,8 @@ describe("SEA-26 /login door", () => {
     expect(card).toContain("Create account");
     expect(card).toContain('label="Email"');
     expect(card).toContain('label="Password"');
+    expect(card).toContain('aria-label="Submit"');
+    expect(card).toContain("aria-pressed");
     expect(card).toContain("authClient.signIn.email");
     expect(card).toContain("authClient.signUp.email");
     expect(card).not.toContain("Club door");
@@ -93,6 +95,8 @@ describe("SEA-26 /login door", () => {
     expect(existsSync(join(root, "apps/club/middleware.ts"))).toBe(false);
     expect(existsSync(join(root, "apps/club/src/middleware.ts"))).toBe(false);
     expect(existsSync(join(root, "middleware.ts"))).toBe(false);
+    expect(existsSync(join(root, "apps/club/proxy.ts"))).toBe(false);
+    expect(existsSync(join(root, "proxy.ts"))).toBe(false);
   });
 
   test("docs name /login and sign-out destination /login", () => {

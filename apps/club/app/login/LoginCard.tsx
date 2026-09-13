@@ -37,21 +37,25 @@ export function LoginCard({ next }: { next: string }) {
       className="w-full max-w-md rounded-lg border border-line bg-surface p-5"
       onSubmit={(event) => void onSubmit(event)}
     >
-      <div className="flex gap-3 text-sm">
-        <button
-          className={mode === "sign-in" ? "underline" : "text-muted"}
+      <div className="flex gap-3">
+        <Button
+          variant="ghost"
+          size="sm"
           type="button"
+          aria-pressed={mode === "sign-in"}
           onClick={() => setMode("sign-in")}
         >
           Sign in
-        </button>
-        <button
-          className={mode === "sign-up" ? "underline" : "text-muted"}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
           type="button"
+          aria-pressed={mode === "sign-up"}
           onClick={() => setMode("sign-up")}
         >
           Create account
-        </button>
+        </Button>
       </div>
       {mode === "sign-up" ? (
         <Field className="mt-3" label="Name">
@@ -84,7 +88,13 @@ export function LoginCard({ next }: { next: string }) {
           autoComplete={mode === "sign-up" ? "new-password" : "current-password"}
         />
       </Field>
-      <Button className="mt-4 w-full" type="submit" variant="primary" disabled={pending}>
+      <Button
+        className="mt-4 w-full"
+        type="submit"
+        variant="primary"
+        disabled={pending}
+        aria-label="Submit"
+      >
         {pending ? "Working…" : mode === "sign-up" ? "Create account" : "Sign in"}
       </Button>
       {message ? <p className="mt-3 text-sm text-warn">{message}</p> : null}

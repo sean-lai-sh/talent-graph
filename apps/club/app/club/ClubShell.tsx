@@ -8,11 +8,6 @@ import { authClient } from "@/lib/auth-client";
 import { clubLoginHref, SIGN_OUT_HREF } from "@/lib/loginReturnPath.ts";
 import { PersistedClub } from "./PersistedClub";
 
-/**
- * Official Better Auth + Convex gate on the /club door only.
- * Unauthenticated visitors redirect to `/login`. Never the seed board.
- * `/example` stays public. `/` redirects there.
- */
 export function ClubShell() {
   return (
     <main className="min-h-screen bg-canvas px-6 py-16 text-ink">

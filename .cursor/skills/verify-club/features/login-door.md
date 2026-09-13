@@ -23,16 +23,16 @@ Preconditions:
 - Viewport width ≥ 1280.
 - Do not submit Sign in or Create account.
 
-- **Open login.** Navigate to `/login` on the doctor URL. The page shows buttons `Sign in` and `Create account`, textboxes `Email` and `Password`, and a submit control named `Sign in`. The page does not show `Club door`, `Talent Graph · your club`, or a Convex explainer. The card sits in the middle of the viewport, horizontally and vertically. Snapshot and screenshot.
-- **Create account tab.** Choose `Create account`. A `Name` field appears. Submit is named `Create account`. Do not fill or submit. Snapshot.
-- **Back to sign in.** Choose `Sign in`. Name is gone. Submit is named `Sign in`.
+- **Open login.** Navigate to `/login` on the doctor URL. The page shows buttons `Sign in` and `Create account`, textboxes `Email` and `Password`, and a submit control named `Submit`. The page does not show `Club door`, `Talent Graph · your club`, or a Convex explainer. The card sits in the middle of the viewport, horizontally and vertically. Snapshot and screenshot.
+- **Create account tab.** Choose `Create account`. A `Name` field appears. Submit stays named `Submit`. Do not fill or submit. Snapshot.
+- **Back to sign in.** Choose `Sign in`. Name is gone.
 - **Club gate.** Navigate to `/club`. The browser lands on `/login` (URL contains `/login`). The same card is visible. No seed board, no `Tech@NYU` applicants list.
 - **Example stays public.** Navigate to `/example`. Brand `Tech@NYU` and region `Applicants` are present. There is no sign-in card.
 - **Proof.** Save accessibility snapshots and screenshots of (1) `/login` card-only and centered, (2) Create account with Name, (3) `/club` landing on `/login`, (4) `/example` still the seed board. Put them in `evidence/<run-id>/login-door/`.
 
 ## Gotchas
 
-- Do not submit the form. This recipe proves the door and the gate, not a live Convex session.
+- Do not submit the form. This recipe proves the door and the gate, not a live Convex session. Choose the tab named `Sign in` or `Create account`. The submit control is named `Submit`.
 - `/club` persist shares the developer deployment. A redirect is the only `/club` proof here.
 - Root layout metadata must not put `Club door` in the `/login` body. Judge the visible page, not only `<title>`.
 - Centering is a screenshot claim. HTML that contains the card is not enough.
