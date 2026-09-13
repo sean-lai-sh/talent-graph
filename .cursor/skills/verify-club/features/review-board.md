@@ -44,4 +44,4 @@ Preconditions:
 - If cursor-ide-browser fails to load `127.0.0.1`, use `helpers/chrome-drive.ts` (see the skill Drive section).
 - Do not treat engine unit tests (`cleo.v2Signal === 7`) as this feature's proof. The number must appear in the browser.
 - Banned product phrases (`Talent Score`, `Capability Score`, …) must not appear on the board.
-- Do not open `/club` to "get a real board." That door is out of scope and shares Convex.
+- Do not open `/club` to "get a real board." Unauthenticated `/club` redirects to `/login`. Signed-in persist is out of scope and shares Convex.

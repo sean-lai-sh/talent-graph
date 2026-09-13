@@ -21,13 +21,16 @@ feedback inside a 48-hour window. It works over a screen share.
 - `/` — redirects to `/example` so old links still work.
 - `/example` — public example council page over the seed. No sign-in.
   Refresh restores the seed club.
+- `/login` — Better Auth email/password door. Sign-in and sign-up live on one
+  centered card. No page kicker, title, or Convex explainer around it.
 - `/club` — real-organization door. Convex + Better Auth live here. Domain
   inputs (people with review status, referrals, comparisons, evaluations,
   feedback requests, round settings, snapshots) persist in Convex. Each write
   stamps the org clock with wall time and re-runs views via `lib/engine.ts` →
-  `src/`. The session / org gate is on: unauthenticated visitors see the
-  Better Auth sign-in UI only (not the seed board, not PersistedClub).
+  `src/`. The session / org gate is on: unauthenticated visitors redirect to
+  `/login` with return path `/club` (not the seed board, not PersistedClub).
   Signed-in owners get the Convex-backed page when Convex env is configured.
+  Sign-out from `/club` returns to `/login`.
   `/example` stays in-memory `generateSeed()` with no auth. `/` redirects there.
 
 ```sh
@@ -90,7 +93,7 @@ Required env for a live `/club` door (Sean):
 | Convex deployment (`npx convex env set`) | `BETTER_AUTH_SECRET` | `openssl rand -base64 32` |
 | Convex deployment | `SITE_URL` | Same origin as `NEXT_PUBLIC_SITE_URL` |
 
-Without those, `/club` stays on the sign-in UI plus a "Convex is not connected" warning. The seed board does not appear there. A live session / persist round-trip still needs `npx convex dev`.
+Without those, `/club` redirects to `/login`. The seed board does not appear there. A live session / persist round-trip still needs `npx convex dev`.
 
 ## What to look at
 
