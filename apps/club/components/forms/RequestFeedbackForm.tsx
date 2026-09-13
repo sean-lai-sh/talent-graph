@@ -5,9 +5,7 @@ import { TRACK_RECORD_COPY } from "../../../../src/judges/trackRecord.ts";
 import { TRACK_RECORD_TONE } from "../../lib/copy.ts";
 import { FEEDBACK_WINDOW_HOURS } from "../../lib/review.ts";
 import type { MemberOption, PersonView, RequestFeedbackInput } from "../../lib/types.ts";
-import { Badge } from "../ui/Badge.tsx";
-import { Button } from "../ui/Button.tsx";
-import { Field, inputClass } from "../ui/Field.tsx";
+import { Badge, Button, Field, Textarea } from "../ui/index.ts";
 
 export function RequestFeedbackForm({
   person,
@@ -71,9 +69,8 @@ export function RequestFeedbackForm({
         )}
       </ul>
       <Field label="Note to the member">
-        <textarea
+        <Textarea
           rows={2}
-          className={inputClass}
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="What should they look at?"

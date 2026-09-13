@@ -3,6 +3,7 @@
 import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
 import Link from "next/link";
 import { type FormEvent, useState } from "react";
+import { Button, Field, Input } from "@/components/ui/index.ts";
 import { authClient } from "@/lib/auth-client";
 import { convexConfigured } from "@/lib/convexEnv";
 import { PersistedClub } from "./PersistedClub";
@@ -78,13 +79,9 @@ function ClubSignedInBar() {
       <p className="text-sm">
         Signed in as <span className="font-medium">{user?.email ?? "owner"}</span>
       </p>
-      <button
-        className="mt-4 rounded border border-line px-3 py-1.5 text-sm hover:bg-canvas"
-        type="button"
-        onClick={() => void authClient.signOut()}
-      >
+      <Button className="mt-4" type="button" onClick={() => void authClient.signOut()}>
         Sign out
-      </button>
+      </Button>
     </section>
   );
 }
@@ -138,21 +135,17 @@ function ClubSignInForm() {
         </button>
       </div>
       {mode === "sign-up" ? (
-        <label className="text-sm">
-          Name
-          <input
-            className="mt-1 w-full rounded border border-line bg-canvas px-2 py-1.5"
+        <Field label="Name">
+          <Input
             name="name"
             value={name}
             onChange={(event) => setName(event.target.value)}
             autoComplete="name"
           />
-        </label>
+        </Field>
       ) : null}
-      <label className="text-sm">
-        Email
-        <input
-          className="mt-1 w-full rounded border border-line bg-canvas px-2 py-1.5"
+      <Field label="Email">
+        <Input
           name="email"
           type="email"
           required
@@ -160,11 +153,9 @@ function ClubSignInForm() {
           onChange={(event) => setEmail(event.target.value)}
           autoComplete="email"
         />
-      </label>
-      <label className="text-sm">
-        Password
-        <input
-          className="mt-1 w-full rounded border border-line bg-canvas px-2 py-1.5"
+      </Field>
+      <Field label="Password">
+        <Input
           name="password"
           type="password"
           required
@@ -173,14 +164,10 @@ function ClubSignInForm() {
           onChange={(event) => setPassword(event.target.value)}
           autoComplete={mode === "sign-up" ? "new-password" : "current-password"}
         />
-      </label>
-      <button
-        className="rounded bg-ink px-3 py-1.5 text-sm text-canvas disabled:opacity-50"
-        type="submit"
-        disabled={pending}
-      >
+      </Field>
+      <Button type="submit" variant="primary" disabled={pending}>
         {pending ? "Working…" : mode === "sign-up" ? "Create account" : "Sign in"}
-      </button>
+      </Button>
       {message ? <p className="text-sm text-warn">{message}</p> : null}
     </form>
   );
