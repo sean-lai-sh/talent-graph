@@ -33,7 +33,7 @@ Shared motion and focus live as classes, not props.
 
 ## Props
 
-Every control accepts the native element attributes for its root, plus the fields below. `className` appends. `Button` defaults `type` to `button`. A form submit control sets `type="submit"`.
+`Button`, `Input`, `Textarea`, and `Select` accept the native attributes for that element. The other controls take the fields below. `className` appends when the control lists it. `Button` defaults `type` to `button`. A form submit control sets `type="submit"`.
 
 ### Avatar
 
