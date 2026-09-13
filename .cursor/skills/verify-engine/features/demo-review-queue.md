@@ -24,7 +24,7 @@ Preconditions:
 - **Run demo.** `.cursor/skills/verify-engine/helpers/demo.sh demo-review-queue`. Exit code `0`.
 - **Find the section.** After a line of `=` characters, stdout contains `Review queue (candidates, by evidence state):`.
 - **Cleo.** Under a line `  Under-recognized`, a following indented line starts with `Cleo Marsh`.
-- **Other seed pins.** `Dev Raman` appears under `Single source`. `Alice Tanaka` and `Bram Okafor` appear under `Ready to decide`. `Ife Doyle` appears under `No referrals` if she is in this printout of the generator seed.
+- **Other seed pins.** `Dev Raman` appears under `Single source`. `Alice Tanaka` and `Bram Okafor` appear under `Ready to decide`. `Ife Doyle` appears under `No referrals`.
 - **No merged number.** Queue lines do not print a single combined rank for a person. Reasons may mention counts.
 - **Proof.** Quote the queue header plus the Cleo line in `notes.md`. Keep full stdout.
 

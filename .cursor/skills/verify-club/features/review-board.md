@@ -40,7 +40,7 @@ Preconditions:
 
 - `/` and `/example` are both required entry points. Proving only `/` leaves `/example` unverified.
 - On viewports under `lg`, `Applicants` is hidden. Open it with `Open applicant list` or the proof will look empty.
-- The first selected case is whoever sorts first by Referral Signal, not Cleo. On the current seed that is `Dev Raman` (V2 **93**). Always choose `Cleo Marsh` by name.
+- The first selected case is whoever sorts first by Referral Signal, not Cleo. Always choose `Cleo Marsh` by name — do not assume the open case is hers.
 - If cursor-ide-browser fails to load `127.0.0.1`, use `helpers/chrome-drive.ts` (see the skill Drive section).
 - Do not treat engine unit tests (`cleo.v2Signal === 7`) as this feature's proof. The number must appear in the browser.
 - Banned product phrases (`Talent Score`, `Capability Score`, …) must not appear on the board.

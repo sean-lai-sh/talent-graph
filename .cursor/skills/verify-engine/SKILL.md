@@ -120,7 +120,7 @@ Proof standards:
 
 - Exercise the real CLI. Do not call `computeAllReferralSignals` from a one-off file and call it demo.
 - Capture the command **and** the resulting stdout (and stderr / exit code), not only a grepped fragment.
-- Side effects: demo and drift are read-only on the filesystem and the network. Prove that by observing no new git changes and no unexpected files under the repo after the command (other than this evidence tree). Do not trust the script name; check `git status` if a recipe could have written (drift's job is to print a CHANGELOG line, not write the file).
+- Side effects: demo and drift are read-only on the filesystem and the network. Prove that by observing no new git changes and no unexpected files under the repo after the command (other than this evidence tree). Drift **prints** a CHANGELOG-shaped verdict; it must **not** write `docs/models/CHANGELOG.md`. Check `git status` after drift.
 - Mocks: none. The seed is in-process.
 - Record the feature id and the exact argv with every artifact.
 - An unreachable path is reported with the attempted command and the unmet precondition.

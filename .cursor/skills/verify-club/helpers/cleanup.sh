@@ -10,10 +10,14 @@ if [[ ! -f "$CURRENT_FILE" ]]; then
 fi
 
 read_meta
+PID_MARK="bun run dev"
+if [[ -f "$RUNS_DIR/$RUN_ID/pid_mark" ]]; then
+  PID_MARK="$(cat "$RUNS_DIR/$RUN_ID/pid_mark")"
+fi
 if [[ -f "$RUNS_DIR/$RUN_ID/chrome.json" ]]; then
   chrome_pid="$(sed -n 's/.*"pid": *\([0-9]*\).*/\1/p' "$RUNS_DIR/$RUN_ID/chrome.json" | head -n 1)"
-  if [[ -n "$chrome_pid" ]]; then
-    kill_tree "$chrome_pid"
+  if [[ -n "$chrome_pid" && "$chrome_pid" != "0" ]]; then
+    kill_ours "$chrome_pid" "remote-debugging-port"
   fi
 fi
 DIST_DIR=""
@@ -26,27 +30,53 @@ if [[ -f "$RUNS_DIR/$RUN_ID/listen_pid" ]]; then
 fi
 listen="$(listening_pid "$RUN_PORT" || true)"
 
-kill_tree "$RUN_PID"
-if [[ -n "$RECORDED_LISTEN" ]]; then
-  kill_tree "$RECORDED_LISTEN"
+launch_ours=0
+if pid_alive "$RUN_PID" && [[ "$(pid_command "$RUN_PID")" == *"$PID_MARK"* ]]; then
+  launch_ours=1
+elif pid_alive "$RUN_PID"; then
+  echo "verify-club: not killing launch pid $RUN_PID (command no longer matches '$PID_MARK')" >&2
 fi
-if [[ -n "$listen" ]]; then
-  if [[ "$listen" == "$RUN_PID" || "$listen" == "$RECORDED_LISTEN" ]] || is_in_tree "$listen" "$RUN_PID"; then
-    kill_tree "$listen"
+
+ours_listen() {
+  local pid="${1:-}"
+  [[ -n "$pid" ]] || return 1
+  if [[ "$launch_ours" -eq 1 ]]; then
+    [[ "$pid" == "$RUN_PID" ]] || is_in_tree "$pid" "$RUN_PID"
+    return $?
+  fi
+  # Launch pid was reused or dead — only kill a listener still on our port
+  # whose command still looks like Next.
+  [[ "$(listening_pid "$RUN_PORT" || true)" == "$pid" ]] && [[ "$(pid_command "$pid")" == *next* ]]
+}
+
+# Identify listeners while the launch pid is still alive, then kill.
+if [[ -n "$RECORDED_LISTEN" ]]; then
+  if ours_listen "$RECORDED_LISTEN"; then
+    kill_ours "$RECORDED_LISTEN" "next"
+  else
+    echo "verify-club: not killing recorded listen pid $RECORDED_LISTEN (not our tree)" >&2
+  fi
+fi
+if [[ -n "$listen" && "$listen" != "$RECORDED_LISTEN" ]]; then
+  if ours_listen "$listen"; then
+    kill_ours "$listen" "next"
   else
     echo "verify-club: not killing pid $listen on port $RUN_PORT (not our tree)" >&2
   fi
+fi
+if [[ "$launch_ours" -eq 1 ]]; then
+  kill_ours "$RUN_PID" "$PID_MARK"
 fi
 
 if [[ -n "$DIST_DIR" && "$DIST_DIR" == .next-verify* ]]; then
   rm -rf "$REPO_ROOT/apps/club/$DIST_DIR"
 fi
 
-# next dev rewrites tsconfig include to add the verify distDir. Put it back.
-if [[ -f "$REPO_ROOT/apps/club/tsconfig.json" ]] && grep -q '.next-verify' "$REPO_ROOT/apps/club/tsconfig.json"; then
-  if git -C "$REPO_ROOT" checkout -- apps/club/tsconfig.json 2>/dev/null; then
-    echo "verify-club: restored apps/club/tsconfig.json" >&2
-  fi
+# Restore the tsconfig snapshot taken at launch — never git checkout (that
+# would discard unrelated dirty edits).
+if [[ -f "$RUNS_DIR/$RUN_ID/tsconfig.pre.json" ]]; then
+  cp "$RUNS_DIR/$RUN_ID/tsconfig.pre.json" "$REPO_ROOT/apps/club/tsconfig.json"
+  echo "verify-club: restored apps/club/tsconfig.json from launch snapshot" >&2
 fi
 
 # Drop only run metadata. Evidence stays at $EVIDENCE_DIR.

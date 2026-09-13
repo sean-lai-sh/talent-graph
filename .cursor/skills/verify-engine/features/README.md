@@ -42,6 +42,6 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 - [Demo dashboard](./demo-dashboard.md) covers the opening dashboard: counts, top Referral Signal, top capability, under-recognition.
 - [Demo review queue](./demo-review-queue.md) covers categorical evidence-state buckets, no merged score.
-- [Demo person report](./demo-person-report.md) covers the six persona reports and Cleo's 7 / 100.
+- [Demo person report](./demo-person-report.md) covers the six persona reports and Cleo's V0 **12 / 100** (Club UI 7 is V2).
 - [Demo judge calibration](./demo-judge-calibration.md) covers V2 labels and the V0 → V2 Referral Signal table.
 - [Drift](./drift.md) covers same-spec STABLE, usage errors, and an `env` override preview.

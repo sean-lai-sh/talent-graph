@@ -6,6 +6,10 @@ source "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
 read_meta
 
+if ! command -v lsof >/dev/null 2>&1; then
+  die "lsof is required to confirm this run owns its port"
+fi
+
 if ! pid_alive "$RUN_PID"; then
   die "launch pid $RUN_PID is not running (run $RUN_ID)"
 fi

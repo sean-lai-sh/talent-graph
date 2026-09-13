@@ -37,8 +37,8 @@ What launch does:
 - Starts `next dev` under `nohup` with `NEXT_DIST_DIR=.next-verify-<port>` so the cache is **not** `apps/club/.next`. A developer session on :3000 owns that directory; sharing it deletes `.next/dev` and restarts both servers. Do not run `bun run club:web` (Doppler + :3000).
 - If you are an agent whose shell runner kills the process group when a command exits, **do not treat launch.sh finishing as “server stays up.”** Keep launch as a long-lived background job, or run doctor and the drive in the same session as launch. `nohup` does not beat a SIGKILL on the group.
 - Sets `WATCHPACK_POLLING=true` so a second watcher is less likely to hit EMFILE next to the developer server.
-- Uses `next dev`, not `next start`: a custom `distDir` currently fails Next typed-routes typecheck on `next build`.
-- Next may rewrite `apps/club/tsconfig.json` to include the verify distDir. Cleanup restores that file from git.
+- Uses isolated `next dev` via this launch script, not `next start`: a custom `distDir` currently fails Next typed-routes typecheck on `next build`. Isolated launch is the supported path; do not attach to a developer `next dev` on `:3000`.
+- Next may rewrite `apps/club/tsconfig.json` to include the verify distDir. Cleanup restores the snapshot taken at launch (never `git checkout`).
 - Waits until `GET /` answers, records the listening pid, runs doctor.
 
 Ready signal: `helpers/doctor.sh` exits 0 and prints `url http://127.0.0.1:<port>`. Trust doctor, not the build log.
@@ -75,11 +75,13 @@ If cursor-ide-browser cannot load `127.0.0.1` (chrome-error / MCP missing), use 
 bun .cursor/skills/verify-club/helpers/chrome-drive.ts goto http://127.0.0.1:43173/
 bun .cursor/skills/verify-club/helpers/chrome-drive.ts screenshot evidence/<run>/review-board/01-home.png
 bun .cursor/skills/verify-club/helpers/chrome-drive.ts click-name "Cleo Marsh"
-bun .cursor/skills/verify-club/helpers/chrome-drive.ts text evidence/<run>/review-board/02-cleo.txt
+bun .cursor/skills/verify-club/helpers/chrome-drive.ts aria evidence/<run>/review-board/02-cleo.aria.txt
 bun .cursor/skills/verify-club/helpers/chrome-drive.ts screenshot evidence/<run>/review-board/02-cleo.png
 ```
 
-Cleanup kills the Chrome pid recorded in `runs/<id>/chrome.json`.
+`aria` writes the CDP accessibility tree (required UI proof). `text` is innerText only — do not use it as the snapshot.
+
+Cleanup kills the Chrome pid recorded in `runs/<id>/chrome.json` only if that pid still owns the debug port and its command still contains `remote-debugging-port`. Override the binary with `VERIFY_CLUB_CHROME_BIN`; override the debug-port search start with `VERIFY_CLUB_CHROME_PORT`.
 
 Viewport: **width ≥ 1280**. Below the `lg` breakpoint the Applicants aside is `hidden` and the case shows `← All candidates`. Desktop is the default proof surface; if you must use a narrow viewport, open the list with the button named `Open applicant list` first.
 
@@ -153,7 +155,7 @@ Proof standards:
 .cursor/skills/verify-club/helpers/cleanup.sh
 ```
 
-Kills the process tree recorded at launch (bun + Next child). Never `pkill -f next`, `killall node`, or any kill-by-name. If the listener on the recorded port is not in that tree, cleanup leaves it alone.
+Kills the process tree recorded at launch (bun + Next child) only after the live command still matches what launch wrote. Never `pkill -f next`, `killall node`, or any kill-by-name. If the listener on the recorded port is not in that tree, or the recorded pid was reused, cleanup leaves it alone.
 
 Removes `runs/current` and the run metadata directory. Copies the server log into the evidence directory, then deletes the run dir.
 
@@ -168,6 +170,7 @@ All scripts are executable. Run them from any cwd; they resolve the repo root th
 | `helpers/launch.sh` | Install if needed, start isolated Next, doctor, print URL |
 | `helpers/doctor.sh` | Read-only health + identity of the current run |
 | `helpers/cleanup.sh` | Kill what launch started; keep evidence |
+| `helpers/chrome-drive.ts` | Host Chrome CDP fallback (`goto`, `click-name`, `aria`, `screenshot`) |
 
 Shared functions live in `helpers/lib.sh` (sourced, not invoked).
 
@@ -175,7 +178,8 @@ Shared functions live in `helpers/lib.sh` (sourced, not invoked).
 
 - Default port **43173**, host **127.0.0.1**. Two verification instances need two ports (`VERIFY_CLUB_PORT`) and get two dist dirs (`.next-verify-<port>`).
 - Example board state is in-memory per server process. Instances do not share candidate data.
-- Do not run `next dev` for this skill. It watches the repo root and collides with a developer session.
+- Isolated `next dev` from `helpers/launch.sh` is the supported path. Launch unsets `TG_*` so Club seed pins stay stable. Do not start another `next dev` yourself, and never attach to a developer session on `:3000`.
 - Refuse to drive a server you did not launch. Doctor enforces this.
-- Never drive `/club` against the shared Convex project `talent-graph` (dev `youthful-capybara-14`). That is the developer's org data.
+- Never drive `/club` or any Better Auth + Convex persist surface. Those share the developer's Convex deployment. Stay on `/` and `/example`.
 - Present mode exists in `ClubBoard` (`data-present`) but has **no control that turns it on**. Do not invent a Present button.
+- Helpers need `lsof` (port owner) and, when present, `pgrep` (process tree). Doctor and cleanup fail closed if they cannot identify the listener.

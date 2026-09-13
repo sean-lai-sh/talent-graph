@@ -39,6 +39,7 @@ printf '%s\n' "$DIST_DIR" >"$RUN_DIR/dist"
 printf '%s\n' "$VERIFY_CLUB_PORT" >"$RUN_DIR/port"
 printf '%s\n' "$URL" >"$RUN_DIR/url"
 printf '%s\n' "$VERIFY_CLUB_HOST" >"$RUN_DIR/host"
+cp "$REPO_ROOT/apps/club/tsconfig.json" "$RUN_DIR/tsconfig.pre.json"
 echo "$RUN_ID" >"$CURRENT_FILE"
 
 # Isolated distDir so we do not share apps/club/.next with developer next dev.
@@ -46,12 +47,16 @@ echo "$RUN_ID" >"$CURRENT_FILE"
 # WATCHPACK_POLLING avoids EMFILE when another Next is already watching the repo.
 echo "verify-club: next dev on $URL (dist $DIST_DIR)" >&2
 # nohup: survive launch.sh exiting (otherwise the process group gets SIGHUP).
+# Unset TG_* so Club loadSpecs() matches documented seed pins (same as verify-engine).
 nohup bash -c "
   cd \"$REPO_ROOT/apps/club\" &&
+  unset TG_BT_REGULARIZATION TG_BT_MAX_ITERATIONS TG_BT_TOLERANCE \
+    TG_MIN_COMPARISONS TG_MIN_OPPONENTS TG_TOP_K_REFERRALS &&
   exec env NEXT_DIST_DIR=\"$DIST_DIR\" WATCHPACK_POLLING=true CHOKIDAR_USEPOLLING=true \
     bun run dev -- -p \"$VERIFY_CLUB_PORT\"
 " >"$RUN_DIR/log" 2>&1 &
 echo $! >"$RUN_DIR/pid"
+printf '%s\n' "bun run dev" >"$RUN_DIR/pid_mark"
 
 ready=0
 for _ in $(seq 1 60); do

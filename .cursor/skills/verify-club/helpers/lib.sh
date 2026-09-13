@@ -42,6 +42,10 @@ pid_alive() {
 
 listening_pid() {
   local port="$1"
+  if ! command -v lsof >/dev/null 2>&1; then
+    echo "verify-club: lsof is required to find the listener on port $port" >&2
+    return 1
+  fi
   lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -n 1
 }
 
@@ -59,13 +63,37 @@ is_in_tree() {
   return 1
 }
 
+pid_command() {
+  local pid="$1"
+  ps -o command= -p "$pid" 2>/dev/null || true
+}
+
+# Kill only a pid we started. Refuse reused PIDs whose command no longer matches.
+kill_ours() {
+  local pid="${1:-}"
+  local mark="${2:-}"
+  [[ -n "$pid" && "$pid" != "0" ]] || return 0
+  if ! pid_alive "$pid"; then
+    return 0
+  fi
+  local cmd
+  cmd="$(pid_command "$pid")"
+  if [[ -n "$mark" && "$cmd" != *"$mark"* ]]; then
+    echo "verify-club: not killing pid $pid (command no longer matches '$mark')" >&2
+    return 0
+  fi
+  kill_tree "$pid"
+}
+
 kill_tree() {
   local pid="$1"
   local child
-  [[ -n "$pid" ]] || return 0
-  for child in $(pgrep -P "$pid" 2>/dev/null || true); do
-    kill_tree "$child"
-  done
+  [[ -n "$pid" && "$pid" != "0" ]] || return 0
+  if command -v pgrep >/dev/null 2>&1; then
+    for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+      kill_tree "$child"
+    done
+  fi
   if pid_alive "$pid"; then
     kill "$pid" 2>/dev/null || true
     sleep 0.2
