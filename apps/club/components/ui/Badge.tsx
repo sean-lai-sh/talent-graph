@@ -17,15 +17,17 @@ export function Badge({
   tone = "neutral",
   children,
   title,
+  className = "",
 }: {
   tone?: Tone;
   children: ReactNode;
   title?: string;
+  className?: string;
 }) {
   return (
     <span
       title={title}
-      className={`caps inline-flex h-5 items-center whitespace-nowrap rounded border px-1.5 font-medium leading-none ${TONES[tone]}`}
+      className={`caps inline-flex h-5 items-center whitespace-nowrap rounded border px-1.5 font-medium leading-none ${TONES[tone]} ${className}`}
     >
       {children}
     </span>

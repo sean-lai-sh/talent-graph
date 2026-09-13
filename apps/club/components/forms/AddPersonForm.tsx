@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import type { AddPersonInput } from "../../lib/types.ts";
-import { Button } from "../ui/Button.tsx";
-import { Field, inputClass } from "../ui/Field.tsx";
+import { Button, Field, Input } from "../ui/index.ts";
 
 export function AddPersonForm({
   busy,
@@ -37,37 +36,19 @@ export function AddPersonForm({
         Referrals themselves arrive from the member referral page.
       </p>
       <Field label="Name">
-        <input
-          required
-          className={inputClass}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
+        <Input required value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
       <Field label="Phone">
-        <input
-          required
-          className={inputClass}
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-        />
+        <Input required value={phone} onChange={(e) => setPhone(e.target.value)} />
       </Field>
       <Field label="LinkedIn">
-        <input
-          className={inputClass}
-          value={linkedin}
-          onChange={(e) => setLinkedin(e.target.value)}
-        />
+        <Input value={linkedin} onChange={(e) => setLinkedin(e.target.value)} />
       </Field>
       <Field label="Resume">
-        <input className={inputClass} value={resume} onChange={(e) => setResume(e.target.value)} />
+        <Input value={resume} onChange={(e) => setResume(e.target.value)} />
       </Field>
       <Field label="Affiliation" hint="Context only. Never influences a number.">
-        <input
-          className={inputClass}
-          value={affiliation}
-          onChange={(e) => setAffiliation(e.target.value)}
-        />
+        <Input value={affiliation} onChange={(e) => setAffiliation(e.target.value)} />
       </Field>
       <div className="flex justify-end">
         <Button type="submit" variant="primary" size="sm" disabled={busy}>

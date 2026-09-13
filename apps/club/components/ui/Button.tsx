@@ -1,16 +1,16 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
-type Variant = "primary" | "secondary" | "ghost" | "danger";
-type Size = "sm" | "md";
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
+export type ButtonSize = "sm" | "md";
 
-const VARIANTS: Record<Variant, string> = {
+const VARIANTS: Record<ButtonVariant, string> = {
   primary: "bg-ink text-canvas hover:opacity-90 border-transparent",
   secondary: "bg-surface text-ink border-line hover:bg-subtle",
   ghost: "bg-transparent text-secondary border-transparent hover:bg-subtle hover:text-ink",
   danger: "bg-surface text-danger border-line hover:bg-danger-tint",
 };
 
-const SIZES: Record<Size, string> = {
+const SIZES: Record<ButtonSize, string> = {
   sm: "h-7 px-2.5 text-xs",
   md: "h-8 px-3 text-sm",
 };
@@ -22,8 +22,8 @@ export function Button({
   children,
   ...rest
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: Variant;
-  size?: Size;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
   children: ReactNode;
 }) {
   return (

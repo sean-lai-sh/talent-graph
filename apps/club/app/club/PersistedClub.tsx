@@ -3,6 +3,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { useEffect } from "react";
 import { ClubBoard } from "../../components/ClubBoard";
+import { Button } from "../../components/ui/index.ts";
 import { api } from "../../convex/_generated/api";
 
 /**
@@ -34,13 +35,9 @@ export function PersistedClub() {
     return (
       <div className="mt-6 max-w-xl">
         <p className="text-sm text-muted">No organization yet.</p>
-        <button
-          className="press mt-3 rounded-md border border-line px-3 py-1.5 text-sm hover:bg-subtle"
-          type="button"
-          onClick={() => void ensure({})}
-        >
+        <Button className="mt-3" type="button" onClick={() => void ensure({})}>
           Create club
-        </button>
+        </Button>
       </div>
     );
   }

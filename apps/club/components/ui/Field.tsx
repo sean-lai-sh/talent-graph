@@ -4,14 +4,16 @@ export function Field({
   label,
   hint,
   children,
+  className = "",
 }: {
   label: string;
   hint?: string;
   children: ReactNode;
+  className?: string;
 }) {
   return (
     // biome-ignore lint/a11y/noLabelWithoutControl: the control is rendered as children inside the label
-    <label className="block">
+    <label className={`block ${className}`}>
       <span className="mb-1 block text-xs font-medium text-secondary">{label}</span>
       {children}
       {hint ? <span className="mt-1 block text-[11px] text-muted">{hint}</span> : null}

@@ -10,9 +10,7 @@ import type {
   PersonView,
   RecordFeedbackInput,
 } from "../../lib/types.ts";
-import { Button } from "../ui/Button.tsx";
-import { Field, inputClass } from "../ui/Field.tsx";
-import { Segmented } from "../ui/Segmented.tsx";
+import { Button, Field, Segmented, Select, Textarea } from "../ui/index.ts";
 
 const SCORES: readonly RubricScore[] = [0, 1, 2, 3, 4];
 const CONF: readonly Scale5[] = [1, 2, 3, 4, 5];
@@ -63,8 +61,7 @@ export function RecordFeedbackForm({
       </p>
       <div className="grid grid-cols-2 gap-2">
         <Field label="Member">
-          <select
-            className={inputClass}
+          <Select
             value={evaluatorId}
             disabled={request !== undefined}
             onChange={(e) => setEvaluatorId(e.target.value)}
@@ -74,21 +71,17 @@ export function RecordFeedbackForm({
                 {m.name}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Dimension">
-          <select
-            className={inputClass}
-            value={dimension}
-            onChange={(e) => setDimension(e.target.value as Dimension)}
-          >
+          <Select value={dimension} onChange={(e) => setDimension(e.target.value as Dimension)}>
             {DIMENSIONS.map((d) => (
               <option key={d} value={d}>
                 {dimensionLabel(d)}
                 {requiredDimensions.includes(d) ? " · required" : ""}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
       </div>
       <Field label="Score">
@@ -113,10 +106,9 @@ export function RecordFeedbackForm({
         </Field>
       ) : null}
       <Field label="What did they observe?">
-        <textarea
+        <Textarea
           required
           rows={3}
-          className={inputClass}
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Specific behaviour, not a verdict."
