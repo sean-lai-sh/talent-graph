@@ -17,8 +17,8 @@ fi
 listen="$(listening_pid "$RUN_PORT" || true)"
 if [[ -z "$listen" ]]; then
   # Some sandboxes hide TCP LISTEN from lsof even when Next is healthy.
-  if pid_alive "$RUN_PID" && curl -fsS --max-time 5 "$RUN_URL/" >/dev/null; then
-    echo "verify-club: WARNING lsof saw no listener on $RUN_PORT; GET / is 200 and launch pid is alive" >&2
+  if pid_alive "$RUN_PID" && curl -fsS --max-time 5 "$RUN_URL/example" >/dev/null; then
+    echo "verify-club: WARNING lsof saw no listener on $RUN_PORT; GET /example is 200 and launch pid is alive" >&2
     listen="$RUN_PID"
   else
     die "nothing listens on $VERIFY_CLUB_HOST:$RUN_PORT (run $RUN_ID)"
@@ -29,17 +29,27 @@ if [[ "$listen" != "$RUN_PID" ]] && ! is_in_tree "$listen" "$RUN_PID"; then
 fi
 
 body="$(mktemp)"
-trap 'rm -f "$body"' EXIT
-code="$(curl -sS -o "$body" -w "%{http_code}" --max-time 5 "$RUN_URL/")"
+headers="$(mktemp)"
+trap 'rm -f "$body" "$headers"' EXIT
+code="$(curl -sS -D "$headers" -o /dev/null -w "%{http_code}" --max-time 5 "$RUN_URL/")"
+if [[ "$code" != "307" && "$code" != "308" ]]; then
+  die "GET $RUN_URL/ should redirect to /example, got HTTP $code"
+fi
+location="$(awk 'tolower($1)=="location:" {print $2}' "$headers" | tr -d '\r')"
+if [[ "$location" != *"/example"* ]]; then
+  die "GET $RUN_URL/ Location should be /example, got ${location:-empty}"
+fi
+
+code="$(curl -sS -o "$body" -w "%{http_code}" --max-time 5 "$RUN_URL/example")"
 if [[ "$code" != "200" ]]; then
-  die "GET $RUN_URL/ returned HTTP $code"
+  die "GET $RUN_URL/example returned HTTP $code"
 fi
 
 if ! grep -q "Talent Graph" "$body"; then
-  die "GET $RUN_URL/ is not Club (missing Talent Graph identity)"
+  die "GET $RUN_URL/example is not Club (missing Talent Graph identity)"
 fi
 if ! grep -q "Tech@NYU" "$body" && ! grep -q "Cleo Marsh" "$body"; then
-  die "GET $RUN_URL/ is not the public seed board (missing Tech@NYU / Cleo Marsh)"
+  die "GET $RUN_URL/example is not the public seed board (missing Tech@NYU / Cleo Marsh)"
 fi
 
 if [[ "$RUN_PORT" == "3000" ]]; then
@@ -51,5 +61,5 @@ echo "  run     $RUN_ID"
 echo "  pid     $RUN_PID"
 echo "  listen  $listen"
 echo "  url     $RUN_URL"
-echo "  board   public seed (/)"
+echo "  board   public seed (/example; / redirects)"
 echo "  evidence $EVIDENCE_DIR"

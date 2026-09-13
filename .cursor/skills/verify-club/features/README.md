@@ -7,10 +7,10 @@ Scoring, dashboard text, and spec drift are not this map. Use `.cursor/skills/ve
 ## Baseline preconditions
 
 - Launch Club with `.cursor/skills/verify-club/helpers/launch.sh` so the instance is on `127.0.0.1` and a non-shared port (default `43173`).
-- Run `.cursor/skills/verify-club/helpers/doctor.sh` and require the printed URL, a live launch pid, and the public seed board identity.
+- Run `.cursor/skills/verify-club/helpers/doctor.sh` and require the printed URL, a live launch pid, the `/` → `/example` redirect, and the `/example` seed-board identity.
 - Drive only that URL. Never attach to `http://127.0.0.1:3000` unless doctor says this run owns it.
 - Viewport width ≥ 1280 so the `Applicants` region is visible.
-- Start from the seed: refresh `/` or choose `Reset to seed` after any mutation.
+- Start from the seed: refresh `/example` or choose `Reset to seed` after any mutation. Doctor must have already proven `GET /` redirects to `/example`.
 - Do not open `/club` and do not sign in.
 
 ## Driving conventions
@@ -26,7 +26,7 @@ Scoring, dashboard text, and spec drift are not this map. Use `.cursor/skills/ve
 - Capture the user action and the resulting state, not only the final screen.
 - UI proof includes an accessibility snapshot and a screenshot with Club identity visible (`Tech@NYU` or the case heading).
 - Mutation proof includes a second user-facing view of the change (list group, status kicker, search).
-- Record the feature ID and entry point (`/` or `/example`) with every artifact.
+- Record the feature ID and entry point (`/` redirect or `/example`) with every artifact.
 - Report an unreachable path with the attempted control and the unmet precondition.
 - Do not report a skipped entry point as verified through a different path.
 

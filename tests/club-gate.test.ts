@@ -31,8 +31,10 @@ describe("SEA-12 Better Auth gate on /club", () => {
   test("public example routes have no auth wall and no middleware", () => {
     const home = read("apps/club/app/page.tsx");
     const example = read("apps/club/app/example/page.tsx");
+    expect(home).toContain('redirect("/example")');
+    expect(home).not.toContain("loadClub()");
+    expect(home).not.toContain("ClubBoard");
     for (const source of [home, example]) {
-      expect(source).toContain("loadClub()");
       expect(source).not.toContain("auth-client");
       expect(source).not.toContain("auth-server");
       expect(source).not.toContain("isAuthenticated");
@@ -40,6 +42,7 @@ describe("SEA-12 Better Auth gate on /club", () => {
       expect(source).not.toContain("PersistedClub");
       expect(source).not.toContain("@convex-dev/better-auth");
     }
+    expect(example).toContain("loadClub()");
     expect(existsSync(join(root, "apps/club/middleware.ts"))).toBe(false);
     expect(existsSync(join(root, "apps/club/src/middleware.ts"))).toBe(false);
     expect(existsSync(join(root, "middleware.ts"))).toBe(false);

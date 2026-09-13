@@ -3,7 +3,7 @@ import { loadClub } from "../../lib/engine.ts";
 
 export const dynamic = "force-dynamic";
 
-/** Same public example admin as `/`. Explicit door name. */
+/** Public example admin. Auth-free; refresh restores the seed club. */
 export default function ExampleAdminDoor() {
   const initial = loadClub();
   return <ClubBoard initial={initial} />;

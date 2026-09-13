@@ -145,8 +145,11 @@ describe("SEA-10 Convex persistence path", () => {
     const persisted = read("apps/club/app/club/PersistedClub.tsx");
     const club = read("apps/club/convex/club.ts");
 
+    expect(home).toContain('redirect("/example")');
+    expect(home).not.toContain("loadClub()");
+    expect(home).not.toContain("ClubBoard");
+    expect(example).toContain("loadClub()");
     for (const source of [home, example]) {
-      expect(source).toContain("loadClub()");
       expect(source).not.toContain("PersistedClub");
       expect(source).not.toContain("api.club");
     }

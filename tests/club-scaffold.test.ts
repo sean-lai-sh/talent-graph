@@ -14,13 +14,18 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
     const home = read("apps/club/app/page.tsx");
     const example = read("apps/club/app/example/page.tsx");
     const engine = read("apps/club/lib/engine.ts");
-    for (const source of [home, example]) {
-      expect(source).toContain("loadClub()");
-      expect(source).not.toContain("auth-client");
-      expect(source).not.toContain("auth-server");
-      expect(source).not.toContain("ConvexClientProvider");
-      expect(source).not.toContain("@convex-dev/better-auth");
-    }
+    expect(home).toContain('redirect("/example")');
+    expect(home).not.toContain("loadClub()");
+    expect(home).not.toContain("ClubBoard");
+    expect(home).not.toContain("auth-client");
+    expect(home).not.toContain("auth-server");
+    expect(home).not.toContain("ConvexClientProvider");
+    expect(home).not.toContain("@convex-dev/better-auth");
+    expect(example).toContain("loadClub()");
+    expect(example).not.toContain("auth-client");
+    expect(example).not.toContain("auth-server");
+    expect(example).not.toContain("ConvexClientProvider");
+    expect(example).not.toContain("@convex-dev/better-auth");
     expect(engine).toContain("generateSeed()");
     expect(engine).not.toContain("convex");
     expect(engine).not.toContain("better-auth");
@@ -115,7 +120,8 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
       expect(source).toContain("not Clerk, not Neon");
       expect(source).toContain("is the path for");
       expect(source).not.toContain("Clerk and Neon come next");
-      expect(source).toContain("`/` and `/example`");
+      expect(source).toContain("`/example`");
+      expect(source).toContain("redirect");
       expect(source).toContain("/club");
       expect(source).toContain("npx convex dev");
       expect(source).toContain("vercel project update --root-directory apps/club");

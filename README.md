@@ -10,19 +10,20 @@ engine. It is one product, not two frontends.
 
 **Convex + Better Auth is the path for `/club`.** Official
 `@convex-dev/better-auth` on this same admin — not Clerk, not Neon, and
-not a second frontend. Do not add a login wall to `/` or `/example`.
+not a second frontend. Do not add a login wall to `/example`.
 
 | Route | Access | Data |
 |---|---|---|
-| `/` and `/example` | public seed — no sign-in | in-memory `generateSeed()` |
+| `/` | redirect to `/example` | — |
+| `/example` | public seed — no sign-in | in-memory `generateSeed()` |
 | `/club` | signed-in owner | Better Auth gate + Convex persist; views from `src/` |
 
 Unauthenticated `/club` is sign-in only. The seed board never mounts there.
 
 ### Env for a live `/club` door (Sean)
 
-Do **not** set these on the public example deploy. `/` and `/example` need
-none of them. From `apps/club`, run `npx convex dev` (writes the Next keys
+Do **not** set these on the public example deploy. `/example` needs
+none of them (`/` only redirects there). From `apps/club`, run `npx convex dev` (writes the Next keys)
 into `.env.local`), then set the Convex deployment keys. Full comments:
 [`apps/club/.env.example`](apps/club/.env.example).
 
