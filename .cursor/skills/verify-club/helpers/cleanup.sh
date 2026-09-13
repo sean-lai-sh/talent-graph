@@ -15,8 +15,8 @@ if [[ -f "$RUNS_DIR/$RUN_ID/pid_mark" ]]; then
   PID_MARK="$(cat "$RUNS_DIR/$RUN_ID/pid_mark")"
 fi
 if [[ -f "$RUNS_DIR/$RUN_ID/chrome.json" ]]; then
-  chrome_pid="$(sed -n 's/.*"pid": *\([0-9]*\).*/\1/p' "$RUNS_DIR/$RUN_ID/chrome.json" | head -n 1)"
-  if [[ -n "$chrome_pid" && "$chrome_pid" != "0" ]]; then
+  chrome_pid="$(bun -e 'const m=JSON.parse(await Bun.file(process.argv[1]).text()); process.stdout.write(String(m.pid??""))' "$RUNS_DIR/$RUN_ID/chrome.json" 2>/dev/null || true)"
+  if [[ "$chrome_pid" =~ ^[1-9][0-9]*$ ]]; then
     kill_ours "$chrome_pid" "remote-debugging-port"
   fi
 fi
@@ -68,8 +68,10 @@ if [[ "$launch_ours" -eq 1 ]]; then
   kill_ours "$RUN_PID" "$PID_MARK"
 fi
 
-if [[ -n "$DIST_DIR" && "$DIST_DIR" == .next-verify* ]]; then
+if [[ "$DIST_DIR" =~ ^\.next-verify-[0-9]+$ ]]; then
   rm -rf "$REPO_ROOT/apps/club/$DIST_DIR"
+elif [[ -n "$DIST_DIR" ]]; then
+  echo "verify-club: refusing to remove dist '$DIST_DIR' (not .next-verify-<port>)" >&2
 fi
 
 # Restore the tsconfig snapshot taken at launch — never git checkout (that

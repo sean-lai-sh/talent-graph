@@ -14,6 +14,14 @@ die() {
   exit 1
 }
 
+is_tcp_port() {
+  [[ "${1:-}" =~ ^[1-9][0-9]{0,4}$ ]] && (( 10#$1 <= 65535 ))
+}
+
+if ! is_tcp_port "$VERIFY_CLUB_PORT"; then
+  die "VERIFY_CLUB_PORT must be an integer 1–65535 (got ${VERIFY_CLUB_PORT})"
+fi
+
 run_dir() {
   local id="${1:-}"
   if [[ -z "$id" ]]; then
@@ -30,6 +38,9 @@ read_meta() {
   RUN_ID="$(basename "$dir")"
   RUN_PID="$(cat "$dir/pid")"
   RUN_PORT="$(cat "$dir/port")"
+  if ! is_tcp_port "$RUN_PORT"; then
+    die "recorded port is not a TCP port: $RUN_PORT"
+  fi
   RUN_URL="$(cat "$dir/url")"
   RUN_LOG="$dir/log"
   EVIDENCE_DIR="$EVIDENCE_ROOT/$RUN_ID"

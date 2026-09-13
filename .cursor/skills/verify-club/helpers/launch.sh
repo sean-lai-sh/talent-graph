@@ -67,7 +67,7 @@ for _ in $(seq 1 60); do
   if ! pid_alive "$(cat "$RUN_DIR/pid")"; then
     echo "verify-club: process exited before ready. last log:" >&2
     tail -n 40 "$RUN_DIR/log" >&2 || true
-    rm -f "$CURRENT_FILE"
+    "$SKILL_DIR/helpers/cleanup.sh" || true
     exit 1
   fi
   sleep 1
@@ -85,6 +85,10 @@ if [[ -n "$listen" ]]; then
   echo "$listen" >"$RUN_DIR/listen_pid"
 fi
 
-"$SKILL_DIR/helpers/doctor.sh"
+if ! "$SKILL_DIR/helpers/doctor.sh"; then
+  echo "verify-club: doctor failed after listen; cleaning up" >&2
+  "$SKILL_DIR/helpers/cleanup.sh" || true
+  exit 1
+fi
 echo "verify-club: launched $RUN_ID at $URL"
 echo "verify-club: evidence directory $EVIDENCE_DIR"

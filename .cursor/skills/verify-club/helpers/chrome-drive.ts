@@ -72,8 +72,13 @@ function portOwner(port: number): number | null {
 }
 
 function pickPort(): number {
-  const preferred = Number(process.env.VERIFY_CLUB_CHROME_PORT ?? 0);
-  const start = preferred > 0 ? preferred : 9333 + (Number(process.pid) % 200);
+  const raw = process.env.VERIFY_CLUB_CHROME_PORT ?? "";
+  if (raw && !/^[1-9][0-9]{0,4}$/.test(raw)) {
+    throw new Error("VERIFY_CLUB_CHROME_PORT must be an integer 1–65535");
+  }
+  const preferred = Number(raw || 0);
+  const start =
+    preferred > 0 && preferred <= 65535 ? preferred : 9333 + (Number(process.pid) % 200);
   for (let p = start; p < start + 40; p++) {
     if (portOwner(p) === null) return p;
   }
