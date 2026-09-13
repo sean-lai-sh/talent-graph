@@ -18,9 +18,9 @@ The Account control opens a menu for the signed-example council member `Admin`. 
 
 Preconditions:
 
-- Doctor reports a healthy public seed at the printed URL.
+- Doctor reports a healthy public seed at the printed URL (`/` redirects; `/example` is the board).
 - Viewport width ≥ 1280.
-- No leftover mutations. Refresh `/` if unsure.
+- No leftover mutations. Refresh `/example` if unsure. Doctor must have already proven `GET /` redirects to `/example`. Drive this recipe on `/example`.
 
 - **Open menu.** Choose the button named `Account`. A menu appears with `Admin`, `Council`, `Add a person`, `Round settings`, and `Reset to seed`.
 - **Add person.** Choose `Add a person`. Fill `Name` with `Verification Candidate` and `Phone` with `+15550199`. Choose `Add`. The heading level 1 reads `Verification Candidate`. `Applicants` includes that name under `Needs review`.

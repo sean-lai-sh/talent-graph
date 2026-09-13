@@ -60,7 +60,7 @@ printf '%s\n' "bun run dev" >"$RUN_DIR/pid_mark"
 
 ready=0
 for _ in $(seq 1 60); do
-  if curl -fsS --max-time 2 "$URL/" >/dev/null 2>&1; then
+  if curl -fsS --max-time 2 "$URL/example" >/dev/null 2>&1; then
     ready=1
     break
   fi

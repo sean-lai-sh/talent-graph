@@ -18,8 +18,9 @@ A council asks a club member for a response inside a 48-hour window. The ask ope
 
 Preconditions:
 
-- Doctor reports a healthy public seed at the printed URL.
+- Doctor reports a healthy public seed at the printed URL (`/` redirects; `/example` is the board).
 - Viewport width ≥ 1280.
+- Drive this recipe on `/example`.
 - Open `Cleo Marsh`. She already has a pending request to `Tomas Lindqvist`. Pick a different member.
 
 - **Open sheet.** Choose the button named `Ask someone`. A dialog named `Ask someone` appears. Copy mentions `48 hours to respond.`
