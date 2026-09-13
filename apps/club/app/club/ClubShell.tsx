@@ -10,7 +10,7 @@ import { PersistedClub } from "./PersistedClub";
 /**
  * Official Better Auth + Convex gate on the /club door only.
  * Unauthenticated visitors get the sign-in UI — never the seed board
- * and never PersistedClub. `/` and `/example` stay public.
+ * and never PersistedClub. `/example` stays public. `/` redirects there.
  */
 export function ClubShell() {
   const configured = convexConfigured();
@@ -24,17 +24,17 @@ export function ClubShell() {
         is the official <code className="font-mono text-[12px]">@convex-dev/better-auth</code>{" "}
         integration. Members, referrals, and status persist in Convex; views are computed by{" "}
         <code className="font-mono text-[12px]">src/</code>. The public example stays open at{" "}
-        <Link className="underline decoration-line underline-offset-2 hover:text-ink" href="/">
-          /
-        </Link>{" "}
-        and{" "}
         <Link
           className="underline decoration-line underline-offset-2 hover:text-ink"
           href="/example"
         >
           /example
         </Link>
-        . No sign-in there.
+        . Visiting{" "}
+        <Link className="underline decoration-line underline-offset-2 hover:text-ink" href="/">
+          /
+        </Link>{" "}
+        redirects there. No sign-in there.
       </p>
       {!configured ? (
         <>

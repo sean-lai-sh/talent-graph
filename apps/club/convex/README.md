@@ -1,7 +1,8 @@
 # Convex + Better Auth (club door)
 
 This folder is the official `@convex-dev/better-auth` component setup for
-`/club` only. `/` and `/example` stay on `generateSeed()` and do not use it.
+`/club` only. `/example` stays on `generateSeed()` and does not use it.
+`/` redirects to `/example`.
 
 **Persisted:** `clubOrgs` domain inputs — people, referrals, comparisons,
 evaluations, outcomes, opportunities, snapshots, and clock `now` (wall
