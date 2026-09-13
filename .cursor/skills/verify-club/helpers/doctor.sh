@@ -16,7 +16,13 @@ fi
 
 listen="$(listening_pid "$RUN_PORT" || true)"
 if [[ -z "$listen" ]]; then
-  die "nothing listens on $VERIFY_CLUB_HOST:$RUN_PORT (run $RUN_ID)"
+  # Some sandboxes hide TCP LISTEN from lsof even when Next is healthy.
+  if pid_alive "$RUN_PID" && curl -fsS --max-time 5 "$RUN_URL/" >/dev/null; then
+    echo "verify-club: WARNING lsof saw no listener on $RUN_PORT; GET / is 200 and launch pid is alive" >&2
+    listen="$RUN_PID"
+  else
+    die "nothing listens on $VERIFY_CLUB_HOST:$RUN_PORT (run $RUN_ID)"
+  fi
 fi
 if [[ "$listen" != "$RUN_PID" ]] && ! is_in_tree "$listen" "$RUN_PID"; then
   die "port $RUN_PORT is owned by pid $listen, not launch pid $RUN_PID. Do not drive this port."

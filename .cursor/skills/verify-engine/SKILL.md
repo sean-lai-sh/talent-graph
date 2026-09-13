@@ -83,7 +83,7 @@ Literal stdout handles (assert these strings, not internal fields):
 | `Top Relative Capability Estimates:` | demo dashboard |
 | `Under-Recognition Gap (Exploratory):` | demo dashboard |
 | `Review queue (candidates, by evidence state):` | demo |
-| bucket labels `Under-recognized`, `Ready to decide`, `Single source`, `Referred, not compared`, `Needs more compares`, `No referrals`, `No evidence` | demo queue |
+| bucket labels `Under-recognized`, `Ready to decide`, `Single source`, `Referred, not compared`, `Needs more compares`, `No referrals`, `No evidence` | demo queue (only non-empty buckets print) |
 | persona names `Cleo Marsh`, `Alice Tanaka`, `Bram Okafor`, `Dev Raman`, `Ember Liu`, `Fox Delacroix` | demo reports |
 | `Referral Signal` then `12 / 100` on Cleo's **person report** (V0) | demo; Club's UI 7 is V2 — see the V0→V2 table |
 | `Relative Capability Estimate` | each person report |
