@@ -149,8 +149,8 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
     expect(convexConfigured("https://x.convex.cloud", "https://x.convex.site")).toBe(true);
     expect(convexConfigured("https://x.convex.cloud", "https://x.convex.cloud")).toBe(false);
     expect(convexConfigured("", "https://x.convex.site")).toBe(false);
-    const shell = read("apps/club/app/club/ClubShell.tsx");
-    expect(shell).toContain("convexConfigured()");
-    expect(shell).not.toContain("Boolean(process.env.NEXT_PUBLIC_CONVEX_URL)");
+    const session = read("apps/club/lib/clubSession.ts");
+    expect(session).toContain("convexConfigured()");
+    expect(session).not.toContain("Boolean(process.env.NEXT_PUBLIC_CONVEX_URL)");
   });
 });

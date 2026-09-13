@@ -9,9 +9,9 @@ Club is the Admin / Council Review page in `apps/club`. A council lists candidat
 
 The algorithm core is a different surface. Do not use this skill to prove Referral Signal math, Bradley–Terry, or drift — that is [verify-engine](../verify-engine/SKILL.md) (`bun run demo`, `bun run drift`). `bun test` is unit coverage, not either skill's live proof.
 
-Primary surface: Next.js board at `/example` (public seed, no sign-in). `/` redirects there. Out of scope here:
+Primary surface: Next.js board at `/example` (public seed, no sign-in). `/` redirects there. `/login` is the Better Auth card (no board). Out of scope here:
 
-- `/club` — Better Auth + Convex persist. Shares the developer's Convex deployment. Do not sign in or mutate it from verification.
+- Signed-in `/club` — Better Auth + Convex persist. Shares the developer's Convex deployment. Do not sign in or mutate it from verification. Unauthenticated `/club` is in scope only as a redirect to `/login`.
 - Engine CLI and `src/` — verify-engine.
 
 Write this as instructions for an agent that has never seen the app.
@@ -62,6 +62,8 @@ It requires a `runs/current` file from launch, then checks:
 1. The recorded launch pid is alive.
 2. The recorded port is listened to by that pid or a child (Next spawns a node child). A foreign pid fails — do not drive someone else's server.
 3. `GET <url>/` redirects to `/example`. `GET <url>/example` is HTTP 200 and the body identifies the public seed board (`Talent Graph` plus `Tech@NYU` or `Cleo Marsh`).
+4. `GET <url>/club` redirects to `/login` (HTTP 307 or 308).
+5. `GET <url>/login` is HTTP 200 and the body is the sign-in card (`Sign in`, `Email`) with no `Club door` chrome.
 
 If doctor fails, stop. Cleanup, relaunch, doctor again. Do not fall back to `:3000` or a preview URL.
 
@@ -102,6 +104,10 @@ Identity handles (stable; prefer these over CSS or DOM position):
 | Ask sheet | dialog `Ask someone` | sheet |
 | Comparisons sheet | dialog `Comparisons` | sheet |
 | Close sheet | button `Close` | sheet |
+| Sign in | button `Sign in` | `/login` card tab |
+| Create account | button `Create account` | `/login` card tab |
+| Email | textbox `Email` | `/login` card |
+| Password | textbox `Password` | `/login` card |
 
 Keyboard (focus outside inputs): `J` / `ArrowDown` / `ArrowRight` next case; `K` / `ArrowUp` / `ArrowLeft` previous. Do not use these as the primary proof path when a named control exists.
 
@@ -109,7 +115,8 @@ Routes:
 
 - `GET /` — redirects to `/example`. Keep this reroute so old links work.
 - `GET /example` — public seed board. Refresh restores `generateSeed()`.
-- `GET /club` — sign-in door only unless you have an isolated Convex. Out of scope. If you land there by mistake, go back to `/example`.
+- `GET /login` — centered Better Auth card (Sign in / Create account, Email, Password). No board. Do not submit the form.
+- `GET /club` — unauthenticated visitors redirect to `/login`. Signed-in persist is out of scope. If you land on a signed-in board by mistake, go back to `/example`.
 
 Seed pins you can assert without calling engine internals (from `loadClub()` / `tests/club-engine.test.ts`):
 
@@ -143,10 +150,10 @@ Proof standards:
 
 - Exercise the real user path in the browser. Do not call `apps/club/app/actions.ts` or `lib/engine.ts` and call that a UI proof. Those are implementation. `bun test` already covers them.
 - Capture the action **and** the resulting state, not only the final screen.
-- UI proof is an accessibility snapshot plus a screenshot that shows Club identity (`Tech@NYU` or the case heading).
+- UI proof is an accessibility snapshot plus a screenshot that shows Club identity (`Tech@NYU` or the case heading). For `/login`, the screenshot must show only the centered card (no `Club door` kicker or explainer).
 - Side effects on the example board are in-session only. Prove them by a second user-facing view (list group, status kicker, search miss) — not by reading memory. After `Reset to seed`, prove the seed names and Cleo's signal **7** returned.
 - Do not mock the engine. The board already calls `src/` in-process.
-- `/club` persist is a production boundary (Convex). Do not drive it on the shared deployment. A dry-run name is not isolation.
+- `/club` persist is a production boundary (Convex). Prove only the unauthenticated redirect to `/login`. Do not sign in or mutate the shared deployment. A dry-run name is not isolation.
 - Record the feature id and entry point (`/` redirect vs `/example`, which control) with every artifact.
 - An unreachable path is reported with the attempt and the unmet precondition. Do not mark it verified via a different path.
 
@@ -181,6 +188,6 @@ Shared functions live in `helpers/lib.sh` (sourced, not invoked).
 - Example board state is in-memory per server process. Instances do not share candidate data.
 - Isolated `next dev` from `helpers/launch.sh` is the supported path. Launch unsets `TG_*` so Club seed pins stay stable. Do not start another `next dev` yourself, and never attach to a developer session on `:3000`.
 - Refuse to drive a server you did not launch. Doctor enforces this.
-- Never drive `/club` or any Better Auth + Convex persist surface. Those share the developer's Convex deployment. Stay on `/example` (`/` only to prove the redirect).
+- Never sign in or mutate `/club` persist. Those share the developer's Convex deployment. Stay on `/example` for the board (`/` only to prove the redirect). Prove `/login` and the `/club` → `/login` redirect without submitting the form.
 - Present mode exists in `ClubBoard` (`data-present`) but has **no control that turns it on**. Do not invent a Present button.
 - Helpers need `lsof` (port owner) and, when present, `pgrep` (process tree). Doctor and cleanup fail closed if they cannot identify the listener.

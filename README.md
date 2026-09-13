@@ -16,9 +16,10 @@ not a second frontend. Do not add a login wall to `/example`.
 |---|---|---|
 | `/` | redirect to `/example` | — |
 | `/example` | public seed — no sign-in | in-memory `generateSeed()` |
+| `/login` | Better Auth sign-in and sign-up | email/password card only |
 | `/club` | signed-in owner | Better Auth gate + Convex persist; views from `src/` |
 
-Unauthenticated `/club` is sign-in only. The seed board never mounts there.
+Unauthenticated `/club` redirects to `/login` (return path `/club`). The seed board never mounts there. Sign-out from `/club` returns to `/login`.
 
 ### Env for a live `/club` door (Sean)
 

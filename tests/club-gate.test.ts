@@ -9,20 +9,24 @@ function read(rel: string): string {
 }
 
 describe("SEA-12 Better Auth gate on /club", () => {
-  test("unauthenticated /club is sign-in UI, never seed or PersistedClub", () => {
+  test("unauthenticated /club redirects to /login, never seed or PersistedClub", () => {
     const shell = read("apps/club/app/club/ClubShell.tsx");
     const page = read("apps/club/app/club/page.tsx");
+    const login = read("apps/club/app/login/page.tsx");
     expect(page).toContain("<ClubShell />");
+    expect(page).toContain('redirect(clubLoginHref("/club"))');
     expect(page).not.toContain("loadClub()");
     expect(page).not.toContain("ClubBoard");
+    expect(login).toContain("<LoginCard");
     expect(shell).toContain('from "convex/react"');
     expect(shell).toContain("Authenticated");
     expect(shell).toContain("Unauthenticated");
     expect(shell).toContain("AuthLoading");
-    expect(shell).toContain("ClubSignInForm");
+    expect(shell).toContain("RedirectToLogin");
+    expect(shell).not.toContain("ClubSignInForm");
     expect(shell).toContain("<PersistedClub />");
     expect(shell.indexOf("<PersistedClub")).toBeGreaterThan(shell.indexOf("<Authenticated>"));
-    expect(shell).toMatch(/<Unauthenticated>\s*<ClubSignInForm/);
+    expect(shell).toMatch(/<Unauthenticated>\s*<RedirectToLogin/);
     expect(shell).not.toContain("loadClub()");
     expect(shell).not.toContain("generateSeed()");
     expect(shell).not.toContain("configured ? <PersistedClub");

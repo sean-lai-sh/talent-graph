@@ -31,5 +31,5 @@ npx convex env set SITE_URL http://127.0.0.1:3000
 `npx convex dev` regenerates `_generated/` and writes `NEXT_PUBLIC_CONVEX_*`
 into `.env.local`. Also set `BETTER_AUTH_SECRET` and `SITE_URL` on the
 Convex deployment (see `apps/club/.env.example`). Without a live
-deployment, `/club` compiles and shows the sign-in UI; it does not
-open the seed board.
+deployment, `/club` compiles and redirects to `/login`; it does not
+open the seed board. Sign-out from `/club` returns to `/login`.

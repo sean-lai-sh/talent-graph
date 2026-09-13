@@ -7,11 +7,11 @@ Scoring, dashboard text, and spec drift are not this map. Use `.cursor/skills/ve
 ## Baseline preconditions
 
 - Launch Club with `.cursor/skills/verify-club/helpers/launch.sh` so the instance is on `127.0.0.1` and a non-shared port (default `43173`).
-- Run `.cursor/skills/verify-club/helpers/doctor.sh` and require the printed URL, a live launch pid, the `/` → `/example` redirect, and the `/example` seed-board identity.
+- Run `.cursor/skills/verify-club/helpers/doctor.sh` and require the printed URL, a live launch pid, the `/` → `/example` redirect, the `/example` seed-board identity, the `/club` → `/login` redirect, and the `/login` card.
 - Drive only that URL. Never attach to `http://127.0.0.1:3000` unless doctor says this run owns it.
 - Viewport width ≥ 1280 so the `Applicants` region is visible.
 - Start from the seed: refresh `/example` or choose `Reset to seed` after any mutation. Doctor must have already proven `GET /` redirects to `/example`.
-- Do not open `/club` and do not sign in.
+- Do not sign in. Prove unauthenticated `/club` only as a redirect to `/login`.
 
 ## Driving conventions
 
@@ -48,3 +48,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Decide a case](./decide.md) covers Admit, Deny, the Decided group, and Reopen.
 - [Request feedback](./request-feedback.md) covers asking a member and seeing the pending request.
 - [Account menu](./account-menu.md) covers Add a person, Round settings, and Reset to seed.
+- [Login door](./login-door.md) covers the centered `/login` card, the `/club` redirect, and `/example` staying public.

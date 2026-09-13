@@ -52,6 +52,32 @@ if ! grep -q "Tech@NYU" "$body" && ! grep -q "Cleo Marsh" "$body"; then
   die "GET $RUN_URL/example is not the public seed board (missing Tech@NYU / Cleo Marsh)"
 fi
 
+code="$(curl -sS -D "$headers" -o /dev/null -w "%{http_code}" --max-time 5 "$RUN_URL/club")"
+if [[ "$code" != "307" && "$code" != "308" ]]; then
+  die "GET $RUN_URL/club should redirect to /login, got HTTP $code"
+fi
+location="$(awk 'tolower($1)=="location:" {print $2}' "$headers" | tr -d '\r')"
+if [[ "$location" != *"/login"* ]]; then
+  die "GET $RUN_URL/club Location should be /login, got ${location:-empty}"
+fi
+
+code="$(curl -sS -o "$body" -w "%{http_code}" --max-time 5 "$RUN_URL/login")"
+if [[ "$code" != "200" ]]; then
+  die "GET $RUN_URL/login returned HTTP $code"
+fi
+if ! grep -q "Sign in" "$body"; then
+  die "GET $RUN_URL/login is not the sign-in card (missing Sign in)"
+fi
+if ! grep -q "Email" "$body"; then
+  die "GET $RUN_URL/login is not the sign-in card (missing Email)"
+fi
+if grep -q "Club door" "$body"; then
+  die "GET $RUN_URL/login still has Club door chrome"
+fi
+if grep -qi "your club" "$body"; then
+  die "GET $RUN_URL/login still has the Talent Graph kicker"
+fi
+
 if [[ "$RUN_PORT" == "3000" ]]; then
   echo "verify-club: WARNING default port 3000 — confirm this is the verification launch, not a developer session" >&2
 fi
@@ -62,4 +88,5 @@ echo "  pid     $RUN_PID"
 echo "  listen  $listen"
 echo "  url     $RUN_URL"
 echo "  board   public seed (/example; / redirects)"
+echo "  login   /login card; /club redirects"
 echo "  evidence $EVIDENCE_DIR"
