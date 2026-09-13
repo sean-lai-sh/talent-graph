@@ -667,16 +667,58 @@ ul.people {
   color: var(--t4);
   font-size: 0.8125rem;
 }
-.ref-body {
+.ref-body,
+.trait-body {
   display: grid;
   grid-template-rows: 0fr;
   transition: grid-template-rows 0.36s var(--ease-out);
 }
-.ref-body > div {
+.ref-body > div,
+.trait-body > div {
   overflow: hidden;
 }
-.ref.is-open > .ref-body {
+.ref.is-open > .ref-body,
+.trait.is-open > .trait-body {
   grid-template-rows: 1fr;
+}
+
+.trait + .trait {
+  border-top: 1px solid var(--hair);
+}
+.trait-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.75rem 0;
+  text-align: left;
+}
+.trait:first-child .trait-head {
+  padding-top: 0;
+}
+.trait-name {
+  font-size: 1rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--t2);
+}
+.trait.is-open .trait-name,
+.trait-head:hover .trait-name {
+  color: var(--t1);
+}
+.trait-record {
+  margin-left: auto;
+  color: var(--t3);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+.trait-head .chev {
+  color: var(--t4);
+  transition: transform 0.32s var(--ease-out), color 0.16s var(--ease-out);
+}
+.trait.is-open .chev {
+  transform: rotate(180deg);
+  color: var(--t2);
 }
 .ref-inner {
   padding-bottom: 1rem;
@@ -923,7 +965,9 @@ ul.people {
   .row-hover,
   .dial .fill,
   .ref-body,
-  .ref-head .chev {
+  .ref-head .chev,
+  .trait-body,
+  .trait-head .chev {
     transition-duration: 0.01ms;
   }
   .press:active:not(:disabled) {
