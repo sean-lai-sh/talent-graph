@@ -62,7 +62,11 @@ function pidAlive(pid: number): boolean {
 }
 
 function portOwner(port: number): number | null {
-  const r = Bun.spawnSync(["bash", "-lc", `lsof -nP -iTCP:${port} -sTCP:LISTEN -t 2>/dev/null | head -n 1`]);
+  const r = Bun.spawnSync([
+    "bash",
+    "-lc",
+    `lsof -nP -iTCP:${port} -sTCP:LISTEN -t 2>/dev/null | head -n 1`,
+  ]);
   const n = Number(r.stdout.toString().trim());
   return Number.isFinite(n) && n > 0 ? n : null;
 }
@@ -95,7 +99,9 @@ async function ensureChrome(): Promise<ChromeMeta> {
         /* relaunch */
       }
     } else if (owner && owner !== meta.pid) {
-      throw new Error(`Chrome debug port ${meta.port} is owned by pid ${owner}, not our ${meta.pid}`);
+      throw new Error(
+        `Chrome debug port ${meta.port} is owned by pid ${owner}, not our ${meta.pid}`,
+      );
     }
   }
 
@@ -144,14 +150,20 @@ async function ensureChrome(): Promise<ChromeMeta> {
   return meta;
 }
 
-async function withCdp<T>(wsUrl: string, fn: (send: <R>(method: string, params?: Record<string, unknown>) => Promise<R>) => Promise<T>): Promise<T> {
+async function withCdp<T>(
+  wsUrl: string,
+  fn: (send: <R>(method: string, params?: Record<string, unknown>) => Promise<R>) => Promise<T>,
+): Promise<T> {
   const ws = new WebSocket(wsUrl);
   await new Promise<void>((ok, err) => {
     ws.addEventListener("open", () => ok());
     ws.addEventListener("error", () => err(new Error("cdp socket error")));
   });
   let nextId = 1;
-  const pending = new Map<number, { ok: (v: unknown) => void; err: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+  const pending = new Map<
+    number,
+    { ok: (v: unknown) => void; err: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
+  >();
   ws.addEventListener("message", (ev) => {
     const msg = JSON.parse(String(ev.data)) as {
       id?: number;
@@ -166,7 +178,7 @@ async function withCdp<T>(wsUrl: string, fn: (send: <R>(method: string, params?:
     if (msg.error) slot.err(new Error(msg.error.message));
     else slot.ok(msg.result);
   });
-  const send = <R,>(method: string, params?: Record<string, unknown>) =>
+  const send = <R>(method: string, params?: Record<string, unknown>) =>
     new Promise<R>((ok, err) => {
       const id = nextId++;
       const timer = setTimeout(() => {
