@@ -3,13 +3,14 @@
 import { useState } from "react";
 import {
   DIMENSION_PROMPTS,
+  DIMENSIONS,
   PRODUCT_LANGUAGE,
   REFERRAL_EVIDENCE_PROMPT,
   SCALE_LABELS,
 } from "../../../../src/domain/constants.ts";
 import { FEEDBACK_TONE } from "../../lib/copy.ts";
-import { hoursLabel } from "../../lib/format.ts";
-import { feedbackState, hoursUntil } from "../../lib/review.ts";
+import { fmtDateShort, hoursLabel } from "../../lib/format.ts";
+import { feedbackState, hoursUntil, REVIEW_STATUS_COPY } from "../../lib/review.ts";
 import type {
   ComparisonHistoryRow,
   EvidenceItem,
@@ -23,8 +24,8 @@ import { Badge } from "../ui/Badge.tsx";
 /** Same window as referral Top-K. Reveal the next five each time. */
 const PAGE = 5;
 
-function isOpinion(group: JudgeEvidenceGroup): boolean {
-  return group.items.some((i) => i.kind === "referral" || i.kind === "evaluation");
+function isReferrer(group: JudgeEvidenceGroup): boolean {
+  return group.items.some((i) => i.kind === "referral");
 }
 
 function trustOf(group: { trackRecord: { trust: number | null } }): number {
@@ -33,69 +34,53 @@ function trustOf(group: { trackRecord: { trust: number | null } }): number {
 
 /** Most trusted first. Missing a track record is not a trust of 0 — those go last. */
 function orderReviewers(groups: JudgeEvidenceGroup[]): JudgeEvidenceGroup[] {
-  return groups.filter(isOpinion).sort((a, b) => {
+  return groups.filter(isReferrer).sort((a, b) => {
     return trustOf(b) - trustOf(a) || a.name.localeCompare(b.name);
   });
 }
 
-function kindLabel(items: EvidenceItem[]): string {
-  const kinds = new Set(items.map((i) => i.kind));
-  const parts = [
-    kinds.has("referral") ? "referred" : "",
-    kinds.has("evaluation") ? "wrote" : "",
-  ].filter(Boolean);
-  return parts.join(" · ") || "reviewed";
+function convictionOf(group: JudgeEvidenceGroup): number {
+  const referral = group.items.find((i) => i.kind === "referral");
+  return referral && referral.kind === "referral" ? referral.conviction : 3;
 }
 
-function Answer({
-  question,
-  note,
-  children,
-}: {
-  question: string;
-  note?: string;
-  children: string;
-}) {
+function hasWrittenNote(group: JudgeEvidenceGroup): boolean {
+  return group.items.some(
+    (i) => (i.kind === "referral" || i.kind === "evaluation") && i.evidenceText.trim().length > 0,
+  );
+}
+
+function Chevron() {
   return (
-    <div className="border-b border-line py-2 last:border-b-0">
-      <p className="text-sm text-ink">{question}</p>
-      {note ? <p className="mt-0.5 text-xs text-muted">{note}</p> : null}
-      <p className="mt-1 text-sm leading-snug text-secondary">{children}</p>
-    </div>
+    <svg className="chev" width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <path
+        d="M2.5 4.5 6 8l3.5-3.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
 function Opinion({ items }: { items: EvidenceItem[] }) {
-  const rows = items.filter((i) => i.kind === "referral" || i.kind === "evaluation");
+  const rows = items.filter((i) => i.kind === "referral");
   if (rows.length === 0) return null;
   return (
     <div>
       <p className="sr-only">{PRODUCT_LANGUAGE.structuredEvidence}</p>
-      {rows.map((item) => {
-        if (item.kind === "referral") {
-          return (
-            <Answer
-              key={item.id}
-              question={REFERRAL_EVIDENCE_PROMPT}
-              note={SCALE_LABELS.conviction[item.conviction]}
-            >
-              {item.evidenceText}
-            </Answer>
-          );
-        }
-        if (item.kind === "evaluation") {
-          const note =
-            item.score === null
-              ? PRODUCT_LANGUAGE.notObserved
-              : item.scoreLabel || SCALE_LABELS.rubricNotObserved;
-          return (
-            <Answer key={item.id} question={DIMENSION_PROMPTS[item.dimension]} note={note}>
-              {item.evidenceText || SCALE_LABELS.rubricNotObserved}
-            </Answer>
-          );
-        }
-        return null;
-      })}
+      {rows.map((item) =>
+        item.kind === "referral" ? (
+          <div key={item.id} className="ref-inner">
+            <div className="prompt">
+              <p className="q">{REFERRAL_EVIDENCE_PROMPT}</p>
+              <p className="claim">{SCALE_LABELS.conviction[item.conviction]}</p>
+            </div>
+            <p className="answer">{item.evidenceText.trim() || SCALE_LABELS.rubricNotObserved}</p>
+          </div>
+        ) : null,
+      )}
     </div>
   );
 }
@@ -103,73 +88,174 @@ function Opinion({ items }: { items: EvidenceItem[] }) {
 function Reviewer({
   group,
   pending,
+  open,
+  onToggle,
 }: {
   group: JudgeEvidenceGroup;
   pending: FeedbackView | undefined;
+  open: boolean;
+  onToggle: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const written = hasWrittenNote(group);
+  if (!written) {
+    return (
+      <div className={`ref t${convictionOf(group)}`}>
+        <div className="ref-head">
+          <span className="ref-name" style={{ color: "var(--t4)" }}>
+            {group.name}
+          </span>
+          {pending ? (
+            <Badge tone={FEEDBACK_TONE[pending.state]}>
+              {pending.state === "overdue" ? "overdue" : "asked"}
+            </Badge>
+          ) : (
+            <span className="note">no note yet</span>
+          )}
+        </div>
+      </div>
+    );
+  }
   return (
-    <div className="border-b border-line">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full cursor-pointer items-center gap-2 py-2.5 text-left text-sm"
-      >
-        <span className="min-w-0 flex-1 truncate font-medium">{group.name}</span>
-        <span className="text-xs text-muted">{kindLabel(group.items)}</span>
+    <div className={`ref t${convictionOf(group)}${open ? " is-open" : ""}`}>
+      <button type="button" className="ref-head" aria-expanded={open} onClick={onToggle}>
+        <span className="ref-name">{group.name}</span>
         {pending ? (
           <Badge tone={FEEDBACK_TONE[pending.state]}>
             {pending.state === "overdue" ? "overdue" : "asked"}
           </Badge>
         ) : null}
+        <Chevron />
       </button>
-      {open ? (
-        <div className="pb-2">
+      <div className="ref-body">
+        <div>
           <Opinion items={group.items} />
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }
 
 const SHOWN_RESULTS = new Set(["won", "lost", "tie"]);
 
-function CompareGroup({ title, rows }: { title: string; rows: ComparisonHistoryRow[] }) {
-  if (rows.length === 0) return null;
-  const byOther = new Map<string, ComparisonHistoryRow[]>();
+type PersonRecord = {
+  id: string;
+  name: string;
+  items: ComparisonHistoryRow[];
+  won: number;
+  lost: number;
+  tie: number;
+};
+
+function groupPeople(rows: ComparisonHistoryRow[]): PersonRecord[] {
+  const byOther = new Map<string, PersonRecord>();
   for (const row of rows) {
-    const list = byOther.get(row.otherId);
-    if (list) list.push(row);
-    else byOther.set(row.otherId, [row]);
+    const existing = byOther.get(row.otherId);
+    if (existing) {
+      existing.items.push(row);
+      if (row.result === "won") existing.won += 1;
+      else if (row.result === "lost") existing.lost += 1;
+      else existing.tie += 1;
+    } else {
+      byOther.set(row.otherId, {
+        id: row.otherId,
+        name: row.otherName,
+        items: [row],
+        won: row.result === "won" ? 1 : 0,
+        lost: row.result === "lost" ? 1 : 0,
+        tie: row.result === "tie" ? 1 : 0,
+      });
+    }
   }
+  return [...byOther.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function recordLabel(person: PersonRecord): string {
+  const parts: string[] = [];
+  if (person.won > 0) parts.push(`won ${person.won}`);
+  if (person.lost > 0) parts.push(`lost ${person.lost}`);
+  if (person.tie > 0) parts.push(`tied ${person.tie}`);
+  return parts.join(" · ");
+}
+
+function tallyByDimension(
+  rows: ComparisonHistoryRow[],
+  result: "won" | "lost" | "tie",
+): { label: string; n: number }[] {
+  const counts = new Map<string, { label: string; n: number }>();
+  for (const row of rows) {
+    if (row.result !== result) continue;
+    const current = counts.get(row.dimension);
+    if (current) current.n += 1;
+    else counts.set(row.dimension, { label: row.dimensionLabel, n: 1 });
+  }
+  return DIMENSIONS.flatMap((dimension) => {
+    const row = counts.get(dimension);
+    return row ? [row] : [];
+  });
+}
+
+function Opponent({ person }: { person: PersonRecord }) {
+  const [open, setOpen] = useState(false);
   return (
-    <div>
+    <li>
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="min-w-0 truncate text-sm font-medium">{person.name}</p>
+        <p className="shrink-0 text-xs text-muted">{recordLabel(person)}</p>
+      </div>
+      {open ? (
+        <ul className="mt-1.5 space-y-1.5">
+          {person.items.map((item) => (
+            <li key={item.id} className="text-sm">
+              <span className={item.result === "won" ? "text-ink" : "text-secondary"}>
+                {item.result.replace("_", " ")}
+              </span>
+              <span className="text-muted"> · {item.dimensionLabel}</span>
+              {item.evidenceText ? (
+                <p className="mt-0.5 text-secondary">{item.evidenceText}</p>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="press mt-1 text-xs text-secondary hover:text-ink"
+      >
+        {open ? "View less" : "View more"}
+      </button>
+    </li>
+  );
+}
+
+function PeopleSection({ title, rows }: { title: string; rows: ComparisonHistoryRow[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <section className="border-b border-line pb-5">
       <h3 className="caps mb-2 text-muted">{title}</h3>
       <ul className="space-y-3">
-        {[...byOther.entries()].map(([id, items]) => {
-          const name = items[0]?.otherName ?? id;
-          return (
-            <li key={id}>
-              <p className="text-sm font-medium">{name}</p>
-              <ul className="mt-1 space-y-1">
-                {items.map((c) => (
-                  <li key={c.id} className="text-sm">
-                    <span className={c.result === "won" ? "text-ink" : "text-secondary"}>
-                      {c.result.replace("_", " ")}
-                    </span>
-                    <span className="text-muted"> · {c.dimensionLabel}</span>
-                    {c.evidenceText ? (
-                      <p className="mt-0.5 text-secondary">{c.evidenceText}</p>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </li>
-          );
-        })}
+        {groupPeople(rows).map((person) => (
+          <Opponent key={person.id} person={person} />
+        ))}
       </ul>
-    </div>
+    </section>
+  );
+}
+
+function StatSection({ title, rows }: { title: string; rows: { label: string; n: number }[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <section className="border-b border-line pb-5 last:border-b-0 last:pb-0">
+      <h3 className="caps mb-2 text-muted">{title}</h3>
+      <ul className="space-y-1">
+        {rows.map((row) => (
+          <li key={row.label} className="flex items-baseline justify-between gap-3 text-sm">
+            <span>{row.label}</span>
+            <span className="text-muted">{row.n}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -181,10 +267,13 @@ export function ComparisonsPane({ person }: { person: PersonView }) {
     return <p className="text-sm text-muted">{PRODUCT_LANGUAGE.insufficientEvidence}</p>;
   }
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <p className="sr-only">{PRODUCT_LANGUAGE.relativeCapability}</p>
-      <CompareGroup title="Members" rows={members} />
-      <CompareGroup title="Others we've seen" rows={others} />
+      <PeopleSection title="Members" rows={members} />
+      <PeopleSection title="External" rows={others} />
+      <StatSection title="Wins" rows={tallyByDimension(informative, "won")} />
+      <StatSection title="Losses" rows={tallyByDimension(informative, "lost")} />
+      <StatSection title="Ties" rows={tallyByDimension(informative, "tie")} />
     </div>
   );
 }
@@ -207,6 +296,8 @@ export function Reviews({
     person.feedback.filter((f) => f.state !== "responded").map((f) => [f.memberId, f]),
   );
   const ranked = orderReviewers(person.judgeEvidence);
+  const firstNote = ranked.find(hasWrittenNote);
+  const [openId, setOpenId] = useState<string | null>(firstNote?.judgeId ?? null);
   const visible = ranked.slice(0, shown);
   const hidden = ranked.length - visible.length;
   const seen = new Set(ranked.map((g) => g.judgeId));
@@ -216,36 +307,36 @@ export function Reviews({
   const hasCompares = person.comparisonHistory.some((c) => SHOWN_RESULTS.has(c.result));
 
   return (
-    <section className="border-t border-line pt-4">
-      <div className="mb-1 flex items-center gap-2">
-        <h3 className="min-w-0 flex-1 text-sm font-semibold">Reviews</h3>
-        {hasCompares ? (
-          <button
-            type="button"
-            onClick={onCompare}
-            className="press text-xs text-secondary hover:text-ink"
-          >
-            View comparisons ›
+    <section className="card card-read">
+      <h2 className="card-h">
+        Referrals
+        <span className="count">{ranked.length || ""}</span>
+        <span className="card-actions">
+          {hasCompares ? (
+            <button type="button" onClick={onCompare} className="press">
+              View comparisons ›
+            </button>
+          ) : null}
+          <button type="button" onClick={onAsk} aria-label="Ask someone" className="press">
+            +
           </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={onAsk}
-          aria-label="Ask someone"
-          className="press flex h-7 w-7 items-center justify-center rounded-md text-lg leading-none text-secondary hover:bg-subtle hover:text-ink"
-        >
-          +
-        </button>
-      </div>
+        </span>
+      </h2>
       {ranked.length > 0 ? (
-        <p className="mb-2 text-xs text-muted">Ranked by whose opinion we should trust first.</p>
+        <p className="card-lead">Ordered by whose judgment we trust most.</p>
       ) : null}
       {ranked.length === 0 && waiting.length === 0 ? (
-        <p className="py-3 text-sm text-muted">Nobody has written anything yet.</p>
+        <p className="empty-note">No referrals yet. Waiting on someone to vouch.</p>
       ) : (
         <div>
           {visible.map((g) => (
-            <Reviewer key={g.judgeId} group={g} pending={pendingByMember.get(g.judgeId)} />
+            <Reviewer
+              key={g.judgeId}
+              group={g}
+              pending={pendingByMember.get(g.judgeId)}
+              open={openId === g.judgeId}
+              onToggle={() => setOpenId((id) => (id === g.judgeId ? null : g.judgeId))}
+            />
           ))}
           {hidden > 0 ? (
             <button
@@ -259,25 +350,147 @@ export function Reviews({
           {waiting.map((f) => {
             const state = feedbackState(f, clock);
             return (
-              <div
-                key={f.id}
-                className="flex items-center gap-2 border-b border-line py-2.5 text-sm"
-              >
-                <span className="min-w-0 flex-1 truncate font-medium">{f.memberName}</span>
-                <span className="text-xs text-muted">{hoursLabel(hoursUntil(f.dueAt, clock))}</span>
-                <Badge tone={FEEDBACK_TONE[state]}>{state}</Badge>
-                <button
-                  type="button"
-                  className="press text-xs text-secondary hover:text-ink"
-                  onClick={() => onRecord(f)}
-                >
-                  Record
-                </button>
+              <div key={f.id} className="ref">
+                <div className="ref-head">
+                  <span className="ref-name" style={{ color: "var(--t4)" }}>
+                    {f.memberName}
+                  </span>
+                  <span className="note">{hoursLabel(hoursUntil(f.dueAt, clock))}</span>
+                  <Badge tone={FEEDBACK_TONE[state]}>{state}</Badge>
+                  <button
+                    type="button"
+                    className="press text-xs text-secondary hover:text-ink"
+                    onClick={() => onRecord(f)}
+                  >
+                    Record
+                  </button>
+                </div>
               </div>
             );
           })}
         </div>
       )}
+    </section>
+  );
+}
+
+export function CommitteeNotes({ person }: { person: PersonView }) {
+  const notes = [
+    ...person.feedback
+      .filter((f) => f.note.trim().length > 0)
+      .map((f) => ({
+        id: f.id,
+        by: f.memberName,
+        when: fmtDateShort(f.requestedAt),
+        text: f.note,
+      })),
+    ...person.evaluations
+      .filter((e) => e.evidenceText.trim().length > 0)
+      .map((e) => ({
+        id: e.id,
+        by: e.evaluatorName,
+        when: fmtDateShort(e.createdAt),
+        text: e.evidenceText,
+        prompt: DIMENSION_PROMPTS[e.dimension],
+        claim:
+          e.score === null
+            ? PRODUCT_LANGUAGE.notObserved
+            : e.scoreLabel || SCALE_LABELS.rubricNotObserved,
+      })),
+  ];
+  return (
+    <section className="card">
+      <h2 className="card-h">
+        Committee notes
+        <span className="count">{notes.length || ""}</span>
+      </h2>
+      {notes.length === 0 ? (
+        <p className="empty-note">Nothing written down yet.</p>
+      ) : (
+        notes.map((note) => (
+          <div key={note.id} className="note-item">
+            <div className="note-meta">
+              {note.by} · {note.when}
+            </div>
+            <p className="note-text">{note.text}</p>
+          </div>
+        ))
+      )}
+    </section>
+  );
+}
+
+export function AlsoVouched({ person, people }: { person: PersonView; people: PersonView[] }) {
+  const mine = new Set(person.referrals.map((r) => r.referrerId));
+  const seen = new Set<string>();
+  const shared: { id: string; name: string; via: string; signal: number | null }[] = [];
+  for (const other of people) {
+    if (other.id === person.id) continue;
+    for (const r of other.referrals) {
+      if (mine.has(r.referrerId) && !seen.has(other.id)) {
+        seen.add(other.id);
+        shared.push({
+          id: other.id,
+          name: other.name,
+          via: r.referrerName,
+          signal: other.v2Signal,
+        });
+      }
+    }
+  }
+  return (
+    <section className="card">
+      <h2 className="card-h">
+        Also vouched for
+        <span className="count">{shared.length || ""}</span>
+      </h2>
+      {shared.length === 0 ? (
+        <p className="empty-note">These referrers haven’t vouched for anyone else.</p>
+      ) : (
+        shared.map((row) => (
+          <div key={row.id} className="cmp">
+            <span className="who">{row.name}</span>
+            <span className="via">via {row.via}</span>
+            <span className="sc">{row.signal === null ? "—" : row.signal}</span>
+          </div>
+        ))
+      )}
+    </section>
+  );
+}
+
+export function Activity({ person }: { person: PersonView }) {
+  const scored = person.v2Signal !== null;
+  const rows: { what: string; when: string }[] = [
+    { what: "Applied", when: fmtDateShort(person.createdAt) },
+    {
+      what:
+        person.incomingCount === 0
+          ? "No referrals"
+          : `${person.incomingCount} referral${person.incomingCount === 1 ? "" : "s"}`,
+      when: person.incomingCount > 0 ? "received" : "",
+    },
+    {
+      what: scored ? `Scored ${person.v2Signal}` : "Not scored yet",
+      when: "",
+    },
+    {
+      what:
+        person.reviewStatus === "admitted" || person.reviewStatus === "denied"
+          ? REVIEW_STATUS_COPY[person.reviewStatus]
+          : "Awaiting decision",
+      when: "",
+    },
+  ];
+  return (
+    <section className="card">
+      <h2 className="card-h">Activity</h2>
+      {rows.map((row) => (
+        <div key={row.what} className="act">
+          <span>{row.what}</span>
+          <span className="when">{row.when}</span>
+        </div>
+      ))}
     </section>
   );
 }

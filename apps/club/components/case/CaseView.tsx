@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { REVIEW_STATUS_TONE } from "../../lib/copy.ts";
-import { availableDecisions, DECISION_COPY, REVIEW_STATUS_COPY } from "../../lib/review.ts";
+import { availableDecisions, REVIEW_STATUS_COPY } from "../../lib/review.ts";
 import type {
   Decision,
   FeedbackView,
@@ -15,24 +14,16 @@ import type {
 } from "../../lib/types.ts";
 import { RecordFeedbackForm } from "../forms/RecordFeedbackForm.tsx";
 import { RequestFeedbackForm } from "../forms/RequestFeedbackForm.tsx";
-import { Badge } from "../ui/Badge.tsx";
 import { Button } from "../ui/Button.tsx";
 import { Sheet } from "../ui/Sheet.tsx";
-import { ChannelSummary } from "./ChannelSummary.tsx";
-import { ComparisonsPane, Reviews } from "./Evidence.tsx";
-
-const DECISION_VARIANT: Record<Decision, "primary" | "secondary" | "danger" | "ghost"> = {
-  start_review: "secondary",
-  admit: "primary",
-  deny: "danger",
-  request_data: "secondary",
-  reopen: "secondary",
-};
+import { ChannelSummary, StatTiles } from "./ChannelSummary.tsx";
+import { Activity, AlsoVouched, CommitteeNotes, ComparisonsPane, Reviews } from "./Evidence.tsx";
 
 const AFTER_READING: ReadonlySet<Decision> = new Set(["admit", "deny", "reopen"]);
 
 export function CaseView({
   person,
+  people,
   members,
   config,
   clock,
@@ -45,6 +36,7 @@ export function CaseView({
   onBack,
 }: {
   person: PersonView;
+  people: PersonView[];
   members: MemberOption[];
   config: ReviewConfig;
   clock: IsoDate;
@@ -60,33 +52,27 @@ export function CaseView({
   const [comparing, setComparing] = useState(false);
   const [recording, setRecording] = useState<FeedbackView | null>(null);
   const decisions = availableDecisions(person.reviewStatus).filter((d) => AFTER_READING.has(d));
+  const blurb = [person.affiliation, person.bio].filter(Boolean).join(". ");
 
   return (
-    <article
-      className={`mx-auto w-full ${present ? "max-w-5xl px-8 py-8" : "max-w-4xl px-6 py-5"}`}
-    >
-      <div className="min-w-0">
+    <article className={`case-sheet ${present ? "w-full max-w-none" : ""}`}>
+      <header className="ident mb-6">
         <button
           type="button"
           onClick={onBack}
-          className="press mb-1 text-xs text-secondary hover:text-ink md:hidden"
+          className="press mb-3 text-xs text-secondary hover:text-ink lg:hidden"
         >
           ← All candidates
         </button>
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className={`${present ? "text-3xl" : "text-2xl"} font-semibold tracking-tight`}>
-            {person.name}
-          </h2>
-          <Badge tone={REVIEW_STATUS_TONE[person.reviewStatus]}>
-            {REVIEW_STATUS_COPY[person.reviewStatus]}
-          </Badge>
+        <div className={`status-kicker s-${person.reviewStatus}`}>
+          {REVIEW_STATUS_COPY[person.reviewStatus]}
         </div>
-        <p className="mt-0.5 text-sm text-secondary">
-          {person.affiliation || "Unaffiliated"}
-          {person.bio ? ` · ${person.bio}` : ""}
-        </p>
+        <h1 className="mt-2 text-[clamp(1.5rem,2.8vw,2.125rem)] font-semibold leading-[1.08] tracking-tight">
+          {person.name}
+        </h1>
+        <p className="blurb mt-3 max-w-[56ch] text-muted">{blurb || "No summary written yet."}</p>
         {(person.linkedin || person.resume || person.phone) && (
-          <p className="mt-1 flex flex-wrap gap-x-3 text-xs text-secondary">
+          <div className="ident-links">
             {person.linkedin ? (
               <a
                 href={
@@ -96,7 +82,6 @@ export function CaseView({
                 }
                 target="_blank"
                 rel="noreferrer"
-                className="press hover:text-ink"
               >
                 LinkedIn
               </a>
@@ -106,69 +91,89 @@ export function CaseView({
                 href={person.resume.startsWith("http") ? person.resume : `https://${person.resume}`}
                 target="_blank"
                 rel="noreferrer"
-                className="press hover:text-ink"
               >
-                Resume
+                Résumé
               </a>
             ) : null}
             {person.phone ? <span>{person.phone}</span> : null}
-          </p>
+          </div>
         )}
-      </div>
+      </header>
 
-      <div className="mt-5">
-        <ChannelSummary person={person} />
-      </div>
-
-      <div className="mt-6">
-        <Reviews
-          person={person}
-          clock={clock}
-          onAsk={() => setAsking(true)}
-          onCompare={() => setComparing(true)}
-          onRecord={(f) => setRecording(f)}
-        />
-      </div>
-
-      {recording ? (
-        <div className="mt-4 rounded-lg border border-line bg-subtle p-3">
-          <RecordFeedbackForm
+      <div className="board">
+        <div className="board-side">
+          <ChannelSummary person={person} people={people} />
+          {decisions.length > 0 ? (
+            <div className="decide">
+              {decisions.includes("admit") ? (
+                <button
+                  type="button"
+                  className="admit press"
+                  disabled={busy || !canDecide}
+                  onClick={() => onDecide("admit")}
+                >
+                  Admit
+                </button>
+              ) : null}
+              {decisions.includes("deny") ? (
+                <button
+                  type="button"
+                  className="deny press"
+                  disabled={busy || !canDecide}
+                  onClick={() => onDecide("deny")}
+                >
+                  Deny
+                </button>
+              ) : null}
+              {decisions.includes("reopen") ? (
+                <button
+                  type="button"
+                  className="reopen press"
+                  disabled={busy || !canDecide}
+                  onClick={() => onDecide("reopen")}
+                >
+                  Reopen
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        <div className="board-lane">
+          <StatTiles person={person} people={people} />
+          <Reviews
             person={person}
-            members={members}
-            requiredDimensions={config.requiredDimensions}
-            request={recording}
-            busy={busy}
-            onSubmit={(input) => {
-              onRecordFeedback(input);
-              setRecording(null);
-            }}
+            clock={clock}
+            onAsk={() => setAsking(true)}
+            onCompare={() => setComparing(true)}
+            onRecord={(f) => setRecording(f)}
           />
-          <div className="mt-2 flex justify-end">
-            <Button size="sm" variant="ghost" onClick={() => setRecording(null)}>
-              Cancel
-            </Button>
+          {recording ? (
+            <div className="card">
+              <RecordFeedbackForm
+                person={person}
+                members={members}
+                requiredDimensions={config.requiredDimensions}
+                request={recording}
+                busy={busy}
+                onSubmit={(input) => {
+                  onRecordFeedback(input);
+                  setRecording(null);
+                }}
+              />
+              <div className="mt-2 flex justify-end">
+                <Button size="sm" variant="ghost" onClick={() => setRecording(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : null}
+          <CommitteeNotes person={person} />
+          <div className="duo">
+            <AlsoVouched person={person} people={people} />
+            <Activity person={person} />
           </div>
         </div>
-      ) : null}
-
-      {decisions.length > 0 ? (
-        <div
-          className={`mt-8 flex flex-wrap items-center gap-2 border-t border-line pt-4 ${
-            present ? "sticky bottom-0 -mx-8 bg-canvas/95 px-8 py-3 backdrop-blur" : ""
-          }`}
-        >
-          {decisions.map((d) => (
-            <Button
-              key={d}
-              variant={DECISION_VARIANT[d]}
-              disabled={busy || !canDecide}
-              onClick={() => onDecide(d)}
-            >
-              {DECISION_COPY[d]}
-            </Button>
-          ))}
-        </div>
-      ) : null}
+      </div>
 
       <Sheet open={asking} title="Ask someone" onClose={() => setAsking(false)}>
         <RequestFeedbackForm

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { REVIEW_BUCKET_ORDER } from "../../../src/analysis/reviewQueue.ts";
 import { describeActionError } from "../lib/actionError.ts";
 import { resolveBoardActions } from "../lib/clubActions.ts";
-import { rankAmong } from "../lib/format.ts";
-import { type SortDir, sortRows } from "../lib/tableModel.ts";
+import { underConsideration } from "../lib/review.ts";
 import type {
   AddPersonInput,
+  CandidateRow,
   ClubBoardActions,
   ClubState,
   ClubView,
@@ -17,23 +18,53 @@ import type {
   RequestFeedbackInput,
   SetReviewConfigInput,
 } from "../lib/types.ts";
-import {
-  CandidateList,
-  DEFAULT_FILTERS,
-  type ListFilters,
-  type SortKey,
-} from "./candidates/CandidateList.tsx";
+import { CandidateList } from "./candidates/CandidateList.tsx";
 import { CaseView } from "./case/CaseView.tsx";
 import { ErrorBanner } from "./shell/ErrorBanner.tsx";
 import { TopBar } from "./shell/TopBar.tsx";
 import { EmptyState } from "./ui/EmptyState.tsx";
 import { Kbd } from "./ui/Kbd.tsx";
 
+function sortQueue(candidates: CandidateRow[]): CandidateRow[] {
+  const urgency = (bucket: CandidateRow["bucket"]) => {
+    if (!bucket) return REVIEW_BUCKET_ORDER.length;
+    return REVIEW_BUCKET_ORDER.indexOf(bucket);
+  };
+  return candidates
+    .filter((c) => underConsideration(c.reviewStatus))
+    .slice()
+    .sort((a, b) => {
+      const aNull = a.v2Signal === null;
+      const bNull = b.v2Signal === null;
+      if (aNull !== bNull) return aNull ? 1 : -1;
+      if (a.v2Signal !== null && b.v2Signal !== null && a.v2Signal !== b.v2Signal) {
+        return b.v2Signal - a.v2Signal;
+      }
+      return (
+        urgency(a.bucket) - urgency(b.bucket) ||
+        b.daysInReview - a.daysInReview ||
+        a.name.localeCompare(b.name)
+      );
+    });
+}
+
+function sortDecided(candidates: CandidateRow[]): CandidateRow[] {
+  return candidates
+    .filter((c) => !underConsideration(c.reviewStatus))
+    .slice()
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.name.localeCompare(b.name));
+}
+
+function matchesQuery(row: CandidateRow, query: string): boolean {
+  if (!query) return true;
+  return row.name.toLowerCase().includes(query);
+}
+
 /**
  * Admin / Council Review page. Master-detail: candidate list on the left,
  * one case on the right. Present mode hides the chrome for a screen share.
  * Every number on screen comes from `lib/engine.ts` → `src/`; this file
- * holds selection, filters, and the mutation chain only.
+ * holds selection, search, and the mutation chain only.
  */
 export function ClubBoard({
   initial,
@@ -52,18 +83,14 @@ export function ClubBoard({
   role?: "council";
 }) {
   const run: ClubBoardActions = resolveBoardActions(variant, actions);
-  const firstId =
-    initial.view.people.find((p) => p.id === "p-cleo")?.id ??
-    initial.view.candidates[0]?.personId ??
-    null;
+  const firstId = sortQueue(initial.view.candidates)[0]?.personId ?? null;
   const [state, setState] = useState<ClubState>(initial.state);
   const [view, setView] = useState<ClubView>(initial.view);
   const [error, setError] = useState<string | null>(initial.error ?? null);
   const [selectedId, setSelectedId] = useState<string | null>(firstId);
-  const [filters, setFilters] = useState<ListFilters>(DEFAULT_FILTERS);
-  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "name", dir: "asc" });
   const [present, setPresent] = useState(false);
   const [pane, setPane] = useState<"list" | "case">(variant === "club" ? "list" : "case");
+  const [query, setQuery] = useState("");
   const [dirty, setDirty] = useState(false);
   const [pending, start] = useTransition();
   const stateRef = useRef(state);
@@ -114,59 +141,50 @@ export function ClubBoard({
       async () => {
         const result = await run.reset?.();
         if (!result) return { state: stateRef.current, view };
-        setSelectedId("p-cleo");
-        setFilters(DEFAULT_FILTERS);
+        setSelectedId(sortQueue(result.view.candidates)[0]?.personId ?? null);
+        setQuery("");
         return result;
       },
       { seed: true },
     );
   };
 
-  const rows = useMemo(() => {
-    const q = filters.query.trim().toLowerCase();
-    const filtered = view.candidates.filter((c) => {
-      if (!filters.statuses.includes(c.reviewStatus)) return false;
-      if (filters.bucket !== "all" && c.bucket !== filters.bucket) return false;
-      if (filters.overdueOnly && c.overdueFeedback === 0) return false;
-      if (q && !`${c.name} ${c.affiliation}`.toLowerCase().includes(q)) return false;
-      return true;
-    });
-    const key = (c: (typeof filtered)[number]) => {
-      switch (sort.key) {
-        case "name":
-          return c.name;
-        case "status":
-          return c.reviewStatus;
-        case "signal":
-          return c.v2Signal;
-        case "incoming":
-          return c.incomingCount;
-        case "dimension": {
-          const est = c.estimated[filters.dimension];
-          return est ? rankAmong(est.percentile, est.poolSize) : null;
-        }
-        case "rubric":
-          return c.evaluationCount;
-        case "days":
-          return c.daysInReview;
-        case "created":
-          return c.createdAt;
-      }
-    };
-    return sortRows(filtered, key, sort.dir);
-  }, [view.candidates, filters, sort]);
+  const q = query.trim().toLowerCase();
+  const queue = useMemo(
+    () => sortQueue(view.candidates).filter((row) => matchesQuery(row, q)),
+    [view.candidates, q],
+  );
+  const decided = useMemo(
+    () => sortDecided(view.candidates).filter((row) => matchesQuery(row, q)),
+    [view.candidates, q],
+  );
+  const visible = useMemo(() => [...queue, ...decided], [queue, decided]);
 
   const selected: PersonView | undefined = useMemo(
     () =>
       view.people.find((p) => p.id === selectedId) ??
-      view.people.find((p) => p.id === rows[0]?.personId),
-    [view.people, selectedId, rows],
+      view.people.find((p) => p.id === visible[0]?.personId),
+    [view.people, selectedId, visible],
   );
 
   const select = (id: string) => {
     setSelectedId(id);
     setPane("case");
   };
+
+  const selectedKey = selected?.id ?? null;
+  const step = useCallback(
+    (dir: number) => {
+      if (visible.length === 0) return;
+      const idx = visible.findIndex((r) => r.personId === selectedKey);
+      const next = visible[Math.min(visible.length - 1, Math.max(0, (idx === -1 ? 0 : idx) + dir))];
+      if (next) {
+        setSelectedId(next.personId);
+        setPane("case");
+      }
+    },
+    [visible, selectedKey],
+  );
 
   // J / K and arrows move through the filtered list; Esc leaves present mode. Never animated.
   useEffect(() => {
@@ -185,20 +203,24 @@ export function ClubBoard({
         setPresent(false);
         return;
       }
-      const step =
-        e.key === "j" || e.key === "ArrowDown" ? 1 : e.key === "k" || e.key === "ArrowUp" ? -1 : 0;
-      if (step === 0 || rows.length === 0) return;
+      const dir =
+        e.key === "j" || e.key === "ArrowDown" || e.key === "ArrowRight"
+          ? 1
+          : e.key === "k" || e.key === "ArrowUp" || e.key === "ArrowLeft"
+            ? -1
+            : 0;
+      if (dir === 0) return;
       e.preventDefault();
-      const idx = rows.findIndex((r) => r.personId === selected?.id);
-      const next = rows[Math.min(rows.length - 1, Math.max(0, (idx === -1 ? 0 : idx) + step))];
-      if (next) setSelectedId(next.personId);
+      step(dir);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rows, selected?.id]);
+  }, [step]);
 
   const clockIso = clock === "wall" ? new Date().toISOString() : view.now;
   const canDecide = role === "council";
+  const at = visible.findIndex((r) => r.personId === selected?.id);
+  const counter = at >= 0 ? `${at + 1} of ${visible.length}` : `${visible.length} shown`;
 
   const onDecide = (decision: Decision) => {
     if (!selected) return;
@@ -222,9 +244,6 @@ export function ClubBoard({
         if (created) {
           setSelectedId(created.id);
           setPane("case");
-          setFilters((f) =>
-            f.statuses.includes("new") ? f : { ...f, statuses: [...f.statuses, "new"] },
-          );
         }
       }
       return result;
@@ -234,87 +253,84 @@ export function ClubBoard({
   return (
     <div
       data-present={present ? "" : undefined}
-      className="flex min-h-screen flex-col bg-canvas text-ink"
+      className={`app-shell bg-canvas text-ink ${present ? "is-present" : ""}`}
     >
       {!present ? (
         <TopBar
-          view={view}
-          variant={variant}
+          config={view.config}
           dirty={dirty}
           busy={pending}
           canAdd={run.addPerson !== undefined}
           canReset={run.reset !== undefined}
+          counter={counter}
+          onPrev={() => step(-1)}
+          onNext={() => step(1)}
+          onOpenList={() => setPane("list")}
           onAddPerson={onAddPerson}
           onReset={resetToSeed}
           onConfig={onConfig}
-          onPresent={() => setPresent(true)}
         />
       ) : (
-        <div className="flex h-10 items-center justify-between border-b border-line px-6 text-xs text-muted">
+        <div className="app-toolbar text-xs text-muted">
           <span>
             Present mode · <Kbd>J</Kbd> <Kbd>K</Kbd> next / previous case · <Kbd>Esc</Kbd> exit
           </span>
-          <span>
-            {rows.findIndex((r) => r.personId === selected?.id) + 1} of {rows.length}
-          </span>
+          <div className="flex-1" />
+          <span className="counter">{counter}</span>
         </div>
       )}
 
-      {error ? (
-        <ErrorBanner
-          error={error}
-          onDismiss={() => setError(null)}
-          {...(run.reset ? { onReset: resetToSeed } : {})}
-        />
+      {!present ? (
+        <aside
+          aria-label="Applicants"
+          className={`app-panel ${pane === "case" ? "hidden lg:flex" : "flex"}`}
+        >
+          <CandidateList
+            queue={queue}
+            decided={decided}
+            directory={view.candidates}
+            query={query}
+            selectedId={selected?.id ?? null}
+            onQuery={setQuery}
+            onSelect={select}
+          />
+        </aside>
       ) : null}
 
-      <div className="flex min-h-0 flex-1">
-        {!present ? (
-          <aside
-            aria-label="Candidates"
-            className={`w-full shrink-0 border-r border-line md:sticky md:top-12 md:block md:h-[calc(100vh-3rem)] md:w-[380px] ${
-              pane === "case" ? "hidden" : ""
-            }`}
-          >
-            <CandidateList
-              rows={rows}
-              total={view.candidates.length}
-              filters={filters}
-              sort={sort}
-              selectedId={selected?.id ?? null}
-              onFilters={setFilters}
-              onSort={setSort}
-              onSelect={select}
-            />
-          </aside>
+      <main className={`app-main ${pane === "list" && !present ? "hidden lg:block" : ""}`}>
+        {error ? (
+          <ErrorBanner
+            error={error}
+            onDismiss={() => setError(null)}
+            {...(run.reset ? { onReset: resetToSeed } : {})}
+          />
         ) : null}
-        <main className={`min-w-0 flex-1 ${pane === "list" && !present ? "hidden md:block" : ""}`}>
-          {selected ? (
-            <CaseView
-              key={selected.id}
-              person={selected}
-              members={view.members}
-              config={view.config}
-              clock={clockIso}
-              busy={pending}
-              present={present}
-              canDecide={canDecide}
-              onDecide={onDecide}
-              onRequestFeedback={onRequestFeedback}
-              onRecordFeedback={onRecordFeedback}
-              onBack={() => setPane("list")}
-            />
-          ) : (
-            <div className="mx-auto max-w-md px-6 py-16">
-              <EmptyState title="Nobody under consideration.">
-                {variant === "club"
-                  ? "Add a person; referrals arrive from the member referral page."
-                  : "Reset to seed restores the example."}
-              </EmptyState>
-            </div>
-          )}
-        </main>
-      </div>
+        {selected ? (
+          <CaseView
+            key={selected.id}
+            person={selected}
+            people={view.people}
+            members={view.members}
+            config={view.config}
+            clock={clockIso}
+            busy={pending}
+            present={present}
+            canDecide={canDecide}
+            onDecide={onDecide}
+            onRequestFeedback={onRequestFeedback}
+            onRecordFeedback={onRecordFeedback}
+            onBack={() => setPane("list")}
+          />
+        ) : (
+          <div className="mx-auto max-w-md px-6 py-16">
+            <EmptyState title="Nobody under consideration.">
+              {variant === "club"
+                ? "Add a person; referrals arrive from the member referral page."
+                : "Reset to seed restores the example."}
+            </EmptyState>
+          </div>
+        )}
+      </main>
     </div>
   );
 }

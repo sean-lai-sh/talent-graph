@@ -12,6 +12,59 @@ export function fmtDate(iso: IsoDate): string {
   return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
 }
 
+/** Date without the year — the sidebar and activity rows. */
+export function fmtDateShort(iso: IsoDate): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
+
+/** Mean of scored Referral Signals, rounded. Null when nobody is scored. */
+export function cohortAverage(signals: ReadonlyArray<number | null>): number | null {
+  const xs = signals.filter((n): n is number => n !== null);
+  if (xs.length === 0) return null;
+  return Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
+}
+
+/**
+ * Line under the dial. Display only — not a merged score.
+ * Null signal keeps the product rule: missing evidence is not a score of 0.
+ */
+export function signalContext(signal: number | null, average: number | null): string {
+  if (signal === null) return "Missing evidence is not a score of 0.";
+  if (average === null) return signalBand(signal);
+  const diff = signal - average;
+  if (diff === 0) return `Right at the round average of ${average}`;
+  return `${Math.abs(diff)} ${diff > 0 ? "above" : "below"} the round average of ${average}`;
+}
+
+/** Rank among scored Referral Signals only. Ties take the first equal slot. */
+export function scoreRank(
+  signal: number | null,
+  signals: ReadonlyArray<number | null>,
+): { rank: number; of: number } | null {
+  if (signal === null) return null;
+  const scored = signals
+    .filter((n): n is number => n !== null)
+    .slice()
+    .sort((a, b) => b - a);
+  if (scored.length === 0) return null;
+  const rank = scored.indexOf(signal) + 1;
+  if (rank === 0) return null;
+  return { rank, of: scored.length };
+}
+
+/** `2nd/13` — capability rank in its comparison pool. */
+export function rankShort(percentile: number, poolSize: number): string {
+  return `${ordinal(rankAmong(percentile, poolSize))}/${poolSize}`;
+}
+
+/** Mean of 1–5 conviction ratings. Null when there are no referrals. */
+export function meanConviction(values: ReadonlyArray<number>): number | null {
+  if (values.length === 0) return null;
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
 export function fmtDateTime(iso: IsoDate): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
@@ -23,6 +76,18 @@ export function fmtDateTime(iso: IsoDate): string {
 /** Integer signal or the Insufficient Evidence label. Null is never rendered as 0. */
 export function signalText(signal: number | null): string {
   return signal === null ? PRODUCT_LANGUAGE.insufficientEvidence : String(signal);
+}
+
+/**
+ * Coarse read of the Referral Signal. Display only — not a merged score.
+ * 90–100 very strong, 70–89 strong, 50–69 promising, 30–49 mixed, below 30 early.
+ */
+export function signalBand(signal: number): string {
+  if (signal >= 90) return "Very strong applicant";
+  if (signal >= 70) return "Strong applicant";
+  if (signal >= 50) return "Promising applicant";
+  if (signal >= 30) return "Mixed signal";
+  return "Early signal";
 }
 
 export function hoursLabel(hours: number): string {

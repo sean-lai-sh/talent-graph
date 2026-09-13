@@ -23,7 +23,7 @@ export const REVIEW_STATUS_TONE: Record<ReviewStatus, Tone> = {
   new: "neutral",
   under_review: "accent",
   needs_data: "neutral",
-  admitted: "accent",
+  admitted: "success",
   denied: "danger",
 };
 

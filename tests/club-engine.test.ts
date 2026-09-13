@@ -22,6 +22,14 @@ import {
   setStatus,
 } from "../apps/club/lib/engine.ts";
 import {
+  cohortAverage,
+  fmtDateShort,
+  meanConviction,
+  scoreRank,
+  signalBand,
+  signalContext,
+} from "../apps/club/lib/format.ts";
+import {
   availableDecisions,
   daysBetween,
   FEEDBACK_WINDOW_HOURS,
@@ -486,6 +494,33 @@ describe("council page UX pins", () => {
       "self-referral is not allowed",
     );
     expect(describeActionError({})).toContain("Reset to seed");
+  });
+
+  test("referral signal bands are a coarse read, not a merged score", () => {
+    expect(signalBand(100)).toBe("Very strong applicant");
+    expect(signalBand(90)).toBe("Very strong applicant");
+    expect(signalBand(89)).toBe("Strong applicant");
+    expect(signalBand(70)).toBe("Strong applicant");
+    expect(signalBand(69)).toBe("Promising applicant");
+    expect(signalBand(50)).toBe("Promising applicant");
+    expect(signalBand(49)).toBe("Mixed signal");
+    expect(signalBand(30)).toBe("Mixed signal");
+    expect(signalBand(29)).toBe("Early signal");
+    expect(signalBand(7)).toBe("Early signal");
+  });
+
+  test("dial context and round rank stay on Referral Signal only", () => {
+    expect(fmtDateShort("2026-01-25T00:00:00.000Z")).toBe("Jan 25");
+    expect(cohortAverage([78, 62, null, 7])).toBe(49);
+    expect(cohortAverage([null, null])).toBeNull();
+    expect(signalContext(null, 63)).toBe("Missing evidence is not a score of 0.");
+    expect(signalContext(63, 63)).toBe("Right at the round average of 63");
+    expect(signalContext(79, 63)).toBe("16 above the round average of 63");
+    expect(signalContext(50, 63)).toBe("13 below the round average of 63");
+    expect(scoreRank(78, [91, 78, 54, null])).toEqual({ rank: 2, of: 3 });
+    expect(scoreRank(null, [91, 78])).toBeNull();
+    expect(meanConviction([4, 3, 3, 1])).toBeCloseTo(2.75);
+    expect(meanConviction([])).toBeNull();
   });
 
   test("table model sorts nulls last in both directions", () => {
