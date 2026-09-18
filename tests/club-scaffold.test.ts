@@ -10,22 +10,26 @@ function read(rel: string): string {
 }
 
 describe("SEA-9 Convex + Better Auth scaffold", () => {
-  test("public example routes stay unauthenticated generateSeed", () => {
+  test("public landing and hidden demo stay off the Convex persist path", () => {
     const home = read("apps/club/app/page.tsx");
+    const demo = read("apps/club/app/demo/page.tsx");
     const example = read("apps/club/app/example/page.tsx");
     const engine = read("apps/club/lib/engine.ts");
-    expect(home).toContain('redirect("/example")');
+    expect(home).toContain("LandingPage");
     expect(home).not.toContain("loadClub()");
     expect(home).not.toContain("ClubBoard");
-    expect(home).not.toContain("auth-client");
     expect(home).not.toContain("auth-server");
     expect(home).not.toContain("ConvexClientProvider");
     expect(home).not.toContain("@convex-dev/better-auth");
-    expect(example).toContain("loadClub()");
-    expect(example).not.toContain("auth-client");
-    expect(example).not.toContain("auth-server");
-    expect(example).not.toContain("ConvexClientProvider");
-    expect(example).not.toContain("@convex-dev/better-auth");
+    expect(demo).toContain("loadClub()");
+    expect(demo).toContain("robots");
+    expect(demo).not.toContain("auth-client");
+    expect(demo).not.toContain("auth-server");
+    expect(demo).not.toContain("ConvexClientProvider");
+    expect(demo).not.toContain("@convex-dev/better-auth");
+    expect(example).toContain('redirect("/demo")');
+    expect(example).not.toContain("loadClub()");
+    expect(example).not.toContain("ClubBoard");
     expect(engine).toContain("generateSeed()");
     expect(engine).not.toContain("convex");
     expect(engine).not.toContain("better-auth");
@@ -47,6 +51,10 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
     expect(auth).toContain("createClient");
     expect(auth).toContain("authComponent.adapter(ctx)");
     expect(auth).toContain('from "@convex-dev/better-auth/plugins"');
+    expect(auth).toContain("disableSignUp: true");
+    expect(auth).toContain('disabledPaths: ["/sign-up/email"]');
+    expect(auth).toContain("provisionUser");
+    expect(auth).toContain("ADMIN_PROVISION_SECRET");
     expect(http).toContain("authComponent.registerRoutes(http, createAuth)");
     expect(client).toContain("convexClient()");
     expect(server).toMatch(/convexBetterAuthNextJs\(\{/);
@@ -121,6 +129,7 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
       expect(source).toContain("is the path for");
       expect(source).not.toContain("Clerk and Neon come next");
       expect(source).toContain("`/example`");
+      expect(source).toContain("`/demo`");
       expect(source).toContain("redirect");
       expect(source).toContain("/club");
       expect(source).toContain("npx convex dev");

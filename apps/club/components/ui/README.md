@@ -1,6 +1,6 @@
 # Club UI
 
-Shared controls for the Club apps. The example board at `/example` is the look these components encode. Tokens live in `apps/club/app/globals.css`. Import from `components/ui/index.ts`.
+Shared controls for the Club apps. The hidden seed board at `/demo` is the look these components encode. Tokens live in `apps/club/app/globals.css`. Import from `components/ui/index.ts`.
 
 Board chrome stays in `globals.css` (`.admit`, `.deny`, `.people-row`, `.panel-search`, `.list-trigger`, `.stepper`, `.card-actions`). Those marks are unique to the review layout. `Button` and `Input` do not cover them.
 

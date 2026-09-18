@@ -2,8 +2,8 @@
  * Council view over the algorithm core. No scoring lives here — this file
  * only serialises club state and calls `compute*` from `src/`.
  *
- * `/example` starts from `generateSeed()` via `initialState()`. `/` redirects there.
- * `/club` persists domain inputs in Convex and calls the same helpers.
+ * `/demo` starts from `generateSeed()` via `initialState()`. `/example` redirects there.
+ * `/` is the chips landing. `/club` persists domain inputs in Convex and calls the same helpers.
  * Persisted orgs use `emptyState()` / wall clock; the example keeps EXAMPLE_T_END.
  *
  * Judge calibration numbers (p̂, Ē, bias) are folded into a categorical

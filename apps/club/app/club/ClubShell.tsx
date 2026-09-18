@@ -2,8 +2,8 @@
 
 import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
 import Link from "next/link";
-import { type FormEvent, useState } from "react";
-import { Button, Field, Input } from "@/components/ui/index.ts";
+import { SignInForm } from "@/components/auth/SignInForm.tsx";
+import { Button } from "@/components/ui/index.ts";
 import { authClient } from "@/lib/auth-client";
 import { convexConfigured } from "@/lib/convexEnv";
 import { PersistedClub } from "./PersistedClub";
@@ -11,7 +11,7 @@ import { PersistedClub } from "./PersistedClub";
 /**
  * Official Better Auth + Convex gate on the /club door only.
  * Unauthenticated visitors get the sign-in UI — never the seed board
- * and never PersistedClub. `/example` stays public. `/` redirects there.
+ * and never PersistedClub. `/demo` is the hidden public seed.
  */
 export function ClubShell() {
   const configured = convexConfigured();
@@ -24,18 +24,12 @@ export function ClubShell() {
         Signed-in owners use this door. The council review page persists here. Convex + Better Auth
         is the official <code className="font-mono text-[12px]">@convex-dev/better-auth</code>{" "}
         integration. Members, referrals, and status persist in Convex; views are computed by{" "}
-        <code className="font-mono text-[12px]">src/</code>. The public example stays open at{" "}
-        <Link
-          className="underline decoration-line underline-offset-2 hover:text-ink"
-          href="/example"
-        >
-          /example
-        </Link>
-        . Visiting{" "}
+        <code className="font-mono text-[12px]">src/</code>. Sign-in is email and password. There is
+        no create-account path — an admin provisions owners. The public landing is{" "}
         <Link className="underline decoration-line underline-offset-2 hover:text-ink" href="/">
           /
-        </Link>{" "}
-        redirects there. No sign-in there.
+        </Link>
+        .
       </p>
       {!configured ? (
         <>
@@ -87,88 +81,5 @@ function ClubSignedInBar() {
 }
 
 function ClubSignInForm() {
-  const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPending(true);
-    setMessage(null);
-    const result =
-      mode === "sign-up"
-        ? await authClient.signUp.email({ name, email, password })
-        : await authClient.signIn.email({ email, password });
-    setPending(false);
-    if (result.error) {
-      setMessage(result.error.message ?? "Better Auth could not complete that.");
-      return;
-    }
-    setMessage(mode === "sign-up" ? "Account created." : "Signed in.");
-  }
-
-  return (
-    <form
-      className="mt-8 flex max-w-md flex-col gap-3 rounded-lg border border-line bg-surface p-5"
-      onSubmit={(event) => void onSubmit(event)}
-    >
-      <p className="text-sm text-muted">
-        Sign in to open your club. This is not the public example.
-      </p>
-      <div className="flex gap-3 text-sm">
-        <button
-          className={mode === "sign-in" ? "underline" : "text-muted"}
-          type="button"
-          onClick={() => setMode("sign-in")}
-        >
-          Sign in
-        </button>
-        <button
-          className={mode === "sign-up" ? "underline" : "text-muted"}
-          type="button"
-          onClick={() => setMode("sign-up")}
-        >
-          Create account
-        </button>
-      </div>
-      {mode === "sign-up" ? (
-        <Field label="Name">
-          <Input
-            name="name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            autoComplete="name"
-          />
-        </Field>
-      ) : null}
-      <Field label="Email">
-        <Input
-          name="email"
-          type="email"
-          required
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          autoComplete="email"
-        />
-      </Field>
-      <Field label="Password">
-        <Input
-          name="password"
-          type="password"
-          required
-          minLength={8}
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          autoComplete={mode === "sign-up" ? "new-password" : "current-password"}
-        />
-      </Field>
-      <Button type="submit" variant="primary" disabled={pending}>
-        {pending ? "Working…" : mode === "sign-up" ? "Create account" : "Sign in"}
-      </Button>
-      {message ? <p className="text-sm text-warn">{message}</p> : null}
-    </form>
-  );
+  return <SignInForm />;
 }

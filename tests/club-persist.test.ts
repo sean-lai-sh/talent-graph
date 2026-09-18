@@ -138,18 +138,20 @@ describe("SEA-10 Convex persistence path", () => {
     expect(engine).not.toContain("better-auth");
   });
 
-  test("/club wires Convex queries and mutations; example routes stay seed", () => {
+  test("/club wires Convex queries and mutations; demo routes stay seed", () => {
     const home = read("apps/club/app/page.tsx");
+    const demo = read("apps/club/app/demo/page.tsx");
     const example = read("apps/club/app/example/page.tsx");
     const shell = read("apps/club/app/club/ClubShell.tsx");
     const persisted = read("apps/club/app/club/PersistedClub.tsx");
     const club = read("apps/club/convex/club.ts");
 
-    expect(home).toContain('redirect("/example")');
+    expect(home).toContain("LandingPage");
     expect(home).not.toContain("loadClub()");
     expect(home).not.toContain("ClubBoard");
-    expect(example).toContain("loadClub()");
-    for (const source of [home, example]) {
+    expect(demo).toContain("loadClub()");
+    expect(example).toContain('redirect("/demo")');
+    for (const source of [home, demo, example]) {
       expect(source).not.toContain("PersistedClub");
       expect(source).not.toContain("api.club");
     }

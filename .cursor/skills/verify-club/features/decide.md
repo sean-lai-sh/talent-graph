@@ -18,9 +18,9 @@ A council admits or denies a person under consideration. The person leaves `Need
 
 Preconditions:
 
-- Doctor reports a healthy public seed at the printed URL (`/` redirects; `/example` is the board).
+- Doctor reports a healthy public seed at the printed URL (`/` is the landing; `/demo` is the board).
 - Viewport width ≥ 1280.
-- Drive this recipe on `/example`.
+- Drive this recipe on `/demo`.
 - Start from a fresh seed. Prefer `Alice Tanaka` (`New`) so Cleo's case stays intact for other recipes if you forget to reset.
 
 - **Open Alice.** In `Applicants`, choose `Alice Tanaka`. Heading is `Alice Tanaka`. Status kicker is `New`. Buttons `Admit` and `Deny` are present. `Reopen` is not.

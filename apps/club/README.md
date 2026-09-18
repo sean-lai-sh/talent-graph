@@ -17,10 +17,12 @@ feedback inside a 48-hour window. It works over a screen share.
   requires; nothing is weighted or totalled.
 - **Convex + Better Auth** is the path for `/club` on this same app. Official
   `@convex-dev/better-auth` — not Clerk, not Neon, and **not a second frontend**.
-  Do not add a login wall to `/example`.
-- `/` — redirects to `/example` so old links still work.
-- `/example` — public example council page over the seed. No sign-in.
-  Refresh restores the seed club.
+  Do not add a login wall to `/demo`.
+- `/` — public chips landing (from [pope-cruz/chips](https://github.com/pope-cruz/chips))
+  with email/password sign-in. No create-account control.
+- `/demo` — hidden public seed board. No sign-in. Not linked from `/`.
+  Refresh restores the seed club. `robots` noindexes it.
+- `/example` — redirects to `/demo` so old links still work.
 - `/club` — real-organization door. Convex + Better Auth live here. Domain
   inputs (people with review status, referrals, comparisons, evaluations,
   feedback requests, round settings, snapshots) persist in Convex. Each write
@@ -28,7 +30,9 @@ feedback inside a 48-hour window. It works over a screen share.
   `src/`. The session / org gate is on: unauthenticated visitors see the
   Better Auth sign-in UI only (not the seed board, not PersistedClub).
   Signed-in owners get the Convex-backed page when Convex env is configured.
-  `/example` stays in-memory `generateSeed()` with no auth. `/` redirects there.
+  `/demo` stays in-memory `generateSeed()` with no auth. `/example` redirects
+  there. Public signup is disabled; provision owners with
+  `bun run provision-user`.
 
 ```sh
 bun --cwd apps/club install
@@ -37,7 +41,7 @@ bun --cwd apps/club dev          # http://127.0.0.1:3000
 bun run club:web
 ```
 
-`/example` needs no Convex project (`/` only redirects there). `/club` (signed-in owners only)
+`/` and `/demo` need no Convex project. `/club` (signed-in owners only)
 is wired to the Convex project `talent-graph` (dev deployment
 `youthful-capybara-14`) with every env var in Doppler `talent-graph/dev`.
 No `.env.local`:
@@ -75,6 +79,14 @@ into `.env.local`; add `NEXT_PUBLIC_SITE_URL` and set the two Convex vars with
 ```sh
 npx convex env set BETTER_AUTH_SECRET=$(openssl rand -base64 32)
 npx convex env set SITE_URL http://127.0.0.1:3000
+npx convex env set ADMIN_PROVISION_SECRET=$(openssl rand -base64 32)
+```
+
+Then provision the first owner (no public signup):
+
+```sh
+OWNER_EMAIL=you@club.edu OWNER_NAME="You" OWNER_PASSWORD='…' \
+  ADMIN_PROVISION_SECRET='…' bun run provision-user
 ```
 
 Do not put any of these keys on the public example deploy.
@@ -89,6 +101,7 @@ Required env for a live `/club` door (Sean):
 | Next `.env.local` | `NEXT_PUBLIC_SITE_URL` | Origin you open, e.g. `http://127.0.0.1:3000` |
 | Convex deployment (`npx convex env set`) | `BETTER_AUTH_SECRET` | `openssl rand -base64 32` |
 | Convex deployment | `SITE_URL` | Same origin as `NEXT_PUBLIC_SITE_URL` |
+| Convex deployment | `ADMIN_PROVISION_SECRET` | Shared secret for `auth:provisionUser` |
 
 Without those, `/club` stays on the sign-in UI plus a "Convex is not connected" warning. The seed board does not appear there. A live session / persist round-trip still needs `npx convex dev`.
 
@@ -129,7 +142,7 @@ Without those, `/club` stays on the sign-in UI plus a "Convex is not connected" 
 
 No live preview is attached to this branch. The app is configured so a
 human can ship the public example with one Vercel project. Do not add
-auth env for `/example`. Convex + Better Auth keys are `/club`
+auth env for `/` or `/demo`. Convex + Better Auth keys are `/club`
 only.
 
 | Setting | Value |
@@ -138,7 +151,7 @@ only.
 | **Include source files outside of the Root Directory in the Build Step** | ON (new projects often default ON; confirm) |
 | **Framework Preset** | Next.js (`apps/club/vercel.json`) |
 | **outputFileTracingRoot** | repo root (`apps/club/next.config.ts`) |
-| **Environment variables** | none required for `/example` (`/` redirects there). `/club` uses Convex + Better Auth vars from `.env.example` when a deployment is connected |
+| **Environment variables** | none required for `/` or `/demo`. `/club` uses Convex + Better Auth vars from `.env.example` when a deployment is connected |
 
 `outputFileTracingRoot` must stay the **repository root**, not `apps/club`.
 The board imports `../../src`; tracing from the repo root puts that tree
@@ -159,9 +172,10 @@ in the build.
    on the detected defaults. Do not set Output Directory.
 5. Skip Environment Variables. Optional `TG_*` keys are in
    [`apps/club/.env.example`](.env.example); they are not required.
-6. Deploy. `/example` is the public seed council page. `/` redirects there.
-   Refresh restores `generateSeed()`. `/club` persists club inputs in Convex and
-   computes views from `src/`. It does not wall the example.
+6. Deploy. `/` is the chips landing with sign-in. `/demo` is the hidden seed
+   council page (`/example` redirects there). Refresh on `/demo` restores
+   `generateSeed()`. `/club` persists club inputs in Convex and computes views
+   from `src/`. It does not wall the hidden demo.
 
 ### CLI (from the repository root)
 

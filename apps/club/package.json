@@ -10,7 +10,8 @@
     "dev:doppler": "doppler run -- next dev -H 127.0.0.1",
     "convex:dev": "convex dev",
     "convex:doppler": "doppler run -- convex dev",
-    "convex:deploy": "doppler run -- convex deploy"
+    "convex:deploy": "doppler run -- convex deploy",
+    "provision-user": "bun scripts/provision-user.ts"
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.12.5",
