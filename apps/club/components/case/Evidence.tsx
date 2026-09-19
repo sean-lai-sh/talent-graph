@@ -1,13 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   DIMENSION_PROMPTS,
-  DIMENSIONS,
   PRODUCT_LANGUAGE,
   REFERRAL_EVIDENCE_PROMPT,
   SCALE_LABELS,
 } from "../../../../src/domain/constants.ts";
+import type { Dimension } from "../../../../src/domain/types.ts";
+import {
+  informativeComparisons,
+  recordSummary,
+  recordsByTrait,
+  type TraitRecord,
+} from "../../lib/comparisonRecord.ts";
 import { FEEDBACK_TONE } from "../../lib/copy.ts";
 import { fmtDateShort, hoursLabel } from "../../lib/format.ts";
 import { feedbackState, hoursUntil, REVIEW_STATUS_COPY } from "../../lib/review.ts";
@@ -135,145 +141,91 @@ function Reviewer({
   );
 }
 
-const SHOWN_RESULTS = new Set(["won", "lost", "tie"]);
-
-type PersonRecord = {
-  id: string;
-  name: string;
-  items: ComparisonHistoryRow[];
-  won: number;
-  lost: number;
-  tie: number;
-};
-
-function groupPeople(rows: ComparisonHistoryRow[]): PersonRecord[] {
-  const byOther = new Map<string, PersonRecord>();
-  for (const row of rows) {
-    const existing = byOther.get(row.otherId);
-    if (existing) {
-      existing.items.push(row);
-      if (row.result === "won") existing.won += 1;
-      else if (row.result === "lost") existing.lost += 1;
-      else existing.tie += 1;
-    } else {
-      byOther.set(row.otherId, {
-        id: row.otherId,
-        name: row.otherName,
-        items: [row],
-        won: row.result === "won" ? 1 : 0,
-        lost: row.result === "lost" ? 1 : 0,
-        tie: row.result === "tie" ? 1 : 0,
-      });
-    }
-  }
-  return [...byOther.values()].sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function recordLabel(person: PersonRecord): string {
-  const parts: string[] = [];
-  if (person.won > 0) parts.push(`won ${person.won}`);
-  if (person.lost > 0) parts.push(`lost ${person.lost}`);
-  if (person.tie > 0) parts.push(`tied ${person.tie}`);
-  return parts.join(" · ");
-}
-
-function tallyByDimension(
-  rows: ComparisonHistoryRow[],
-  result: "won" | "lost" | "tie",
-): { label: string; n: number }[] {
-  const counts = new Map<string, { label: string; n: number }>();
-  for (const row of rows) {
-    if (row.result !== result) continue;
-    const current = counts.get(row.dimension);
-    if (current) current.n += 1;
-    else counts.set(row.dimension, { label: row.dimensionLabel, n: 1 });
-  }
-  return DIMENSIONS.flatMap((dimension) => {
-    const row = counts.get(dimension);
-    return row ? [row] : [];
-  });
-}
-
-function Opponent({ person }: { person: PersonRecord }) {
-  const [open, setOpen] = useState(false);
+function OpponentColumn({ title, rows }: { title: string; rows: ComparisonHistoryRow[] }) {
   return (
-    <li>
-      <div className="flex items-baseline justify-between gap-3">
-        <p className="min-w-0 truncate text-sm font-medium">{person.name}</p>
-        <p className="shrink-0 text-xs text-muted">{recordLabel(person)}</p>
-      </div>
-      {open ? (
-        <ul className="mt-1.5 space-y-1.5">
-          {person.items.map((item) => (
-            <li key={item.id} className="text-sm">
-              <span className={item.result === "won" ? "text-ink" : "text-secondary"}>
-                {item.result.replace("_", " ")}
+    <div className="min-w-[10rem] flex-1">
+      <p className="caps mb-1.5 text-muted">{title}</p>
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted">—</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {rows.map((row) => (
+            <li key={row.id} className="text-sm">
+              <span>
+                {row.otherName}
+                {row.otherStatus === "member" ? " · member" : ""}
               </span>
-              <span className="text-muted"> · {item.dimensionLabel}</span>
-              {item.evidenceText ? (
-                <p className="mt-0.5 text-secondary">{item.evidenceText}</p>
+              {row.evidenceText ? (
+                <p className="mt-0.5 text-secondary">{row.evidenceText}</p>
               ) : null}
             </li>
           ))}
         </ul>
-      ) : null}
+      )}
+    </div>
+  );
+}
+
+function Trait({
+  record,
+  open,
+  onToggle,
+}: {
+  record: TraitRecord;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const id = useId();
+  return (
+    <div className={`trait${open ? " is-open" : ""}`}>
       <button
         type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="press mt-1 text-xs text-secondary hover:text-ink"
+        className="trait-head"
+        aria-expanded={open}
+        aria-labelledby={`${id}-name`}
+        aria-describedby={`${id}-record`}
+        onClick={onToggle}
       >
-        {open ? "View less" : "View more"}
+        <span id={`${id}-name`} className="trait-name">
+          {record.label}
+        </span>
+        <span id={`${id}-record`} className="trait-record">
+          {recordSummary(record)}
+        </span>
+        <Chevron />
       </button>
-    </li>
-  );
-}
-
-function PeopleSection({ title, rows }: { title: string; rows: ComparisonHistoryRow[] }) {
-  if (rows.length === 0) return null;
-  return (
-    <section className="border-b border-line pb-5">
-      <h3 className="caps mb-2 text-muted">{title}</h3>
-      <ul className="space-y-3">
-        {groupPeople(rows).map((person) => (
-          <Opponent key={person.id} person={person} />
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function StatSection({ title, rows }: { title: string; rows: { label: string; n: number }[] }) {
-  if (rows.length === 0) return null;
-  return (
-    <section className="border-b border-line pb-5 last:border-b-0 last:pb-0">
-      <h3 className="caps mb-2 text-muted">{title}</h3>
-      <ul className="space-y-1">
-        {rows.map((row) => (
-          <li key={row.label} className="flex items-baseline justify-between gap-3 text-sm">
-            <span>{row.label}</span>
-            <span className="text-muted">{row.n}</span>
-          </li>
-        ))}
-      </ul>
-    </section>
+      <div className="trait-body" aria-hidden={!open}>
+        <div>
+          <div className="flex flex-wrap gap-6 pb-4">
+            <OpponentColumn title="Won against" rows={record.won} />
+            <OpponentColumn title="Lost to" rows={record.lost} />
+            {record.tie.length > 0 ? <OpponentColumn title="Tied" rows={record.tie} /> : null}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
 export function ComparisonsPane({ person }: { person: PersonView }) {
-  const informative = person.comparisonHistory.filter((c) => SHOWN_RESULTS.has(c.result));
-  const members = informative.filter((c) => c.otherStatus === "member");
-  const others = informative.filter((c) => c.otherStatus !== "member");
-  if (informative.length === 0) {
+  const records = recordsByTrait(person.comparisonHistory);
+  const [openDimension, setOpenDimension] = useState<Dimension | null>(null);
+  if (records.length === 0) {
     return <p className="text-sm text-muted">{PRODUCT_LANGUAGE.insufficientEvidence}</p>;
   }
   return (
-    <div className="space-y-5">
+    <div>
       <p className="sr-only">{PRODUCT_LANGUAGE.relativeCapability}</p>
-      <PeopleSection title="Members" rows={members} />
-      <PeopleSection title="External" rows={others} />
-      <StatSection title="Wins" rows={tallyByDimension(informative, "won")} />
-      <StatSection title="Losses" rows={tallyByDimension(informative, "lost")} />
-      <StatSection title="Ties" rows={tallyByDimension(informative, "tie")} />
+      {records.map((record) => (
+        <Trait
+          key={record.dimension}
+          record={record}
+          open={openDimension === record.dimension}
+          onToggle={() =>
+            setOpenDimension((d) => (d === record.dimension ? null : record.dimension))
+          }
+        />
+      ))}
     </div>
   );
 }
@@ -304,7 +256,7 @@ export function Reviews({
   const waiting = person.feedback
     .filter((f) => f.state !== "responded" && !seen.has(f.memberId))
     .sort((a, b) => trustOf(b) - trustOf(a) || a.memberName.localeCompare(b.memberName));
-  const hasCompares = person.comparisonHistory.some((c) => SHOWN_RESULTS.has(c.result));
+  const hasCompares = informativeComparisons(person.comparisonHistory).length > 0;
 
   return (
     <section className="card card-read">
