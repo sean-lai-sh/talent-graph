@@ -1,10 +1,6 @@
-import { ClubBoard } from "../../components/ClubBoard.tsx";
-import { loadClub } from "../../lib/engine.ts";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-/** Public example admin. Auth-free; refresh restores the seed club. */
-export default function ExampleAdminDoor() {
-  const initial = loadClub();
-  return <ClubBoard initial={initial} />;
+/** Old public-seed URL. The hidden board now lives at `/demo`. */
+export default function ExampleRedirect() {
+  redirect("/demo");
 }

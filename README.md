@@ -10,20 +10,22 @@ engine. It is one product, not two frontends.
 
 **Convex + Better Auth is the path for `/club`.** Official
 `@convex-dev/better-auth` on this same admin — not Clerk, not Neon, and
-not a second frontend. Do not add a login wall to `/example`.
+not a second frontend. Do not add a login wall to `/demo`.
 
 | Route | Access | Data |
 |---|---|---|
-| `/` | redirect to `/example` | — |
-| `/example` | public seed — no sign-in | in-memory `generateSeed()` |
+| `/` | public chips landing + sign-in | no seed board |
+| `/demo` | hidden public seed — no sign-in, noindex | in-memory `generateSeed()` |
+| `/example` | redirect to `/demo` | — |
 | `/club` | signed-in owner | Better Auth gate + Convex persist; views from `src/` |
 
-Unauthenticated `/club` is sign-in only. The seed board never mounts there.
+Unauthenticated `/club` is sign-in only. There is no create-account path.
+Owners are provisioned by an admin. The seed board never mounts on `/` or `/club`.
 
 ### Env for a live `/club` door (Sean)
 
-Do **not** set these on the public example deploy. `/example` needs
-none of them (`/` only redirects there). From `apps/club`, run `npx convex dev` (writes the Next keys)
+Do **not** set these on the public landing deploy. `/` and `/demo` need
+none of them. From `apps/club`, run `npx convex dev` (writes the Next keys
 into `.env.local`), then set the Convex deployment keys. Full comments:
 [`apps/club/.env.example`](apps/club/.env.example).
 
@@ -34,12 +36,23 @@ into `.env.local`), then set the Convex deployment keys. Full comments:
 | Next `.env.local` | `NEXT_PUBLIC_SITE_URL` | Origin you open, e.g. `http://127.0.0.1:3000` |
 | Convex deployment (`npx convex env set`) | `BETTER_AUTH_SECRET` | `openssl rand -base64 32` |
 | Convex deployment | `SITE_URL` | Same origin as `NEXT_PUBLIC_SITE_URL` |
+| Convex deployment | `ADMIN_PROVISION_SECRET` | Shared secret for `auth:provisionUser` |
 
 ```sh
 # from apps/club
 npx convex dev
 npx convex env set BETTER_AUTH_SECRET=$(openssl rand -base64 32)
 npx convex env set SITE_URL http://127.0.0.1:3000
+npx convex env set ADMIN_PROVISION_SECRET=$(openssl rand -base64 32)
+```
+
+Public signup is disabled (`disableSignUp`). Create the first owner from
+`apps/club` so the password is hashed with Better Auth's hasher before it
+reaches Convex:
+
+```sh
+OWNER_EMAIL=you@club.edu OWNER_NAME="You" OWNER_PASSWORD='…' \
+  ADMIN_PROVISION_SECRET='…' bun --cwd apps/club run provision-user
 ```
 
 ### Deploy on Vercel (one project away)

@@ -1,6 +1,6 @@
 ---
 name: verify-club
-description: Drive the Club council-review web UI (Talent Graph example admin at /example; / redirects there) in a real browser and prove user-visible behavior. Use when changing Club pages, layout, search, decide, or feedback. For scoring, specs, demo, or drift, use verify-engine.
+description: Drive the Club council-review web UI (Talent Graph hidden seed board at /demo; / is the chips landing) in a real browser and prove user-visible behavior. Use when changing Club pages, layout, search, decide, or feedback. For scoring, specs, demo, or drift, use verify-engine.
 ---
 
 # Verify Club
@@ -9,7 +9,7 @@ Club is the Admin / Council Review page in `apps/club`. A council lists candidat
 
 The algorithm core is a different surface. Do not use this skill to prove Referral Signal math, Bradley–Terry, or drift — that is [verify-engine](../verify-engine/SKILL.md) (`bun run demo`, `bun run drift`). `bun test` is unit coverage, not either skill's live proof.
 
-Primary surface: Next.js board at `/example` (public seed, no sign-in). `/` redirects there. Out of scope here:
+Primary surface: Next.js board at `/demo` (hidden public seed, no sign-in). `/` is the chips landing. `/example` redirects to `/demo`. Out of scope here:
 
 - `/club` — Better Auth + Convex persist. Shares the developer's Convex deployment. Do not sign in or mutate it from verification.
 - Engine CLI and `src/` — verify-engine.
@@ -39,7 +39,7 @@ What launch does:
 - Sets `WATCHPACK_POLLING=true` so a second watcher is less likely to hit EMFILE next to the developer server.
 - Uses isolated `next dev` via this launch script, not `next start`: a custom `distDir` currently fails Next typed-routes typecheck on `next build`. Isolated launch is the supported path; do not attach to a developer `next dev` on `:3000`.
 - Next may rewrite `apps/club/tsconfig.json` to include the verify distDir. Cleanup restores the snapshot taken at launch (never `git checkout`).
-- Waits until `GET /example` answers, records the listening pid, runs doctor.
+- Waits until `GET /demo` answers, records the listening pid, runs doctor.
 
 Ready signal: `helpers/doctor.sh` exits 0 and prints `url http://127.0.0.1:<port>`. Trust doctor, not the build log.
 
@@ -61,7 +61,7 @@ It requires a `runs/current` file from launch, then checks:
 
 1. The recorded launch pid is alive.
 2. The recorded port is listened to by that pid or a child (Next spawns a node child). A foreign pid fails — do not drive someone else's server.
-3. `GET <url>/` redirects to `/example`. `GET <url>/example` is HTTP 200 and the body identifies the public seed board (`Talent Graph` plus `Tech@NYU` or `Cleo Marsh`).
+3. `GET <url>/` is HTTP 200 chips landing (`tech@nyu chips`). `GET <url>/example` redirects to `/demo`. `GET <url>/demo` is HTTP 200 and the body identifies the public seed board (`Talent Graph` plus `Tech@NYU` or `Cleo Marsh`).
 
 If doctor fails, stop. Cleanup, relaunch, doctor again. Do not fall back to `:3000` or a preview URL.
 
@@ -72,7 +72,7 @@ No Playwright or Cypress in this repo. Prefer the **cursor-ide-browser** tools (
 If cursor-ide-browser cannot load `127.0.0.1` (chrome-error / MCP missing), use the local Chrome CDP helper — same user path, host-side browser:
 
 ```sh
-bun .cursor/skills/verify-club/helpers/chrome-drive.ts goto http://127.0.0.1:43173/
+bun .cursor/skills/verify-club/helpers/chrome-drive.ts goto http://127.0.0.1:43173/demo
 bun .cursor/skills/verify-club/helpers/chrome-drive.ts screenshot evidence/<run>/review-board/01-home.png
 bun .cursor/skills/verify-club/helpers/chrome-drive.ts click-name "Cleo Marsh"
 bun .cursor/skills/verify-club/helpers/chrome-drive.ts aria evidence/<run>/review-board/02-cleo.aria.txt
@@ -107,9 +107,10 @@ Keyboard (focus outside inputs): `J` / `ArrowDown` / `ArrowRight` next case; `K`
 
 Routes:
 
-- `GET /` — redirects to `/example`. Keep this reroute so old links work.
-- `GET /example` — public seed board. Refresh restores `generateSeed()`.
-- `GET /club` — sign-in door only unless you have an isolated Convex. Out of scope. If you land there by mistake, go back to `/example`.
+- `GET /` — chips landing with sign-in. Not the board.
+- `GET /demo` — hidden public seed board. Refresh restores `generateSeed()`.
+- `GET /example` — redirects to `/demo` so old links work.
+- `GET /club` — sign-in door only unless you have an isolated Convex. Out of scope. If you land there by mistake, go back to `/demo`.
 
 Seed pins you can assert without calling engine internals (from `loadClub()` / `tests/club-engine.test.ts`):
 
@@ -121,7 +122,7 @@ Seed pins you can assert without calling engine internals (from `loadClub()` / `
 - `Noor Petrov` — `Admitted` (Decided group).
 - Required dimensions on the example round: Problem solving, Agency, Output.
 
-Mutations on `/example` live in React state plus server actions that carry state in the request. They do not write Convex. After a mutation, prove the new UI state, then `Reset to seed` from Account so the next recipe starts clean. Refresh also restores the seed.
+Mutations on `/demo` live in React state plus server actions that carry state in the request. They do not write Convex. After a mutation, prove the new UI state, then `Reset to seed` from Account so the next recipe starts clean. Refresh also restores the seed.
 
 Recipe files live in `features/`. Read `features/README.md` before driving. A proof that uses one convenient entry point is incomplete when the map lists others — report those as untried, not verified.
 
@@ -147,7 +148,7 @@ Proof standards:
 - Side effects on the example board are in-session only. Prove them by a second user-facing view (list group, status kicker, search miss) — not by reading memory. After `Reset to seed`, prove the seed names and Cleo's signal **7** returned.
 - Do not mock the engine. The board already calls `src/` in-process.
 - `/club` persist is a production boundary (Convex). Do not drive it on the shared deployment. A dry-run name is not isolation.
-- Record the feature id and entry point (`/` redirect vs `/example`, which control) with every artifact.
+- Record the feature id and entry point (`/demo` vs `/example` redirect, which control) with every artifact.
 - An unreachable path is reported with the attempt and the unmet precondition. Do not mark it verified via a different path.
 
 ## Cleanup
@@ -181,6 +182,6 @@ Shared functions live in `helpers/lib.sh` (sourced, not invoked).
 - Example board state is in-memory per server process. Instances do not share candidate data.
 - Isolated `next dev` from `helpers/launch.sh` is the supported path. Launch unsets `TG_*` so Club seed pins stay stable. Do not start another `next dev` yourself, and never attach to a developer session on `:3000`.
 - Refuse to drive a server you did not launch. Doctor enforces this.
-- Never drive `/club` or any Better Auth + Convex persist surface. Those share the developer's Convex deployment. Stay on `/example` (`/` only to prove the redirect).
+- Never drive `/club` or any Better Auth + Convex persist surface. Those share the developer's Convex deployment. Stay on `/demo` (`/` only to prove the chips landing; `/example` only to prove the redirect).
 - Present mode exists in `ClubBoard` (`data-present`) but has **no control that turns it on**. Do not invent a Present button.
 - Helpers need `lsof` (port owner) and, when present, `pgrep` (process tree). Doctor and cleanup fail closed if they cannot identify the listener.

@@ -1,0 +1,181 @@
+.landing {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 100svh;
+  min-height: 100dvh;
+  margin: 0;
+  background: #080808;
+  color: #e8e5df;
+  font-family: Arial, Helvetica, sans-serif;
+  touch-action: none;
+  cursor: default;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+:root {
+  --landing-ease: cubic-bezier(0.8, 0, 1, 1);
+}
+
+@keyframes landing-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.landing #chip {
+  width: min(280px, 70vw, 64svh);
+  aspect-ratio: 1;
+  opacity: 0;
+}
+
+.landing #chip.is-ready {
+  opacity: 1;
+  transition: opacity 2s var(--landing-ease) 1s;
+}
+
+.landing h1,
+.landing-door {
+  opacity: 0;
+  animation: landing-fade-in 2s var(--landing-ease) 2s forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing #chip.is-ready,
+  .landing h1,
+  .landing-door {
+    opacity: 1;
+    transition: none;
+    animation: none;
+  }
+}
+
+.landing #chip,
+.landing #chip canvas,
+.landing #chip canvas:focus,
+.landing #chip canvas:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.landing h1 {
+  position: absolute;
+  bottom: max(30px, env(safe-area-inset-bottom));
+  left: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0 24px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0.015em;
+}
+
+.landing #status {
+  position: absolute;
+  top: 60%;
+  padding: 0 24px;
+  font-size: 12px;
+  text-align: center;
+}
+
+.landing-door {
+  position: fixed;
+  top: max(24px, env(safe-area-inset-top));
+  right: max(24px, env(safe-area-inset-right));
+  z-index: 2;
+  pointer-events: auto;
+  max-width: 16rem;
+  font-size: 11px;
+  letter-spacing: 0.015em;
+  text-align: right;
+}
+
+.landing-door > button,
+.landing-door > a {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.landing-door > button:hover,
+.landing-door > a:hover {
+  text-decoration: underline;
+}
+
+.login {
+  display: grid;
+  place-items: center;
+  min-height: 100svh;
+  min-height: 100dvh;
+  margin: 0;
+  background: #080808;
+  color: #e8e5df;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(20rem, calc(100% - 48px));
+}
+
+.login-form h1 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #aaa69e;
+  font-size: 12px;
+}
+
+.login-field input {
+  border: 1px solid #2a2a2a;
+  background: #101010;
+  color: #e8e5df;
+  font: inherit;
+  padding: 10px 12px;
+}
+
+.login-form button {
+  appearance: none;
+  margin-top: 4px;
+  border: 1px solid #2a2a2a;
+  background: #141414;
+  color: #e8e5df;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.login-form button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.login-form [role="status"] {
+  margin: 0;
+  font-size: 12px;
+  color: #d4a574;
+  text-align: center;
+}

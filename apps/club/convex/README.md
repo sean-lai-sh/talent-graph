@@ -1,8 +1,10 @@
 # Convex + Better Auth (club door)
 
 This folder is the official `@convex-dev/better-auth` component setup for
-`/club` only. `/example` stays on `generateSeed()` and does not use it.
-`/` redirects to `/example`.
+`/club` only. `/demo` stays on `generateSeed()` and does not use it.
+`/` is the chips landing. `/example` redirects to `/demo`. Public signup is
+disabled; provision owners with `auth:provisionUser` (see
+`scripts/provision-user.ts`).
 
 **Persisted:** `clubOrgs` domain inputs — people, referrals, comparisons,
 evaluations, outcomes, opportunities, snapshots, and clock `now` (wall

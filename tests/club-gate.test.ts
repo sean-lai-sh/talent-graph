@@ -19,30 +19,35 @@ describe("SEA-12 Better Auth gate on /club", () => {
     expect(shell).toContain("Authenticated");
     expect(shell).toContain("Unauthenticated");
     expect(shell).toContain("AuthLoading");
-    expect(shell).toContain("ClubSignInForm");
+    expect(shell).toContain("ClubSignInRedirect");
+    expect(shell).toContain('"/login"');
+    expect(shell).not.toContain("SignInForm");
+    expect(shell).not.toContain("Create account");
+    expect(shell).not.toContain("signUp");
     expect(shell).toContain("<PersistedClub />");
     expect(shell.indexOf("<PersistedClub")).toBeGreaterThan(shell.indexOf("<Authenticated>"));
-    expect(shell).toMatch(/<Unauthenticated>\s*<ClubSignInForm/);
+    expect(shell).toMatch(/<Unauthenticated>\s*<ClubSignInRedirect/);
     expect(shell).not.toContain("loadClub()");
     expect(shell).not.toContain("generateSeed()");
     expect(shell).not.toContain("configured ? <PersistedClub");
   });
 
-  test("public example routes have no auth wall and no middleware", () => {
+  test("public landing and hidden demo have no auth wall and no middleware", () => {
     const home = read("apps/club/app/page.tsx");
+    const demo = read("apps/club/app/demo/page.tsx");
     const example = read("apps/club/app/example/page.tsx");
-    expect(home).toContain('redirect("/example")');
+    expect(home).toContain("LandingPage");
     expect(home).not.toContain("loadClub()");
     expect(home).not.toContain("ClubBoard");
-    for (const source of [home, example]) {
-      expect(source).not.toContain("auth-client");
+    expect(example).toContain('redirect("/demo")');
+    for (const source of [home, demo, example]) {
       expect(source).not.toContain("auth-server");
       expect(source).not.toContain("isAuthenticated");
       expect(source).not.toContain("Authenticated");
       expect(source).not.toContain("PersistedClub");
       expect(source).not.toContain("@convex-dev/better-auth");
     }
-    expect(example).toContain("loadClub()");
+    expect(demo).toContain("loadClub()");
     expect(existsSync(join(root, "apps/club/middleware.ts"))).toBe(false);
     expect(existsSync(join(root, "apps/club/src/middleware.ts"))).toBe(false);
     expect(existsSync(join(root, "middleware.ts"))).toBe(false);
@@ -54,6 +59,8 @@ describe("SEA-12 Better Auth gate on /club", () => {
     const auth = read("apps/club/convex/auth.ts");
     expect(auth).toContain('from "@convex-dev/better-auth"');
     expect(auth).toContain("authComponent.safeGetAuthUser");
+    expect(auth).toContain("disableSignUp: true");
+    expect(auth).toContain("provisionUser");
     expect(club).toContain('from "./auth"');
     expect(club).toContain("authComponent.getAuthUser");
     expect(club).toContain("authComponent.safeGetAuthUser");
@@ -76,7 +83,24 @@ describe("SEA-12 Better Auth gate on /club", () => {
       expect(source).toContain("npx convex dev");
     }
     expect(env).toContain("Do not set these");
+    expect(env).toContain("ADMIN_PROVISION_SECRET");
     expect(readme).toContain("npx convex env set BETTER_AUTH_SECRET");
+    expect(readme).toContain("ADMIN_PROVISION_SECRET");
     expect(readme).toContain("/club");
+  });
+
+  test("sign-in UI has no create-account path", () => {
+    const form = read("apps/club/components/auth/SignInForm.tsx");
+    const landing = read("apps/club/components/landing/LandingPage.tsx");
+    const login = read("apps/club/app/login/page.tsx");
+    const robots = read("apps/club/app/robots.ts");
+    expect(form).toContain("signIn.email");
+    expect(form).not.toContain("signUp");
+    expect(form).not.toContain("Create account");
+    expect(login).toContain("SignInForm");
+    expect(landing).toContain('href="/login"');
+    expect(landing).toContain("Sign in");
+    expect(landing).not.toContain("Create account");
+    expect(robots).toContain('disallow: ["/demo", "/example", "/club", "/login", "/api/"]');
   });
 });

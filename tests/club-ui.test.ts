@@ -58,14 +58,20 @@ describe("SEA-25 shared Club UI", () => {
     expect(record).not.toContain("inputClass");
   });
 
-  test("club door uses Button, Field, and Input instead of one-off field chrome", () => {
+  test("club door uses shared Button; sign-in lives on /login", () => {
     const shell = read("apps/club/app/club/ClubShell.tsx");
     const persisted = read("apps/club/app/club/PersistedClub.tsx");
-    expect(shell).toContain("<Field");
-    expect(shell).toContain("<Input");
+    const login = read("apps/club/app/login/page.tsx");
+    const form = read("apps/club/components/auth/SignInForm.tsx");
     expect(shell).toContain("<Button");
+    expect(shell).toContain('"/login"');
+    expect(shell).not.toContain("<Field");
+    expect(shell).not.toContain("<Input");
     expect(shell).not.toContain("rounded border border-line bg-canvas");
     expect(shell).not.toContain("bg-ink px-3 py-1.5 text-sm text-canvas");
+    expect(login).toContain("SignInForm");
+    expect(form).toContain('type="email"');
+    expect(form).toContain('type="password"');
     expect(persisted).toContain("<Button");
     expect(persisted).not.toContain("rounded-md border border-line px-3 py-1.5");
   });

@@ -18,9 +18,9 @@ Search filters the Applicants list by person name. It does not change stored cas
 
 Preconditions:
 
-- Doctor reports a healthy public seed at the printed URL (`/` redirects; `/example` is the board).
+- Doctor reports a healthy public seed at the printed URL (`/` is the landing; `/demo` is the board).
 - Viewport width ≥ 1280 so `Applicants` is visible.
-- Drive this recipe on `/example`.
+- Drive this recipe on `/demo`.
 - The list includes `Cleo Marsh` and `Bram Okafor`.
 
 - **Focus search.** Click the searchbox named `Search applicants`.
