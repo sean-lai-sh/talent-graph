@@ -20,6 +20,7 @@ type ChipModule = {
 export function ChipViewer() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -31,13 +32,13 @@ export function ChipViewer() {
     void import(/* webpackIgnore: true */ url)
       .then((mod: ChipModule) => {
         if (cancelled || !containerRef.current) return;
-        const main = container.closest("main");
         viewer = mod.mountNyuChip(container, {
           autoRotate: true,
-          interactionTarget: main instanceof HTMLElement ? main : container,
+          interactionTarget: container,
         });
         const canvas = container.querySelector("canvas");
         if (canvas instanceof HTMLElement) canvas.style.cursor = "inherit";
+        setReady(true);
       })
       .catch(() => {
         if (!cancelled) setFailed(true);
@@ -57,5 +58,5 @@ export function ChipViewer() {
     );
   }
 
-  return <div id="chip" ref={containerRef} />;
+  return <div id="chip" ref={containerRef} className={ready ? "is-ready" : undefined} />;
 }

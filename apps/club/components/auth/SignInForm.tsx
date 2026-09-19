@@ -2,20 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
-import { Button, Field, Input } from "@/components/ui/index.ts";
 import { authClient } from "@/lib/auth-client";
 
 /**
  * Email/password sign-in only. Public signup is disabled in Better Auth
  * (`disableSignUp: true`). Owners are provisioned out of band.
  */
-export function SignInForm({
-  variant = "club",
-  nextHref = "/club",
-}: {
-  variant?: "club" | "landing";
-  nextHref?: string;
-}) {
+export function SignInForm({ nextHref = "/club" }: { nextHref?: string }) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -36,74 +29,36 @@ export function SignInForm({
     router.refresh();
   }
 
-  if (variant === "landing") {
-    return (
-      <form className="landing-auth" onSubmit={(event) => void onSubmit(event)}>
-        <p className="landing-auth-lead">Sign in. Accounts are created by an admin.</p>
-        <label className="landing-field">
-          Email
-          <input
-            name="email"
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-        </label>
-        <label className="landing-field">
-          Password
-          <input
-            name="password"
-            type="password"
-            required
-            minLength={8}
-            autoComplete="current-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
-        </label>
-        <button type="submit" disabled={pending}>
-          {pending ? "Signing in…" : "Sign in"}
-        </button>
-        {message ? <p role="status">{message}</p> : null}
-      </form>
-    );
-  }
-
   return (
-    <form
-      className="mt-8 flex max-w-md flex-col gap-3 rounded-lg border border-line bg-surface p-5"
-      onSubmit={(event) => void onSubmit(event)}
-    >
-      <p className="text-sm text-muted">
-        Sign in to open your club. There is no create-account path. An admin provisions access.
-      </p>
-      <Field label="Email">
-        <Input
+    <form className="login-form" onSubmit={(event) => void onSubmit(event)}>
+      <h1>Sign in</h1>
+      <label className="login-field">
+        Email
+        <input
           name="email"
           type="email"
           required
+          autoComplete="username"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
-          autoComplete="email"
         />
-      </Field>
-      <Field label="Password">
-        <Input
+      </label>
+      <label className="login-field">
+        Password
+        <input
           name="password"
           type="password"
           required
           minLength={8}
+          autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          autoComplete="current-password"
         />
-      </Field>
-      <Button type="submit" variant="primary" disabled={pending}>
+      </label>
+      <button type="submit" disabled={pending}>
         {pending ? "Signing in…" : "Sign in"}
-      </Button>
-      {message ? <p className="text-sm text-warn">{message}</p> : null}
+      </button>
+      {message ? <p role="status">{message}</p> : null}
     </form>
   );
 }
