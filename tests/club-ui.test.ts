@@ -64,7 +64,8 @@ describe("SEA-25 shared Club UI", () => {
     const login = read("apps/club/app/login/page.tsx");
     const form = read("apps/club/components/auth/SignInForm.tsx");
     expect(shell).toContain("<Button");
-    expect(shell).toContain('"/login"');
+    expect(shell).toContain("SIGN_OUT_HREF");
+    expect(shell).toContain("clubLoginHref");
     expect(shell).not.toContain("<Field");
     expect(shell).not.toContain("<Input");
     expect(shell).not.toContain("rounded border border-line bg-canvas");

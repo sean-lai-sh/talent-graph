@@ -17,9 +17,10 @@ not a second frontend. Do not add a login wall to `/demo`.
 | `/` | public chips landing + sign-in | no seed board |
 | `/demo` | hidden public seed — no sign-in, noindex | in-memory `generateSeed()` |
 | `/example` | redirect to `/demo` | — |
+| `/login` | public door, noindex | email/password `SignInForm`; no create-account |
 | `/club` | signed-in owner | Better Auth gate + Convex persist; views from `src/` |
 
-Unauthenticated `/club` is sign-in only. There is no create-account path.
+Unauthenticated `/club` redirects to `/login?next=/club`. Sign-out from `/club` returns to `/login`. There is no create-account path.
 Owners are provisioned by an admin. The seed board never mounts on `/` or `/club`.
 
 ### Env for a live `/club` door (Sean)

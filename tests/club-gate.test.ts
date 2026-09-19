@@ -13,6 +13,8 @@ describe("SEA-12 Better Auth gate on /club", () => {
     const shell = read("apps/club/app/club/ClubShell.tsx");
     const page = read("apps/club/app/club/page.tsx");
     expect(page).toContain("<ClubShell />");
+    expect(page).toContain('redirect(clubLoginHref("/club"))');
+    expect(page).toContain("hasClubSession");
     expect(page).not.toContain("loadClub()");
     expect(page).not.toContain("ClubBoard");
     expect(shell).toContain('from "convex/react"');
@@ -20,7 +22,8 @@ describe("SEA-12 Better Auth gate on /club", () => {
     expect(shell).toContain("Unauthenticated");
     expect(shell).toContain("AuthLoading");
     expect(shell).toContain("ClubSignInRedirect");
-    expect(shell).toContain('"/login"');
+    expect(shell).toContain('clubLoginHref("/club")');
+    expect(shell).toContain("SIGN_OUT_HREF");
     expect(shell).not.toContain("SignInForm");
     expect(shell).not.toContain("Create account");
     expect(shell).not.toContain("signUp");

@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { Button } from "@/components/ui/index.ts";
 import { authClient } from "@/lib/auth-client";
 import { convexConfigured } from "@/lib/convexEnv";
+import { clubLoginHref, SIGN_OUT_HREF } from "@/lib/loginReturnPath.ts";
 import { PersistedClub } from "./PersistedClub";
 
 /**
@@ -41,13 +42,22 @@ export function ClubShell() {
 function ClubSignedInBar() {
   const session = authClient.useSession();
   const user = session.data?.user;
+  const router = useRouter();
 
   return (
     <section className="mt-8 max-w-md rounded-lg border border-line bg-surface p-5">
       <p className="text-sm">
         Signed in as <span className="font-medium">{user?.email ?? "owner"}</span>
       </p>
-      <Button className="mt-4" type="button" onClick={() => void authClient.signOut()}>
+      <Button
+        className="mt-4"
+        type="button"
+        onClick={() => {
+          void authClient.signOut().then(() => {
+            router.replace(SIGN_OUT_HREF);
+          });
+        }}
+      >
         Sign out
       </Button>
     </section>
@@ -57,7 +67,7 @@ function ClubSignedInBar() {
 function ClubSignInRedirect() {
   const router = useRouter();
   useEffect(() => {
-    router.replace("/login");
+    router.replace(clubLoginHref("/club"));
   }, [router]);
   return <p className="text-sm text-muted">Redirecting to sign in…</p>;
 }

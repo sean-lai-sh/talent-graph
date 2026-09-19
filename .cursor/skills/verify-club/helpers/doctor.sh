@@ -60,6 +60,29 @@ if ! grep -q "Tech@NYU" "$body" && ! grep -q "Cleo Marsh" "$body"; then
   die "GET $RUN_URL/demo is not the public seed board (missing Tech@NYU / Cleo Marsh)"
 fi
 
+code="$(curl -sS -D "$headers" -o /dev/null -w "%{http_code}" --max-time 5 "$RUN_URL/club")"
+if [[ "$code" != "307" && "$code" != "308" ]]; then
+  die "GET $RUN_URL/club should redirect to /login, got HTTP $code"
+fi
+location="$(awk 'tolower($1)=="location:" {print $2}' "$headers" | tr -d '\r')"
+if [[ "$location" != *"/login"* ]]; then
+  die "GET $RUN_URL/club Location should be /login, got ${location:-empty}"
+fi
+
+code="$(curl -sS -o "$body" -w "%{http_code}" --max-time 5 "$RUN_URL/login")"
+if [[ "$code" != "200" ]]; then
+  die "GET $RUN_URL/login returned HTTP $code"
+fi
+if ! grep -q "Sign in" "$body"; then
+  die "GET $RUN_URL/login is not the sign-in door (missing Sign in)"
+fi
+if grep -q "Create account" "$body"; then
+  die "GET $RUN_URL/login must not offer Create account"
+fi
+if grep -q "Cleo Marsh" "$body"; then
+  die "GET $RUN_URL/login must not be the seed board"
+fi
+
 if [[ "$RUN_PORT" == "3000" ]]; then
   echo "verify-club: WARNING default port 3000 — confirm this is the verification launch, not a developer session" >&2
 fi
@@ -69,5 +92,5 @@ echo "  run     $RUN_ID"
 echo "  pid     $RUN_PID"
 echo "  listen  $listen"
 echo "  url     $RUN_URL"
-echo "  board   hidden public seed (/demo; /example redirects; / is landing)"
+echo "  board   hidden public seed (/demo; /example redirects; / is landing; /club → /login)"
 echo "  evidence $EVIDENCE_DIR"
