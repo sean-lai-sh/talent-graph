@@ -48,6 +48,8 @@ describe("chips /info", () => {
     const config = read("apps/club/next.config.ts");
     expect(css).toMatch(/\.info-corner[\s\S]*left:\s*max\(24px/);
     expect(css).toMatch(/\.info-corner[\s\S]*bottom:\s*max\(24px/);
+    expect(css).toMatch(/\.info-underline \{[\s\S]*pointer-events:\s*auto/);
+    expect(css).toMatch(/\.info-corner[\s\S]*pointer-events:\s*auto/);
     expect(config).toContain('position: "bottom-right"');
   });
 

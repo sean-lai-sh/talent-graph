@@ -82,10 +82,12 @@
 }
 
 .info-underline {
+  z-index: 2;
   color: inherit;
   text-decoration: underline;
   text-underline-offset: 3px;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .info-corner {
