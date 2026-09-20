@@ -107,7 +107,7 @@ describe("SEA-12 Better Auth gate on /club", () => {
     expect(landing).not.toContain('href="/login"');
     expect(landing).not.toContain("Create account");
     expect(info).toContain('href="/login"');
-    expect(info).toContain("Login");
+    expect(info).toMatch(/>\s*login\s*</);
     expect(info).not.toContain("Create account");
     expect(robots).toContain('disallow: ["/demo", "/example", "/club", "/login", "/api/"]');
   });

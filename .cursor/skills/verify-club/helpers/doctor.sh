@@ -46,8 +46,8 @@ code="$(curl -sS -o "$body" -w "%{http_code}" --max-time 5 "$RUN_URL/info")"
 if [[ "$code" != "200" ]]; then
   die "GET $RUN_URL/info returned HTTP $code"
 fi
-if ! grep -q "Login" "$body"; then
-  die "GET $RUN_URL/info is missing Login"
+if ! grep -q ">login<" "$body" && ! grep -q ">login</" "$body"; then
+  die "GET $RUN_URL/info is missing login"
 fi
 if ! grep -q "chips@techatnyu.org" "$body"; then
   die "GET $RUN_URL/info is missing contact"

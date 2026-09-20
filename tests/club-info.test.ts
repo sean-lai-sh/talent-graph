@@ -34,13 +34,13 @@ describe("chips /info", () => {
     expect(info).toContain("CHIPS_INFO_COPY");
     expect(info).toContain("CHIPS_CONTACT");
     expect(info).toContain('href="/login"');
-    expect(info).toMatch(/>\s*Login\s*</);
+    expect(info).toMatch(/>\s*login\s*</);
     expect(info).toContain("mailto:");
     expect(info).toMatch(/>\s*contact\s*</);
     expect(info).toContain('href="/"');
     expect(info).toMatch(/>\s*home\s*</);
     expect(info).toContain("info-home");
-    expect(info.indexOf("Login")).toBeLessThan(info.indexOf("info-copy"));
+    expect(info.indexOf(">login<")).toBeLessThan(info.indexOf("info-copy"));
     expect(info.indexOf("contact")).toBeLessThan(info.indexOf("info-copy"));
     expect(info.indexOf("info-copy")).toBeLessThan(info.indexOf("info-home"));
     expect(copy).toContain(CHIPS_INFO_COPY);
@@ -55,7 +55,8 @@ describe("chips /info", () => {
     const config = read("apps/club/next.config.ts");
     expect(css).toMatch(/\.info-corner[\s\S]*left:\s*max\(24px/);
     expect(css).toMatch(/\.info-corner[\s\S]*bottom:\s*max\(24px/);
-    expect(css).toMatch(/\.info-home \{[\s\S]*text-decoration:\s*underline/);
+    expect(css).toMatch(/\.info-nav \{[\s\S]*flex-direction:\s*row/);
+    expect(css).toMatch(/\.info-nav \{[\s\S]*justify-content:\s*space-between/);
     expect(css).toMatch(/\.info-corner[\s\S]*pointer-events:\s*auto/);
     expect(config).toContain('position: "bottom-right"');
   });

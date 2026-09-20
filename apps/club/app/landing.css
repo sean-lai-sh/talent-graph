@@ -109,9 +109,11 @@
 
 .info-nav {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: space-between;
+  width: 100%;
+  gap: 1.5rem;
 }
 
 .info-copy {

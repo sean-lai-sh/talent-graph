@@ -61,7 +61,7 @@ It requires a `runs/current` file from launch, then checks:
 
 1. The recorded launch pid is alive.
 2. The recorded port is listened to by that pid or a child (Next spawns a node child). A foreign pid fails — do not drive someone else's server.
-3. `GET <url>/` is HTTP 200 chips landing with an underlined `info` link (no Sign in). `GET <url>/info` is HTTP 200 with Login and contact above the program copy, underlined `home` under it, and `chips@techatnyu.org` (no timer, no Create account). `GET <url>/example` redirects to `/demo`. `GET <url>/demo` is HTTP 200 and the body identifies the public seed board (`Talent Graph` plus `Tech@NYU` or `Cleo Marsh`). `GET <url>/club` redirects to `/login`. `GET <url>/login` is the sign-in form (no Create account, no seed board).
+3. `GET <url>/` is HTTP 200 chips landing with an underlined `info` link (no Sign in). `GET <url>/info` is HTTP 200 with login and contact in a row above the program copy, underlined `home` under it, and `chips@techatnyu.org` (no timer, no Create account). `GET <url>/example` redirects to `/demo`. `GET <url>/demo` is HTTP 200 and the body identifies the public seed board (`Talent Graph` plus `Tech@NYU` or `Cleo Marsh`). `GET <url>/club` redirects to `/login`. `GET <url>/login` is the sign-in form (no Create account, no seed board).
 
 If doctor fails, stop. Cleanup, relaunch, doctor again. Do not fall back to `:3000` or a preview URL.
 
@@ -108,7 +108,7 @@ Keyboard (focus outside inputs): `J` / `ArrowDown` / `ArrowRight` next case; `K`
 Routes:
 
 - `GET /` — chips landing with underlined `info`. Not the board. No Sign in.
-- `GET /info` — same chip; Login and contact above the copy; underlined `home` under it. No timer. In scope as the public note (do not submit Login).
+- `GET /info` — same chip; login and contact in a row above the copy; underlined `home` under it. No timer. In scope as the public note (do not submit login).
 - `GET /demo` — hidden public seed board. Refresh restores `generateSeed()`.
 - `GET /example` — redirects to `/demo` so old links work.
 - `GET /login` — chips email/password sign-in. No create-account. In scope only as the door (do not submit).
