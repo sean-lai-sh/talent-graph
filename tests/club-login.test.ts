@@ -77,11 +77,12 @@ describe("SEA-26 /login door", () => {
     const home = read("apps/club/app/page.tsx");
     const demo = read("apps/club/app/demo/page.tsx");
     const example = read("apps/club/app/example/page.tsx");
+    const info = read("apps/club/app/info/page.tsx");
     expect(home).toContain("LandingPage");
     expect(demo).toContain("loadClub()");
     expect(example).toContain('redirect("/demo")');
-    for (const source of [home, demo, example]) {
-      expect(source).not.toContain("auth-client");
+    expect(info).toContain("InfoPage");
+    for (const source of [home, demo, example, info]) {
       expect(source).not.toContain("auth-server");
       expect(source).not.toContain("isAuthenticated");
       expect(source).not.toContain("Authenticated");

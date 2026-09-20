@@ -26,7 +26,7 @@ Preconditions:
 - Viewport width ≥ 1280.
 - No in-session mutations since launch or since `Reset to seed`.
 
-- **Load landing.** Navigate to `/` on the doctor URL. Snapshot. The page shows `tech@nyu chips` and a `Sign in` control. It does not show `Applicants` or `Cleo Marsh`.
+- **Load landing.** Navigate to `/` on the doctor URL. Snapshot. The page shows an underlined `info` control. It does not show `Applicants`, `Cleo Marsh`, or `Sign in`.
 - **Load demo door.** Navigate to `/demo` directly. Snapshot. The page shows `Tech@NYU`, region `Applicants`, searchbox `Search applicants`, groups `Needs review` and `Decided`, and a case heading (a seed name).
 - **Load example redirect.** Navigate to `/example`. The browser lands on `/demo` with the same seed board.
 - **Open Cleo.** In `Applicants`, choose the button whose name includes `Cleo Marsh`. The heading level 1 reads `Cleo Marsh`. The status kicker reads `Under review`.

@@ -61,7 +61,7 @@ It requires a `runs/current` file from launch, then checks:
 
 1. The recorded launch pid is alive.
 2. The recorded port is listened to by that pid or a child (Next spawns a node child). A foreign pid fails — do not drive someone else's server.
-3. `GET <url>/` is HTTP 200 chips landing (`tech@nyu chips`). `GET <url>/example` redirects to `/demo`. `GET <url>/demo` is HTTP 200 and the body identifies the public seed board (`Talent Graph` plus `Tech@NYU` or `Cleo Marsh`). `GET <url>/club` redirects to `/login`. `GET <url>/login` is the sign-in form (no Create account, no seed board).
+3. `GET <url>/` is HTTP 200 chips landing with an underlined `info` link (no Sign in). `GET <url>/info` is HTTP 200 with Login, program copy, and `chips@techatnyu.org` (no timer, no Create account). `GET <url>/example` redirects to `/demo`. `GET <url>/demo` is HTTP 200 and the body identifies the public seed board (`Talent Graph` plus `Tech@NYU` or `Cleo Marsh`). `GET <url>/club` redirects to `/login`. `GET <url>/login` is the sign-in form (no Create account, no seed board).
 
 If doctor fails, stop. Cleanup, relaunch, doctor again. Do not fall back to `:3000` or a preview URL.
 
@@ -107,7 +107,8 @@ Keyboard (focus outside inputs): `J` / `ArrowDown` / `ArrowRight` next case; `K`
 
 Routes:
 
-- `GET /` — chips landing with sign-in. Not the board.
+- `GET /` — chips landing with underlined `info`. Not the board. No Sign in.
+- `GET /info` — same chip, program copy, Login, contact. No timer. In scope as the public note (do not submit Login).
 - `GET /demo` — hidden public seed board. Refresh restores `generateSeed()`.
 - `GET /example` — redirects to `/demo` so old links work.
 - `GET /login` — chips email/password sign-in. No create-account. In scope only as the door (do not submit).
@@ -183,6 +184,6 @@ Shared functions live in `helpers/lib.sh` (sourced, not invoked).
 - Example board state is in-memory per server process. Instances do not share candidate data.
 - Isolated `next dev` from `helpers/launch.sh` is the supported path. Launch unsets `TG_*` so Club seed pins stay stable. Do not start another `next dev` yourself, and never attach to a developer session on `:3000`.
 - Refuse to drive a server you did not launch. Doctor enforces this.
-- Never sign in or mutate `/club` persist. Those share the developer's Convex deployment. Stay on `/demo` (`/` only to prove the chips landing; `/example` only to prove the redirect; `/club` only to prove the `/login` redirect).
+- Never sign in or mutate `/club` persist. Those share the developer's Convex deployment. Stay on `/demo` (`/` only to prove the chips landing; `/info` only to prove Login + copy; `/example` only to prove the redirect; `/club` only to prove the `/login` redirect).
 - Present mode exists in `ClubBoard` (`data-present`) but has **no control that turns it on**. Do not invent a Present button.
 - Helpers need `lsof` (port owner) and, when present, `pgrep` (process tree). Doctor and cleanup fail closed if they cannot identify the listener.
