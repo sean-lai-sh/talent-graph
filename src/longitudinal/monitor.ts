@@ -18,10 +18,6 @@ export interface MonitoringRunResult {
   fetchCount: number;
 }
 
-/**
- * Process all due plans. Collection is deduplicated by person; semantic
- * evaluation remains anchored to each plan's immutable dueAt.
- */
 export async function runDueMonitoringPlans(input: {
   plans: readonly MonitoringPlan[];
   identities: ReadonlyMap<string, CanonicalIdentity>;

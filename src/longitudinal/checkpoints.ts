@@ -44,13 +44,6 @@ export interface DuePersonBatch {
   plans: MonitoringPlan[];
 }
 
-/**
- * Select due plans and group them into collection batches.
- *
- * All due plans for one person share a fetch through the latest due cutoff.
- * Evaluation still uses each plan's own dueAt, so later facts cannot leak into
- * an earlier checkpoint.
- */
 export function batchDueMonitoringPlans(
   plans: readonly MonitoringPlan[],
   now: Date,
