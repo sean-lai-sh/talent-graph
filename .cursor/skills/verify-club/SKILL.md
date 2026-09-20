@@ -184,6 +184,6 @@ Shared functions live in `helpers/lib.sh` (sourced, not invoked).
 - Example board state is in-memory per server process. Instances do not share candidate data.
 - Isolated `next dev` from `helpers/launch.sh` is the supported path. Launch unsets `TG_*` so Club seed pins stay stable. Do not start another `next dev` yourself, and never attach to a developer session on `:3000`.
 - Refuse to drive a server you did not launch. Doctor enforces this.
-- Never sign in or mutate `/club` persist. Those share the developer's Convex deployment. Stay on `/demo` (`/` only to prove the chips landing; `/info` only to prove Login + copy; `/example` only to prove the redirect; `/club` only to prove the `/login` redirect).
+- Never sign in or mutate `/club` persist. Those share the developer's Convex deployment. Stay on `/demo` (`/` only to prove the chips landing; `/info` only to prove login + copy; `/example` only to prove the redirect; `/club` only to prove the `/login` redirect).
 - Present mode exists in `ClubBoard` (`data-present`) but has **no control that turns it on**. Do not invent a Present button.
 - Helpers need `lsof` (port owner) and, when present, `pgrep` (process tree). Doctor and cleanup fail closed if they cannot identify the listener.

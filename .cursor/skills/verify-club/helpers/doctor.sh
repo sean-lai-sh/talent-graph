@@ -56,7 +56,7 @@ if ! grep -q "Tech@NYU Chips" "$body"; then
   die "GET $RUN_URL/info is missing program copy"
 fi
 if ! grep -q "info-nav" "$body"; then
-  die "GET $RUN_URL/info is missing Login/contact nav"
+  die "GET $RUN_URL/info is missing login/contact nav"
 fi
 if ! grep -q "info-home" "$body" && ! grep -q ">home<" "$body"; then
   die "GET $RUN_URL/info is missing home"
