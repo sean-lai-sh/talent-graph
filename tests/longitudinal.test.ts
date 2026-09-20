@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { TypeSafeClient } from "@typesafe-ai/sdk";
 import { buildGrokRoutineRequest } from "../apps/club/lib/longitudinal/grok.ts";
 import { createJevJudgmentService } from "../apps/club/lib/longitudinal/jev.ts";
 import {
@@ -208,7 +207,7 @@ describe("Jev judgments and evidence policy", () => {
           },
         };
       },
-    } as unknown as TypeSafeClient;
+    } as unknown as Parameters<typeof createJevJudgmentService>[0];
     const service = createJevJudgmentService(client);
     expect((await service.assessIdentity(identity, evidence("x", 30))).decision).toBe("same");
     const claim = await service.assessClaim(evidence("x", 30));

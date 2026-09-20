@@ -154,7 +154,7 @@ export function createJevJudgmentService(client: TypeSafeClient): JevJudgmentSer
         return {
           dimension,
           score: answer.score,
-          probabilities: Object.values(answer.probabilities),
+          probabilities: Object.values(answer.probabilities).map(Number),
           confidence: answer.confidence,
         };
       });
