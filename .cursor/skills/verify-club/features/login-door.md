@@ -28,7 +28,7 @@ Preconditions:
 - **Open login.** Navigate to `/login` on the doctor URL. The page shows heading `Sign in`, textboxes `Email` and `Password`, and a submit control named `Sign in`. The page does not show `Create account`, `Club door`, `Talent Graph · your club`, or a Convex explainer. Snapshot and screenshot.
 - **Club gate.** Navigate to `/club`. The browser lands on `/login` (URL contains `/login`). The same form is visible. No seed board, no `Tech@NYU` applicants list.
 - **Chips stays landing.** Navigate to `/`. The page shows an underlined `info` control. There is no Sign in and no applicant list.
-- **Info holds Login.** Navigate to `/info`. `Login` and `chips@techatnyu.org` are present. There is no timer.
+- **Info holds Login.** Navigate to `/info`. `Login` and `contact` sit above the program copy; underlined `home` sits under it. There is no timer.
 - **Demo stays public.** Navigate to `/demo`. Brand `Tech@NYU` and region `Applicants` are present. There is no sign-in form.
 - **Proof.** Save accessibility snapshots and screenshots of (1) `/login` form-only, (2) `/club` landing on `/login`, (3) `/` still chips, (4) `/demo` still the seed board. Put them in `evidence/<run-id>/login-door/`.
 

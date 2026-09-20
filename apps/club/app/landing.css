@@ -98,13 +98,20 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
+  gap: 14px;
   max-width: min(22rem, calc(100% - 48px));
   font-size: 11px;
   font-weight: 400;
   line-height: 1.5;
   letter-spacing: 0.015em;
   pointer-events: auto;
+}
+
+.info-nav {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
 }
 
 .info-copy {
@@ -119,6 +126,15 @@
 }
 
 .info-corner a:hover {
+  text-decoration: underline;
+}
+
+.info-home {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.info-corner a.info-home {
   text-decoration: underline;
 }
 

@@ -7,7 +7,7 @@ Scoring, dashboard text, and spec drift are not this map. Use `.cursor/skills/ve
 ## Baseline preconditions
 
 - Launch Club with `.cursor/skills/verify-club/helpers/launch.sh` so the instance is on `127.0.0.1` and a non-shared port (default `43173`).
-- Run `.cursor/skills/verify-club/helpers/doctor.sh` and require the printed URL, a live launch pid, the chips landing at `/` (underlined `info`), `/info` Login + copy, the `/example` → `/demo` redirect, the `/demo` seed-board identity, the `/club` → `/login` redirect, and the `/login` sign-in form.
+- Run `.cursor/skills/verify-club/helpers/doctor.sh` and require the printed URL, a live launch pid, the chips landing at `/` (underlined `info`), `/info` Login + contact + copy + home, the `/example` → `/demo` redirect, the `/demo` seed-board identity, the `/club` → `/login` redirect, and the `/login` sign-in form.
 - Drive only that URL. Never attach to `http://127.0.0.1:3000` unless doctor says this run owns it.
 - Viewport width ≥ 1280 so the `Applicants` region is visible.
 - Start from the seed: refresh `/demo` or choose `Reset to seed` after any mutation. Doctor must have already proven `/demo` is the seed board.

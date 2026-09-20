@@ -55,6 +55,12 @@ fi
 if ! grep -q "Tech@NYU Chips" "$body"; then
   die "GET $RUN_URL/info is missing program copy"
 fi
+if ! grep -q "info-nav" "$body"; then
+  die "GET $RUN_URL/info is missing Login/contact nav"
+fi
+if ! grep -q "info-home" "$body" && ! grep -q ">home<" "$body"; then
+  die "GET $RUN_URL/info is missing home"
+fi
 if grep -q "Create account" "$body"; then
   die "GET $RUN_URL/info must not offer Create account"
 fi

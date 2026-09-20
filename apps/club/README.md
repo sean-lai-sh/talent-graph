@@ -20,7 +20,7 @@ feedback inside a 48-hour window. It works over a screen share.
   Do not add a login wall to `/demo`.
 - `/` — public chips landing (from [pope-cruz/chips](https://github.com/pope-cruz/chips)).
   Underlined `info` opens `/info`. No Sign in on this page.
-- `/info` — same chip, program copy, Login, and `chips@techatnyu.org`. No timer.
+- `/info` — same chip; Login and contact above the program copy; underlined `home` under it. Contact is `chips@techatnyu.org`. No timer.
   No create-account control.
 - `/demo` — hidden public seed board. No sign-in. Not linked from `/`.
   Refresh restores the seed club. `robots` noindexes it.
