@@ -130,7 +130,10 @@ describe("longitudinal source ingestion", () => {
     expect(ingestGrokEvidencePacket(packet, memory)).toHaveLength(1);
     expect(ingestGrokEvidencePacket(packet, memory)).toHaveLength(0);
     expect(
-      ingestGrokEvidencePacket({ ...packet, runId: "run-2", items: [evidence("valid", 80)] }, memory),
+      ingestGrokEvidencePacket(
+        { ...packet, runId: "run-2", items: [evidence("valid", 80)] },
+        memory,
+      ),
     ).toHaveLength(0);
   });
 
