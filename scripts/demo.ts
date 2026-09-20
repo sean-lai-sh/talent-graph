@@ -25,6 +25,8 @@ import {
   TRACK_RECORD_COPY,
   TRACK_RECORD_ORDER,
 } from "../src/judges/trackRecord.ts";
+import { createMonitoringPlan } from "../src/longitudinal/checkpoints.ts";
+import { residualSlope } from "../src/longitudinal/outcomes.ts";
 import { computeAllReferralSignals, displayReferralSignal } from "../src/scoring/referralSignal.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 import { PERSONA_IDS } from "../src/seed/personas.ts";
@@ -127,6 +129,37 @@ for (const id of PERSONA_IDS) {
   console.log(
     `  ${nameOf(id).padEnd(18)} ${String(displayReferralSignal(a)).padStart(3)} → ${String(displayReferralSignal(b)).padStart(3)}  (${delta >= 0 ? "+" : ""}${delta})`,
   );
+}
+
+const PROFILE_T0 = new Date("2026-09-01T00:00:00.000Z");
+const monitoringExample = createMonitoringPlan({
+  id: "monitor-p-cleo-180",
+  personId: "p-cleo",
+  caseId: "case-p-cleo",
+  caseOpenedAt: new Date("2026-03-05T00:00:00.000Z"),
+  horizonDays: 180,
+  pipelineVersion: "longitudinal@1.0.0",
+});
+console.log();
+console.log("Longitudinal progress checkpoints (reporting only):");
+console.log(
+  `  Example case: Cleo Marsh · 180-day checkpoint due ${monitoringExample.dueAt.toISOString().slice(0, 10)}`,
+);
+for (const id of PERSONA_IDS) {
+  const slope = residualSlope(
+    id,
+    PROFILE_T0,
+    T,
+    data.outcomes,
+    data.opportunities,
+    specs.judge_reliability,
+    90,
+  );
+  const display =
+    slope.delta === null
+      ? slope.state.replaceAll("_", " ")
+      : `${slope.delta >= 0 ? "+" : ""}${slope.delta.toFixed(3)} residual slope`;
+  console.log(`  ${nameOf(id).padEnd(18)} ${display}`);
 }
 
 console.log();

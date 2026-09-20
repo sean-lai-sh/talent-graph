@@ -32,6 +32,7 @@ const SRC = listTs("src");
 const SCORING = SRC.filter((f) => f.includes("/src/scoring/"));
 const INFERENCE = SRC.filter((f) => f.includes("/src/inference/"));
 const JUDGES = SRC.filter((f) => f.includes("/src/judges/"));
+const LONGITUDINAL = SRC.filter((f) => f.includes("/src/longitudinal/"));
 
 const importsFrom = (source: string, segment: string): boolean =>
   new RegExp(`from\\s+["'][^"']*/${segment}/[^"']*["']`).test(source);
@@ -121,6 +122,24 @@ describe("invariants: inputs", () => {
       const code = stripComments(read(f));
       expect(/\bEVIDENCE_MULTIPLIER\b|\bREFERRAL_WEIGHTS\b/.test(code), rel(f)).toBe(false);
     }
+  });
+});
+
+describe("invariants: longitudinal evidence boundaries", () => {
+  test("core longitudinal modules do not import scoring, inference, SDKs, or network I/O", () => {
+    expect(LONGITUDINAL.length).toBeGreaterThan(0);
+    for (const f of LONGITUDINAL) {
+      const code = stripComments(read(f));
+      expect(importsFrom(code, "scoring"), rel(f)).toBe(false);
+      expect(importsFrom(code, "inference"), rel(f)).toBe(false);
+      expect(code.includes("@typesafe-ai/sdk"), rel(f)).toBe(false);
+      expect(/\bfetch\s*\(/.test(code), rel(f)).toBe(false);
+    }
+  });
+
+  test("Jev and source adapters stay in the Club app layer", () => {
+    expect(read(join(ROOT, "apps/club/lib/longitudinal/jev.ts"))).toContain("@typesafe-ai/sdk");
+    expect(read(join(ROOT, "apps/club/lib/longitudinal/sources.ts"))).toContain("fetch(");
   });
 });
 
