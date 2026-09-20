@@ -18,8 +18,10 @@ feedback inside a 48-hour window. It works over a screen share.
 - **Convex + Better Auth** is the path for `/club` on this same app. Official
   `@convex-dev/better-auth` — not Clerk, not Neon, and **not a second frontend**.
   Do not add a login wall to `/demo`.
-- `/` — public chips landing (from [pope-cruz/chips](https://github.com/pope-cruz/chips))
-  with email/password sign-in. No create-account control.
+- `/` — public chips landing (from [pope-cruz/chips](https://github.com/pope-cruz/chips)).
+  Underlined `info` opens `/info`. No Sign in on this page.
+- `/info` — same chip; login and contact in a row above the program copy; underlined `home` under it. Contact is `chips@techatnyu.org`. No timer.
+  No create-account control.
 - `/demo` — hidden public seed board. No sign-in. Not linked from `/`.
   Refresh restores the seed club. `robots` noindexes it.
 - `/example` — redirects to `/demo` so old links still work.

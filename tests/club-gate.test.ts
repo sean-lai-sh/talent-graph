@@ -39,11 +39,12 @@ describe("SEA-12 Better Auth gate on /club", () => {
     const home = read("apps/club/app/page.tsx");
     const demo = read("apps/club/app/demo/page.tsx");
     const example = read("apps/club/app/example/page.tsx");
+    const info = read("apps/club/app/info/page.tsx");
     expect(home).toContain("LandingPage");
     expect(home).not.toContain("loadClub()");
     expect(home).not.toContain("ClubBoard");
     expect(example).toContain('redirect("/demo")');
-    for (const source of [home, demo, example]) {
+    for (const source of [home, demo, example, info]) {
       expect(source).not.toContain("auth-server");
       expect(source).not.toContain("isAuthenticated");
       expect(source).not.toContain("Authenticated");
@@ -95,15 +96,19 @@ describe("SEA-12 Better Auth gate on /club", () => {
   test("sign-in UI has no create-account path", () => {
     const form = read("apps/club/components/auth/SignInForm.tsx");
     const landing = read("apps/club/components/landing/LandingPage.tsx");
+    const info = read("apps/club/components/landing/InfoPage.tsx");
     const login = read("apps/club/app/login/page.tsx");
     const robots = read("apps/club/app/robots.ts");
     expect(form).toContain("signIn.email");
     expect(form).not.toContain("signUp");
     expect(form).not.toContain("Create account");
     expect(login).toContain("SignInForm");
-    expect(landing).toContain('href="/login"');
-    expect(landing).toContain("Sign in");
+    expect(landing).toContain('href="/info"');
+    expect(landing).not.toContain('href="/login"');
     expect(landing).not.toContain("Create account");
+    expect(info).toContain('href="/login"');
+    expect(info).toMatch(/>\s*login\s*</);
+    expect(info).not.toContain("Create account");
     expect(robots).toContain('disallow: ["/demo", "/example", "/club", "/login", "/api/"]');
   });
 });

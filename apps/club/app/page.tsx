@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   description: "tech@nyu chips",
 };
 
-/** Public landing from pope-cruz/chips. Sign-in only; no create-account. */
+/** Public landing from pope-cruz/chips. Underlined info; sign-in lives on `/info`. */
 export default function HomeLanding() {
   return <LandingPage />;
 }

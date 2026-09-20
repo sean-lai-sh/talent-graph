@@ -35,8 +35,37 @@ code="$(curl -sS -o "$body" -w "%{http_code}" --max-time 5 "$RUN_URL/")"
 if [[ "$code" != "200" ]]; then
   die "GET $RUN_URL/ should be the chips landing, got HTTP $code"
 fi
-if ! grep -q "tech@nyu chips" "$body"; then
-  die "GET $RUN_URL/ is not the chips landing (missing tech@nyu chips)"
+if ! grep -q 'href="/info"' "$body" && ! grep -q "href=\\\"/info\\\"" "$body"; then
+  die "GET $RUN_URL/ is not the chips landing (missing info link)"
+fi
+if ! grep -q "info" "$body"; then
+  die "GET $RUN_URL/ is not the chips landing (missing info)"
+fi
+
+code="$(curl -sS -o "$body" -w "%{http_code}" --max-time 5 "$RUN_URL/info")"
+if [[ "$code" != "200" ]]; then
+  die "GET $RUN_URL/info returned HTTP $code"
+fi
+if ! grep -q ">login<" "$body" && ! grep -q ">login</" "$body"; then
+  die "GET $RUN_URL/info is missing login"
+fi
+if ! grep -q "chips@techatnyu.org" "$body"; then
+  die "GET $RUN_URL/info is missing contact"
+fi
+if ! grep -q "Tech@NYU Chips" "$body"; then
+  die "GET $RUN_URL/info is missing program copy"
+fi
+if ! grep -q "info-nav" "$body"; then
+  die "GET $RUN_URL/info is missing login/contact nav"
+fi
+if ! grep -q "info-home" "$body" && ! grep -q ">home<" "$body"; then
+  die "GET $RUN_URL/info is missing home"
+fi
+if grep -q "Create account" "$body"; then
+  die "GET $RUN_URL/info must not offer Create account"
+fi
+if grep -q "Cleo Marsh" "$body"; then
+  die "GET $RUN_URL/info must not be the seed board"
 fi
 
 code="$(curl -sS -D "$headers" -o /dev/null -w "%{http_code}" --max-time 5 "$RUN_URL/example")"

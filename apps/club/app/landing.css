@@ -39,7 +39,9 @@
 }
 
 .landing h1,
-.landing-door {
+.landing-door,
+.info-underline,
+.info-corner {
   opacity: 0;
   animation: landing-fade-in 2s var(--landing-ease) 2s forwards;
 }
@@ -47,7 +49,9 @@
 @media (prefers-reduced-motion: reduce) {
   .landing #chip.is-ready,
   .landing h1,
-  .landing-door {
+  .landing-door,
+  .info-underline,
+  .info-corner {
     opacity: 1;
     transition: none;
     animation: none;
@@ -62,7 +66,8 @@
   box-shadow: none;
 }
 
-.landing h1 {
+.landing h1,
+.info-underline {
   position: absolute;
   bottom: max(30px, env(safe-area-inset-bottom));
   left: 0;
@@ -74,6 +79,67 @@
   font-weight: 400;
   line-height: 1.5;
   letter-spacing: 0.015em;
+}
+
+.info-underline {
+  z-index: 2;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.info-corner {
+  position: absolute;
+  left: max(24px, env(safe-area-inset-left));
+  bottom: max(24px, env(safe-area-inset-bottom));
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  max-width: min(22rem, calc(100% - 48px));
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0.015em;
+  pointer-events: auto;
+}
+
+.info-nav {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  column-gap: 1.25rem;
+}
+
+.info-nav a {
+  padding-inline: 0.125rem;
+}
+
+.info-copy {
+  margin: 0;
+  color: #aaa69e;
+}
+
+.info-corner a {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.info-corner a:hover {
+  text-decoration: underline;
+}
+
+.info-home {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.info-corner a.info-home {
+  text-decoration: underline;
 }
 
 .landing #status {

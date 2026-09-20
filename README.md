@@ -14,7 +14,8 @@ not a second frontend. Do not add a login wall to `/demo`.
 
 | Route | Access | Data |
 |---|---|---|
-| `/` | public chips landing + sign-in | no seed board |
+| `/` | public chips landing; underlined `info` | no seed board |
+| `/info` | public note: login, contact, copy, underlined `home` | no seed board |
 | `/demo` | hidden public seed — no sign-in, noindex | in-memory `generateSeed()` |
 | `/example` | redirect to `/demo` | — |
 | `/login` | public door, noindex | email/password `SignInForm`; no create-account |

@@ -14,6 +14,7 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
     const home = read("apps/club/app/page.tsx");
     const demo = read("apps/club/app/demo/page.tsx");
     const example = read("apps/club/app/example/page.tsx");
+    const info = read("apps/club/app/info/page.tsx");
     const engine = read("apps/club/lib/engine.ts");
     expect(home).toContain("LandingPage");
     expect(home).not.toContain("loadClub()");
@@ -21,6 +22,11 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
     expect(home).not.toContain("auth-server");
     expect(home).not.toContain("ConvexClientProvider");
     expect(home).not.toContain("@convex-dev/better-auth");
+    expect(info).toContain("InfoPage");
+    expect(info).not.toContain("loadClub()");
+    expect(info).not.toContain("auth-server");
+    expect(info).not.toContain("ConvexClientProvider");
+    expect(info).not.toContain("@convex-dev/better-auth");
     expect(demo).toContain("loadClub()");
     expect(demo).toContain("robots");
     expect(demo).not.toContain("auth-client");
