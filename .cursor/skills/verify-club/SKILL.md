@@ -98,8 +98,10 @@ Identity handles (stable; prefer these over CSS or DOM position):
 | Menu items | `Add a person`, `Round settings`, `Reset to seed` | Account menu |
 | Case title | heading level 1, person name | case |
 | Admit / Deny / Reopen | buttons with those names | case, when available |
+| LinkedIn / Résumé | links named `LinkedIn` and `Résumé` | case header, icon-only |
 | Ask | button `Ask someone` (`+` in Referrals) | case |
 | Ask sheet | dialog `Ask someone` | sheet |
+| Comparisons | button `View comparisons` | Breakdown card |
 | Comparisons sheet | dialog `Comparisons` | sheet |
 | Close sheet | button `Close` | sheet |
 

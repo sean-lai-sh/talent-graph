@@ -419,6 +419,8 @@ body {
   margin: 0 auto;
   padding: 2rem clamp(1.125rem, 4vw, 1.5rem) 4.5rem;
 }
+.board,
+.board-score,
 .board-side,
 .board-lane {
   display: grid;
@@ -586,6 +588,42 @@ ul.people {
   flex: none;
 }
 
+.ident-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin-top: 0.5rem;
+}
+.ident-logos {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.ident-logo {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  color: var(--t3);
+  background: linear-gradient(180deg, var(--card-top), var(--card-bot));
+  box-shadow: var(--rim);
+}
+.ident-logo svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+.ident-logo:hover {
+  color: var(--t1);
+  border-color: var(--hair-2);
+}
+.ident-phone {
+  margin-top: 0.75rem;
+  color: var(--t3);
+  font-size: 0.9375rem;
+}
 .ident-links {
   display: flex;
   flex-wrap: wrap;
@@ -901,21 +939,15 @@ ul.people {
     width: min(94%, 52rem);
     padding-top: 3rem;
   }
+  .board-score {
+    grid-template-columns: minmax(16rem, 19rem) minmax(0, 1fr);
+    align-items: stretch;
+  }
 }
 
 @media (min-width: 1200px) {
   .case-sheet {
-    width: min(95%, 74rem);
-  }
-  .board {
-    display: grid;
-    grid-template-columns: 19rem minmax(0, 1fr);
-    align-items: start;
-    gap: 1rem;
-  }
-  .board-side {
-    position: sticky;
-    top: 0;
+    width: min(95%, 56rem);
   }
   .duo {
     grid-template-columns: 1fr 1fr;
@@ -927,11 +959,8 @@ ul.people {
     --panel-w: 21rem;
   }
   .case-sheet {
-    max-width: 84rem;
-    width: min(95%, 84rem);
-  }
-  .board {
-    grid-template-columns: 21rem minmax(0, 1fr);
+    max-width: 60rem;
+    width: min(95%, 60rem);
   }
 }
 

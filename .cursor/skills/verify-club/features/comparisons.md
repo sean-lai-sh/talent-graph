@@ -10,7 +10,7 @@ The Comparisons sheet lists traits, not opponents. Each collapsed row is the ope
 
 ## How to get to it (user POV)
 
-- Open `/demo`, choose `Cleo Marsh`, then choose `View comparisons`.
+- Open `/demo`, choose `Cleo Marsh`, then choose `View comparisons` on the Breakdown card.
 
 ## Driving it with cursor-ide-browser
 

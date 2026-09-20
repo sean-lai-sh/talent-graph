@@ -1,12 +1,10 @@
 import { REVIEW_BUCKET_COPY, type ReviewBucket } from "../../../../src/analysis/reviewQueue.ts";
 import { PRODUCT_LANGUAGE } from "../../../../src/domain/constants.ts";
+import { informativeComparisons } from "../../lib/comparisonRecord.ts";
 import {
   cohortAverage,
-  meanConviction,
-  ordinal,
   rankAmong,
   rankShort,
-  scoreRank,
   signalBand,
   signalContext,
 } from "../../lib/format.ts";
@@ -27,35 +25,6 @@ const DIAL_C = 2 * Math.PI * DIAL_R;
 
 function signalsOf(people: PersonView[]): Array<number | null> {
   return people.map((p) => p.v2Signal);
-}
-
-export function StatTiles({ person, people }: { person: PersonView; people: PersonView[] }) {
-  const notes = person.referrals.filter((r) => r.evidenceText.trim()).length;
-  const conviction = meanConviction(person.referrals.map((r) => r.conviction));
-  const rank = scoreRank(person.v2Signal, signalsOf(people));
-  return (
-    <div className="stats">
-      <div className="tile">
-        <span className="tile-label">Referrals</span>
-        <span className="tile-num">
-          <Num>{person.incomingCount}</Num>
-        </span>
-        <span className="tile-sub">{notes} wrote a note</span>
-      </div>
-      <div className="tile">
-        <span className="tile-label">Avg trust</span>
-        <span className="tile-num">
-          {conviction === null ? "—" : <Num>{conviction.toFixed(1)}</Num>}
-        </span>
-        <span className="tile-sub">out of 5</span>
-      </div>
-      <div className="tile">
-        <span className="tile-label">Round rank</span>
-        <span className="tile-num">{rank ? <Num>{ordinal(rank.rank)}</Num> : "—"}</span>
-        <span className="tile-sub">{rank ? `of ${rank.of} scored` : "not scored yet"}</span>
-      </div>
-    </div>
-  );
 }
 
 function ScoreDial({ signal, average }: { signal: number | null; average: number | null }) {
@@ -105,17 +74,25 @@ function ScoreDial({ signal, average }: { signal: number | null; average: number
   );
 }
 
-function Breakdown({ person }: { person: PersonView }) {
+function Breakdown({ person, onCompare }: { person: PersonView; onCompare: () => void }) {
   const ranks = person.dimensions.filter(
     (d) => d.state === "estimated" && d.percentile !== null && d.poolSize !== null,
   );
   const watch = (person.queue?.flags ?? []).filter((f) => WATCH.includes(f));
   const gaps = person.gaps.filter((g) => g.gap >= 25);
+  const hasCompares = informativeComparisons(person.comparisonHistory).length > 0;
   return (
     <section className="card">
       <h2 className="card-h">
         <span className="sr-only">{PRODUCT_LANGUAGE.relativeCapability}</span>
         Breakdown
+        {hasCompares ? (
+          <span className="card-actions ml-auto">
+            <button type="button" onClick={onCompare} className="press">
+              View comparisons ›
+            </button>
+          </span>
+        ) : null}
       </h2>
       {ranks.length > 0 ? (
         <div>
@@ -160,12 +137,20 @@ function Breakdown({ person }: { person: PersonView }) {
 /**
  * Dial is the Referral Signal. Bars are capability ranks. We do not merge them.
  */
-export function ChannelSummary({ person, people }: { person: PersonView; people: PersonView[] }) {
+export function ChannelSummary({
+  person,
+  people,
+  onCompare,
+}: {
+  person: PersonView;
+  people: PersonView[];
+  onCompare: () => void;
+}) {
   const average = cohortAverage(signalsOf(people));
   return (
-    <>
+    <div className="board-score">
       <ScoreDial signal={person.v2Signal} average={average} />
-      <Breakdown person={person} />
-    </>
+      <Breakdown person={person} onCompare={onCompare} />
+    </div>
   );
 }

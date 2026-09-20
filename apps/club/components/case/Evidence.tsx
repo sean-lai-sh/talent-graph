@@ -8,15 +8,10 @@ import {
   SCALE_LABELS,
 } from "../../../../src/domain/constants.ts";
 import type { Dimension } from "../../../../src/domain/types.ts";
-import {
-  informativeComparisons,
-  recordSummary,
-  recordsByTrait,
-  type TraitRecord,
-} from "../../lib/comparisonRecord.ts";
+import { recordSummary, recordsByTrait, type TraitRecord } from "../../lib/comparisonRecord.ts";
 import { FEEDBACK_TONE } from "../../lib/copy.ts";
 import { fmtDateShort, hoursLabel } from "../../lib/format.ts";
-import { feedbackState, hoursUntil, REVIEW_STATUS_COPY } from "../../lib/review.ts";
+import { feedbackState, hoursUntil } from "../../lib/review.ts";
 import type {
   ComparisonHistoryRow,
   EvidenceItem,
@@ -234,13 +229,11 @@ export function Reviews({
   person,
   clock,
   onAsk,
-  onCompare,
   onRecord,
 }: {
   person: PersonView;
   clock: IsoDate;
   onAsk: () => void;
-  onCompare: () => void;
   onRecord: (request: FeedbackView) => void;
 }) {
   const [shown, setShown] = useState(PAGE);
@@ -256,7 +249,6 @@ export function Reviews({
   const waiting = person.feedback
     .filter((f) => f.state !== "responded" && !seen.has(f.memberId))
     .sort((a, b) => trustOf(b) - trustOf(a) || a.memberName.localeCompare(b.memberName));
-  const hasCompares = informativeComparisons(person.comparisonHistory).length > 0;
 
   return (
     <section className="card card-read">
@@ -264,11 +256,6 @@ export function Reviews({
         Referrals
         <span className="count">{ranked.length || ""}</span>
         <span className="card-actions">
-          {hasCompares ? (
-            <button type="button" onClick={onCompare} className="press">
-              View comparisons ›
-            </button>
-          ) : null}
           <button type="button" onClick={onAsk} aria-label="Ask someone" className="press">
             +
           </button>
@@ -368,81 +355,6 @@ export function CommitteeNotes({ person }: { person: PersonView }) {
           </div>
         ))
       )}
-    </section>
-  );
-}
-
-export function AlsoVouched({ person, people }: { person: PersonView; people: PersonView[] }) {
-  const mine = new Set(person.referrals.map((r) => r.referrerId));
-  const seen = new Set<string>();
-  const shared: { id: string; name: string; via: string; signal: number | null }[] = [];
-  for (const other of people) {
-    if (other.id === person.id) continue;
-    for (const r of other.referrals) {
-      if (mine.has(r.referrerId) && !seen.has(other.id)) {
-        seen.add(other.id);
-        shared.push({
-          id: other.id,
-          name: other.name,
-          via: r.referrerName,
-          signal: other.v2Signal,
-        });
-      }
-    }
-  }
-  return (
-    <section className="card">
-      <h2 className="card-h">
-        Also vouched for
-        <span className="count">{shared.length || ""}</span>
-      </h2>
-      {shared.length === 0 ? (
-        <p className="empty-note">These referrers haven’t vouched for anyone else.</p>
-      ) : (
-        shared.map((row) => (
-          <div key={row.id} className="cmp">
-            <span className="who">{row.name}</span>
-            <span className="via">via {row.via}</span>
-            <span className="sc">{row.signal === null ? "—" : row.signal}</span>
-          </div>
-        ))
-      )}
-    </section>
-  );
-}
-
-export function Activity({ person }: { person: PersonView }) {
-  const scored = person.v2Signal !== null;
-  const rows: { what: string; when: string }[] = [
-    { what: "Applied", when: fmtDateShort(person.createdAt) },
-    {
-      what:
-        person.incomingCount === 0
-          ? "No referrals"
-          : `${person.incomingCount} referral${person.incomingCount === 1 ? "" : "s"}`,
-      when: person.incomingCount > 0 ? "received" : "",
-    },
-    {
-      what: scored ? `Scored ${person.v2Signal}` : "Not scored yet",
-      when: "",
-    },
-    {
-      what:
-        person.reviewStatus === "admitted" || person.reviewStatus === "denied"
-          ? REVIEW_STATUS_COPY[person.reviewStatus]
-          : "Awaiting decision",
-      when: "",
-    },
-  ];
-  return (
-    <section className="card">
-      <h2 className="card-h">Activity</h2>
-      {rows.map((row) => (
-        <div key={row.what} className="act">
-          <span>{row.what}</span>
-          <span className="when">{row.when}</span>
-        </div>
-      ))}
     </section>
   );
 }
