@@ -15,7 +15,10 @@
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "@typesafe-ai/sdk": ["./apps/club/node_modules/@typesafe-ai/sdk"]
+    }
   },
   "include": ["src", "tests", "scripts"]
 }

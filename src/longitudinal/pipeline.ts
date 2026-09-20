@@ -20,6 +20,7 @@ const DIMENSIONS: readonly ProgressDimension[] = [
 
 export interface EvidencePipelinePolicy {
   identityConfidence: number;
+  identityContradiction: number;
   eventConfidence: number;
   dimensionConfidence: number;
   questionVersion: string;
@@ -28,6 +29,7 @@ export interface EvidencePipelinePolicy {
 
 export const DEFAULT_EVIDENCE_POLICY: EvidencePipelinePolicy = Object.freeze({
   identityConfidence: 0.75,
+  identityContradiction: 0.25,
   eventConfidence: 0.65,
   dimensionConfidence: 0.5,
   questionVersion: "career-evidence@1.0.0",
@@ -37,6 +39,7 @@ export const DEFAULT_EVIDENCE_POLICY: EvidencePipelinePolicy = Object.freeze({
 export interface ProcessEvidenceInput {
   identity: CanonicalIdentity;
   evidence: readonly GrokEvidenceItem[];
+  baselineAt?: Date;
   cutoffAt: Date;
   retrievedAt: Date;
   pipelineVersion: string;
@@ -53,8 +56,12 @@ export interface ProcessEvidenceResult {
 
 export async function processEvidence(input: ProcessEvidenceInput): Promise<ProcessEvidenceResult> {
   const policy = input.policy ?? DEFAULT_EVIDENCE_POLICY;
+  const baselineMs = input.baselineAt?.getTime() ?? Number.NEGATIVE_INFINITY;
   const eligible = input.evidence
-    .filter((evidence) => Date.parse(evidence.publishedAt) <= input.cutoffAt.getTime())
+    .filter((evidence) => {
+      const publishedAt = Date.parse(evidence.publishedAt);
+      return publishedAt > baselineMs && publishedAt <= input.cutoffAt.getTime();
+    })
     .sort(
       (a, b) =>
         Date.parse(a.publishedAt) - Date.parse(b.publishedAt) ||
@@ -81,9 +88,13 @@ export async function processEvidence(input: ProcessEvidenceInput): Promise<Proc
         contentHash: evidence.contentHash,
       };
 
+      const contradictoryIdentity =
+        identity.decision === "same" &&
+        contradictoryFieldMatches(identity.fieldMatches, policy.identityContradiction);
       if (
         identity.decision === "different" ||
-        (identity.decision === "same" && identity.confidence < policy.identityConfidence)
+        (identity.decision === "same" && identity.confidence < policy.identityConfidence) ||
+        contradictoryIdentity
       ) {
         const status = identity.decision === "different" ? "rejected" : "review";
         const claim: EvidenceClaim = {
@@ -164,6 +175,17 @@ export async function processEvidence(input: ProcessEvidenceInput): Promise<Proc
     },
     needsReview: claims.some((claim) => claim.status === "review"),
   };
+}
+
+function contradictoryFieldMatches(
+  fieldMatches: { name: number; affiliation: number; handle: number },
+  threshold: number,
+): boolean {
+  return (
+    [fieldMatches.name, fieldMatches.affiliation, fieldMatches.handle].filter(
+      (value) => value < threshold,
+    ).length >= 2
+  );
 }
 
 export function progressVector(

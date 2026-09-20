@@ -8,6 +8,7 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
+    "club:install": "bun install --cwd apps/club --frozen-lockfile",
     "club:typecheck": "bun run --cwd apps/club typecheck",
     "lint": "biome check .",
     "format": "biome format --write .",

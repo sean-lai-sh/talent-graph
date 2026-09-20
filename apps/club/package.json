@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "dev:doppler": "doppler run -- next dev -H 127.0.0.1",
     "convex:dev": "convex dev",
     "convex:doppler": "doppler run -- convex dev",

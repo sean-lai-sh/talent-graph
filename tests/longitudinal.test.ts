@@ -21,6 +21,7 @@ import {
   contentFingerprint,
   createMonitoringPlan,
   evaluateLongitudinalCases,
+  failMonitoringPlan,
   processEvidence,
   progressVector,
   residualSlope,
@@ -111,7 +112,39 @@ describe("longitudinal source ingestion", () => {
     });
 
     const valid = { ...packet, items: [evidence("valid", 80), evidence("valid", 80)] };
-    expect(ingestGrokEvidencePacket(valid)).toHaveLength(1);
+    expect(
+      ingestGrokEvidencePacket(valid, { runIds: new Set(), itemKeys: new Set() }),
+    ).toHaveLength(1);
+  });
+
+  test("Grok packet replays are dropped across invocations", () => {
+    const memory = { runIds: new Set<string>(), itemKeys: new Set<string>() };
+    const packet: GrokEvidencePacket = {
+      schemaVersion: "1",
+      personId: "p-1",
+      runId: "run-1",
+      retrievedAt: day(100).toISOString(),
+      cutoffAt: day(90).toISOString(),
+      items: [evidence("valid", 80)],
+    };
+    expect(ingestGrokEvidencePacket(packet, memory)).toHaveLength(1);
+    expect(ingestGrokEvidencePacket(packet, memory)).toHaveLength(0);
+    expect(
+      ingestGrokEvidencePacket({ ...packet, runId: "run-2", items: [evidence("valid", 80)] }, memory),
+    ).toHaveLength(0);
+  });
+
+  test("Grok ingest memory persists when the caller does not pass a store", () => {
+    const packet: GrokEvidencePacket = {
+      schemaVersion: "1",
+      personId: "p-1",
+      runId: "default-store",
+      retrievedAt: day(100).toISOString(),
+      cutoffAt: day(90).toISOString(),
+      items: [evidence("default-store", 80)],
+    };
+    expect(ingestGrokEvidencePacket(packet)).toHaveLength(1);
+    expect(ingestGrokEvidencePacket(packet)).toHaveLength(0);
   });
 
   test("GitHub adapter retains only evidence inside the requested window", async () => {
@@ -240,6 +273,82 @@ describe("Jev judgments and evidence policy", () => {
     expect(result.events[0]?.status).toBe("review");
     expect(result.needsReview).toBe(true);
   });
+
+  test("same-person high confidence with contradictory fieldMatches goes to review", async () => {
+    const contradictory: JevJudgmentService = {
+      ...acceptingJudgments,
+      async assessIdentity() {
+        return {
+          decision: "same",
+          confidence: 0.98,
+          fieldMatches: { name: 0.92, affiliation: 0.04, handle: 0.02 },
+        };
+      },
+    };
+    const result = await processEvidence({
+      identity,
+      evidence: [evidence("work", 40)],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments: contradictory,
+    });
+    expect(result.claims).toHaveLength(1);
+    expect(result.claims[0]?.status).toBe("review");
+    expect(result.claims[0]?.identityDecision).toBe("same");
+    expect(result.events).toHaveLength(0);
+    expect(result.needsReview).toBe(true);
+    expect(careerEventsToLongitudinalRecords(result.events).outcomes).toEqual([]);
+  });
+
+  test("low event confidence never creates accepted outcomes", async () => {
+    const lowEvent: JevJudgmentService = {
+      ...acceptingJudgments,
+      async assessClaim() {
+        const accepted = await acceptingJudgments.assessClaim(evidence("work", 40));
+        return { ...accepted, eventConfidence: 0.4 };
+      },
+    };
+    const result = await processEvidence({
+      identity,
+      evidence: [evidence("work", 40)],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments: lowEvent,
+    });
+    expect(result.claims[0]?.status).toBe("review");
+    expect(result.events[0]?.status).toBe("review");
+    expect(result.needsReview).toBe(true);
+    expect(careerEventsToLongitudinalRecords(result.events).outcomes).toEqual([]);
+  });
+
+  test("low dimension confidence never creates accepted outcomes", async () => {
+    const lowDimension: JevJudgmentService = {
+      ...acceptingJudgments,
+      async assessClaim() {
+        const accepted = await acceptingJudgments.assessClaim(evidence("work", 40));
+        return {
+          ...accepted,
+          dimensions: accepted.dimensions.map((judgment, index) =>
+            index === 0 ? { ...judgment, confidence: 0.2 } : judgment,
+          ),
+        };
+      },
+    };
+    const result = await processEvidence({
+      identity,
+      evidence: [evidence("work", 40)],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments: lowDimension,
+    });
+    expect(result.claims[0]?.status).toBe("review");
+    expect(result.events[0]?.status).toBe("review");
+    expect(result.needsReview).toBe(true);
+    expect(careerEventsToLongitudinalRecords(result.events).outcomes).toEqual([]);
+  });
 });
 
 describe("checkpoint scheduling", () => {
@@ -307,6 +416,99 @@ describe("checkpoint scheduling", () => {
     expect(run.results.find((result) => result.planId === "early")?.result.events).toHaveLength(1);
     expect(run.results.find((result) => result.planId === "late")?.result.events).toHaveLength(2);
     expect(run.plans.every((plan) => plan.status === "completed")).toBe(true);
+  });
+
+  test("failed due plans re-enter the next collection batch", () => {
+    const pending = createMonitoringPlan({
+      id: "m-90",
+      personId: "p-1",
+      caseId: "c-1",
+      caseOpenedAt: day(0),
+      horizonDays: 90,
+      pipelineVersion: "1",
+    });
+    const failed = failMonitoringPlan(pending, "collector timeout", day(100));
+    const batches = batchDueMonitoringPlans([failed], day(200));
+    expect(batches).toHaveLength(1);
+    expect(batches[0]?.plans).toHaveLength(1);
+    expect(batches[0]?.plans[0]?.status).toBe("failed");
+  });
+
+  test("shared fetch still filters each plan to its own baseline window", async () => {
+    const early = createMonitoringPlan({
+      id: "early",
+      personId: "p-1",
+      caseId: "c-1",
+      caseOpenedAt: day(0),
+      horizonDays: 90,
+      pipelineVersion: "1",
+    });
+    const late = createMonitoringPlan({
+      id: "late",
+      personId: "p-1",
+      caseId: "c-2",
+      submittedAt: day(30),
+      caseOpenedAt: day(0),
+      horizonDays: 180,
+      pipelineVersion: "1",
+    });
+    let fetches = 0;
+    const run = await runDueMonitoringPlans({
+      plans: [early, late],
+      identities: new Map([["p-1", identity]]),
+      now: day(220),
+      collector: {
+        async collect() {
+          fetches++;
+          return [
+            evidence("pre-late-baseline", 10),
+            evidence("shared", 80),
+            evidence("late-only", 120),
+          ];
+        },
+      },
+      judgments: acceptingJudgments,
+    });
+    expect(fetches).toBe(1);
+    expect(
+      run.results
+        .find((result) => result.planId === "early")
+        ?.result.events.map((event) => event.title),
+    ).toEqual(["Avery released pre-late-baseline.", "Avery released shared."]);
+    expect(
+      run.results
+        .find((result) => result.planId === "late")
+        ?.result.events.map((event) => event.title),
+    ).toEqual(["Avery released shared.", "Avery released late-only."]);
+  });
+
+  test("a recovered collector retries a previously failed plan", async () => {
+    const plan = failMonitoringPlan(
+      createMonitoringPlan({
+        id: "retry",
+        personId: "p-1",
+        caseId: "c-1",
+        caseOpenedAt: day(0),
+        horizonDays: 90,
+        pipelineVersion: "1",
+      }),
+      "github 503",
+      day(100),
+    );
+    const run = await runDueMonitoringPlans({
+      plans: [plan],
+      identities: new Map([["p-1", identity]]),
+      now: day(200),
+      collector: {
+        async collect() {
+          return [evidence("recovered", 40)];
+        },
+      },
+      judgments: acceptingJudgments,
+    });
+    expect(run.plans[0]?.status).toBe("completed");
+    expect(run.plans[0]?.attemptCount).toBe(1);
+    expect(run.results[0]?.result.events).toHaveLength(1);
   });
 });
 

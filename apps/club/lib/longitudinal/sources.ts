@@ -183,14 +183,35 @@ export async function fetchOrcidEvidence(
   return evidence;
 }
 
-export function ingestGrokEvidencePacket(packet: GrokEvidencePacket): GrokEvidenceItem[] {
+export interface GrokIngestMemory {
+  runIds: Set<string>;
+  itemKeys: Set<string>;
+}
+
+const defaultGrokIngestMemory: GrokIngestMemory = {
+  runIds: new Set(),
+  itemKeys: new Set(),
+};
+
+export function grokEvidenceItemKey(
+  personId: string,
+  item: Pick<GrokEvidenceItem, "sourceId" | "publishedAt" | "contentHash">,
+): string {
+  return `${personId}\u0000${item.sourceId}\u0000${item.publishedAt}\u0000${item.contentHash}`;
+}
+
+export function ingestGrokEvidencePacket(
+  packet: GrokEvidencePacket,
+  memory: GrokIngestMemory = defaultGrokIngestMemory,
+): GrokEvidenceItem[] {
   const validation = validateGrokEvidencePacket(packet);
   if (!validation.ok) throw new Error(validation.errors.join("; "));
-  const seen = new Set<string>();
+  if (memory.runIds.has(packet.runId)) return [];
+  memory.runIds.add(packet.runId);
   return packet.items.filter((candidate) => {
-    const key = `${packet.personId}\u0000${candidate.sourceId}\u0000${candidate.publishedAt}\u0000${candidate.contentHash}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
+    const key = grokEvidenceItemKey(packet.personId, candidate);
+    if (memory.itemKeys.has(key)) return false;
+    memory.itemKeys.add(key);
     return true;
   });
 }

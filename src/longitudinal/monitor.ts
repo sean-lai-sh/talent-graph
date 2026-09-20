@@ -62,6 +62,7 @@ export async function runDueMonitoringPlans(input: {
           const result = await processEvidence({
             identity,
             evidence,
+            baselineAt: plan.baselineAt,
             cutoffAt: plan.dueAt,
             retrievedAt: input.now,
             pipelineVersion: plan.pipelineVersion,

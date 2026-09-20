@@ -57,7 +57,12 @@ export function batchDueMonitoringPlans(
 ): DuePersonBatch[] {
   const groups = new Map<string, DuePersonBatch>();
   for (const plan of plans) {
-    if (plan.status !== "pending" || plan.dueAt.getTime() > now.getTime()) continue;
+    if (
+      (plan.status !== "pending" && plan.status !== "failed") ||
+      plan.dueAt.getTime() > now.getTime()
+    ) {
+      continue;
+    }
     const existing = groups.get(plan.personId);
     if (existing) {
       existing.plans.push(plan);
