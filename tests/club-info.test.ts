@@ -56,7 +56,8 @@ describe("chips /info", () => {
     expect(css).toMatch(/\.info-corner[\s\S]*left:\s*max\(24px/);
     expect(css).toMatch(/\.info-corner[\s\S]*bottom:\s*max\(24px/);
     expect(css).toMatch(/\.info-nav \{[\s\S]*flex-direction:\s*row/);
-    expect(css).toMatch(/\.info-nav \{[\s\S]*justify-content:\s*space-between/);
+    expect(css).toMatch(/\.info-nav \{[\s\S]*column-gap:\s*1\.25rem/);
+    expect(css).not.toMatch(/\.info-nav \{[\s\S]*justify-content:\s*space-between/);
     expect(css).toMatch(/\.info-corner[\s\S]*pointer-events:\s*auto/);
     expect(config).toContain('position: "bottom-right"');
   });

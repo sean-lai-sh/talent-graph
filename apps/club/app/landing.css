@@ -111,9 +111,11 @@
   display: flex;
   flex-direction: row;
   align-items: baseline;
-  justify-content: space-between;
-  width: 100%;
-  gap: 1.5rem;
+  column-gap: 1.25rem;
+}
+
+.info-nav a {
+  padding-inline: 0.125rem;
 }
 
 .info-copy {
