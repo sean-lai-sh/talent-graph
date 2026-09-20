@@ -43,6 +43,14 @@ describe("chips /info", () => {
     expect(CHIPS_CONTACT).toBe("chips@techatnyu.org");
   });
 
+  test("/info corner stays thrive-small and the Next N is parked opposite", () => {
+    const css = read("apps/club/app/landing.css");
+    const config = read("apps/club/next.config.ts");
+    expect(css).toMatch(/\.info-corner[\s\S]*left:\s*max\(24px/);
+    expect(css).toMatch(/\.info-corner[\s\S]*bottom:\s*max\(24px/);
+    expect(config).toContain('position: "bottom-right"');
+  });
+
   test("/info stays off the Convex persist path and has no middleware", () => {
     const page = read("apps/club/app/info/page.tsx");
     expect(page).not.toContain("auth-server");
