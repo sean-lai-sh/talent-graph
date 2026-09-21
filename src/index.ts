@@ -24,14 +24,26 @@ export * from "./judges/outcomes.ts";
 export * from "./judges/reliability.ts";
 export * from "./judges/trackRecord.ts";
 export * from "./longitudinal/checkpoints.ts";
+// Named, not `export *`: #54 T8 split `./longitudinal/pipeline.ts` into
+// orchestration (`pipeline.ts`), shared judgments (`coalescing.ts`), the
+// store-hit checks (`expectations.ts`) and the pure re-derivation
+// (`derive.ts`). The barrel carries exactly the names `pipeline.ts` used to
+// export, so the split moved no public name: `coalesce`, `pendingFor` and
+// everything in `expectations.ts` are internal to the fan-out and stay off it.
+export type { JudgmentDeps, SharedJudgment } from "./longitudinal/coalescing.ts";
+export * from "./longitudinal/derive.ts";
 export * from "./longitudinal/evaluation.ts";
+export * from "./longitudinal/judge.ts";
 export * from "./longitudinal/judgments.ts";
 export * from "./longitudinal/monitor.ts";
 export * from "./longitudinal/outcomes.ts";
 export * from "./longitudinal/pipeline.ts";
+export * from "./longitudinal/policy.ts";
+export * from "./longitudinal/projections.ts";
 export * from "./longitudinal/provenance.ts";
 export * from "./longitudinal/records.ts";
 export * from "./longitudinal/scout.ts";
+export * from "./longitudinal/store.ts";
 export * from "./longitudinal/types.ts";
 export * from "./longitudinal/validate.ts";
 export * from "./models/blend.ts";

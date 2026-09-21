@@ -28,8 +28,9 @@
 import { defineModel, runModel } from "../models/define.ts";
 import type { ModelRun } from "../models/run.ts";
 import type { CareerEvidenceSpec } from "../models/spec.ts";
-import type { DeriveEvidenceInput, ProcessEvidenceResult } from "./pipeline.ts";
-import { deriveEvidence } from "./pipeline.ts";
+import type { DeriveEvidenceInput } from "./derive.ts";
+import { deriveEvidence } from "./derive.ts";
+import type { ProcessEvidenceResult } from "./policy.ts";
 import { recordContent } from "./records.ts";
 
 /** What one career-evidence derivation produces. */
