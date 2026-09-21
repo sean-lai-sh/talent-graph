@@ -18,8 +18,8 @@
  * What is NOT here, deliberately:
  *
  *   - the as-of filter (`referralsAsOf`). It is a club-only reading of "what
- *     existed at T" and stays in `engine.ts`; this function takes whatever
- *     referral set the caller decided on.
+ *     existed at T" and stays with the orchestrator in `computeView.ts`; this
+ *     function takes whatever referral set the caller decided on.
  *   - capability vectors. Bradley–Terry is not referral evidence and has no
  *     business sharing this index; it stays in `computeView`.
  *   - any spec default. `specs` is required, so a historical view reproduces
