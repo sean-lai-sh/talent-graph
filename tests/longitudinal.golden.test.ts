@@ -1,10 +1,16 @@
 /**
  * Byte-level golden for `processEvidence`.
  *
- * The evidence pipeline is being split into pure stages (#54 T3). The refactor
- * is only safe if the claim/event output it produces is unchanged, so this test
- * freezes that output as a committed fixture and byte-compares `JSON.stringify`
- * against it. Dates are serialised as ISO strings so the comparison is textual.
+ * The evidence pipeline is being split into pure stages (#54 T3). This test
+ * freezes the pipeline's claim/event output as a committed fixture and
+ * byte-compares `JSON.stringify` against it, so a later edit cannot move a
+ * status, an event, an id or a fingerprint unnoticed. The fixture pins the
+ * post-split output: statuses, events, ids and fingerprints match the pre-split
+ * pipeline on these inputs, and the one deliberate difference is that review
+ * claims now carry the named `reviewReasons` the split made explicit
+ * (`event_low_confidence`, `dimension_low_confidence`) where the old pipeline
+ * left the field absent. Dates are serialised as ISO strings so the comparison
+ * is textual.
  * The fixture on disk is re-indented by the repository formatter, so it is
  * re-serialised canonically before the comparison: whitespace is the formatter's,
  * every key, value and position in the text is the pipeline's.
