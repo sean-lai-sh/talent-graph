@@ -20,11 +20,18 @@ import {
 } from "./judges/reliability.ts";
 import { CURRENT_SPECS } from "./models/registry.ts";
 import type { ModelSpec } from "./models/spec.ts";
+import { hashInputs, stableStringify } from "./provenance/hash.ts";
 import {
   computeAllReferralSignals,
   type ReferralSignalOptions,
   type ReferralSignalResult,
 } from "./scoring/referralSignal.ts";
+
+/**
+ * Hashing lives in `src/provenance/` so that wanting a fingerprint does not
+ * pull in the scoring/inference graph; re-exported here for existing callers.
+ */
+export { hashInputs, stableStringify };
 
 export type ModelType = "referral_signal_v0" | "bradley_terry_v1" | "judge_reliability_v2";
 
@@ -37,32 +44,6 @@ export interface ModelRun<TOut = unknown> {
   inputHash: string;
   createdAt: Date;
   outputs: TOut;
-}
-
-/** Deterministic JSON: object keys sorted, Dates as ISO strings, Maps as entries. */
-export function stableStringify(value: unknown): string {
-  return JSON.stringify(normalise(value));
-}
-
-function normalise(value: unknown): unknown {
-  if (value === null || typeof value !== "object") return value;
-  if (value instanceof Date) return value.toISOString();
-  if (value instanceof Map) {
-    return { __map: [...value.entries()].sort().map(([k, v]) => [k, normalise(v)]) };
-  }
-  if (value instanceof Set) return { __set: [...value].map(normalise).sort() };
-  if (Array.isArray(value)) return value.map(normalise);
-  const obj = value as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
-  for (const key of Object.keys(obj).sort()) out[key] = normalise(obj[key]);
-  return out;
-}
-
-/** SHA-256 hex of the stable JSON form. */
-export function hashInputs(inputs: unknown): string {
-  const hasher = new Bun.CryptoHasher("sha256");
-  hasher.update(stableStringify(inputs));
-  return hasher.digest("hex");
 }
 
 export function createModelRun<TOut>(
