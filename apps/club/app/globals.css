@@ -1077,6 +1077,10 @@ ul.people {
   box-shadow: var(--rim), var(--e1);
   padding: 1rem;
 }
+.forum-compose textarea {
+  min-height: 7.5rem;
+  resize: vertical;
+}
 .forum-list {
   display: flex;
   flex-direction: column;
@@ -1105,39 +1109,29 @@ ul.people {
 }
 
 .member-directory {
-  margin: 0 auto;
-  max-width: 40rem;
-  padding: 1.5rem 1.25rem 3rem;
+  padding: 1.25rem 1.5rem 3rem;
 }
-.member-directory-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+.member-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
 }
-.member-card {
-  border: 1px solid var(--hair);
-  border-radius: var(--radius);
-  background: var(--card);
-  padding: 1rem 1.1rem;
+.member-table th,
+.member-table td {
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--hair);
+  vertical-align: top;
 }
-.member-card-name {
-  font-size: 0.95rem;
+.member-table thead th {
+  font-size: 0.75rem;
+  font-weight: 550;
+  color: var(--t2);
+}
+.member-table tbody th {
   font-weight: 550;
 }
-.member-card-affiliation {
-  margin-top: 0.2rem;
-  font-size: 0.8rem;
-  color: var(--t2);
-}
-.member-card-contacts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 1rem;
-  margin-top: 0.65rem;
-  font-size: 0.85rem;
-  color: var(--t2);
-}
-.member-card-contacts a {
+.member-table a {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
