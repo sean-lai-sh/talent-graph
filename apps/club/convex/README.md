@@ -18,6 +18,7 @@ admin role (`clubAccounts.role`, else `chips@techatnyu.org` /
 `ownerUserId` (index `by_owner`). Owner-keyed club, not a membership /
 invite model. Accounts that are not marked admin land on `/members`.
 The member forum is `clubPosts` — any signed-in user can post.
+The member directory is `listMembers` (admitted people and contacts only).
 
 **Computed:** every mutation and `getBoard` call `computeView` / `addPerson`
 / `setStatus` / `addReferral` / … from `lib/engine.ts`, which imports

@@ -1,13 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import type { DirectoryMember } from "../../lib/memberDirectory.ts";
 import { Forum, type ForumPost } from "../forum/Forum.tsx";
+import { MemberList } from "../members/MemberList.tsx";
 import { EmptyState } from "../ui/EmptyState.tsx";
 import { SignedInShell } from "./SignedInShell.tsx";
 
 export const MEMBER_NAV = [
   { id: "forum", label: "Forum" },
   { id: "referral", label: "Submit Referral" },
+  { id: "members", label: "Member List" },
   { id: "evaluations", label: "Evaluations", count: 0 },
   { id: "events", label: "Upcoming Events" },
 ] as const;
@@ -17,6 +20,7 @@ export type MemberPane = (typeof MEMBER_NAV)[number]["id"];
 const TITLES: Record<MemberPane, string> = {
   forum: "Forum",
   referral: "Submit Referral",
+  members: "Member List",
   evaluations: "Evaluations",
   events: "Upcoming Events",
 };
@@ -24,23 +28,30 @@ const TITLES: Record<MemberPane, string> = {
 /** Member wireframe: sidebar actions, forum as the main pane. */
 export function MemberChrome({
   posts,
+  members = [],
   loading = false,
+  membersLoading = false,
   busy = false,
   onPost,
   onSignOut,
 }: {
   posts: ForumPost[];
+  members?: DirectoryMember[];
   loading?: boolean;
+  membersLoading?: boolean;
   busy?: boolean;
   onPost: (body: string) => void;
   onSignOut?: () => void;
 }) {
   const [pane, setPane] = useState<MemberPane>("forum");
+  const items = MEMBER_NAV.map((item) =>
+    item.id === "members" ? { ...item, count: members.length } : item,
+  );
 
   return (
     <SignedInShell
       navLabel="Member"
-      items={MEMBER_NAV}
+      items={items}
       activeId={pane}
       onSelect={(id) => setPane(id as MemberPane)}
       title={TITLES[pane]}
@@ -56,6 +67,7 @@ export function MemberChrome({
           </EmptyState>
         </div>
       ) : null}
+      {pane === "members" ? <MemberList members={members} loading={membersLoading} /> : null}
       {pane === "evaluations" ? (
         <div className="px-6 py-16">
           <EmptyState title="No evaluations waiting.">

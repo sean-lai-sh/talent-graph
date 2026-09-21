@@ -21,7 +21,7 @@ not a second frontend. Do not add a login wall to `/demo`.
 | `/example` | redirect to `/demo` | — |
 | `/login` | public door, noindex | email/password `SignInForm`; no create-account |
 | `/club` | marked admin | council board; Convex persist |
-| `/members` | signed-in, not marked admin | sidebar + forum |
+| `/members` | signed-in, not marked admin | sidebar + forum + member list |
 
 Unauthenticated `/club` and `/members` redirect to `/login`. Sign-out from `/club` returns to `/login`. There is no create-account path.
 Owners are provisioned by an admin. The seed board never mounts on `/` or `/club`.

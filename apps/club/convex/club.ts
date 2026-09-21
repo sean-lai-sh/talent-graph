@@ -12,6 +12,7 @@ import {
   setReviewConfig as setReviewConfigEngine,
   setStatus as setStatusEngine,
 } from "../lib/engine.ts";
+import { toDirectoryMembers } from "../lib/memberDirectory.ts";
 import { reviveState } from "../lib/serialize.ts";
 import type { ClubState, EngineResult } from "../lib/types.ts";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
@@ -346,6 +347,25 @@ export const addPost = mutation({
       authorUserId: user._id,
       createdAt: new Date().toISOString(),
     });
+  },
+});
+
+/** Shared directory. Any signed-in account; members only, no scores. */
+export const listMembers = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) return null;
+    const orgs = await ctx.db.query("clubOrgs").take(20);
+    const seen = new Set<string>();
+    const people = orgs
+      .flatMap((org) => org.people)
+      .filter((person) => {
+        if (seen.has(person.id)) return false;
+        seen.add(person.id);
+        return true;
+      });
+    return toDirectoryMembers(people);
   },
 });
 

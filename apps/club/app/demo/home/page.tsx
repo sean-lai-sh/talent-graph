@@ -9,8 +9,9 @@ export const metadata: Metadata = {
 };
 
 /**
- * Hidden public preview of the member chrome + local forum.
- * Not linked from `/`. Live persist is `/members` after sign-in.
+ * Hidden public preview of the member chrome + local forum and
+ * seed member directory. Not linked from `/`. Live persist is
+ * `/members` after sign-in.
  */
 export default function HiddenMemberHome() {
   return <MemberHomePreview />;

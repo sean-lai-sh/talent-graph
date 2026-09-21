@@ -18,13 +18,16 @@ describe("member home + admin board", () => {
     const club = read("apps/club/convex/club.ts");
     expect(chrome).toContain('label: "Forum"');
     expect(chrome).toContain('label: "Submit Referral"');
+    expect(chrome).toContain('label: "Member List"');
     expect(chrome).toContain('label: "Evaluations"');
     expect(chrome).toContain('label: "Upcoming Events"');
     expect(chrome).toContain("<Forum");
+    expect(chrome).toContain("<MemberList");
     expect(chrome).not.toContain('label: "Review"');
     expect(home).toContain("<MemberChrome");
     expect(home).toContain("api.club.listPosts");
     expect(home).toContain("api.club.addPost");
+    expect(home).toContain("api.club.listMembers");
     expect(home).not.toContain("Signed in as");
     expect(forum).toContain("Write something");
     expect(forum).toContain("Post");

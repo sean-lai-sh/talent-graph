@@ -11,13 +11,16 @@ import { api } from "../../convex/_generated/api";
  */
 export function MemberHome({ onSignOut }: { onSignOut: () => void }) {
   const posts = useQuery(api.club.listPosts);
+  const members = useQuery(api.club.listMembers);
   const addPost = useMutation(api.club.addPost);
   const [busy, setBusy] = useState(false);
 
   return (
     <MemberChrome
       posts={posts ?? []}
+      members={members ?? []}
       loading={posts === undefined}
+      membersLoading={members === undefined}
       busy={busy}
       onPost={(body) => {
         setBusy(true);
