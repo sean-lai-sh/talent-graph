@@ -122,7 +122,7 @@ describe("CareerEvidenceSpec: validateSpec rejections", () => {
 });
 
 describe("CareerEvidenceSpec: the pipeline policy reads the spec", () => {
-  test("DEFAULT_EVIDENCE_POLICY thresholds are the spec's, and the stamp is unchanged", () => {
+  test("DEFAULT_EVIDENCE_POLICY thresholds are the spec's, and the stamp is the spec-id prefix plus its version", () => {
     expect(DEFAULT_EVIDENCE_POLICY).toEqual({
       identityConfidence: 0.75,
       identityContradiction: 0.25,

@@ -306,8 +306,21 @@ Not a spec version either: how the runs of a pass are ordered and recorded.
   status moved: `tests/fixtures/longitudinal-golden.json`,
   `longitudinal-fingerprints.json`, `longitudinal-jev-request.json`,
   `run-ids-golden.json` and `demo-golden.txt` all pass without regeneration.
-- **Projections:** `projectIdentity` and `projectClaim` now reject a confidence,
-  a probability or a field match outside `[0, 1]`, and a score outside the
-  rubric's `0..MAX_LEVEL`, with `JudgmentInvariantError`. A value outside its
-  range is unrepresentable, so it is raised — never clamped, never coerced.
+- **Ranges:** a confidence, a probability or an identity field match outside
+  `[0, 1]`, and a score outside the rubric's `0..MAX_LEVEL`, are rejected with
+  `JudgmentInvariantError`. A value outside its range is unrepresentable, so it
+  is raised — never clamped, never coerced. The check runs twice on purpose and
+  from one place (`src/longitudinal/ranges.ts`, deliberately not on the
+  barrel): once where a live answer is parsed, before anything is written, and
+  again where a stored record is projected. A judgment that passed on the way
+  in and failed on the way out would be one that was paid for and cannot be
+  used — and in a store, permanently so.
+- **Ingestion:** `validateGrokEvidencePacket`, `validateProvenance` and
+  `validateEvidenceClaim` refuse a `personId`, `sourceId` or `contentHash`
+  containing the evidence-key separator, naming the field. These values come
+  from outside — a Grok callback can say anything — and the record layer's own
+  refusal is a `JudgmentInvariantError`, which is by design fatal to a whole
+  batch. Admitting such an item and detonating the run several stages later
+  would turn one bad item into a lost batch; the check in `evidenceKeyFor`
+  stays as the last line of defence.
 - **PR:** #54 T8.

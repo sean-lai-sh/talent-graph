@@ -25,6 +25,7 @@ import type {
   JevJudgmentService,
 } from "../../../../src/longitudinal/judgments.ts";
 import { projectClaim, projectIdentity } from "../../../../src/longitudinal/projections.ts";
+import { unit } from "../../../../src/longitudinal/ranges.ts";
 import { requestFingerprint } from "../../../../src/longitudinal/records.ts";
 import type {
   CanonicalIdentity,
@@ -166,15 +167,20 @@ export function createJevJudgmentService(
         requestedModel: spec.model,
         result: data,
         requestId,
+        // Range-checked at arrival, exactly as the projections check them on
+        // the way back out (`src/longitudinal/ranges.ts`). A confidence the
+        // pipeline cannot represent must not become a record.
         answers: {
           decision: {
             choice: decision.choice,
-            confidence: decision.confidence,
+            confidence: unit(decision.confidence, "jev: decision.confidence"),
             probabilities: { ...decision.probabilities },
           },
-          same_name: { noul: answers.same_name.noul },
-          same_affiliation: { noul: answers.same_affiliation.noul },
-          same_handle: { noul: answers.same_handle.noul },
+          same_name: { noul: unit(answers.same_name.noul, "jev: same_name.noul") },
+          same_affiliation: {
+            noul: unit(answers.same_affiliation.noul, "jev: same_affiliation.noul"),
+          },
+          same_handle: { noul: unit(answers.same_handle.noul, "jev: same_handle.noul") },
         },
       });
       return { assessment: projectIdentity(record, spec), record };
@@ -199,7 +205,7 @@ export function createJevJudgmentService(
         answers: {
           event_kind: {
             choice: event.choice,
-            confidence: event.confidence,
+            confidence: unit(event.confidence, "jev: event_kind.confidence"),
             probabilities: { ...event.probabilities },
           },
           ...Object.fromEntries(

@@ -10,12 +10,9 @@
 
 import type { RequestOptions, ScoreResponse, SystemOneResult } from "@typesafe-ai/sdk";
 import type { JevRequestOptions } from "../../../../src/longitudinal/judgments.ts";
+import { finite, inRange, unit } from "../../../../src/longitudinal/ranges.ts";
 import type { JevAnswer, JevJudgmentRecord } from "../../../../src/longitudinal/records.ts";
-import {
-  evidenceKeyFor,
-  JudgmentInvariantError,
-  recordIdFor,
-} from "../../../../src/longitudinal/records.ts";
+import { evidenceKeyFor, recordIdFor } from "../../../../src/longitudinal/records.ts";
 import { freezeRecord } from "../../../../src/longitudinal/store.ts";
 import type { GrokEvidenceItem } from "../../../../src/longitudinal/types.ts";
 import type { ScoreLevels } from "./jevClient.ts";
@@ -47,31 +44,19 @@ export function rawScoreAnswer(
   const keyed = answer.probabilities as unknown as Record<string, unknown>;
   const legend = answer.legend as unknown as Record<string, unknown>;
   return {
-    score: finite(answer.score, `${dimension}.score`),
-    confidence: finite(answer.confidence, `${dimension}.confidence`),
+    // Range-checked here, where the answer arrives, and not only where a
+    // record is later projected. A score of 4.5 or a confidence of 1.0000001
+    // is a value this pipeline cannot represent, so it must never become a
+    // record: a stored judgment that passed on the way in and fails on the way
+    // out is one that was paid for and cannot be used. The rubric handed in is
+    // what says how many levels there are — never a shipped default.
+    score: inRange(answer.score, 0, levels.length - 1, `jev: ${dimension}.score`),
+    confidence: unit(answer.confidence, `jev: ${dimension}.confidence`),
     probabilities: levels.map((_level, index) =>
-      finite(keyed[String(index)], `${dimension}.probabilities[${index}]`),
+      unit(keyed[String(index)], `jev: ${dimension}.probabilities[${index}]`),
     ),
     legend: levels.map((_level, index) => String(legend[String(index)] ?? "")),
   };
-}
-
-/**
- * The number this field has to be, or a broken invariant.
- *
- * Every shape check in this adapter comes through here: the expected score
- * and its confidence, each entry of the probability vector, and the token
- * usage. A transport failure is an *unavailable* judgment and the pipeline
- * isolates it as one; a response that arrived and cannot be read is not — it
- * is corruption, in the model's answer or in this parsing, and no retry fixes
- * it. Raising the same class `records.ts` raises keeps the two sides
- * symmetric: unreadable is loud wherever it is noticed, live or recorded.
- */
-function finite(value: unknown, what: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new JudgmentInvariantError(`jev: ${what} must be a finite number (got ${String(value)})`);
-  }
-  return value;
 }
 
 /** Everything one record needs that is not an answer. */
@@ -88,7 +73,18 @@ interface RecordInput {
   answers: Record<string, JevAnswer>;
 }
 
-/** Build the observation and freeze it. Nothing rewrites a record afterwards. */
+/**
+ * Build the observation and freeze it. Nothing rewrites a record afterwards.
+ *
+ * Usage is the one number with no range to be in — it is a count, not a
+ * probability — so it takes the plain finiteness check, while every judgment
+ * value above takes `unit`/`inRange`, the same guards the projections apply on
+ * the way back out. A transport failure is an *unavailable* judgment and the
+ * pipeline isolates it as one; a response that arrived and cannot be read is
+ * not — it is corruption, in the model's answer or in this parsing, and no
+ * retry fixes it. All of these raise the class `records.ts` raises, so
+ * unreadable is loud wherever it is noticed.
+ */
 export function writeRecord(input: RecordInput): JevJudgmentRecord {
   const usage = input.result.usage;
   const evidenceKey = evidenceKeyFor(input.personId, input.evidence);
@@ -109,8 +105,8 @@ export function writeRecord(input: RecordInput): JevJudgmentRecord {
     requestId: input.requestId ?? null,
     answers: input.answers,
     usage: {
-      inputTokens: finite(usage?.input_tokens, "usage.input_tokens"),
-      outputTokens: finite(usage?.output_tokens, "usage.output_tokens"),
+      inputTokens: finite(usage?.input_tokens, "jev: usage.input_tokens"),
+      outputTokens: finite(usage?.output_tokens, "jev: usage.output_tokens"),
     },
     observedAt: new Date().toISOString(),
   });

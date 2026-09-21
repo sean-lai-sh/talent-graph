@@ -177,3 +177,69 @@ describe("judgment records: a malformed live answer is a broken invariant (#54 T
     expect(store.size).toBe(0);
   });
 });
+
+/**
+ * A live answer outside its range is refused where it arrives, not where it is
+ * later read.
+ *
+ * `#81` made the projections reject a value the pipeline cannot represent. The
+ * same rule has to hold one step earlier: a score of 4.5 or a confidence of
+ * 1.0000001 that is written down and only explodes at projection is a judgment
+ * that was paid for and cannot be used, and in a store it is a permanent one —
+ * every later run reads it back and fails again. So the adapter range-checks
+ * at parse time, before anything is put, and both sides share the guards in
+ * `src/longitudinal/ranges.ts` so they cannot drift apart.
+ */
+describe("judgment records: a live answer is range-checked before it is stored", () => {
+  const runWith = (client: JevClient, store?: InMemoryJevJudgmentStore) =>
+    processEvidence({
+      identity,
+      evidence: [evidence("work", 40)],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments: createJevJudgmentService(client, spec),
+      spec,
+      // The isolating mode: an unreadable answer must still be loud here.
+      runtime: { onItemError: "review", ...(store === undefined ? {} : { store }) },
+    });
+
+  test("a score past the rubric's top level is refused at the parse, by class", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    const rejection = runWith(fakeClient({ score: 4.5 }).client, store);
+    await expect(rejection).rejects.toThrow(JudgmentInvariantError);
+    // `jev:` — the adapter, not `projectClaim:` several stages later.
+    await expect(rejection).rejects.toThrow(/jev: difficulty\.score must be in \[0, 4\]/);
+    // Nothing unreadable is recorded: the identity answer of the same item is
+    // written, the claim that could not be read is not.
+    expect(store.values().map((record) => record.kind)).toEqual(["identity"]);
+  });
+
+  test("a confidence just past one is refused too, not rounded down", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    const rejection = runWith(fakeClient({ confidence: 1.0000001 }).client, store);
+    await expect(rejection).rejects.toThrow(JudgmentInvariantError);
+    await expect(rejection).rejects.toThrow(/jev: difficulty\.confidence must be in \[0, 1\]/);
+    expect(store.values().map((record) => record.kind)).toEqual(["identity"]);
+  });
+
+  test("a score below zero is refused as well", async () => {
+    await expect(runWith(fakeClient({ score: -0.5 }).client)).rejects.toThrow(
+      /jev: difficulty\.score must be in \[0, 4\]/,
+    );
+  });
+
+  test("the ends of every range still arrive and are stored", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    const top = await runWith(fakeClient({ score: 4, confidence: 1 }).client, store);
+    expect(top.claims[0]?.status).toBe("accepted");
+    expect(store.values().map((record) => record.kind)).toEqual(["identity", "claim"]);
+
+    const bottom = new InMemoryJevJudgmentStore();
+    const zero = await runWith(fakeClient({ score: 0, confidence: 0 }).client, bottom);
+    // Confidence 0 is below the gate, so the claim goes to review — but it
+    // *arrived*: a legal value at the edge of the range is not a broken one.
+    expect(zero.claims).toHaveLength(1);
+    expect(bottom.values().map((record) => record.kind)).toEqual(["identity", "claim"]);
+  });
+});

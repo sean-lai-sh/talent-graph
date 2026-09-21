@@ -85,6 +85,8 @@ talent-graph/
                           #   CareerEvidenceDimension / CareerEvidenceVector (#54 T8)
       dimensions.ts       # CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL
       records.ts          # JevJudgmentRecord: the raw observation, and its address
+      ranges.ts           # the numeric guards, applied at arrival and at
+                          #   projection alike; not on the barrel (#54 T8)
       store.ts            # JevJudgmentStore: append-only, frozen (#54 T8)
       projections.ts      # projectIdentity / projectClaim, range-checked (#54 T8)
       judgments.ts        # the pure judgment port (no SDK)

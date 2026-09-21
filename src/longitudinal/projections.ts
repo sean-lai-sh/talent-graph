@@ -11,6 +11,7 @@
 import type { CareerEvidenceSpec } from "../models/spec.ts";
 import { CAREER_EVIDENCE_DIMENSIONS } from "./dimensions.ts";
 import type { ClaimAssessment, IdentityAssessment } from "./judgments.ts";
+import { inRange, unit } from "./ranges.ts";
 import type {
   JevAnswer,
   JevChoiceAnswer,
@@ -96,37 +97,6 @@ function assertKind(record: JevJudgmentRecord, kind: JevJudgmentRecord["kind"]):
         `${record.kind} record, not a ${kind} one`,
     );
   }
-}
-
-function finite(value: unknown, what: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new JudgmentInvariantError(`${what} must be a finite number (got ${String(value)})`);
-  }
-  return value;
-}
-
-/**
- * A number inside the range its field is defined on, or a broken invariant.
- *
- * Never clamped and never coerced. A confidence of 1.4 is not a very confident
- * answer to be pulled back to 1 — it is a number this pipeline cannot
- * represent, and reading it as anything at all would put a value nothing
- * produced into a claim. Finiteness is checked first, so `NaN` is reported as
- * what it is rather than as an out-of-range value.
- */
-function inRange(value: unknown, low: number, high: number, what: string): number {
-  const number = finite(value, what);
-  if (number < low || number > high) {
-    throw new JudgmentInvariantError(
-      `${what} must be in [${low}, ${high}] (got ${String(number)})`,
-    );
-  }
-  return number;
-}
-
-/** A probability or a confidence: the unit interval, both ends inclusive. */
-function unit(value: unknown, what: string): number {
-  return inRange(value, 0, 1, what);
 }
 
 function choiceAnswer(answer: JevAnswer | undefined, what: string): JevChoiceAnswer {

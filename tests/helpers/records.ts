@@ -89,6 +89,8 @@ export interface FakeClientOptions {
   requestId?: string | undefined;
   /** Per-dimension score, so a fractional score can be asserted un-rounded. */
   score?: number;
+  /** Per-dimension confidence, so an out-of-range one can be answered. */
+  confidence?: number;
   /** Probability keys in a deliberately scrambled order. */
   scrambleProbabilityKeys?: boolean;
 }
@@ -100,6 +102,7 @@ export function fakeClient(options: FakeClientOptions = {}): {
 } {
   let calls = 0;
   const score = options.score ?? 3;
+  const confidence = options.confidence ?? 0.8;
   const straight: Record<string, number> = { 0: 0, 1: 0, 2: 0.2, 3: 0.8, 4: 0 };
   const scrambled: Record<string, number> = { 3: 0.8, 0: 0, 4: 0, 2: 0.2, 1: 0 };
   const probabilities = options.scrambleProbabilityKeys ? scrambled : straight;
@@ -137,11 +140,11 @@ export function fakeClient(options: FakeClientOptions = {}): {
           community_or_craft_contribution: 0,
         },
       },
-      difficulty: scoreAnswer(score, 0.8, probabilities, "difficulty"),
-      ownership: scoreAnswer(score, 0.8, probabilities, "ownership"),
-      external_impact: scoreAnswer(score, 0.8, probabilities, "external_impact"),
-      originality: scoreAnswer(score, 0.8, probabilities, "originality"),
-      peer_validation: scoreAnswer(score, 0.8, probabilities, "peer_validation"),
+      difficulty: scoreAnswer(score, confidence, probabilities, "difficulty"),
+      ownership: scoreAnswer(score, confidence, probabilities, "ownership"),
+      external_impact: scoreAnswer(score, confidence, probabilities, "external_impact"),
+      originality: scoreAnswer(score, confidence, probabilities, "originality"),
+      peer_validation: scoreAnswer(score, confidence, probabilities, "peer_validation"),
     },
   } satisfies SystemOneResult<JevClaimQuestions>;
 
