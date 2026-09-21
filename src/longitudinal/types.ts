@@ -51,7 +51,7 @@ export const CAREER_EVENT_KINDS = [
 
 export type CareerEventKind = (typeof CAREER_EVENT_KINDS)[number];
 
-export type ProgressDimension =
+export type CareerEvidenceDimension =
   | "difficulty"
   | "ownership"
   | "external_impact"
@@ -131,7 +131,7 @@ export interface ProfileSnapshot {
 }
 
 export interface DimensionJudgment {
-  dimension: ProgressDimension;
+  dimension: CareerEvidenceDimension;
   /** Semantic level in [0, MAX_LEVEL] (see ./dimensions.ts). */
   score: number;
   probabilities: number[];
@@ -191,11 +191,11 @@ export interface GrokEvidencePacket {
   items: GrokEvidenceItem[];
 }
 
-export interface ProgressVector {
+export interface CareerEvidenceVector {
   personId: string;
   from: Date;
   to: Date;
-  dimensions: Record<ProgressDimension, number | null>;
+  dimensions: Record<CareerEvidenceDimension, number | null>;
   acceptedEventIds: string[];
 }
 

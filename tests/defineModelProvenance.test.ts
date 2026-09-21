@@ -12,6 +12,14 @@
  */
 
 import { describe, expect, test } from "bun:test";
+// Imported for its registration, not for a name: `defineModel` registers
+// process-wide, so which models `registeredModels()` returns used to depend on
+// whether some *other* test file had already imported this one — and bun's
+// file order is not alphabetical. Naming it here makes the set this suite sees
+// the same set every time (#54 T8).
+import "../src/longitudinal/run.ts";
+import { CAREER_EVIDENCE_DIMENSIONS } from "../src/longitudinal/dimensions.ts";
+import { CAREER_EVIDENCE_V1_0_0 } from "../src/models/careerEvidence.ts";
 import {
   type AnyModelDefinition,
   defineModel,
@@ -28,6 +36,14 @@ import {
   REFERRAL_SIGNAL_V0_1_0,
 } from "../src/models/registry.ts";
 import { generateSeed } from "../src/seed/generate.ts";
+import {
+  claimAnswers,
+  day,
+  evidence,
+  fakeRecord,
+  identity,
+  identityAnswers,
+} from "./helpers/longitudinal.ts";
 
 const NOW = new Date("2026-06-01T00:00:00.000Z");
 const T = new Date("2026-12-31T00:00:00.000Z");
@@ -98,6 +114,51 @@ const priorB = runCapabilityVectors(data.people, data.comparisons, NOW, {
   bt: { regularization: 5 },
 });
 
+/**
+ * One item of evidence and the two judgment records it was judged under.
+ *
+ * `deriveEvidence` is pure over records, so this probe needs no service and no
+ * clock: every number is stated here. The identity passes the registered gate,
+ * so the claim record is read — a probe whose derivation stopped at identity
+ * would exercise half the model.
+ */
+const careerEvidenceItem = evidence("provenance-probe", 40);
+
+const careerEvidenceInput = {
+  identity,
+  evidence: [careerEvidenceItem],
+  records: [
+    fakeRecord(
+      "identity",
+      identity.personId,
+      careerEvidenceItem,
+      identityAnswers({
+        decision: "same",
+        confidence: 0.98,
+        fieldMatches: { name: 0.99, affiliation: 0.8, handle: 1 },
+      }),
+    ),
+    fakeRecord(
+      "claim",
+      identity.personId,
+      careerEvidenceItem,
+      claimAnswers({
+        eventKind: "open_source_contribution",
+        eventConfidence: 0.92,
+        dimensions: CAREER_EVIDENCE_DIMENSIONS.map((dimension) => ({
+          dimension,
+          score: 3,
+          probabilities: [0, 0, 0, 1, 0],
+          confidence: 0.9,
+        })),
+      }),
+    ),
+  ],
+  cutoffAt: day(90),
+  retrievedAt: day(100),
+  pipelineVersion: "1",
+};
+
 const PROBES: Record<string, Probe> = {
   referral_signal_v0: {
     input: { people: data.people, referrals: data.referrals },
@@ -149,6 +210,22 @@ const PROBES: Record<string, Probe> = {
     input: { n: 3 },
     opts: { factor: 2, label: "display only" },
     now: NOW,
+  },
+  career_evidence_v1: {
+    input: careerEvidenceInput,
+    opts: { spec: CAREER_EVIDENCE_V1_0_0 },
+    now: NOW,
+    // Thresholds and version only: the rubric hash stays the one the records
+    // carry, so the derivation still reads them and the id has to move on the
+    // recorded spec alone — which is the whole point of a thresholds-only bump
+    // being free (`runCareerEvidence`).
+    perturb: {
+      spec: () => ({
+        ...CAREER_EVIDENCE_V1_0_0,
+        version: "1.0.1+probe",
+        thresholds: { ...CAREER_EVIDENCE_V1_0_0.thresholds, dimensionConfidence: 0.9 },
+      }),
+    },
   },
   twin_a_v0: { input: { n: 3 }, opts: { factor: 2, label: "display only" }, now: NOW },
   twin_b_v0: { input: { n: 3 }, opts: { factor: 2, label: "display only" }, now: NOW },

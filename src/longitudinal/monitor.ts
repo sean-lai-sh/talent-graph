@@ -7,8 +7,8 @@ import {
   startMonitoringPlan,
 } from "./checkpoints.ts";
 import type { JevJudgmentService } from "./judgments.ts";
-import type { EvidenceRuntime } from "./pipeline.ts";
-import { type ProcessEvidenceResult, processEvidence } from "./pipeline.ts";
+import { processEvidence } from "./pipeline.ts";
+import type { EvidenceRuntime, ProcessEvidenceResult } from "./policy.ts";
 import type { CanonicalIdentity, GrokEvidenceItem, MonitoringPlan } from "./types.ts";
 
 export interface EvidenceCollector {

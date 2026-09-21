@@ -80,6 +80,26 @@ talent-graph/
     graph/
       referralGraph.ts    # adjacency: who referred whom (buildReferralGraph,
                           #   referrersOf, referredBy) — domain-only imports
+    longitudinal/       # public-evidence pipeline (issue #54); no scoring/inference
+      types.ts            # claims, events, snapshots, monitoring plans,
+                          #   CareerEvidenceDimension / CareerEvidenceVector (#54 T8)
+      dimensions.ts       # CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL
+      records.ts          # JevJudgmentRecord: the raw observation, and its address
+      ranges.ts           # the numeric guards, applied at arrival and at
+                          #   projection alike; not on the barrel (#54 T8)
+      store.ts            # JevJudgmentStore: append-only, frozen (#54 T8)
+      projections.ts      # projectIdentity / projectClaim, range-checked (#54 T8)
+      judgments.ts        # the pure judgment port (no SDK)
+      stages.ts           # selectEligible / gateIdentity / decideStatus / materialize
+      policy.ts           # the policy and runtime a career-evidence spec implies (#54 T8)
+      expectations.ts     # what a store has to hand back, and the write (#54 T8)
+      coalescing.ts       # one judgment, however many askers (#54 T8)
+      judge.ts            # the two judgments one evidence item needs (#54 T8)
+      pipeline.ts         # processEvidence: orchestration and the bounded fan-out
+      derive.ts           # deriveEvidence + careerEvidenceVector: pure (#54 T8)
+      run.ts              # runCareerEvidence: the derivation as a ModelRun
+      checkpoints.ts, monitor.ts, outcomes.ts, scout.ts, evaluation.ts,
+      provenance.ts, validate.ts
     pipeline/
       advance.ts          # advance(): one pass — V0 referral → capability →
                           #   calibration → judge-weighted referral; one run
@@ -100,6 +120,11 @@ talent-graph/
     seed.test.ts
     invariants.test.ts    # import-boundary + language checks
     specKinds.test.ts     # ModelSpecKind vs PipelineKind: compile-time fixtures (#55 T7)
+    helpers/              # shared test fixtures and typed SDK doubles (#54 T8)
+    longitudinal.*.test.ts  # one suite per concern: sources, judgments, adapter,
+                          #   monitoring, sweep, fanout, abort, coalescing, store,
+                          #   records.*, slope, golden, fingerprints (#54 T8)
+    careerEvidence.*.test.ts # spec, validation, adapter, policy table, vocabulary
   scripts/
     demo.ts               # bun run demo → prints "Alice" style report from seed
     drift.ts              # bun run drift → drift report; exit 1 above --max-verdict

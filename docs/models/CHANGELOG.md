@@ -250,3 +250,77 @@ Not a spec version either: how the runs of a pass are ordered and recorded.
   `src/pipeline/advance.ts`, and the "explicit meeting points" allow-list
   carries `src/pipeline/kinds.ts` (types only) instead of `src/modelRun.ts`.
 - **PR:** #55 T8.
+
+## Longitudinal
+
+### Career-evidence vocabulary; the evidence modules split (#54 T8)
+
+- **What:** the judgment types stop carrying a third word for the concept they
+  already name. `ProgressDimension` is `CareerEvidenceDimension`,
+  `ProgressVector` is `CareerEvidenceVector`, and `progressVector()` is
+  `careerEvidenceVector()`; no alias is left behind, and
+  `tests/careerEvidence.vocabulary.test.ts` greps `src/longitudinal/**` for the
+  word "progress", case-insensitively, with nothing excluded.
+- **Why:** two words, cleanly divided. `longitudinal` is the time concept —
+  monitoring plans, checkpoints, cutoffs, residual slope. `career-evidence` is
+  the judgment concept — claims, events, rubric, spec, dimensions. "Progress"
+  belonged to neither and read as a third one.
+- **Stamp prefix:** the `questionVersion` an event carries changes from
+  `career-evidence@1.0.0` to `career_evidence@1.0.0`. The prefix is now the
+  spec id's, so the two agree: an event stamped `career_evidence@1.0.0` and a
+  record filed under `career_evidence@1.0.0:<rubricHash>` name the same version
+  of the same thing, and a reader no longer has to know that one of them spells
+  it with a hyphen. Only the prefix moved — not the version, not the rubric
+  hash, and nothing that is hashed: no claim id, event id, snapshot hash,
+  request fingerprint or run id reads the stamp, so
+  `tests/fixtures/longitudinal-golden.json` changes on exactly the seven lines
+  that hold the string and no other fixture changes at all. The frozen
+  `career_evidence@1.0.0` entry below still quotes the old stamp; that is
+  history, and an append-only changelog does not rewrite it.
+- **Layout:** `src/longitudinal/pipeline.ts` (921 lines) and `records.ts` (494)
+  split along the seams they already had. New modules, all behaviour-preserving
+  moves: `policy.ts` (the policy and runtime a spec implies), `coalescing.ts`
+  (one judgment, however many askers), `expectations.ts` (what a store has to
+  hand back), `judge.ts` (the two judgments one item needs), `derive.ts` (the
+  pure re-derivation and the vector), `store.ts` (append-only, frozen) and
+  `projections.ts` (what a record states). `apps/club/lib/longitudinal/jev.ts`
+  splits into the adapter, `jevClient.ts` and `jevRecord.ts`.
+- **Public surface:** the split moved no name. The barrel re-exports the new
+  modules with exactly the names `pipeline.ts` and `records.ts` used to carry;
+  `coalesce`, `pendingFor` and everything in `expectations.ts` are internal to
+  the fan-out and are deliberately not on it. **One name is added**, and it is
+  not from the split: `EVIDENCE_KEY_SEPARATOR`, the `"|"` that `evidenceKeyFor`
+  joins on. It is exported because the format is now pinned rather than
+  implied — a component containing the separator is refused by name — and a
+  test that pins a format has to be able to name it instead of re-spelling the
+  literal. So 194 exported names become 195, plus the rename swapping
+  `progressVector` for `careerEvidenceVector`.
+- **Types:** the Club adapter's dependency is narrowed from the `TypeSafeClient`
+  class to `JevClient`, the `systemOne`/`withResponse()` surface it actually
+  calls. The class has private members, so a test double could only ever be one
+  through an `as unknown as` cast — and a cast through `unknown` type-checks
+  against anything, including an SDK whose response shape has moved. The
+  doubles now satisfy the port honestly and their bodies are checked against
+  `SystemOneResult<...>`, so an SDK shape change fails `bun run typecheck`.
+- **Numbers:** unchanged. No displayed score, run id, fingerprint or claim
+  status moved: `tests/fixtures/longitudinal-golden.json`,
+  `longitudinal-fingerprints.json`, `longitudinal-jev-request.json`,
+  `run-ids-golden.json` and `demo-golden.txt` all pass without regeneration.
+- **Ranges:** a confidence, a probability or an identity field match outside
+  `[0, 1]`, and a score outside the rubric's `0..MAX_LEVEL`, are rejected with
+  `JudgmentInvariantError`. A value outside its range is unrepresentable, so it
+  is raised — never clamped, never coerced. The check runs twice on purpose and
+  from one place (`src/longitudinal/ranges.ts`, deliberately not on the
+  barrel): once where a live answer is parsed, before anything is written, and
+  again where a stored record is projected. A judgment that passed on the way
+  in and failed on the way out would be one that was paid for and cannot be
+  used — and in a store, permanently so.
+- **Ingestion:** `validateGrokEvidencePacket`, `validateProvenance` and
+  `validateEvidenceClaim` refuse a `personId`, `sourceId` or `contentHash`
+  containing the evidence-key separator, naming the field. These values come
+  from outside — a Grok callback can say anything — and the record layer's own
+  refusal is a `JudgmentInvariantError`, which is by design fatal to a whole
+  batch. Admitting such an item and detonating the run several stages later
+  would turn one bad item into a lost batch; the check in `evidenceKeyFor`
+  stays as the last line of defence.
+- **PR:** #54 T8.
