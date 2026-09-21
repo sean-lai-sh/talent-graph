@@ -169,7 +169,7 @@ Model Estimate      ≠ Ground Truth
 In code: `src/scoring/` (V0) and `src/inference/` (V1) never import each
 other; the only places they meet are the exploratory
 `src/analysis/underRecognition.ts`, presentation (`dashboard.ts`), and
-bookkeeping (`drift.ts`, `modelRun.ts`). Rubric `Evaluation` records are
+bookkeeping (`drift.ts`, `pipeline/kinds.ts`). Rubric `Evaluation` records are
 stored and summarised but feed no score. `affiliation` and `bio` are display
 metadata that no scoring function reads. All of this is asserted by
 `tests/invariants.test.ts`.
@@ -370,7 +370,7 @@ and real decisions must survive that without a silent reshuffle. Mechanism
    hold every weight, multiplier, λ and threshold under a semver. The
    registry (`src/models/registry.ts`) is append-only; `CURRENT_SPECS` names
    the default. Every math function accepts a `spec`.
-3. **Every run is recorded.** `ModelRun` (`src/modelRun.ts`) stores the full
+3. **Every run is recorded.** `ModelRun` (`src/models/run.ts`) stores the full
    spec, a SHA-256 of the stably-serialised inputs, and the outputs, so any
    historical number is reproducible exactly.
 4. **Changes are measured before they are shown.** `analysis/drift.ts`
