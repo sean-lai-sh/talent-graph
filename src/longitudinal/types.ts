@@ -33,7 +33,11 @@ export type ReviewReason =
   | "no_dimensions"
   | "identity_ambiguous"
   | "identity_low_confidence"
-  | "identity_contradictory_fields";
+  | "identity_contradictory_fields"
+  | "event_low_confidence"
+  | "dimension_low_confidence"
+  /** No claim assessment was available for an item that passed the identity gate. */
+  | "judgment_unavailable";
 
 export const CAREER_EVENT_KINDS = [
   "selective_role_transition",

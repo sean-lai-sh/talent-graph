@@ -313,34 +313,6 @@ describe("Jev judgments and evidence policy", () => {
     expect(requestCount).toBe(2);
   });
 
-  test("pipeline excludes post-cutoff facts and routes uncertainty to review", async () => {
-    const uncertain: JevJudgmentService = {
-      ...acceptingJudgments,
-      async assessIdentity() {
-        return {
-          decision: "review",
-          confidence: 0.55,
-          fieldMatches: { name: 0.6, affiliation: 0.5, handle: 0.4 },
-        };
-      },
-    };
-    const result = await processEvidence({
-      identity,
-      evidence: [evidence("before", 80), evidence("after", 91)],
-      cutoffAt: day(90),
-      retrievedAt: day(100),
-      pipelineVersion: "1",
-      judgments: uncertain,
-    });
-    expect(result.claims).toHaveLength(1);
-    expect(result.claims[0]?.status).toBe("review");
-    expect(result.claims[0]?.reviewReasons).toEqual(["identity_ambiguous"]);
-    // An ambiguous identity stops before assessment, so there is no event to
-    // review: we never established who the evidence is about.
-    expect(result.events).toHaveLength(0);
-    expect(result.needsReview).toBe(true);
-  });
-
   test("an ambiguous identity stops before assessClaim is ever called", async () => {
     let assessClaimCalls = 0;
     const ambiguous: JevJudgmentService = {
@@ -462,34 +434,6 @@ describe("Jev judgments and evidence policy", () => {
     expect(result.events).toHaveLength(0);
   });
 
-  test("same-person high confidence with contradictory fieldMatches goes to review", async () => {
-    const contradictory: JevJudgmentService = {
-      ...acceptingJudgments,
-      async assessIdentity() {
-        return {
-          decision: "same",
-          confidence: 0.98,
-          fieldMatches: { name: 0.92, affiliation: 0.04, handle: 0.02 },
-        };
-      },
-    };
-    const result = await processEvidence({
-      identity,
-      evidence: [evidence("work", 40)],
-      cutoffAt: day(90),
-      retrievedAt: day(100),
-      pipelineVersion: "1",
-      judgments: contradictory,
-    });
-    expect(result.claims).toHaveLength(1);
-    expect(result.claims[0]?.status).toBe("review");
-    expect(result.claims[0]?.identityDecision).toBe("same");
-    expect(result.claims[0]?.reviewReasons).toEqual(["identity_contradictory_fields"]);
-    expect(result.events).toHaveLength(0);
-    expect(result.needsReview).toBe(true);
-    expect(careerEventsToLongitudinalRecords(result.events).outcomes).toEqual([]);
-  });
-
   test("an event with no dimension judgments records why it went to review", async () => {
     // Routing to review is already covered by the incomplete-judgment gate; what
     // this pins is that the empty case is labelled, not silently lumped in with
@@ -529,55 +473,6 @@ describe("Jev judgments and evidence policy", () => {
     expect("reviewReasons" in (result.claims[0] ?? {})).toBe(false);
     expect(result.claims[0]?.proposedEventKind).toBe("open_source_contribution");
     expect(result.claims[0]?.assessedEventKind).toBe("open_source_contribution");
-  });
-
-  test("low event confidence never creates accepted outcomes", async () => {
-    const lowEvent: JevJudgmentService = {
-      ...acceptingJudgments,
-      async assessClaim() {
-        const accepted = await acceptingJudgments.assessClaim(evidence("work", 40));
-        return { ...accepted, eventConfidence: 0.4 };
-      },
-    };
-    const result = await processEvidence({
-      identity,
-      evidence: [evidence("work", 40)],
-      cutoffAt: day(90),
-      retrievedAt: day(100),
-      pipelineVersion: "1",
-      judgments: lowEvent,
-    });
-    expect(result.claims[0]?.status).toBe("review");
-    expect(result.events[0]?.status).toBe("review");
-    expect(result.needsReview).toBe(true);
-    expect(careerEventsToLongitudinalRecords(result.events).outcomes).toEqual([]);
-  });
-
-  test("low dimension confidence never creates accepted outcomes", async () => {
-    const lowDimension: JevJudgmentService = {
-      ...acceptingJudgments,
-      async assessClaim() {
-        const accepted = await acceptingJudgments.assessClaim(evidence("work", 40));
-        return {
-          ...accepted,
-          dimensions: accepted.dimensions.map((judgment, index) =>
-            index === 0 ? { ...judgment, confidence: 0.2 } : judgment,
-          ),
-        };
-      },
-    };
-    const result = await processEvidence({
-      identity,
-      evidence: [evidence("work", 40)],
-      cutoffAt: day(90),
-      retrievedAt: day(100),
-      pipelineVersion: "1",
-      judgments: lowDimension,
-    });
-    expect(result.claims[0]?.status).toBe("review");
-    expect(result.events[0]?.status).toBe("review");
-    expect(result.needsReview).toBe(true);
-    expect(careerEventsToLongitudinalRecords(result.events).outcomes).toEqual([]);
   });
 
   test("missing dimensions route to review and never become a zero outcome", async () => {

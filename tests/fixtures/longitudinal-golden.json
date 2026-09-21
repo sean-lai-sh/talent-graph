@@ -1,0 +1,699 @@
+{
+  "accepted": {
+    "claims": [
+      {
+        "id": "claim-1e8db76a39f9af1d",
+        "personId": "p-1",
+        "provenance": {
+          "source": "github",
+          "sourceId": "work",
+          "url": "https://github.com/avery/work",
+          "publisher": "avery",
+          "publishedAt": "2026-02-10T00:00:00.000Z",
+          "retrievedAt": "2026-04-11T00:00:00.000Z",
+          "quotedText": "Released work with implementation details.",
+          "contentHash": "acdee04657db4e17"
+        },
+        "statement": "Avery released work.",
+        "proposedEventKind": "open_source_contribution",
+        "assessedEventKind": "open_source_contribution",
+        "status": "accepted",
+        "identityDecision": "same",
+        "identityConfidence": 0.98,
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      }
+    ],
+    "events": [
+      {
+        "id": "event-f9a8d32ba1aadc36",
+        "personId": "p-1",
+        "kind": "open_source_contribution",
+        "title": "Avery released work.",
+        "description": "Released work with implementation details.",
+        "observedAt": "2026-02-10T00:00:00.000Z",
+        "evidenceClaimIds": ["claim-1e8db76a39f9af1d"],
+        "judgments": [
+          {
+            "dimension": "difficulty",
+            "score": 3,
+            "probabilities": [0, 0, 0.2, 0.8, 0],
+            "confidence": 0.8
+          },
+          {
+            "dimension": "ownership",
+            "score": 4,
+            "probabilities": [0, 0, 0, 0, 1],
+            "confidence": 1
+          },
+          {
+            "dimension": "external_impact",
+            "score": 2,
+            "probabilities": [0, 0, 1, 0, 0],
+            "confidence": 1
+          },
+          {
+            "dimension": "originality",
+            "score": 3,
+            "probabilities": [0, 0, 0, 1, 0],
+            "confidence": 1
+          },
+          {
+            "dimension": "peer_validation",
+            "score": 2,
+            "probabilities": [0, 0, 1, 0, 0],
+            "confidence": 1
+          }
+        ],
+        "status": "accepted",
+        "model": "jev",
+        "questionVersion": "career-evidence@1.0.0",
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      }
+    ],
+    "snapshot": {
+      "id": "profile-25ecd45bc5981e76",
+      "personId": "p-1",
+      "capturedAt": "2026-04-11T00:00:00.000Z",
+      "cutoffAt": "2026-04-01T00:00:00.000Z",
+      "claimIds": ["claim-1e8db76a39f9af1d"],
+      "contentHash": "25ecd45bc5981e76",
+      "pipelineVersion": "1"
+    },
+    "needsReview": false
+  },
+  "identity-rejected": {
+    "claims": [
+      {
+        "id": "claim-1e8db76a39f9af1d",
+        "personId": "p-1",
+        "provenance": {
+          "source": "github",
+          "sourceId": "work",
+          "url": "https://github.com/avery/work",
+          "publisher": "avery",
+          "publishedAt": "2026-02-10T00:00:00.000Z",
+          "retrievedAt": "2026-04-11T00:00:00.000Z",
+          "quotedText": "Released work with implementation details.",
+          "contentHash": "acdee04657db4e17"
+        },
+        "statement": "Avery released work.",
+        "proposedEventKind": "open_source_contribution",
+        "assessedEventKind": null,
+        "status": "rejected",
+        "identityDecision": "different",
+        "identityConfidence": 0.97,
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      }
+    ],
+    "events": [],
+    "snapshot": {
+      "id": "profile-099d63fed1c2b623",
+      "personId": "p-1",
+      "capturedAt": "2026-04-11T00:00:00.000Z",
+      "cutoffAt": "2026-04-01T00:00:00.000Z",
+      "claimIds": ["claim-1e8db76a39f9af1d"],
+      "contentHash": "099d63fed1c2b623",
+      "pipelineVersion": "1"
+    },
+    "needsReview": false
+  },
+  "identity-review": {
+    "claims": [
+      {
+        "id": "claim-1e8db76a39f9af1d",
+        "personId": "p-1",
+        "provenance": {
+          "source": "github",
+          "sourceId": "work",
+          "url": "https://github.com/avery/work",
+          "publisher": "avery",
+          "publishedAt": "2026-02-10T00:00:00.000Z",
+          "retrievedAt": "2026-04-11T00:00:00.000Z",
+          "quotedText": "Released work with implementation details.",
+          "contentHash": "acdee04657db4e17"
+        },
+        "statement": "Avery released work.",
+        "proposedEventKind": "open_source_contribution",
+        "assessedEventKind": null,
+        "status": "review",
+        "identityDecision": "review",
+        "identityConfidence": 0.55,
+        "reviewReasons": ["identity_ambiguous"],
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      }
+    ],
+    "events": [],
+    "snapshot": {
+      "id": "profile-81dc18d8e9198160",
+      "personId": "p-1",
+      "capturedAt": "2026-04-11T00:00:00.000Z",
+      "cutoffAt": "2026-04-01T00:00:00.000Z",
+      "claimIds": ["claim-1e8db76a39f9af1d"],
+      "contentHash": "81dc18d8e9198160",
+      "pipelineVersion": "1"
+    },
+    "needsReview": true
+  },
+  "identity-low-confidence-same": {
+    "claims": [
+      {
+        "id": "claim-1e8db76a39f9af1d",
+        "personId": "p-1",
+        "provenance": {
+          "source": "github",
+          "sourceId": "work",
+          "url": "https://github.com/avery/work",
+          "publisher": "avery",
+          "publishedAt": "2026-02-10T00:00:00.000Z",
+          "retrievedAt": "2026-04-11T00:00:00.000Z",
+          "quotedText": "Released work with implementation details.",
+          "contentHash": "acdee04657db4e17"
+        },
+        "statement": "Avery released work.",
+        "proposedEventKind": "open_source_contribution",
+        "assessedEventKind": null,
+        "status": "review",
+        "identityDecision": "same",
+        "identityConfidence": 0.6,
+        "reviewReasons": ["identity_low_confidence"],
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      }
+    ],
+    "events": [],
+    "snapshot": {
+      "id": "profile-81dc18d8e9198160",
+      "personId": "p-1",
+      "capturedAt": "2026-04-11T00:00:00.000Z",
+      "cutoffAt": "2026-04-01T00:00:00.000Z",
+      "claimIds": ["claim-1e8db76a39f9af1d"],
+      "contentHash": "81dc18d8e9198160",
+      "pipelineVersion": "1"
+    },
+    "needsReview": true
+  },
+  "identity-contradictory-fields": {
+    "claims": [
+      {
+        "id": "claim-1e8db76a39f9af1d",
+        "personId": "p-1",
+        "provenance": {
+          "source": "github",
+          "sourceId": "work",
+          "url": "https://github.com/avery/work",
+          "publisher": "avery",
+          "publishedAt": "2026-02-10T00:00:00.000Z",
+          "retrievedAt": "2026-04-11T00:00:00.000Z",
+          "quotedText": "Released work with implementation details.",
+          "contentHash": "acdee04657db4e17"
+        },
+        "statement": "Avery released work.",
+        "proposedEventKind": "open_source_contribution",
+        "assessedEventKind": null,
+        "status": "review",
+        "identityDecision": "same",
+        "identityConfidence": 0.98,
+        "reviewReasons": ["identity_contradictory_fields"],
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      }
+    ],
+    "events": [],
+    "snapshot": {
+      "id": "profile-81dc18d8e9198160",
+      "personId": "p-1",
+      "capturedAt": "2026-04-11T00:00:00.000Z",
+      "cutoffAt": "2026-04-01T00:00:00.000Z",
+      "claimIds": ["claim-1e8db76a39f9af1d"],
+      "contentHash": "81dc18d8e9198160",
+      "pipelineVersion": "1"
+    },
+    "needsReview": true
+  },
+  "event-low-confidence": {
+    "claims": [
+      {
+        "id": "claim-1e8db76a39f9af1d",
+        "personId": "p-1",
+        "provenance": {
+          "source": "github",
+          "sourceId": "work",
+          "url": "https://github.com/avery/work",
+          "publisher": "avery",
+          "publishedAt": "2026-02-10T00:00:00.000Z",
+          "retrievedAt": "2026-04-11T00:00:00.000Z",
+          "quotedText": "Released work with implementation details.",
+          "contentHash": "acdee04657db4e17"
+        },
+        "statement": "Avery released work.",
+        "proposedEventKind": "open_source_contribution",
+        "assessedEventKind": "open_source_contribution",
+        "status": "review",
+        "identityDecision": "same",
+        "identityConfidence": 0.98,
+        "reviewReasons": ["event_low_confidence"],
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      }
+    ],
+    "events": [
+      {
+        "id": "event-f9a8d32ba1aadc36",
+        "personId": "p-1",
+        "kind": "open_source_contribution",
+        "title": "Avery released work.",
+        "description": "Released work with implementation details.",
+        "observedAt": "2026-02-10T00:00:00.000Z",
+        "evidenceClaimIds": ["claim-1e8db76a39f9af1d"],
+        "judgments": [
+          {
+            "dimension": "difficulty",
+            "score": 3,
+            "probabilities": [0, 0, 0.2, 0.8, 0],
+            "confidence": 0.8
+          },
+          {
+            "dimension": "ownership",
+            "score": 4,
+            "probabilities": [0, 0, 0, 0, 1],
+            "confidence": 1
+          },
+          {
+            "dimension": "external_impact",
+            "score": 2,
+            "probabilities": [0, 0, 1, 0, 0],
+            "confidence": 1
+          },
+          {
+            "dimension": "originality",
+            "score": 3,
+            "probabilities": [0, 0, 0, 1, 0],
+            "confidence": 1
+          },
+          {
+            "dimension": "peer_validation",
+            "score": 2,
+            "probabilities": [0, 0, 1, 0, 0],
+            "confidence": 1
+          }
+        ],
+        "status": "review",
+        "model": "jev",
+        "questionVersion": "career-evidence@1.0.0",
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      }
+    ],
+    "snapshot": {
+      "id": "profile-81dc18d8e9198160",
+      "personId": "p-1",
+      "capturedAt": "2026-04-11T00:00:00.000Z",
+      "cutoffAt": "2026-04-01T00:00:00.000Z",
+      "claimIds": ["claim-1e8db76a39f9af1d"],
+      "contentHash": "81dc18d8e9198160",
+      "pipelineVersion": "1"
+    },
+    "needsReview": true
+  },
+  "dimension-low-confidence": {
+    "claims": [
+      {
+        "id": "claim-1e8db76a39f9af1d",
+        "personId": "p-1",
+        "provenance": {
+          "source": "github",
+          "sourceId": "work",
+          "url": "https://github.com/avery/work",
+          "publisher": "avery",
+          "publishedAt": "2026-02-10T00:00:00.000Z",
+          "retrievedAt": "2026-04-11T00:00:00.000Z",
+          "quotedText": "Released work with implementation details.",
+          "contentHash": "acdee04657db4e17"
+        },
+        "statement": "Avery released work.",
+        "proposedEventKind": "open_source_contribution",
+        "assessedEventKind": "open_source_contribution",
+        "status": "review",
+        "identityDecision": "same",
+        "identityConfidence": 0.98,
+        "reviewReasons": ["dimension_low_confidence"],
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      }
+    ],
+    "events": [
+      {
+        "id": "event-f9a8d32ba1aadc36",
+        "personId": "p-1",
+        "kind": "open_source_contribution",
+        "title": "Avery released work.",
+        "description": "Released work with implementation details.",
+        "observedAt": "2026-02-10T00:00:00.000Z",
+        "evidenceClaimIds": ["claim-1e8db76a39f9af1d"],
+        "judgments": [
+          {
+            "dimension": "difficulty",
+            "score": 3,
+            "probabilities": [0, 0, 0.2, 0.8, 0],
+            "confidence": 0.2
+          },
+          {
+            "dimension": "ownership",
+            "score": 4,
+            "probabilities": [0, 0, 0, 0, 1],
+            "confidence": 1
+          },
+          {
+            "dimension": "external_impact",
+            "score": 2,
+            "probabilities": [0, 0, 1, 0, 0],
+            "confidence": 1
+          },
+          {
+            "dimension": "originality",
+            "score": 3,
+            "probabilities": [0, 0, 0, 1, 0],
+            "confidence": 1
+          },
+          {
+            "dimension": "peer_validation",
+            "score": 2,
+            "probabilities": [0, 0, 1, 0, 0],
+            "confidence": 1
+          }
+        ],
+        "status": "review",
+        "model": "jev",
+        "questionVersion": "career-evidence@1.0.0",
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      }
+    ],
+    "snapshot": {
+      "id": "profile-81dc18d8e9198160",
+      "personId": "p-1",
+      "capturedAt": "2026-04-11T00:00:00.000Z",
+      "cutoffAt": "2026-04-01T00:00:00.000Z",
+      "claimIds": ["claim-1e8db76a39f9af1d"],
+      "contentHash": "81dc18d8e9198160",
+      "pipelineVersion": "1"
+    },
+    "needsReview": true
+  },
+  "empty-dimensions": {
+    "claims": [
+      {
+        "id": "claim-1e8db76a39f9af1d",
+        "personId": "p-1",
+        "provenance": {
+          "source": "github",
+          "sourceId": "work",
+          "url": "https://github.com/avery/work",
+          "publisher": "avery",
+          "publishedAt": "2026-02-10T00:00:00.000Z",
+          "retrievedAt": "2026-04-11T00:00:00.000Z",
+          "quotedText": "Released work with implementation details.",
+          "contentHash": "acdee04657db4e17"
+        },
+        "statement": "Avery released work.",
+        "proposedEventKind": "open_source_contribution",
+        "assessedEventKind": "open_source_contribution",
+        "status": "review",
+        "identityDecision": "same",
+        "identityConfidence": 0.98,
+        "reviewReasons": ["no_dimensions"],
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      }
+    ],
+    "events": [
+      {
+        "id": "event-f9a8d32ba1aadc36",
+        "personId": "p-1",
+        "kind": "open_source_contribution",
+        "title": "Avery released work.",
+        "description": "Released work with implementation details.",
+        "observedAt": "2026-02-10T00:00:00.000Z",
+        "evidenceClaimIds": ["claim-1e8db76a39f9af1d"],
+        "judgments": [],
+        "status": "review",
+        "model": "jev",
+        "questionVersion": "career-evidence@1.0.0",
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      }
+    ],
+    "snapshot": {
+      "id": "profile-81dc18d8e9198160",
+      "personId": "p-1",
+      "capturedAt": "2026-04-11T00:00:00.000Z",
+      "cutoffAt": "2026-04-01T00:00:00.000Z",
+      "claimIds": ["claim-1e8db76a39f9af1d"],
+      "contentHash": "81dc18d8e9198160",
+      "pipelineVersion": "1"
+    },
+    "needsReview": true
+  },
+  "no-assessed-event-kind": {
+    "claims": [
+      {
+        "id": "claim-1e8db76a39f9af1d",
+        "personId": "p-1",
+        "provenance": {
+          "source": "github",
+          "sourceId": "work",
+          "url": "https://github.com/avery/work",
+          "publisher": "avery",
+          "publishedAt": "2026-02-10T00:00:00.000Z",
+          "retrievedAt": "2026-04-11T00:00:00.000Z",
+          "quotedText": "Released work with implementation details.",
+          "contentHash": "acdee04657db4e17"
+        },
+        "statement": "Avery released work.",
+        "proposedEventKind": "open_source_contribution",
+        "assessedEventKind": null,
+        "status": "rejected",
+        "identityDecision": "same",
+        "identityConfidence": 0.98,
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      }
+    ],
+    "events": [],
+    "snapshot": {
+      "id": "profile-099d63fed1c2b623",
+      "personId": "p-1",
+      "capturedAt": "2026-04-11T00:00:00.000Z",
+      "cutoffAt": "2026-04-01T00:00:00.000Z",
+      "claimIds": ["claim-1e8db76a39f9af1d"],
+      "contentHash": "099d63fed1c2b623",
+      "pipelineVersion": "1"
+    },
+    "needsReview": false
+  },
+  "cutoff-and-baseline-filtering": {
+    "claims": [
+      {
+        "id": "claim-0d64e70d25eec730",
+        "personId": "p-1",
+        "provenance": {
+          "source": "github",
+          "sourceId": "first",
+          "url": "https://github.com/avery/first",
+          "publisher": "avery",
+          "publishedAt": "2026-02-10T00:00:00.000Z",
+          "retrievedAt": "2026-04-11T00:00:00.000Z",
+          "quotedText": "Released first with implementation details.",
+          "contentHash": "78209f39b785291e"
+        },
+        "statement": "Avery released first.",
+        "proposedEventKind": "open_source_contribution",
+        "assessedEventKind": "open_source_contribution",
+        "status": "accepted",
+        "identityDecision": "same",
+        "identityConfidence": 0.98,
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      },
+      {
+        "id": "claim-1dde0e39b6df6521",
+        "personId": "p-1",
+        "provenance": {
+          "source": "github",
+          "sourceId": "second",
+          "url": "https://github.com/avery/second",
+          "publisher": "avery",
+          "publishedAt": "2026-03-02T00:00:00.000Z",
+          "retrievedAt": "2026-04-11T00:00:00.000Z",
+          "quotedText": "Released second with implementation details.",
+          "contentHash": "f866e64d791ffd5d"
+        },
+        "statement": "Avery released second.",
+        "proposedEventKind": "open_source_contribution",
+        "assessedEventKind": "open_source_contribution",
+        "status": "accepted",
+        "identityDecision": "same",
+        "identityConfidence": 0.98,
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      },
+      {
+        "id": "claim-d9970835784344b6",
+        "personId": "p-1",
+        "provenance": {
+          "source": "github",
+          "sourceId": "at-cutoff",
+          "url": "https://github.com/avery/at-cutoff",
+          "publisher": "avery",
+          "publishedAt": "2026-04-01T00:00:00.000Z",
+          "retrievedAt": "2026-04-11T00:00:00.000Z",
+          "quotedText": "Released at-cutoff with implementation details.",
+          "contentHash": "dbb5cc1878414013"
+        },
+        "statement": "Avery released at-cutoff.",
+        "proposedEventKind": "open_source_contribution",
+        "assessedEventKind": "open_source_contribution",
+        "status": "accepted",
+        "identityDecision": "same",
+        "identityConfidence": 0.98,
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      }
+    ],
+    "events": [
+      {
+        "id": "event-efab28e80d87f05b",
+        "personId": "p-1",
+        "kind": "open_source_contribution",
+        "title": "Avery released first.",
+        "description": "Released first with implementation details.",
+        "observedAt": "2026-02-10T00:00:00.000Z",
+        "evidenceClaimIds": ["claim-0d64e70d25eec730"],
+        "judgments": [
+          {
+            "dimension": "difficulty",
+            "score": 3,
+            "probabilities": [0, 0, 0.2, 0.8, 0],
+            "confidence": 0.8
+          },
+          {
+            "dimension": "ownership",
+            "score": 4,
+            "probabilities": [0, 0, 0, 0, 1],
+            "confidence": 1
+          },
+          {
+            "dimension": "external_impact",
+            "score": 2,
+            "probabilities": [0, 0, 1, 0, 0],
+            "confidence": 1
+          },
+          {
+            "dimension": "originality",
+            "score": 3,
+            "probabilities": [0, 0, 0, 1, 0],
+            "confidence": 1
+          },
+          {
+            "dimension": "peer_validation",
+            "score": 2,
+            "probabilities": [0, 0, 1, 0, 0],
+            "confidence": 1
+          }
+        ],
+        "status": "accepted",
+        "model": "jev",
+        "questionVersion": "career-evidence@1.0.0",
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      },
+      {
+        "id": "event-f5b01c8fd0b509ce",
+        "personId": "p-1",
+        "kind": "open_source_contribution",
+        "title": "Avery released second.",
+        "description": "Released second with implementation details.",
+        "observedAt": "2026-03-02T00:00:00.000Z",
+        "evidenceClaimIds": ["claim-1dde0e39b6df6521"],
+        "judgments": [
+          {
+            "dimension": "difficulty",
+            "score": 3,
+            "probabilities": [0, 0, 0.2, 0.8, 0],
+            "confidence": 0.8
+          },
+          {
+            "dimension": "ownership",
+            "score": 4,
+            "probabilities": [0, 0, 0, 0, 1],
+            "confidence": 1
+          },
+          {
+            "dimension": "external_impact",
+            "score": 2,
+            "probabilities": [0, 0, 1, 0, 0],
+            "confidence": 1
+          },
+          {
+            "dimension": "originality",
+            "score": 3,
+            "probabilities": [0, 0, 0, 1, 0],
+            "confidence": 1
+          },
+          {
+            "dimension": "peer_validation",
+            "score": 2,
+            "probabilities": [0, 0, 1, 0, 0],
+            "confidence": 1
+          }
+        ],
+        "status": "accepted",
+        "model": "jev",
+        "questionVersion": "career-evidence@1.0.0",
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      },
+      {
+        "id": "event-5a45d0c1245d0646",
+        "personId": "p-1",
+        "kind": "open_source_contribution",
+        "title": "Avery released at-cutoff.",
+        "description": "Released at-cutoff with implementation details.",
+        "observedAt": "2026-04-01T00:00:00.000Z",
+        "evidenceClaimIds": ["claim-d9970835784344b6"],
+        "judgments": [
+          {
+            "dimension": "difficulty",
+            "score": 3,
+            "probabilities": [0, 0, 0.2, 0.8, 0],
+            "confidence": 0.8
+          },
+          {
+            "dimension": "ownership",
+            "score": 4,
+            "probabilities": [0, 0, 0, 0, 1],
+            "confidence": 1
+          },
+          {
+            "dimension": "external_impact",
+            "score": 2,
+            "probabilities": [0, 0, 1, 0, 0],
+            "confidence": 1
+          },
+          {
+            "dimension": "originality",
+            "score": 3,
+            "probabilities": [0, 0, 0, 1, 0],
+            "confidence": 1
+          },
+          {
+            "dimension": "peer_validation",
+            "score": 2,
+            "probabilities": [0, 0, 1, 0, 0],
+            "confidence": 1
+          }
+        ],
+        "status": "accepted",
+        "model": "jev",
+        "questionVersion": "career-evidence@1.0.0",
+        "createdAt": "2026-04-11T00:00:00.000Z"
+      }
+    ],
+    "snapshot": {
+      "id": "profile-06a76fa6314a7a1d",
+      "personId": "p-1",
+      "capturedAt": "2026-04-11T00:00:00.000Z",
+      "cutoffAt": "2026-04-01T00:00:00.000Z",
+      "claimIds": ["claim-0d64e70d25eec730", "claim-1dde0e39b6df6521", "claim-d9970835784344b6"],
+      "contentHash": "06a76fa6314a7a1d",
+      "pipelineVersion": "1"
+    },
+    "needsReview": false
+  }
+}
