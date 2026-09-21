@@ -8,6 +8,9 @@
  * "Cannot find module '@typesafe-ai/sdk'" error.
  *
  * Zero cost when the install is present: two `existsSync` calls, no network, no clock.
+ *
+ * The gate only fires when `bun test` is run from the repo root, since bunfig.toml
+ * resolves the preload path against the current working directory.
  */
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -47,9 +50,9 @@ export function assertClubInstalled(rootDir: string): void {
   }
 }
 
-// Exit instead of throwing: bun re-runs a preload per test file, so an uncaught
-// throw would repeat the message once per file. Exiting here prints it once and
-// aborts the run before any test loads.
+// Exit instead of throwing: exiting here guarantees that zero test files load and
+// that the run emits exactly one message, whereas an uncaught throw is surfaced by
+// bun as a preload error attributed to each test file it aborts.
 const status = clubInstallStatus(repoRoot);
 if (!status.installed) {
   console.error(`\n${missingSdkMessage(status.sdkDir)}\n`);

@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -63,5 +63,29 @@ describe("club install check", () => {
 
   test("the real repo root is detected as installed in this worktree", () => {
     expect(clubInstallStatus(repoRoot).installed).toBe(true);
+  });
+
+  test("a real `bun test` run in a tree without Club deps aborts with one message", () => {
+    const tree = join(scratch, "subprocess-run");
+    mkdirSync(join(tree, "tests", "preload"), { recursive: true });
+    copyFileSync(
+      join(import.meta.dir, "club-install-check.ts"),
+      join(tree, "tests", "preload", "club-install-check.ts"),
+    );
+    writeFileSync(
+      join(tree, "bunfig.toml"),
+      '[test]\nroot = "tests"\npreload = ["./tests/preload/club-install-check.ts"]\n',
+    );
+    writeFileSync(
+      join(tree, "tests", "dummy.test.ts"),
+      'import { expect, test } from "bun:test";\ntest("dummy", () => {\n  expect(1).toBe(1);\n});\n',
+    );
+
+    const run = Bun.spawnSync(["bun", "test"], { cwd: tree, stdout: "pipe", stderr: "pipe" });
+    const stderr = run.stderr.toString();
+
+    expect(run.exitCode).toBe(1);
+    expect(stderr).toContain("bun run club:install");
+    expect(stderr.split("Club dependencies are missing").length - 1).toBe(1);
   });
 });
