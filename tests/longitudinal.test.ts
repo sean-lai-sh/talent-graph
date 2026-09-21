@@ -362,6 +362,45 @@ describe("Jev judgments and evidence policy", () => {
     expect(careerEventsToLongitudinalRecords(result.events).outcomes).toEqual([]);
   });
 
+  test("an event with no dimension judgments records why it went to review", async () => {
+    // Routing to review is already covered by the incomplete-judgment gate; what
+    // this pins is that the empty case is labelled, not silently lumped in with
+    // a partial or out-of-range judgment set.
+    const unjudged: JevJudgmentService = {
+      ...acceptingJudgments,
+      async assessClaim() {
+        const accepted = await acceptingJudgments.assessClaim(evidence("work", 40));
+        return { ...accepted, dimensions: [] };
+      },
+    };
+    const result = await processEvidence({
+      identity,
+      evidence: [evidence("work", 40)],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments: unjudged,
+    });
+    expect(result.claims[0]?.status).toBe("review");
+    expect(result.claims[0]?.reviewReasons).toEqual(["no_dimensions"]);
+    expect(result.needsReview).toBe(true);
+    const outcomes = careerEventsToLongitudinalRecords(result.events).outcomes;
+    expect(outcomes).toEqual([]);
+  });
+
+  test("claims that are not routed to review carry no reviewReasons field", async () => {
+    const result = await processEvidence({
+      identity,
+      evidence: [evidence("work", 40)],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments: acceptingJudgments,
+    });
+    expect(result.claims[0]?.status).toBe("accepted");
+    expect("reviewReasons" in (result.claims[0] ?? {})).toBe(false);
+  });
+
   test("low event confidence never creates accepted outcomes", async () => {
     const lowEvent: JevJudgmentService = {
       ...acceptingJudgments,
@@ -664,6 +703,30 @@ describe("outcome mapping and slope", () => {
     const vector = progressVector("p-1", day(0), day(90), [accepted, review]);
     expect(vector.dimensions.difficulty).toBe(1);
     expect(vector.dimensions.external_impact).toBe(1);
+  });
+
+  test("a dimension with no judgments is null, not zero", () => {
+    const onlyDifficulty = {
+      ...event("e1", "p-1", 50, 0),
+      judgments: [{ dimension: "difficulty" as const, score: 0, probabilities: [], confidence: 1 }],
+    };
+    const vector = progressVector("p-1", day(0), day(90), [onlyDifficulty]);
+    expect(vector.dimensions.difficulty).toBe(0);
+    expect(vector.dimensions.external_impact).toBeNull();
+    expect(vector.dimensions.originality).toBeNull();
+    expect(vector.dimensions.peer_validation).toBeNull();
+  });
+
+  test("a dimension present on one event and absent on another averages only the present one", () => {
+    const both = event("e-both", "p-1", 50, 4);
+    const partial = {
+      ...event("e-partial", "p-1", 60, 0),
+      judgments: [{ dimension: "difficulty" as const, score: 0, probabilities: [], confidence: 1 }],
+    };
+    const vector = progressVector("p-1", day(0), day(90), [both, partial]);
+    expect(vector.dimensions.difficulty).toBe(0.5);
+    // ownership is judged only on `both`, so the absent event must not drag it to zero.
+    expect(vector.dimensions.ownership).toBe(1);
   });
 
   test("computes opportunity-adjusted residual slope over fixed cutoffs", () => {

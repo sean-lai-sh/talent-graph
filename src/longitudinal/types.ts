@@ -25,6 +25,12 @@ export type ClaimStatus = "proposed" | "accepted" | "review" | "rejected";
 export type MonitoringStatus = "pending" | "running" | "completed" | "review" | "failed";
 export type IdentityDecision = "same" | "review" | "different";
 
+/**
+ * Why a claim was routed to review. Kept as a union so later stages can add
+ * their own reasons without changing the field's shape.
+ */
+export type ReviewReason = "no_dimensions";
+
 export const CAREER_EVENT_KINDS = [
   "selective_role_transition",
   "shipped_product",
@@ -80,6 +86,11 @@ export interface EvidenceClaim {
   status: ClaimStatus;
   identityDecision: IdentityDecision;
   identityConfidence: number;
+  /**
+   * Present only when a specific, machine-checkable reason forced review.
+   * Absent (not empty) otherwise, so claims carry no vacuous field.
+   */
+  reviewReasons?: ReviewReason[];
   createdAt: Date;
 }
 
