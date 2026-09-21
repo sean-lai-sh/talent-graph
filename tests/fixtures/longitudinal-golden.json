@@ -249,6 +249,7 @@
         "status": "review",
         "identityDecision": "same",
         "identityConfidence": 0.98,
+        "reviewReasons": ["event_low_confidence"],
         "createdAt": "2026-04-11T00:00:00.000Z"
       }
     ],
@@ -331,6 +332,7 @@
         "status": "review",
         "identityDecision": "same",
         "identityConfidence": 0.98,
+        "reviewReasons": ["dimension_low_confidence"],
         "createdAt": "2026-04-11T00:00:00.000Z"
       }
     ],
