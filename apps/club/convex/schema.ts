@@ -161,6 +161,13 @@ const clubReviewConfig = v.object({
   requiredDimensions: v.array(dimension),
 });
 
+const clubPost = v.object({
+  id: v.string(),
+  body: v.string(),
+  authorName: v.string(),
+  createdAt: v.string(),
+});
+
 export default defineSchema({
   clubOrgs: defineTable({
     ownerUserId: v.string(),
@@ -176,5 +183,7 @@ export default defineSchema({
     // Council layer, added after the first orgs: optional so old docs load.
     feedbackRequests: v.optional(v.array(clubFeedbackRequest)),
     config: v.optional(clubReviewConfig),
+    // Admin landing forum. Not engine input; views never read these.
+    posts: v.optional(v.array(clubPost)),
   }).index("by_owner", ["ownerUserId"]),
 });

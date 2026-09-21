@@ -271,5 +271,42 @@ export const setReviewConfig = mutation({
   },
 });
 
+/** Admin landing forum. Not an engine input. */
+export const listPosts = query({
+  args: {},
+  handler: async (ctx) => {
+    const org = await loadOrgForSession(ctx);
+    if (!org) return null;
+    return org.posts ?? [];
+  },
+});
+
+export const addPost = mutation({
+  args: { body: v.string() },
+  handler: async (ctx, args) => {
+    const user = await authComponent.getAuthUser(ctx);
+    const ensured = await ensureOrg(ctx);
+    const org = await ctx.db.get(ensured.orgId);
+    if (!org) throw new Error("no organization");
+    const body = args.body.trim();
+    if (body.length === 0) return org.posts ?? [];
+    const authorName =
+      (typeof user.name === "string" && user.name.trim()) ||
+      (typeof user.email === "string" && user.email.trim()) ||
+      "Admin";
+    const posts = [
+      {
+        id: `post-${Date.now()}`,
+        body,
+        authorName,
+        createdAt: new Date().toISOString(),
+      },
+      ...(org.posts ?? []),
+    ];
+    await ctx.db.patch(org._id, { posts });
+    return posts;
+  },
+});
+
 // Kept exported for schema consumers; the council page records compares elsewhere.
 export { comparisonOutcome };

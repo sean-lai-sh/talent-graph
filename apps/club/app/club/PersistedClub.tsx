@@ -43,7 +43,7 @@ export function PersistedClub() {
   }
 
   return (
-    <div className="mt-6 -mx-6">
+    <div className="h-full">
       <ClubBoard
         initial={board}
         sync={board}

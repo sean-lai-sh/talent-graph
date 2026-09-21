@@ -16,11 +16,13 @@ function read(rel: string): string {
 }
 
 describe("SEA-26 /login door", () => {
-  test("safeReturnPath only allows /club paths", () => {
+  test("safeReturnPath only allows /club and /members paths", () => {
     expect(safeReturnPath(undefined)).toBe("/club");
     expect(safeReturnPath("")).toBe("/club");
     expect(safeReturnPath("/club")).toBe("/club");
     expect(safeReturnPath("/club/settings")).toBe("/club/settings");
+    expect(safeReturnPath("/members")).toBe("/members");
+    expect(safeReturnPath("/members/inbox")).toBe("/members/inbox");
     expect(safeReturnPath("/demo")).toBe("/club");
     expect(safeReturnPath("/example")).toBe("/club");
     expect(safeReturnPath("/")).toBe("/club");
@@ -30,6 +32,7 @@ describe("SEA-26 /login door", () => {
     expect(safeReturnPath(["/club", "/demo"])).toBe("/club");
     expect(clubLoginHref("/demo")).toBe("/login?next=%2Fclub");
     expect(clubLoginHref("/club")).toBe("/login?next=%2Fclub");
+    expect(clubLoginHref("/members")).toBe("/login?next=%2Fmembers");
     expect(DEFAULT_AFTER_LOGIN).toBe("/club");
     expect(LOGIN_PATH).toBe("/login");
     expect(SIGN_OUT_HREF).toBe("/login");

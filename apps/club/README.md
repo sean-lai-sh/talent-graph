@@ -24,10 +24,15 @@ feedback inside a 48-hour window. It works over a screen share.
   No create-account control.
 - `/demo` — hidden public seed board. No sign-in. Not linked from `/`.
   Refresh restores the seed club. `robots` noindexes it.
+- `/demo/home` — hidden public preview of the admin landing (sidebar + forum).
+  Posts stay in the tab. Live persist is `/club` after sign-in.
 - `/example` — redirects to `/demo` so old links still work.
 - `/login` — chips email/password sign-in. No create-account control.
-  Unauthenticated `/club` redirects here. Sign-out from `/club` returns to `/login`.
-- `/club` — real-organization door. Convex + Better Auth live here. Domain
+  Unauthenticated `/club` and `/members` redirect here. Sign-out from `/club` returns to `/login`.
+- `/members` — signed-in member shell (Submit Referral, Evaluations, Upcoming
+  Events). Sign-out sits in the top bar. Referral and inbox flows come later.
+- `/club` — signed-in admin landing. Same chrome; the main pane is a forum.
+  Review in the sidebar opens the Convex council board. Domain
   inputs (people with review status, referrals, comparisons, evaluations,
   feedback requests, round settings, snapshots) persist in Convex. Each write
   stamps the org clock with wall time and re-runs views via `lib/engine.ts` →
