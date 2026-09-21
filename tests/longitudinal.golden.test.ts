@@ -40,8 +40,9 @@ import {
   evidenceKeyFor,
   freezeRecord,
   processEvidence,
+  projectClaim,
+  projectIdentity,
 } from "../src/index.ts";
-import { CAREER_EVIDENCE_DIMENSIONS } from "../src/longitudinal/dimensions.ts";
 import type { EvidencePipelinePolicy } from "../src/longitudinal/pipeline.ts";
 
 const FIXTURE = join(import.meta.dir, "fixtures", "longitudinal-golden.json");
@@ -124,8 +125,6 @@ interface FakeJudgments {
   assessClaim(evidence: GrokEvidenceItem): Promise<ClaimAssessment>;
 }
 
-const LEVEL_COUNT = 5;
-
 function identityAnswers(assessment: IdentityAssessment): Record<string, JevAnswer> {
   return {
     decision: {
@@ -148,15 +147,17 @@ function claimAnswers(assessment: ClaimAssessment): Record<string, JevAnswer> {
       probabilities: { [kind]: assessment.eventConfidence },
     },
   };
-  for (const dimension of CAREER_EVIDENCE_DIMENSIONS) {
-    const judgment = assessment.dimensions.find((entry) => entry.dimension === dimension);
-    answers[dimension] = {
-      score: judgment?.score ?? 0,
-      confidence: judgment?.confidence ?? 0,
-      probabilities:
-        judgment?.probabilities ??
-        Array.from({ length: LEVEL_COUNT }, (_value, i) => (i === 0 ? 1 : 0)),
-      legend: [...CAREER_EVIDENCE_V1_0_0.levels[dimension]],
+  // A dimension the service did not judge is *absent* from the record. It is
+  // never written down as a zero: a fabricated score here would turn "nothing
+  // was judged" into "judged as the lowest level", which is the missing≠low
+  // failure the pipeline exists to prevent — and the record would no longer
+  // project to the assessment it was built from.
+  for (const judgment of assessment.dimensions) {
+    answers[judgment.dimension] = {
+      score: judgment.score,
+      confidence: judgment.confidence,
+      probabilities: [...judgment.probabilities],
+      legend: [...CAREER_EVIDENCE_V1_0_0.levels[judgment.dimension]],
     };
   }
   return answers;
@@ -181,7 +182,7 @@ function fakeRecord(
     requestId: null,
     answers,
     usage: { inputTokens: 100, outputTokens: 20 },
-    observedAt: new Date(0),
+    observedAt: new Date(0).toISOString(),
   });
 }
 
@@ -361,6 +362,31 @@ async function runAll(): Promise<string> {
   }
   return `${JSON.stringify(output, isoDates, 2)}\n`;
 }
+
+/**
+ * The harness must not invent a number either.
+ *
+ * The adapter's assessments are projections of its records (#54 T6); the fake
+ * above has to hold to the same invariant, or a case could pass here while the
+ * record behind it says something else — an absent dimension quietly becoming
+ * a zero-score one, for instance, which is exactly the missing≠low failure the
+ * pipeline is built to avoid.
+ */
+describe("longitudinal golden: the fake service is honest about its records", () => {
+  test("every record the fake returns projects to the assessment it returned", async () => {
+    for (const item of cases) {
+      const evidenceItem = item.evidence[0] as GrokEvidenceItem;
+      const judged = await item.judgments.assessIdentity(identity, evidenceItem);
+      expect(projectIdentity(judged.record, CAREER_EVIDENCE_V1_0_0), item.name).toEqual(
+        judged.assessment,
+      );
+      const claimed = await item.judgments.assessClaim(evidenceItem, identity.personId);
+      expect(projectClaim(claimed.record, CAREER_EVIDENCE_V1_0_0), item.name).toEqual(
+        claimed.assessment,
+      );
+    }
+  });
+});
 
 describe("longitudinal golden: processEvidence output", () => {
   test("claims, events, snapshot and needsReview are byte-identical to the fixture", async () => {

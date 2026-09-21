@@ -325,6 +325,24 @@ describe("judgment records: append-only and frozen", () => {
     }).toThrow(TypeError);
   });
 
+  test("the observation time cannot be moved after the record is written", async () => {
+    const client = fakeClient();
+    const result = await run(createJevJudgmentService(client.client, spec));
+    const record = result.records[0] as JevJudgmentRecord;
+    const before = JSON.stringify(record);
+    // A Date is mutable even inside a frozen object — `Object.isFrozen` is
+    // true of it while `setTime` still moves the value — so the record keeps
+    // the observation time as the ISO string a store would persist. There is
+    // nothing left to mutate, and the assignment a holder could try throws.
+    expect(typeof record.observedAt).toBe("string");
+    expect(record.observedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    (record.observedAt as unknown as { setTime?: (value: number) => void }).setTime?.(0);
+    expect(() => {
+      (record as { observedAt: string }).observedAt = "1970-01-01T00:00:00.000Z";
+    }).toThrow(TypeError);
+    expect(JSON.stringify(record)).toBe(before);
+  });
+
   test("a second put of the same fingerprint throws unless the content is identical", async () => {
     const store = new InMemoryJevJudgmentStore();
     const client = fakeClient();

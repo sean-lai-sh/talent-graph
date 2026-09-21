@@ -86,8 +86,13 @@ export interface JevJudgmentRecord {
   /** Keyed by question name, exactly as the questions were sent. */
   answers: Record<string, JevAnswer>;
   usage: { inputTokens: number; outputTokens: number };
-  /** When the answer was observed. Append-only; never rewritten. */
-  observedAt: Date;
+  /**
+   * When the answer was observed, as an ISO 8601 instant. Append-only; never
+   * rewritten. A string rather than a `Date` because a `Date` stays mutable
+   * inside a frozen object — `Object.isFrozen` is true of it while `setTime`
+   * still moves the value — and this is also the form a store persists.
+   */
+  observedAt: string;
 }
 
 /**
@@ -133,14 +138,17 @@ export function evidenceKeyFor(personId: string, evidence: GrokEvidenceItem): st
 }
 
 /**
- * Freeze a record deeply and detach its `observedAt` from the caller.
- *
- * `Object.freeze` does not stop `setTime`, so the Date is copied rather than
- * shared: a frozen record whose timestamp a caller could still move is not
- * append-only.
+ * Freeze a record deeply. Nothing inside it can move afterwards: every value
+ * it carries is a string, a number or a frozen array or object, so there is no
+ * `Date` (or other mutable box) for a holder to reach through.
  */
 export function freezeRecord(record: JevJudgmentRecord): JevJudgmentRecord {
-  return deepFreeze({ ...record, observedAt: new Date(record.observedAt.getTime()) });
+  if (typeof record.observedAt !== "string" || Number.isNaN(Date.parse(record.observedAt))) {
+    throw new TypeError(
+      `freezeRecord: observedAt must be an ISO 8601 instant (got ${String(record.observedAt)})`,
+    );
+  }
+  return deepFreeze({ ...record });
 }
 
 /** The exact content of a record, for the append-only comparison. */
@@ -157,7 +165,7 @@ function recordContent(record: JevJudgmentRecord): string {
     requestId: record.requestId,
     answers: record.answers,
     usage: record.usage,
-    observedAt: record.observedAt.toISOString(),
+    observedAt: record.observedAt,
   });
 }
 
@@ -214,6 +222,36 @@ function assertAnswerKeys(
         (unknown.length > 0 ? `; unknown ${unknown.join(", ")}` : ""),
     );
   }
+}
+
+/**
+ * The dimensions a claim record answers, in rubric order.
+ *
+ * A claim record always answers `event_kind`; the rubric is all-or-nothing.
+ * Either the service judged the five dimensions or it judged none of them — a
+ * record answering some of them is a partial observation nothing can read, so
+ * it is rejected rather than quietly projected with the rest missing. A record
+ * with no dimension answers at all is a service that judged no dimension, and
+ * projects to no judgments (never to zero-score ones).
+ */
+function assertClaimAnswerKeys(record: JevJudgmentRecord): ProgressDimension[] {
+  const present = new Set(Object.keys(record.answers));
+  const judged = CAREER_EVIDENCE_DIMENSIONS.filter((dimension) => present.has(dimension));
+  const unknown = [...present].filter((key) => !CLAIM_ANSWER_KEYS.includes(key as never));
+  const missing = [
+    ...(present.has("event_kind") ? [] : ["event_kind"]),
+    ...(judged.length === 0 || judged.length === CAREER_EVIDENCE_DIMENSIONS.length
+      ? []
+      : CAREER_EVIDENCE_DIMENSIONS.filter((dimension) => !present.has(dimension))),
+  ];
+  if (missing.length > 0 || unknown.length > 0) {
+    throw new TypeError(
+      `projectClaim: record ${record.id} does not answer this spec's questions` +
+        (missing.length > 0 ? `; missing ${missing.join(", ")}` : "") +
+        (unknown.length > 0 ? `; unknown ${unknown.join(", ")}` : ""),
+    );
+  }
+  return [...judged];
 }
 
 function assertKind(record: JevJudgmentRecord, kind: JevJudgmentRecord["kind"]): void {
@@ -316,27 +354,28 @@ export function projectIdentity(
  */
 export function projectClaim(record: JevJudgmentRecord, spec: CareerEvidenceSpec): ClaimAssessment {
   assertKind(record, "claim");
-  assertAnswerKeys(record, CLAIM_ANSWER_KEYS, "projectClaim");
+  const judged = assertClaimAnswerKeys(record);
   const event = choiceAnswer(record.answers.event_kind, "projectClaim: event_kind");
   const known: readonly string[] = [...CAREER_EVENT_KINDS, NO_SUPPORTED_EVENT];
   if (!known.includes(event.choice)) {
     throw new TypeError(`projectClaim: "${event.choice}" is not an event kind in this taxonomy`);
   }
-  const dimensions: DimensionJudgment[] = CAREER_EVIDENCE_DIMENSIONS.map(
-    (dimension: ProgressDimension) => {
-      const answer = scoreAnswer(
-        record.answers[dimension],
-        spec.levels[dimension],
-        `projectClaim: ${dimension}`,
-      );
-      return {
-        dimension,
-        score: answer.score,
-        probabilities: [...answer.probabilities],
-        confidence: answer.confidence,
-      };
-    },
-  );
+  // Only the dimensions the record actually answers, in rubric order. A
+  // record that carries no dimension answers projects to no judgments — the
+  // pipeline's `no_dimensions` review — and never to five zero-score ones.
+  const dimensions: DimensionJudgment[] = judged.map((dimension: ProgressDimension) => {
+    const answer = scoreAnswer(
+      record.answers[dimension],
+      spec.levels[dimension],
+      `projectClaim: ${dimension}`,
+    );
+    return {
+      dimension,
+      score: answer.score,
+      probabilities: [...answer.probabilities],
+      confidence: answer.confidence,
+    };
+  });
   return {
     eventKind: event.choice === NO_SUPPORTED_EVENT ? null : (event.choice as CareerEventKind),
     eventConfidence: event.confidence,

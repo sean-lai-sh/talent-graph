@@ -9,6 +9,12 @@
  * then a cache hit by construction, and a spec whose thresholds moved
  * re-derives without re-billing a single judgment.
  *
+ * This is the *only* free path for a spec bump. `processEvidence` keys its
+ * judgment store by request fingerprint, and the spec id — version included —
+ * is inside that fingerprint, so re-running the pipeline under a new version
+ * re-bills even when nothing the model is asked has changed. Derive here
+ * instead, from the records that run returned.
+ *
  * `defineModel` is a leaf (`src/models/define.ts` imports only `run.ts` and
  * `spec.ts`), so this module honours the longitudinal boundary: no registry,
  * no definitions, no scoring, inference or judge code.

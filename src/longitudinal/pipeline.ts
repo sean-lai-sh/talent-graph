@@ -68,6 +68,13 @@ export interface EvidenceRuntime {
    * Where judgment records are read and written. Consulted before the
    * network: a request whose fingerprint is already recorded is answered from
    * the record, so a repeated run over identical evidence is free.
+   *
+   * Free only for the *same* rubric. The fingerprint is over the request and
+   * the spec id, and the spec id carries the version, so a spec bump misses
+   * here even when only the gate thresholds moved and the questions sent are
+   * identical. Re-deriving under new thresholds without re-billing is
+   * `runCareerEvidence` (`./run.ts`), which reads the records this run
+   * returned rather than asking again.
    */
   store?: JevJudgmentStore;
 }

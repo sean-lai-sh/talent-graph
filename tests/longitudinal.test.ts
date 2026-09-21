@@ -98,8 +98,6 @@ interface FakeJudgments {
   assessClaim(evidence: GrokEvidenceItem): Promise<ClaimAssessment>;
 }
 
-const LEVEL_COUNT = 5;
-
 function identityAnswers(assessment: IdentityAssessment): Record<string, JevAnswer> {
   return {
     decision: {
@@ -122,15 +120,17 @@ function claimAnswers(assessment: ClaimAssessment): Record<string, JevAnswer> {
       probabilities: { [kind]: assessment.eventConfidence },
     },
   };
-  for (const dimension of CAREER_EVIDENCE_DIMENSIONS) {
-    const judgment = assessment.dimensions.find((entry) => entry.dimension === dimension);
-    answers[dimension] = {
-      score: judgment?.score ?? 0,
-      confidence: judgment?.confidence ?? 0,
-      probabilities:
-        judgment?.probabilities ??
-        Array.from({ length: LEVEL_COUNT }, (_value, i) => (i === 0 ? 1 : 0)),
-      legend: [...CAREER_EVIDENCE_V1_0_0.levels[dimension]],
+  // A dimension the service did not judge is *absent* from the record. It is
+  // never written down as a zero: a fabricated score here would turn "nothing
+  // was judged" into "judged as the lowest level", which is the missing≠low
+  // failure the pipeline exists to prevent — and the record would no longer
+  // project to the assessment it was built from.
+  for (const judgment of assessment.dimensions) {
+    answers[judgment.dimension] = {
+      score: judgment.score,
+      confidence: judgment.confidence,
+      probabilities: [...judgment.probabilities],
+      legend: [...CAREER_EVIDENCE_V1_0_0.levels[judgment.dimension]],
     };
   }
   return answers;
@@ -155,7 +155,7 @@ function fakeRecord(
     requestId: null,
     answers,
     usage: { inputTokens: 100, outputTokens: 20 },
-    observedAt: new Date(0),
+    observedAt: new Date(0).toISOString(),
   });
 }
 

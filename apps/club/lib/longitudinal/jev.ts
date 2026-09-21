@@ -253,6 +253,6 @@ function writeRecord(input: RecordInput): JevJudgmentRecord {
       inputTokens: finite(usage?.input_tokens, "usage.input_tokens"),
       outputTokens: finite(usage?.output_tokens, "usage.output_tokens"),
     },
-    observedAt: new Date(),
+    observedAt: new Date().toISOString(),
   });
 }
