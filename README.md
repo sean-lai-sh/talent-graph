@@ -92,9 +92,11 @@ Directory control). Full dashboard and CLI steps:
 
 ```sh
 bun install
+bun run club:install # install Club dependencies used by shared adapter tests
 bun run lint        # biome
 bun run typecheck   # tsc --noEmit
-bun test            # 170+ tests, including invariant checks
+bun run club:typecheck
+bun test            # 360+ tests, including invariant checks
 bun run club:web    # Next.js example admin at http://127.0.0.1:3000
 bun run demo        # dashboard, review queue, persona reports (with rubric summary), judge track record
 bun run drift -- --kind referral_signal --before 0.1.0 --after 0.1.0

@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
     "dev:doppler": "doppler run -- next dev -H 127.0.0.1",
     "convex:dev": "convex dev",
     "convex:doppler": "doppler run -- convex dev",
@@ -15,6 +16,7 @@
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.12.5",
+    "@typesafe-ai/sdk": "^0.6.0",
     "better-auth": "~1.6.15",
     "convex": "^1.45.0",
     "next": "16.3.4",
