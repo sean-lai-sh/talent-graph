@@ -1,3 +1,4 @@
+import { CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL } from "./dimensions.ts";
 import type { JevJudgmentService } from "./judgments.ts";
 import { contentFingerprint } from "./provenance.ts";
 import type {
@@ -9,14 +10,6 @@ import type {
   ProgressDimension,
   ProgressVector,
 } from "./types.ts";
-
-const DIMENSIONS: readonly ProgressDimension[] = [
-  "difficulty",
-  "ownership",
-  "external_impact",
-  "originality",
-  "peer_validation",
-];
 
 export interface EvidencePipelinePolicy {
   identityConfidence: number;
@@ -191,8 +184,8 @@ function contradictoryFieldMatches(
 function hasCompleteDimensionJudgments(
   judgments: readonly CareerEvent["judgments"][number][],
 ): boolean {
-  if (judgments.length !== DIMENSIONS.length) return false;
-  return DIMENSIONS.every(
+  if (judgments.length !== CAREER_EVIDENCE_DIMENSIONS.length) return false;
+  return CAREER_EVIDENCE_DIMENSIONS.every(
     (dimension) =>
       judgments.filter((judgment) => judgment.dimension === dimension).length === 1 &&
       judgments.some(
@@ -200,7 +193,7 @@ function hasCompleteDimensionJudgments(
           judgment.dimension === dimension &&
           Number.isFinite(judgment.score) &&
           judgment.score >= 0 &&
-          judgment.score <= 4 &&
+          judgment.score <= MAX_LEVEL &&
           Number.isFinite(judgment.confidence) &&
           judgment.confidence >= 0 &&
           judgment.confidence <= 1,
@@ -222,11 +215,11 @@ export function progressVector(
       event.observedAt.getTime() <= to.getTime(),
   );
   const dimensions = Object.fromEntries(
-    DIMENSIONS.map((dimension) => {
+    CAREER_EVIDENCE_DIMENSIONS.map((dimension) => {
       const values = accepted.flatMap((event) =>
         event.judgments
           .filter((judgment) => judgment.dimension === dimension)
-          .map((judgment) => judgment.score / 4),
+          .map((judgment) => judgment.score / MAX_LEVEL),
       );
       return [
         dimension,

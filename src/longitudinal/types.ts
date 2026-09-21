@@ -96,7 +96,7 @@ export interface ProfileSnapshot {
 
 export interface DimensionJudgment {
   dimension: ProgressDimension;
-  /** Semantic level in [0, 4]. */
+  /** Semantic level in [0, MAX_LEVEL] (see ./dimensions.ts). */
   score: number;
   probabilities: number[];
   confidence: number;
