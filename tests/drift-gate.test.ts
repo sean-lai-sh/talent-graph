@@ -2,7 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { currentSpecVersions, movedSpecs, mutatedSpecs } from "../scripts/drift-gate.ts";
+import {
+  currentSpecVersions,
+  movedSpecs,
+  mutatedSpecs,
+  removedSpecs,
+} from "../scripts/drift-gate.ts";
 import { CURRENT_SPECS } from "../src/models/registry.ts";
 import type { ModelSpec } from "../src/models/spec.ts";
 
@@ -125,6 +130,43 @@ describe("drift gate: which shipped versions were edited in place", () => {
   });
 });
 
+describe("drift gate: which shipped versions disappeared", () => {
+  const base = [
+    spec("referral_signal", "0.1.0", { topK: 5 }),
+    spec("bradley_terry", "1.0.0", { regularization: 0.1 }),
+  ];
+
+  test("an untouched history removes nothing", () => {
+    expect(
+      removedSpecs(
+        base,
+        base.map((s) => ({ ...s })),
+      ),
+    ).toEqual([]);
+  });
+
+  test("a dropped version is named", () => {
+    expect(removedSpecs(base, [base[0] as ModelSpec])).toEqual(["bradley_terry@1.0.0"]);
+  });
+
+  test("several removals come back sorted", () => {
+    expect(removedSpecs(base, [])).toEqual(["bradley_terry@1.0.0", "referral_signal@0.1.0"]);
+  });
+
+  test("adding a version removes nothing", () => {
+    expect(removedSpecs(base, [...base, spec("referral_signal", "0.2.0", { topK: 7 })])).toEqual(
+      [],
+    );
+  });
+
+  /** A rewritten version is a mutation, not a removal: the id is still there. */
+  test("editing a version in place is not a removal", () => {
+    const head = [spec("referral_signal", "0.1.0", { topK: 4 }), base[1] as ModelSpec];
+    expect(removedSpecs(base, head)).toEqual([]);
+    expect(mutatedSpecs(base, head)).toEqual(["referral_signal@0.1.0"]);
+  });
+});
+
 /* ------------------------------------------------------------------ *
  * The gate itself, run against real commits.
  *
@@ -204,6 +246,16 @@ describe("drift gate: end to end", () => {
     );
     expect(output).toContain("referral_signal@0.1.0 was edited in place");
     expect(output).not.toContain("bradley_terry");
+    expect(exitCode).toBe(1);
+  }, 60_000);
+
+  test("dropping a shipped version from SPEC_HISTORY fails", () => {
+    const { exitCode, output } = gateAfter((dir) =>
+      edit(dir, "src/models/registry.ts", "  BRADLEY_TERRY_V1_0_0,\n  JUDGE", "  JUDGE"),
+    );
+    expect(output).toContain(
+      "registered version bradley_terry@1.0.0 was removed from SPEC_HISTORY; history is append-only",
+    );
     expect(exitCode).toBe(1);
   }, 60_000);
 

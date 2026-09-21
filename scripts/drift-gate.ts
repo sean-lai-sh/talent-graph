@@ -109,8 +109,26 @@ export function mutatedSpecs(base: readonly ModelSpec[], head: readonly ModelSpe
   return mutated.sort();
 }
 
+/**
+ * The `kind@version` ids the base had and the head does not — versions
+ * deleted from `SPEC_HISTORY`.
+ *
+ * Append-only has two halves, and a deletion is the quieter one: the entry
+ * simply stops existing, `CURRENT_SPECS` can be untouched, and every run ever
+ * recorded under that id becomes unresolvable (`getSpec` throws) with nothing
+ * in the diff that names a number. It is the same rule violation as an
+ * in-place edit and is refused the same way.
+ */
+export function removedSpecs(base: readonly ModelSpec[], head: readonly ModelSpec[]): string[] {
+  const present = new Set(head.map((s) => specId(s)));
+  return base
+    .map((s) => specId(s))
+    .filter((id) => !present.has(id))
+    .sort();
+}
+
 /* ------------------------------------------------------------------ *
- * The CI run. Everything below touches git and the filesystem; the three
+ * The CI run. Everything below touches git and the filesystem; the four
  * functions above are pure, and are what `tests/drift-gate.test.ts` covers.
  * ------------------------------------------------------------------ */
 
@@ -173,17 +191,26 @@ async function main(): Promise<number> {
   const before = await snapshotAt(mergeBase);
   const after = snapshotOf(await import("../src/models/registry.ts"));
 
-  // A shipped version whose content moved. Checked first and on its own: it is
-  // a rule violation, and there is no baseline left to measure the change
-  // against — the spec that would have been the "before" is the overwritten one.
+  // A shipped version that was rewritten or deleted. Checked first and on its
+  // own: it is a rule violation, and there is no baseline left to measure the
+  // change against — the spec that would have been the "before" is the one
+  // that was overwritten or removed.
   const mutated = mutatedSpecs(before.history, after.history);
-  if (mutated.length > 0) {
+  const removed = removedSpecs(before.history, after.history);
+  if (mutated.length > 0 || removed.length > 0) {
     for (const id of mutated) {
       console.error(`registered version ${id} was edited in place; ship a new version instead`);
     }
+    for (const id of removed) {
+      console.error(
+        `registered version ${id} was removed from SPEC_HISTORY; history is append-only`,
+      );
+    }
     console.error(
       "\nSPEC_HISTORY is append-only: a run recorded under one of those ids is no longer\n" +
-        "reproducible from its own record. Add a new version, with a CHANGELOG entry.\n" +
+        "reproducible from its own record — getSpec() cannot resolve a version that was\n" +
+        "deleted, and resolves a rewritten one to numbers that are not the ones it ran\n" +
+        "with. Add a new version, with a CHANGELOG entry.\n" +
         "A version's numbers can move from src/domain/constants.ts without registry.ts\n" +
         "changing at all — that counts, and is why this gate resolves specs instead of\n" +
         "diffing file paths.",

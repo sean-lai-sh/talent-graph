@@ -35,7 +35,6 @@ import {
   type DriftReport,
   type DriftVerdict,
   formatDriftReport,
-  judgeWeightedSignalDrift,
   referralSignalDrift,
 } from "../src/analysis/drift.ts";
 import { type LoadedSpecs, loadSpecs } from "../src/config.ts";
@@ -136,9 +135,9 @@ function report(reports: readonly DriftReport[]): never {
     console.error(`no ${kind} drift report was produced`);
     process.exit(1);
   }
-  const worst = reports.reduce((w, r) =>
-    r.verdict === "breaking" || (r.verdict === "review" && w.verdict === "stable") ? r : w,
-  );
+  // The same ordering the exit code is taken from, so a fourth verdict cannot
+  // mean one thing to the summary line and another to the gate.
+  const worst = reports.reduce((w, r) => (severity(r.verdict) > severity(w.verdict) ? r : w));
   if (reports.length === 1) {
     console.log(formatDriftReport(reports[0] as DriftReport));
   } else {
@@ -231,24 +230,7 @@ const afterSpecs = specsWith(base, kind, resolveAfter());
 const before = advance(null, observations, beforeSpecs, T, { drift: false });
 const after = advance(before.state, observations, afterSpecs, T);
 
-const reports = [...after.drift.filter((r) => r.kind === kind)];
-
-// A calibration is judged by what it does to the weighted signals, not only
-// by what it does to its own two maps: a spec that flips `applyBiasCorrection`
-// leaves `reliability` and `bias` byte-identical and still moves every
-// weighted signal. `advance` already ran the weighted pass on each side under
-// the same referral spec, so the third arm is a comparison of those two runs.
-if (kind === "judge_reliability") {
-  reports.push(
-    judgeWeightedSignalDrift(
-      judgeWeightedReferralRun(before).outputs,
-      judgeWeightedReferralRun(after).outputs,
-      {
-        before: beforeSpecs.judge_reliability.version,
-        after: afterSpecs.judge_reliability.version,
-      },
-    ),
-  );
-}
-
-report(reports);
+// The weighted-signal arm of a `judge_reliability` comparison comes from
+// `advance` itself, so a caller reading `advance().drift` sees exactly what
+// this script prints — there is one definition of what a kind's drift is.
+report(after.drift.filter((r) => r.kind === kind));
