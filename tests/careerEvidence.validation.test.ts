@@ -156,7 +156,7 @@ describe("CareerEvidenceSpec: the pipeline policy reads the spec", () => {
       identityContradiction: 0.25,
       eventConfidence: 0.65,
       dimensionConfidence: 0.5,
-      questionVersion: "career-evidence@1.0.0",
+      questionVersion: "career_evidence@1.0.0",
       model: "jev",
     });
     expect(spec.thresholds).toEqual({

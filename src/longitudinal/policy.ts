@@ -29,12 +29,18 @@ export interface EvidencePipelinePolicy extends EvidenceThresholds {
 
 /**
  * Tag stamped on every event a career-evidence spec produced. It names the
- * question set, not the spec object: events already carry
- * `career-evidence@1.0.0`, so the tag is deliberately *not* the spec id — the
- * id (with its rubric hash) is how a silent edit is caught, not how a shipped
- * event is labelled.
+ * question set, not the spec object: the tag is deliberately *not* the spec id
+ * — the id (with its rubric hash) is how a silent edit is caught, not how a
+ * shipped event is labelled.
+ *
+ * The prefix is the spec id's, `career_evidence@`, so the two agree: an event
+ * stamped `career_evidence@1.0.0` and a record filed under
+ * `career_evidence@1.0.0:<rubricHash>` name the same version of the same
+ * thing, and a reader no longer has to know that one of them spells it with a
+ * hyphen (#54 T8). Only the prefix moved; the version after it is the spec's,
+ * as it always was.
  */
-const QUESTION_VERSION_PREFIX = "career-evidence@";
+const QUESTION_VERSION_PREFIX = "career_evidence@";
 
 /**
  * The policy a career-evidence spec implies: its gate thresholds, plus the

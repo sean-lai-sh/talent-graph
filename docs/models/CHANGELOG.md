@@ -265,6 +265,18 @@ Not a spec version either: how the runs of a pass are ordered and recorded.
   monitoring plans, checkpoints, cutoffs, residual slope. `career-evidence` is
   the judgment concept — claims, events, rubric, spec, dimensions. "Progress"
   belonged to neither and read as a third one.
+- **Stamp prefix:** the `questionVersion` an event carries changes from
+  `career-evidence@1.0.0` to `career_evidence@1.0.0`. The prefix is now the
+  spec id's, so the two agree: an event stamped `career_evidence@1.0.0` and a
+  record filed under `career_evidence@1.0.0:<rubricHash>` name the same version
+  of the same thing, and a reader no longer has to know that one of them spells
+  it with a hyphen. Only the prefix moved — not the version, not the rubric
+  hash, and nothing that is hashed: no claim id, event id, snapshot hash,
+  request fingerprint or run id reads the stamp, so
+  `tests/fixtures/longitudinal-golden.json` changes on exactly the seven lines
+  that hold the string and no other fixture changes at all. The frozen
+  `career_evidence@1.0.0` entry below still quotes the old stamp; that is
+  history, and an append-only changelog does not rewrite it.
 - **Layout:** `src/longitudinal/pipeline.ts` (921 lines) and `records.ts` (494)
   split along the seams they already had. New modules, all behaviour-preserving
   moves: `policy.ts` (the policy and runtime a spec implies), `coalescing.ts`
