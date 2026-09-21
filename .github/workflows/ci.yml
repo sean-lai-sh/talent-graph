@@ -20,3 +20,21 @@ jobs:
       - run: bun run typecheck
       - run: bun run club:typecheck
       - run: bun test
+
+  # The drift gate. Only a pull request has a base to compare against. It
+  # resolves the registry on both sides — a spec's numbers can move from
+  # src/domain/constants.ts with registry.ts untouched — and is a quiet success
+  # unless a shipped version was edited or a CURRENT_SPECS version moved.
+  drift-gate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - run: bun install --frozen-lockfile
+      - run: git fetch --no-tags origin ${{ github.base_ref }}
+      - run: bun run drift:gate -- --base origin/${{ github.base_ref }}

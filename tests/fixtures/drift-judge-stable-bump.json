@@ -1,0 +1,15 @@
+{
+  "kind": "judge_reliability",
+  "version": "2.0.1+fixture",
+  "observationWindowDays": 180,
+  "learningRate": 0.3,
+  "errorScale": 4,
+  "shrinkage": 3,
+  "priorReliability": 1,
+  "opportunityBuckets": [1, 2, 3],
+  "minBucketSize": 2,
+  "minKindSize": 3,
+  "opportunityClock": "referral",
+  "excludeEditedReferrals": true,
+  "applyBiasCorrection": false
+}

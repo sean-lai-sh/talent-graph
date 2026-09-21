@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   BREAKING_CROSSED_FRACTION,
@@ -313,7 +314,9 @@ describe("scripts/drift.ts CLI", () => {
     const out = text(proc.stdout);
     expect(out).toContain("judge_reliability · reliability");
     expect(out).toContain("judge_reliability · bias");
-    expect(out).toContain("Overall verdict across 2 reports:");
+    // The third arm: what the calibration does to the weighted signals.
+    expect(out).toContain("judge_reliability · weighted referral signals");
+    expect(out).toContain("Overall verdict across 3 reports:");
   });
 
   test("--v0-vs-v2 compares the unweighted run against the judge-weighted one", () => {
@@ -334,5 +337,142 @@ describe("scripts/drift.ts CLI", () => {
     const proc = run("--kind", "referral_signal", "--before", "0.1.0", "--after", "env");
     expect(proc.exitCode).toBe(0);
     expect(text(proc.stdout)).toContain("referral_signal (0.1.0 → 0.1.0)");
+  });
+
+  /**
+   * The gate itself. A candidate spec is fed as JSON — `--after-json` is the
+   * only way to compare against something the registry has never seen, which
+   * is exactly the shape of a pull request that has not landed yet.
+   */
+  const fixture = (name: string) =>
+    readFileSync(join(import.meta.dir, "fixtures", `${name}.json`), "utf8");
+
+  test("a breaking weight swap exits 1", () => {
+    const proc = run(
+      "--kind",
+      "referral_signal",
+      "--before",
+      "0.1.0",
+      "--after-json",
+      fixture("drift-breaking-weight-swap"),
+    );
+    const out = text(proc.stdout);
+    expect(out).toContain("Verdict: BREAKING");
+    expect(proc.exitCode).toBe(1);
+  });
+
+  test("a stable bump — same numbers, new version — exits 0", () => {
+    const proc = run(
+      "--kind",
+      "referral_signal",
+      "--before",
+      "0.1.0",
+      "--after-json",
+      fixture("drift-stable-bump"),
+    );
+    const out = text(proc.stdout);
+    expect(out).toContain("referral_signal (0.1.0 → 0.1.1+fixture)");
+    expect(out).toContain("Verdict: STABLE");
+    expect(proc.exitCode).toBe(0);
+  });
+
+  test("--max-verdict stable fails the breaking swap too, and breaking never fails", () => {
+    const args = [
+      "--kind",
+      "referral_signal",
+      "--before",
+      "0.1.0",
+      "--after-json",
+      fixture("drift-breaking-weight-swap"),
+    ];
+    expect(run(...args, "--max-verdict", "stable").exitCode).toBe(1);
+    expect(run(...args, "--max-verdict", "breaking").exitCode).toBe(0);
+  });
+
+  test("--max-verdict stable is not satisfied by a review verdict", () => {
+    const proc = run("--v0-vs-v2", "--max-verdict", "stable");
+    const out = text(proc.stdout);
+    expect(out).toContain("Verdict: REVIEW");
+    expect(proc.exitCode).toBe(1);
+  });
+
+  test("an unknown --max-verdict is a usage error, not a pass", () => {
+    const proc = run(
+      "--kind",
+      "referral_signal",
+      "--before",
+      "0.1.0",
+      "--after",
+      "env",
+      "--max-verdict",
+      "nitpick",
+    );
+    expect(proc.exitCode).toBe(2);
+    expect(text(proc.stderr)).toContain("unknown --max-verdict nitpick");
+  });
+
+  /**
+   * The blind spot this arm closes: `applyBiasCorrection false → true` leaves
+   * every judge's `reliability` and `bias` untouched — both maps are
+   * identical, both reports are STABLE — while `advance` starts feeding that
+   * nonzero bias map into the judge-weighted Referral Signal run. The two
+   * per-judge reports cannot see it, because the movement is not in them.
+   */
+  test("a calibration spec that only moves the weighted signals is still caught", () => {
+    const proc = run(
+      "--kind",
+      "judge_reliability",
+      "--before",
+      "2.0.0",
+      "--after-json",
+      fixture("drift-judge-bias-correction"),
+    );
+    const out = text(proc.stdout);
+    expect(out).toContain("judge_reliability · reliability (2.0.0 → 3.0.0+fixture)");
+    expect(out).toContain("judge_reliability · bias (2.0.0 → 3.0.0+fixture)");
+    expect(out).toContain("judge_reliability · weighted referral signals (2.0.0 → 3.0.0+fixture)");
+    expect(out).toContain("Overall verdict across 3 reports:");
+
+    // The per-judge arms are the ones that see nothing; the weighted arm is
+    // the one that moves, and the overall verdict is taken from all three.
+    const sections = out.split("Drift report — ").slice(1);
+    expect(sections).toHaveLength(3);
+    const [reliability, bias, weighted] = sections as [string, string, string];
+    for (const quiet of [reliability, bias]) {
+      expect(quiet).toContain("Verdict: STABLE");
+      expect(quiet).toContain("max 0.00");
+    }
+    const maxShift = Number(/· max (\d+\.\d+)/.exec(weighted)?.[1]);
+    expect(maxShift).toBeGreaterThan(0);
+    expect(weighted).not.toContain("Verdict: STABLE");
+    expect(out).not.toContain("Overall verdict across 3 reports: STABLE");
+  });
+
+  test("a calibration stable bump leaves all three arms stable", () => {
+    const proc = run(
+      "--kind",
+      "judge_reliability",
+      "--before",
+      "2.0.0",
+      "--after-json",
+      fixture("drift-judge-stable-bump"),
+    );
+    const out = text(proc.stdout);
+    expect(out.split("Drift report — ")).toHaveLength(4);
+    expect(out).toContain("judge_reliability · weighted referral signals (2.0.0 → 2.0.1+fixture)");
+    expect(out).toContain("Overall verdict across 3 reports: STABLE");
+    expect(out).not.toContain("Verdict: REVIEW");
+    expect(out).not.toContain("Verdict: BREAKING");
+    expect(proc.exitCode).toBe(0);
+  });
+
+  test("--after-json may not reuse a registered version", () => {
+    const masquerade = JSON.stringify({
+      ...(JSON.parse(fixture("drift-breaking-weight-swap")) as Record<string, unknown>),
+      version: "0.1.0",
+    });
+    const proc = run("--kind", "referral_signal", "--before", "0.1.0", "--after-json", masquerade);
+    expect(proc.exitCode).toBe(2);
+    expect(text(proc.stderr)).toContain("referral_signal@0.1.0 is a registered version");
   });
 });

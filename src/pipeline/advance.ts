@@ -25,6 +25,7 @@ import {
   type DriftReport,
   type DriftThresholds,
   judgeReliabilityDrift,
+  judgeWeightedSignalDrift,
   referralSignalDrift,
 } from "../analysis/drift.ts";
 import type { LoadedSpecs } from "../config.ts";
@@ -99,13 +100,16 @@ export function driftKinds(specs: LoadedSpecs): DriftKind[] {
  * A kind that has not run has **no key** — never a key with `undefined`
  * behind it. The `referral_signal` entry is the V0 baseline: the run of that
  * kind computed from the raw observations under that kind's spec alone. The
- * judge-weighted run is returned in `AdvanceResult.runs` instead, because its
- * numbers also depend on the `judge_reliability` spec, so comparing it
- * against a previous pass would attribute another kind's movement to this
- * one.
+ * judge-weighted run is kept beside `runs` rather than in it, because its
+ * numbers depend on two specs at once: as a `referral_signal` report it would
+ * attribute the calibration's movement to the Referral Signal, so it is only
+ * ever compared as the third arm of a `judge_reliability` report, and only
+ * when the Referral Signal spec held still.
  */
 export interface EngineState {
   runs: Partial<{ [K in PipelineKind]: RunOfKind<K> }>;
+  /** The judge-weighted Referral Signal run of the pass, if it produced one. */
+  judgeWeighted?: RunOfKind<"referral_signal">;
 }
 
 export interface AdvanceOptions {
@@ -220,10 +224,44 @@ export function advance(
       bradley_terry: capability,
       judge_reliability: calibration,
     },
+    judgeWeighted: weighted,
   };
   const runs: readonly ModelRun[] = [signals, capability, calibration, weighted];
 
   return { state, runs, drift: driftReports(prev, state, opts.drift) };
+}
+
+/**
+ * The third arm of a `judge_reliability` comparison: what the calibration does
+ * to the judge-weighted Referral Signal.
+ *
+ * The two per-judge maps can be byte-identical while every weighted signal
+ * moves — `applyBiasCorrection false → true` changes whether the bias map is
+ * applied, not what it holds — so a report that watches only `reliability` and
+ * `bias` is blind to the thing the calibration exists to affect.
+ *
+ * It is emitted only when the Referral Signal spec held still across the two
+ * passes. When that spec moved too, the weighted signals moved for two
+ * reasons at once, and the per-kind rule is that one kind's report never
+ * attributes another kind's movement: the honest report is no report.
+ */
+function judgeWeightedArm(
+  before: RunOfKind<"referral_signal"> | undefined,
+  after: RunOfKind<"referral_signal"> | undefined,
+  beforeCalibration: RunOfKind<"judge_reliability">,
+  afterCalibration: RunOfKind<"judge_reliability">,
+  thresholds: DriftThresholds,
+): DriftReport[] {
+  if (before === undefined || after === undefined) return [];
+  if (before.specVersion !== after.specVersion) return [];
+  return [
+    judgeWeightedSignalDrift(
+      before.outputs,
+      after.outputs,
+      { before: beforeCalibration.specVersion, after: afterCalibration.specVersion },
+      thresholds,
+    ),
+  ];
 }
 
 /** Prev-vs-new, per kind, on the runs each state carries. */
@@ -256,6 +294,9 @@ function driftReports(
     for (const measure of ["reliability", "bias"] as const) {
       reports.push(judgeReliabilityDrift(beforeJudges.outputs, afterJudges.outputs, measure, t));
     }
+    reports.push(
+      ...judgeWeightedArm(prev.judgeWeighted, next.judgeWeighted, beforeJudges, afterJudges, t),
+    );
   }
 
   return reports;

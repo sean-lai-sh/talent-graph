@@ -7,7 +7,22 @@ spec version with an entry here — never as an edit to an existing version.
 Each entry records what changed, why, the drift report summary, and the PR.
 
 Run `bun run drift -- --kind <kind> --before <version> --after <version>` on
-the seed dataset and paste the summary line into the entry.
+the seed dataset and paste the summary line into the entry. Every entry needs
+a `**Drift:**` line — `tests/invariants.test.ts` iterates `SPEC_HISTORY` and
+requires one per registered version.
+
+The script exits 1 when the worst verdict is above `--max-verdict` (default
+`review`, so only `breaking` fails), 2 on a usage error. CI runs it through
+`bun run drift:gate` for every `CURRENT_SPECS` version a pull request moves, so
+a `breaking` change has to ship as a deliberate one.
+
+`drift:gate` resolves the registry on both sides of the pull request rather
+than diffing file paths, and refuses any registered version whose *content*
+changed under an unchanged version number — "never edit an existing version" is
+enforced, not just written down. That includes a change to
+`src/domain/constants.ts`: `REFERRAL_WEIGHTS` and `EVIDENCE_MULTIPLIER` are
+spread into `referral_signal@0.1.0`, so editing them rewrites a shipped version
+even though `registry.ts` is byte-identical. Ship a new version instead.
 
 ---
 

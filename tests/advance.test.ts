@@ -199,6 +199,71 @@ describe("drift", () => {
     }
   });
 
+  /**
+   * The split-brain the CLI used to paper over: a calibration spec that only
+   * flips `applyBiasCorrection` leaves both per-judge maps identical, so the
+   * `reliability` and `bias` arms read STABLE while every judge-weighted
+   * signal moves. A caller reading `advance().drift` has to see that too.
+   */
+  const withBiasCorrection = {
+    ...specs,
+    judge_reliability: {
+      ...specs.judge_reliability,
+      version: "3.0.0+fixture",
+      applyBiasCorrection: true,
+    },
+  };
+
+  const judgeArms = (result: { drift: readonly { kind: string; measure?: string }[] }) =>
+    result.drift.filter((r) => r.kind === "judge_reliability").map((r) => r.measure);
+
+  test("a calibration-only change is reported on the weighted signals", () => {
+    const second = advance(first.state, observations, withBiasCorrection, T);
+    expect(judgeArms(second)).toEqual(["reliability", "bias", "weighted referral signals"]);
+
+    const weighted = second.drift.find((r) => r.measure === "weighted referral signals");
+    if (weighted === undefined) throw new Error("no weighted arm");
+    expect(weighted.kind).toBe("judge_reliability");
+    expect(weighted.labels).toEqual({ before: "2.0.0", after: "3.0.0+fixture" });
+    expect(weighted.maxAbsShift).toBeGreaterThan(0);
+    expect(weighted.verdict).not.toBe("stable");
+
+    // The two per-judge arms are the ones that see nothing.
+    for (const measure of ["reliability", "bias"] as const) {
+      const arm = second.drift.find((r) => r.measure === measure);
+      expect(arm?.verdict, measure).toBe("stable");
+      expect(arm?.maxAbsShift, measure).toBe(0);
+    }
+  });
+
+  test("identical specs ⇒ all three judge arms, all stable", () => {
+    const second = advance(first.state, observations, specs, T);
+    expect(judgeArms(second)).toEqual(["reliability", "bias", "weighted referral signals"]);
+    for (const r of second.drift.filter((d) => d.kind === "judge_reliability")) {
+      expect(r.verdict, r.measure).toBe("stable");
+    }
+  });
+
+  /**
+   * The rule the arm must not break: one kind's report never attributes
+   * another kind's movement. When the Referral Signal spec moved too, the
+   * weighted signals moved for two reasons and the calibration cannot be
+   * blamed for the pair, so the arm is simply absent.
+   */
+  test("a Referral Signal spec change suppresses the weighted arm", () => {
+    const both = {
+      ...withBiasCorrection,
+      referral_signal: {
+        ...specs.referral_signal,
+        version: "0.2.0+fixture",
+        weights: { conviction: 0.2, confidence: 0.3, relationshipDepth: 0.5 },
+      },
+    };
+    const second = advance(first.state, observations, both, T);
+    expect(judgeArms(second)).toEqual(["reliability", "bias"]);
+    expect(second.drift.some((r) => r.kind === "referral_signal")).toBe(true);
+  });
+
   test("explicit thresholds are carried into every report", () => {
     const strict = {
       minKendallTau: 0.99,

@@ -1,0 +1,17 @@
+{
+  "kind": "referral_signal",
+  "version": "0.2.0+fixture",
+  "weights": {
+    "conviction": 0.2,
+    "confidence": 0.3,
+    "relationshipDepth": 0.5
+  },
+  "evidenceMultiplier": {
+    "firsthand_work": 1,
+    "firsthand_personal": 0.9,
+    "artifact": 0.85,
+    "reputation": 0.6,
+    "other": 0.7
+  },
+  "topK": 5
+}

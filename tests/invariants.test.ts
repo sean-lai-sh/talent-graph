@@ -7,6 +7,8 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { BANNED_LANGUAGE } from "../src/domain/constants.ts";
+import { SPEC_HISTORY } from "../src/models/registry.ts";
+import { specId } from "../src/models/spec.ts";
 
 const ROOT = join(import.meta.dir, "..");
 
@@ -188,13 +190,60 @@ describe("invariants: hidden seed abilities stay out of the public surface", () 
 });
 
 describe("invariants: durable updates", () => {
+  /**
+   * The registry is read as data, not as text. The old version of this test
+   * scraped `registry.ts` for `kind: "x", version: "y"` pairs, so a spec that
+   * wrote its fields in another order, or carried a build tag (`0.2.0+env`),
+   * was simply not seen — the invariant passed by failing to look. Every
+   * shipped version is in `SPEC_HISTORY`; that is the list to iterate.
+   */
+  const changelog = read(join(ROOT, "docs/models/CHANGELOG.md"));
+
+  /**
+   * The CHANGELOG split into `## ` sections: heading title → body, the text
+   * up to the next `## ` heading. `### ` subheadings stay inside their
+   * section, which is what keeps a `**Drift:**` line attributable to the
+   * version it is written under.
+   */
+  function sections(markdown: string): Map<string, string> {
+    const headings = [...markdown.matchAll(/^## (.+)$/gm)];
+    const map = new Map<string, string>();
+    for (const [i, h] of headings.entries()) {
+      const start = (h.index as number) + h[0].length;
+      const end = (headings[i + 1]?.index as number | undefined) ?? markdown.length;
+      map.set((h[1] as string).trim(), markdown.slice(start, end));
+    }
+    return map;
+  }
+
+  /** The section whose heading opens with exactly `kind@version`. */
+  function entryFor(id: string): string | undefined {
+    for (const [title, body] of sections(changelog)) {
+      if (title.split(/\s/)[0] === id) return body;
+    }
+    return undefined;
+  }
+
   test("every registered spec version has a CHANGELOG entry", () => {
-    const changelog = read(join(ROOT, "docs/models/CHANGELOG.md"));
-    const registry = read(join(ROOT, "src/models/registry.ts"));
-    const versions = [...registry.matchAll(/kind:\s*"(\w+)",\s*version:\s*"([\d.]+)"/g)];
-    expect(versions.length).toBeGreaterThanOrEqual(3);
-    for (const [, kind, version] of versions) {
-      expect(changelog.includes(`${kind}@${version}`), `${kind}@${version} missing`).toBe(true);
+    expect(SPEC_HISTORY.length).toBeGreaterThanOrEqual(3);
+    for (const spec of SPEC_HISTORY) {
+      const id = specId(spec);
+      expect(entryFor(id) !== undefined, `docs/models/CHANGELOG.md has no "## ${id}" entry`).toBe(
+        true,
+      );
+    }
+  });
+
+  /**
+   * A `review` verdict fails nothing in CI — `bun run drift` exits 1 only on
+   * `breaking`. What a review-grade change owes the reader is the report, in
+   * the entry, so the line is required of every registered version.
+   */
+  test("every registered spec version records its drift report", () => {
+    for (const spec of SPEC_HISTORY) {
+      const id = specId(spec);
+      const body = entryFor(id) ?? "";
+      expect(/^\s*[-*]?\s*\*\*Drift:\*\*/m.test(body), `${id} has no **Drift:** line`).toBe(true);
     }
   });
 });

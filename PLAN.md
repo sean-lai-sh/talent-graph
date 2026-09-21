@@ -98,6 +98,8 @@ talent-graph/
     invariants.test.ts    # import-boundary + language checks
   scripts/
     demo.ts               # bun run demo → prints "Alice" style report from seed
+    drift.ts              # bun run drift → drift report; exit 1 above --max-verdict
+    drift-gate.ts         # CI: run drift for every CURRENT_SPECS version a PR moved
   docs/
     theory/main.tex, talent_white_paper.pdf
     mvp-coding-prompt.md
