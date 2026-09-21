@@ -12,6 +12,10 @@
 
 import { EVIDENCE_TYPES } from "../domain/constants.ts";
 import type { EvidenceType } from "../domain/types.ts";
+import { CAREER_EVIDENCE_DIMENSIONS } from "../longitudinal/dimensions.ts";
+import type { CareerEventKind, ProgressDimension } from "../longitudinal/types.ts";
+import { CAREER_EVENT_KINDS } from "../longitudinal/types.ts";
+import { hashInputs } from "../provenance/hash.ts";
 
 /** Parameters of the V0 Referral Signal. */
 export interface ReferralSignalSpec {
@@ -97,7 +101,47 @@ export interface JudgeReliabilitySpec {
   applyBiasCorrection: boolean;
 }
 
-export type ModelSpec = ReferralSignalSpec | BradleyTerrySpec | JudgeReliabilitySpec;
+/**
+ * The career-evidence rubric: the rubric levels, question text, event
+ * taxonomy and gate thresholds the longitudinal evidence pipeline judges
+ * with. It produces no number of its own — it is the wording an answer is
+ * given against, which is exactly why it is versioned: one edited level
+ * description makes every judgment stamped with this version irreproducible.
+ *
+ * See `careerEvidenceRubricHash` for the fingerprint that catches such an edit.
+ */
+export interface CareerEvidenceSpec {
+  kind: "career_evidence";
+  /** Semver, e.g. "1.0.0". Never edited in place. */
+  version: string;
+  /** Model requested. The model that ANSWERED is recorded per judgment, not here. */
+  model: string;
+  /** Ordered rubric levels per dimension. Length defines the scale; index = level. */
+  levels: Record<ProgressDimension, readonly [string, string, ...string[]]>;
+  questions: {
+    /** Instruction for the identity-linking decision the three criteria below answer. */
+    identityDecision: string;
+    /** Criteria for that decision, in order: different | review | same. */
+    identity: readonly [string, string, string];
+    identityFields: { name: string; affiliation: string; handle: string };
+    eventKind: string;
+    dimensions: Record<ProgressDimension, string>;
+  };
+  /** Event taxonomy, including the mandatory no-event escape hatch. */
+  eventCriteria: Record<CareerEventKind | "no_supported_event", string>;
+  thresholds: {
+    identityConfidence: number;
+    identityContradiction: number;
+    eventConfidence: number;
+    dimensionConfidence: number;
+  };
+}
+
+export type ModelSpec =
+  | ReferralSignalSpec
+  | BradleyTerrySpec
+  | JudgeReliabilitySpec
+  | CareerEvidenceSpec;
 
 export type ModelSpecKind = ModelSpec["kind"];
 
@@ -223,6 +267,134 @@ function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string
   }
 }
 
+/** Every key `eventCriteria` must carry: the taxonomy plus the escape hatch. */
+const EVENT_CRITERIA_KEYS: readonly string[] = [...CAREER_EVENT_KINDS, "no_supported_event"];
+
+const EVIDENCE_THRESHOLD_KEYS = [
+  "identityConfidence",
+  "identityContradiction",
+  "eventConfidence",
+  "dimensionConfidence",
+] as const;
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+function validateCareerEvidenceLevels(spec: CareerEvidenceSpec, errors: string[]): void {
+  const levels = spec.levels as Record<string, unknown> | null | undefined;
+  if (levels === null || typeof levels !== "object") {
+    errors.push("levels must be an object keyed by dimension");
+    return;
+  }
+  // The scale is shared: `MAX_LEVEL` and every divisor in the pipeline assume
+  // one length across dimensions, so an unequal rubric is not a spec at all.
+  let scale: number | null = null;
+  for (const dimension of CAREER_EVIDENCE_DIMENSIONS) {
+    const rubric = levels[dimension];
+    if (!Array.isArray(rubric)) {
+      errors.push(`levels.${dimension} is missing; every dimension needs a rubric`);
+      continue;
+    }
+    if (rubric.length < 2) {
+      errors.push(`levels.${dimension} must have at least 2 levels (got ${rubric.length})`);
+    }
+    if (!rubric.every(isNonEmptyString)) {
+      errors.push(`levels.${dimension} descriptions must be non-empty strings`);
+    }
+    if (scale === null) scale = rubric.length;
+    else if (rubric.length !== scale) {
+      errors.push(
+        `levels.${dimension} has ${rubric.length} levels; every dimension must share one scale (${scale})`,
+      );
+    }
+  }
+  for (const key of Object.keys(levels)) {
+    if (!(CAREER_EVIDENCE_DIMENSIONS as readonly string[]).includes(key)) {
+      errors.push(`unknown dimension in levels: ${key}`);
+    }
+  }
+}
+
+function validateCareerEvidenceQuestions(spec: CareerEvidenceSpec, errors: string[]): void {
+  const questions = spec.questions;
+  if (questions === null || typeof questions !== "object") {
+    errors.push("questions must be an object");
+    return;
+  }
+  if (!isNonEmptyString(questions.identityDecision)) {
+    errors.push("questions.identityDecision must be a non-empty string");
+  }
+  if (!Array.isArray(questions.identity) || questions.identity.length !== 3) {
+    errors.push("questions.identity must be three criteria: different, review, same");
+  } else if (!questions.identity.every(isNonEmptyString)) {
+    errors.push("questions.identity criteria must be non-empty strings");
+  }
+  const fields = questions.identityFields as Record<string, unknown> | null | undefined;
+  if (fields === null || typeof fields !== "object") {
+    errors.push("questions.identityFields must be an object");
+  } else {
+    for (const field of ["name", "affiliation", "handle"] as const) {
+      if (!isNonEmptyString(fields[field])) {
+        errors.push(`questions.identityFields.${field} must be a non-empty string`);
+      }
+    }
+  }
+  if (!isNonEmptyString(questions.eventKind)) {
+    errors.push("questions.eventKind must be a non-empty string");
+  }
+  const dimensions = questions.dimensions as Record<string, unknown> | null | undefined;
+  if (dimensions === null || typeof dimensions !== "object") {
+    errors.push("questions.dimensions must be an object keyed by dimension");
+  } else {
+    for (const dimension of CAREER_EVIDENCE_DIMENSIONS) {
+      if (!isNonEmptyString(dimensions[dimension])) {
+        errors.push(`questions.dimensions.${dimension} must be a non-empty string`);
+      }
+    }
+    for (const key of Object.keys(dimensions)) {
+      if (!(CAREER_EVIDENCE_DIMENSIONS as readonly string[]).includes(key)) {
+        errors.push(`unknown dimension in questions.dimensions: ${key}`);
+      }
+    }
+  }
+}
+
+function validateCareerEvidenceSpec(spec: CareerEvidenceSpec, errors: string[]): void {
+  if (!isNonEmptyString(spec.model)) errors.push("model must be a non-empty string");
+
+  validateCareerEvidenceLevels(spec, errors);
+  validateCareerEvidenceQuestions(spec, errors);
+
+  const criteria = spec.eventCriteria as Record<string, unknown> | null | undefined;
+  if (criteria === null || typeof criteria !== "object") {
+    errors.push("eventCriteria must be an object keyed by event kind");
+  } else {
+    for (const kind of EVENT_CRITERIA_KEYS) {
+      if (!isNonEmptyString(criteria[kind])) {
+        errors.push(`eventCriteria.${kind} must be a non-empty string`);
+      }
+    }
+    for (const key of Object.keys(criteria)) {
+      if (!EVENT_CRITERIA_KEYS.includes(key))
+        errors.push(`unknown event kind in eventCriteria: ${key}`);
+    }
+  }
+
+  const thresholds = spec.thresholds as Record<string, unknown> | null | undefined;
+  if (thresholds === null || typeof thresholds !== "object") {
+    errors.push("thresholds must be an object");
+  } else {
+    for (const key of EVIDENCE_THRESHOLD_KEYS) {
+      const value = thresholds[key];
+      if (!isFiniteNumber(value)) errors.push(`thresholds.${key} must be a finite number`);
+      else if (value < 0 || value > 1) {
+        errors.push(`thresholds.${key} must be in [0, 1] (got ${value})`);
+      }
+    }
+  }
+}
+
 /** Structural + numeric validation of a spec. Pure; never throws. */
 export function validateSpec(spec: ModelSpec): SpecValidationResult {
   const errors: string[] = [];
@@ -240,6 +412,9 @@ export function validateSpec(spec: ModelSpec): SpecValidationResult {
       break;
     case "judge_reliability":
       validateJudgeReliabilitySpec(spec, errors);
+      break;
+    case "career_evidence":
+      validateCareerEvidenceSpec(spec, errors);
       break;
     default:
       errors.push(`unknown spec kind: ${String((spec as ModelSpec).kind)}`);
@@ -266,4 +441,27 @@ export function assertSpec<S extends ModelSpec>(spec: S): S {
 /** Stable identifier for a spec, used in ModelRun records and drift reports. */
 export function specId(spec: ModelSpec): string {
   return `${spec.kind}@${spec.version}`;
+}
+
+/**
+ * Hash of everything in the spec that can change an answer: the rubric
+ * levels, the question text, the event criteria and the model requested. The
+ * version alone cannot catch a silent edit — this can.
+ */
+export function careerEvidenceRubricHash(spec: CareerEvidenceSpec): string {
+  return hashInputs({
+    levels: spec.levels,
+    questions: spec.questions,
+    eventCriteria: spec.eventCriteria,
+    model: spec.model,
+  });
+}
+
+/**
+ * `"career_evidence@1.0.0:9f2c1ab4"` — the plain spec id plus the rubric
+ * hash, so a silently edited level description changes the identifier even
+ * though the version did not move.
+ */
+export function careerEvidenceSpecId(spec: CareerEvidenceSpec): string {
+  return `${specId(spec)}:${careerEvidenceRubricHash(spec).slice(0, 8)}`;
 }

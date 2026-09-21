@@ -2,66 +2,47 @@ import { choice, noul, score, type TypeSafeClient } from "@typesafe-ai/sdk";
 import { CAREER_EVIDENCE_DIMENSIONS } from "../../../../src/longitudinal/dimensions.ts";
 import type { JevJudgmentService } from "../../../../src/longitudinal/judgments.ts";
 import type { ProgressDimension } from "../../../../src/longitudinal/types.ts";
+import { CAREER_EVIDENCE_V1_0_0 } from "../../../../src/models/registry.ts";
+import { assertSpec, type CareerEvidenceSpec } from "../../../../src/models/spec.ts";
 
-const EVENT_CRITERIA = {
-  selective_role_transition:
-    "A dated selection into a role, team, fellowship, or organization with meaningful responsibility.",
-  shipped_product: "A product, system, or substantial feature was shipped for real users.",
-  open_source_contribution:
-    "A concrete open-source release or contribution, not merely repository activity.",
-  research_output: "A paper, patent, study, dataset, or other substantive research output.",
-  venture_traction:
-    "Evidence of venture progress such as adoption, revenue, financing, or a consequential partnership.",
-  grant_or_award: "A selective grant, prize, or award based on work or demonstrated potential.",
-  community_or_craft_contribution:
-    "A consequential contribution to a professional community or demanding craft.",
-  no_supported_event:
-    "The evidence does not establish a dated career event, is promotional only, or is too vague.",
-} as const;
+type ScoreLevels = readonly [string, string, ...string[]];
 
-type ScoreLevels = [string, string, ...string[]];
+/**
+ * Rubric text for each dimension: one entry per point on the shared
+ * 0..MAX_LEVEL scale. The text lives in the registered spec, not here — this
+ * is the registered rubric, re-exported for the callers that read it.
+ */
+export const LEVELS: Record<ProgressDimension, ScoreLevels> = CAREER_EVIDENCE_V1_0_0.levels;
 
-/** Rubric text for each dimension: one entry per point on the shared 0..MAX_LEVEL scale. */
-export const LEVELS: Record<ProgressDimension, ScoreLevels> = {
-  difficulty: [
-    "Routine work with no evidence of unusual technical, creative, or operational difficulty.",
-    "Some non-routine difficulty, but the evidence does not show demanding constraints.",
-    "Meaningfully difficult work requiring solid specialist judgment.",
-    "Very difficult work with substantial uncertainty, constraints, or technical depth.",
-    "Exceptional difficulty relative to the field, with clear evidence of solving a rare hard problem.",
-  ],
-  ownership: [
-    "No evidence this person owned the work.",
-    "Contributed under close direction or ownership is unclear.",
-    "Owned a meaningful bounded part of the work.",
-    "Led the work or held end-to-end responsibility for a consequential part.",
-    "Created and drove the work with exceptional autonomy and accountability.",
-  ],
-  external_impact: [
-    "No demonstrated external use or effect.",
-    "Plausible effect, but no concrete adoption or result is evidenced.",
-    "Clear use or benefit for a bounded audience.",
-    "Substantial adoption, measurable result, or field-relevant influence.",
-    "Exceptional durable impact relative to comparable work in the field.",
-  ],
-  originality: [
-    "No evidence of a new approach or original contribution.",
-    "Minor adaptation of established approaches.",
-    "A meaningfully original choice, synthesis, or contribution.",
-    "A highly original approach that changes what is possible or how the problem is understood.",
-    "Exceptional field-shaping originality supported by the cited evidence.",
-  ],
-  peer_validation: [
-    "No independent validation; only self-description.",
-    "Weak or informal validation.",
-    "Credible independent adoption, selection, review, or recognition.",
-    "Strong validation by respected users, peers, institutions, or maintainers.",
-    "Exceptional broad or highly selective validation relative to the field.",
-  ],
-};
+/**
+ * Server-side TypeSafe/Jev adapter. Keep the API key out of browser bundles.
+ *
+ * Every question below is built from `spec`: the instruction text, the
+ * identity criteria, the event taxonomy and the rubric levels. Nothing the
+ * model is asked is written here, so a judgment stamped with a spec version
+ * can be reproduced from that version alone.
+ */
+export function createJevJudgmentService(
+  client: TypeSafeClient,
+  spec: CareerEvidenceSpec = CAREER_EVIDENCE_V1_0_0,
+): JevJudgmentService {
+  assertSpec(spec);
+  const [different, review, same] = spec.questions.identity;
+  const identityQuestions = {
+    decision: choice(spec.questions.identityDecision, { different, review, same }),
+    same_name: noul(spec.questions.identityFields.name),
+    same_affiliation: noul(spec.questions.identityFields.affiliation),
+    same_handle: noul(spec.questions.identityFields.handle),
+  };
+  const claimQuestions = {
+    event_kind: choice(spec.questions.eventKind, spec.eventCriteria),
+    difficulty: score(spec.questions.dimensions.difficulty, spec.levels.difficulty),
+    ownership: score(spec.questions.dimensions.ownership, spec.levels.ownership),
+    external_impact: score(spec.questions.dimensions.external_impact, spec.levels.external_impact),
+    originality: score(spec.questions.dimensions.originality, spec.levels.originality),
+    peer_validation: score(spec.questions.dimensions.peer_validation, spec.levels.peer_validation),
+  };
 
-/** Server-side TypeSafe/Jev adapter. Keep the API key out of browser bundles. */
-export function createJevJudgmentService(client: TypeSafeClient): JevJudgmentService {
   return {
     async assessIdentity(identity, evidence) {
       const response = await client.systemOne({
@@ -82,21 +63,7 @@ export function createJevJudgmentService(client: TypeSafeClient): JevJudgmentSer
             quoted_text: evidence.quotedText,
           },
         },
-        questions: {
-          decision: choice("How should the incoming evidence be linked to the canonical person?", {
-            different: "It describes a different person and must remain unlinked.",
-            review:
-              "It may describe the person, but the evidence is ambiguous and needs human review.",
-            same: "It describes the same person and can be linked.",
-          }),
-          same_name: noul(
-            "Does the incoming evidence identify the same name or a documented alias?",
-          ),
-          same_affiliation: noul(
-            "Are affiliations or career context mutually consistent with the canonical person?",
-          ),
-          same_handle: noul("Does the publisher, handle, or URL match a known external identity?"),
-        },
+        questions: identityQuestions,
       });
       const decisionAnswer = response.answers.decision;
       return {
@@ -120,32 +87,7 @@ export function createJevJudgmentService(client: TypeSafeClient): JevJudgmentSer
           statement: evidence.statement,
           quoted_evidence: evidence.quotedText,
         },
-        questions: {
-          event_kind: choice(
-            "Which single career event, if any, is established by the cited evidence?",
-            EVENT_CRITERIA,
-          ),
-          difficulty: score(
-            "How difficult is the evidenced work relative to its field?",
-            LEVELS.difficulty,
-          ),
-          ownership: score(
-            "How much ownership did this person have over the evidenced work?",
-            LEVELS.ownership,
-          ),
-          external_impact: score(
-            "How much external impact is demonstrated by the cited evidence?",
-            LEVELS.external_impact,
-          ),
-          originality: score(
-            "How original is the contribution demonstrated by the cited evidence?",
-            LEVELS.originality,
-          ),
-          peer_validation: score(
-            "How strong is independent peer or market validation in the cited evidence?",
-            LEVELS.peer_validation,
-          ),
-        },
+        questions: claimQuestions,
       });
       const event = response.answers.event_kind;
       const dimensions = CAREER_EVIDENCE_DIMENSIONS.map((dimension) => {

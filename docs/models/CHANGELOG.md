@@ -64,6 +64,34 @@ the seed dataset and paste the summary line into the entry.
   `bun run demo` shows the weighted vs unweighted Referral Signal side by side).
 - **PR:** #17.
 
+## career_evidence@1.0.0 — initial (career-evidence rubric)
+
+- **What:** The rubric levels, question text, event taxonomy and gate
+  thresholds the longitudinal evidence pipeline judges with, moved out of
+  `apps/club/lib/longitudinal/jev.ts` into `CAREER_EVIDENCE_V1_0_0` without a
+  character changing: five dimensions (`difficulty`, `ownership`,
+  `external_impact`, `originality`, `peer_validation`) on one shared five-level
+  scale (`MAX_LEVEL = 4`), the identity decision (`different` / `review` /
+  `same`) with its three field questions, the seven `CareerEventKind` criteria
+  plus the mandatory `no_supported_event` escape hatch, `model "jev"`, and
+  thresholds `identityConfidence 0.75`, `identityContradiction 0.25`,
+  `eventConfidence 0.65`, `dimensionConfidence 0.5`. The Club adapter takes the
+  spec and builds its SDK questions from it; `DEFAULT_EVIDENCE_POLICY` is the
+  policy the spec implies. Events keep the stamp they already carry
+  (`questionVersion "career-evidence@1.0.0"`, `model "jev"`) — the stamp names
+  the question set, not the spec object.
+- **Why:** The wording *is* the model here. A reworded level description
+  changes what an answer means, so it has to be versioned like a weight:
+  `careerEvidenceRubricHash` fingerprints the levels, questions, criteria and
+  requested model, and `careerEvidenceSpecId`
+  (`career_evidence@1.0.0:6290bc28`) carries it, so a silent edit changes the
+  id even though the version did not move.
+  `tests/careerEvidenceSpec.test.ts` pins that hash.
+- **Drift:** n/a (first version; the spec produces no number of its own — it
+  carries the rubric, question text and thresholds the career-evidence
+  pipeline stamps on events)
+- **PR:** #54 T5.
+
 ## Run id format
 
 Run ids are not spec versions: this section records changes to the format of

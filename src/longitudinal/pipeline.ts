@@ -1,3 +1,5 @@
+import { CAREER_EVIDENCE_V1_0_0 } from "../models/registry.ts";
+import { assertSpec, type CareerEvidenceSpec } from "../models/spec.ts";
 import { CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL } from "./dimensions.ts";
 import type { JevJudgmentService } from "./judgments.ts";
 import { contentFingerprint } from "./provenance.ts";
@@ -18,14 +20,31 @@ export interface EvidencePipelinePolicy extends EvidenceThresholds {
   model: string;
 }
 
-export const DEFAULT_EVIDENCE_POLICY: EvidencePipelinePolicy = Object.freeze({
-  identityConfidence: 0.75,
-  identityContradiction: 0.25,
-  eventConfidence: 0.65,
-  dimensionConfidence: 0.5,
-  questionVersion: "career-evidence@1.0.0",
-  model: "jev",
-});
+/**
+ * Tag stamped on every event a career-evidence spec produced. It names the
+ * question set, not the spec object: events already carry
+ * `career-evidence@1.0.0`, so the tag is deliberately *not* the spec id — the
+ * id (with its rubric hash) is how a silent edit is caught, not how a shipped
+ * event is labelled.
+ */
+const QUESTION_VERSION_PREFIX = "career-evidence@";
+
+/**
+ * The policy a career-evidence spec implies: its gate thresholds, plus the
+ * stamp events made under it carry. The spec is validated here, so a corrupt
+ * rubric cannot reach a claim.
+ */
+export function evidencePolicyFor(spec: CareerEvidenceSpec): EvidencePipelinePolicy {
+  assertSpec(spec);
+  return Object.freeze({
+    ...spec.thresholds,
+    questionVersion: `${QUESTION_VERSION_PREFIX}${spec.version}`,
+    model: spec.model,
+  });
+}
+
+export const DEFAULT_EVIDENCE_POLICY: EvidencePipelinePolicy =
+  evidencePolicyFor(CAREER_EVIDENCE_V1_0_0);
 
 /** Default number of evidence items assessed concurrently. */
 export const DEFAULT_EVIDENCE_CONCURRENCY = 4;
@@ -48,6 +67,9 @@ export interface ProcessEvidenceInput {
   retrievedAt: Date;
   pipelineVersion: string;
   judgments: JevJudgmentService;
+  /** Rubric the judgments were made against. Defaults to the registered version. */
+  spec?: CareerEvidenceSpec;
+  /** Explicit override; otherwise the policy `spec` implies. */
   policy?: EvidencePipelinePolicy;
   runtime?: EvidenceRuntime;
 }
@@ -67,7 +89,8 @@ export interface ProcessEvidenceResult {
  * the snapshot over the results.
  */
 export async function processEvidence(input: ProcessEvidenceInput): Promise<ProcessEvidenceResult> {
-  const policy = input.policy ?? DEFAULT_EVIDENCE_POLICY;
+  const spec = assertSpec(input.spec ?? CAREER_EVIDENCE_V1_0_0);
+  const policy = input.policy ?? evidencePolicyFor(spec);
   const stamp = { model: policy.model, questionVersion: policy.questionVersion };
   const concurrency = resolveConcurrency(input.runtime?.concurrency);
   const eligible = selectEligible(input.evidence, input.baselineAt, input.cutoffAt);
