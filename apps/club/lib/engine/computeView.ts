@@ -1,21 +1,27 @@
 /**
  * The council view, assembled once per call.
  *
- * This is the orchestrator: it revives the stored inputs, builds the one
- * scored referral index (`engine/referralModel.ts`), runs the capability and
- * queue passes, hands that shared context to `engine/personView.ts` for the
- * per-person dossiers, and rolls the result up into counts, candidate rows and
- * member options. No scoring lives here — every number comes from `src/`.
+ * This is the orchestrator: it revives the stored inputs, runs one pass of
+ * the engine (`engine/pass.ts` → `advance()`), runs the queue pass, hands
+ * that shared context to `engine/personView.ts` for the per-person dossiers,
+ * and rolls the result up into counts, candidate rows and member options. No
+ * scoring lives here, and no pipeline order either — every number comes from
+ * `src/`, in the order `advance()` writes.
  *
  * Judge calibration numbers (p̂, Ē, bias) are folded into a categorical
  * track-record label here and never reach the view.
+ *
+ * `computeView` returns the view alone, as every caller in `apps/club` and
+ * the Convex layer wants it. `computeWorld` returns the same view beside the
+ * provenance of the pass that produced it — the run ids and spec versions a
+ * decision snapshot freezes. The view is the same object either way: nothing
+ * about provenance reaches `ClubView`, and so nothing reaches the UI.
  */
 
 import { buildReviewQueue, type ReviewEntry } from "../../../../src/analysis/reviewQueue.ts";
 import { underRecognitionGaps } from "../../../../src/analysis/underRecognition.ts";
 import { type LoadedSpecs, loadSpecs } from "../../../../src/config.ts";
 import type { Dimension } from "../../../../src/domain/types.ts";
-import { computeCapabilityVectors } from "../../../../src/inference/capabilityVector.ts";
 import { judgeTrackRecord, TRACK_RECORD_ORDER } from "../../../../src/judges/trackRecord.ts";
 import { defaultReviewStatus, underConsideration } from "../review.ts";
 import {
@@ -37,8 +43,8 @@ import type {
   ReviewStatus,
   TrackRecordView,
 } from "../types.ts";
+import { type ClubProvenance, runClubPass } from "./pass.ts";
 import { buildPersonViews } from "./personView.ts";
-import { buildReferralModel } from "./referralModel.ts";
 
 const NOT_SCORED: TrackRecordView = { label: "not_scored", evaluatedCount: 0, trust: null };
 
@@ -48,7 +54,17 @@ function referralsAsOf<T extends { createdAt: Date }>(rows: T[], now: Date): T[]
   return rows.filter((row) => row.createdAt.getTime() <= t);
 }
 
+/** A view and the provenance of the one pass that produced it. */
+export interface ClubWorld {
+  view: ClubView;
+  provenance: ClubProvenance;
+}
+
 export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()): ClubView {
+  return computeWorld(input, specs).view;
+}
+
+export function computeWorld(input: ClubState, specs: LoadedSpecs = loadSpecs()): ClubWorld {
   const state = reviveState(input);
   const people = state.people.map(clubToPerson);
   const referrals = state.referrals.map(clubToReferral);
@@ -62,22 +78,25 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
   const byId = new Map(state.people.map((p) => [p.id, p] as const));
   const reviewOf = (p: ClubPerson): ReviewStatus => p.reviewStatus ?? defaultReviewStatus(p.status);
 
-  // One scored index for the whole view: R_uv per referral is computed once
-  // here and every strength below is read from it.
+  // One pass of the engine for the whole view, and with it one scored index:
+  // R_uv per referral is computed once for the view and every strength below
+  // is read from it.
   const {
     scored,
     v0,
     v2,
     calibration: cal,
-  } = buildReferralModel({
+    capability: cap,
+    provenance,
+  } = runClubPass({
     people,
     referrals: referralsNow,
+    comparisons,
     outcomes,
     opportunities,
     now,
     specs,
   });
-  const cap = computeCapabilityVectors(people, comparisons, { spec: specs.bradley_terry });
   const gaps = underRecognitionGaps(v2, cap);
   const queue = new Map<string, ReviewEntry>(
     buildReviewQueue({ people, signals: v2, capRun: cap, gaps }).map((e) => [e.personId, e]),
@@ -172,7 +191,7 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
   const reviews = state.people.map(reviewOf);
   const allFeedback = personViews.flatMap((p) => p.feedback);
 
-  return {
+  const view: ClubView = {
     counts: {
       people: state.people.length,
       underConsideration: reviews.filter(underConsideration).length,
@@ -198,4 +217,5 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
     people: personViews.sort((a, b) => a.name.localeCompare(b.name)),
     snapshots: state.snapshots,
   };
+  return { view, provenance };
 }

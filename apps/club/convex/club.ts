@@ -125,6 +125,31 @@ async function requireAdmin(ctx: MutationCtx): Promise<AuthUser> {
   return user;
 }
 
+/**
+ * The caller's org, created on first use. No view: `applyEngine` is about to
+ * run a transition that computes one, and a council click may not pay for two
+ * passes of the engine over every observation.
+ */
+async function ensureOrgDoc(
+  ctx: MutationCtx,
+  name?: string,
+): Promise<{ orgId: Id<"clubOrgs">; name: string; state: ClubState }> {
+  const user = await requireAdmin(ctx);
+  const existing = await loadOwnedOrg(ctx, user._id);
+  if (existing) {
+    return { orgId: existing._id, name: existing.name, state: orgToState(existing) };
+  }
+  const state = emptyState();
+  const orgName = name?.trim() || "Club";
+  const orgId = await ctx.db.insert("clubOrgs", {
+    ownerUserId: user._id,
+    name: orgName,
+    ...stateFields(state),
+  });
+  return { orgId, name: orgName, state };
+}
+
+/** The same, for the mutations whose answer *is* the org and its view. */
 async function ensureOrg(
   ctx: MutationCtx,
   name?: string,
@@ -134,32 +159,15 @@ async function ensureOrg(
   state: ClubState;
   view: ReturnType<typeof computeView>;
 }> {
-  const user = await requireAdmin(ctx);
-  const existing = await loadOwnedOrg(ctx, user._id);
-  if (existing) {
-    const state = orgToState(existing);
-    return {
-      orgId: existing._id,
-      name: existing.name,
-      state,
-      view: computeView(state),
-    };
-  }
-  const state = emptyState();
-  const orgName = name?.trim() || "Club";
-  const orgId = await ctx.db.insert("clubOrgs", {
-    ownerUserId: user._id,
-    name: orgName,
-    ...stateFields(state),
-  });
-  return { orgId, name: orgName, state, view: computeView(state) };
+  const ensured = await ensureOrgDoc(ctx, name);
+  return { ...ensured, view: computeView(ensured.state) };
 }
 
 async function applyEngine(
   ctx: MutationCtx,
   fn: (state: ClubState) => EngineResult,
 ): Promise<EngineResult> {
-  const ensured = await ensureOrg(ctx);
+  const ensured = await ensureOrgDoc(ctx);
   const org = await ctx.db.get(ensured.orgId);
   if (!org) {
     const state = emptyState();

@@ -144,6 +144,17 @@ const clubSnapshot = v.object({
     incomingCount: v.number(),
   }),
   createdAt: v.string(),
+  // Provenance of the pass the decision was taken on, recorded from #55 T5.
+  // Optional so snapshots written before it still load — the same precedent
+  // as `feedbackRequests` / `config` on `clubOrgs` below.
+  modelRunIds: v.optional(v.array(v.string())),
+  specVersions: v.optional(
+    v.object({
+      referral_signal: v.string(),
+      bradley_terry: v.string(),
+      judge_reliability: v.string(),
+    }),
+  ),
 });
 
 const clubFeedbackRequest = v.object({

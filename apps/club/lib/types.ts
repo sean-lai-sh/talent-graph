@@ -95,6 +95,24 @@ export interface ClubOpportunity {
   createdAt: IsoDate;
 }
 
+/**
+ * The spec version each kind of the pass ran under, one entry per kind
+ * `advance()` runs, so a stored decision names the exact specs it was taken
+ * on rather than whatever is current.
+ *
+ * Each value is a `ModelRun.specVersion` and carries that field's contract: a
+ * registered version, which `getSpec(kind, version)` resolves — or one
+ * tagged `+env`, which it does not, because a `TG_*` override moved a number
+ * away from every registered spec. The tag is the point: a run may not claim
+ * a registered version while carrying different numbers, and neither may a
+ * decision taken on it.
+ */
+export interface ClubSpecVersions {
+  referral_signal: string;
+  bradley_terry: string;
+  judge_reliability: string;
+}
+
 export interface ClubSnapshot {
   id: string;
   personId: string;
@@ -106,6 +124,15 @@ export interface ClubSnapshot {
     incomingCount: number;
   };
   createdAt: IsoDate;
+  /**
+   * Ids of every `ModelRun` of the pass the council decided on, in evaluation
+   * order. Optional because snapshots written before the Club recorded run
+   * ids have none — and absence stays absence: a snapshot without provenance
+   * carries no key, never an empty array.
+   */
+  modelRunIds?: string[];
+  /** Spec version per kind of that same pass. Optional for the same reason. */
+  specVersions?: ClubSpecVersions;
 }
 
 /**

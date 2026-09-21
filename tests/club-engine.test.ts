@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describeActionError } from "../apps/club/lib/actionError.ts";
-import { buildReferralModel } from "../apps/club/lib/engine/referralModel.ts";
+import { runClubPass } from "../apps/club/lib/engine/pass.ts";
 import {
   addComparison,
   addEvaluation,
@@ -42,8 +42,10 @@ import { sortRows } from "../apps/club/lib/tableModel.ts";
 import type { ClubState } from "../apps/club/lib/types.ts";
 import { loadSpecs } from "../src/config.ts";
 import { BANNED_LANGUAGE, PRODUCT_LANGUAGE, SCALE_LABELS } from "../src/domain/constants.ts";
+import { computeCapabilityVectors } from "../src/inference/capabilityVector.ts";
 import { computeJudgeCalibration, judgeWeightOptions } from "../src/judges/reliability.ts";
 import { TRACK_RECORD_ORDER } from "../src/judges/trackRecord.ts";
+import { advance } from "../src/pipeline/advance.ts";
 import { computeAllReferralSignals } from "../src/scoring/referralSignal.ts";
 import * as referralStrengthModule from "../src/scoring/referralStrength.ts";
 import { generateSeed } from "../src/seed/generate.ts";
@@ -603,7 +605,7 @@ describe("council page UX pins", () => {
   });
 });
 
-describe("council page engine: the referral model seam", () => {
+describe("council page engine: the pipeline seam", () => {
   const specs = loadSpecs({}, { warn: () => {} });
   const seedModelInput = () => {
     const seed = generateSeed();
@@ -612,6 +614,7 @@ describe("council page engine: the referral model seam", () => {
     return {
       people: seed.people,
       referrals: seed.referrals.filter((r) => r.createdAt.getTime() <= t),
+      comparisons: seed.comparisons,
       outcomes: seed.outcomes,
       opportunities: seed.opportunities,
       now,
@@ -620,15 +623,20 @@ describe("council page engine: the referral model seam", () => {
   };
 
   test("the club's knownPerson guard means the seed has no dangling edges", () => {
-    const model = buildReferralModel(seedModelInput());
-    expect(model.scored.dangling).toEqual([]);
-    expect(model.scored.policy).toBe("score");
-    expect(model.scored.specVersion).toBe(specs.referral_signal.version);
+    const pass = runClubPass(seedModelInput());
+    expect(pass.scored.dangling).toEqual([]);
+    expect(pass.scored.policy).toBe("score");
+    expect(pass.scored.specVersion).toBe(specs.referral_signal.version);
   });
 
-  test("model v0/v2 are the same numbers the two computeAllReferralSignals calls produced", () => {
+  /**
+   * The club's pass is `advance()`, so the numbers it reads off the runs must
+   * be the numbers the hand-sequenced `compute*` calls it replaced produced —
+   * V0, the calibration, V2, and the capability fit, against the same inputs.
+   */
+  test("pass v0/v2/calibration are the numbers the hand-sequenced compute* calls produced", () => {
     const input = seedModelInput();
-    const model = buildReferralModel(input);
+    const pass = runClubPass(input);
     const v0 = computeAllReferralSignals(input.people, input.referrals, {
       spec: specs.referral_signal,
     });
@@ -645,48 +653,92 @@ describe("council page engine: the referral model seam", () => {
       spec: specs.referral_signal,
       ...judgeWeightOptions(cal),
     });
-    expect([...model.v0.keys()]).toEqual([...v0.keys()]);
-    expect([...model.v2.keys()]).toEqual([...v2.keys()]);
-    expect(model.v0).toEqual(v0);
-    expect(model.v2).toEqual(v2);
-    expect(model.calibration).toEqual(cal);
+    const cap = computeCapabilityVectors(input.people, input.comparisons, {
+      spec: specs.bradley_terry,
+    });
+    expect([...pass.v0.keys()]).toEqual([...v0.keys()]);
+    expect([...pass.v2.keys()]).toEqual([...v2.keys()]);
+    expect(pass.v0).toEqual(v0);
+    expect(pass.v2).toEqual(v2);
+    expect(pass.calibration).toEqual(cal);
+    expect(pass.capability).toEqual(cap);
+  });
+
+  test("the pass names one run per evaluated arm and a spec version per kind", () => {
+    const pass = runClubPass(seedModelInput());
+    // V0 signals, capability, calibration, judge-weighted signals.
+    expect(pass.provenance.modelRunIds).toHaveLength(4);
+    expect(new Set(pass.provenance.modelRunIds).size).toBe(4);
+    expect(pass.provenance.specVersions).toEqual({
+      referral_signal: specs.referral_signal.version,
+      bradley_terry: specs.bradley_terry.version,
+      judge_reliability: specs.judge_reliability.version,
+    });
   });
 
   test("every referral in the index is scored exactly once and matches referralStrength", () => {
     const input = seedModelInput();
-    const model = buildReferralModel(input);
-    expect(model.scored.byReferralId.size).toBe(input.referrals.length);
+    const pass = runClubPass(input);
+    expect(pass.scored.byReferralId.size).toBe(input.referrals.length);
     for (const r of input.referrals) {
-      const edge = model.scored.byReferralId.get(r.id);
+      const edge = pass.scored.byReferralId.get(r.id);
       if (!edge) throw new Error(`referral ${r.id} missing from the index`);
       expect(edge.strength).toBe(realStrength.referralStrength(r, specs.referral_signal));
     }
   });
 
   /**
-   * The regression guard for the seam itself. Pre-seam, `computeView` derived
-   * R_uv five ways in one pass (228 calls on the seed); through the model each
-   * referral is scored exactly once, and the only other R_uv work left in the
-   * view is whatever `computeJudgeCalibration` does on its own — measured here
-   * against the same inputs rather than hard-coded.
+   * The regression guard for the seam itself, in two halves so that neither
+   * side can hide the other.
+   *
+   * The pass is pinned absolutely: `advance` scores the referral graph once
+   * per Referral Signal run — the V0 baseline and the judge-weighted one —
+   * plus whatever `computeJudgeCalibration` does on its own, which is
+   * measured against the same inputs rather than hard-coded. Using the pass
+   * as its own baseline would let a third scoring appear inside it silently.
+   *
+   * The view is then pinned relative to that: pre-seam, `computeView` derived
+   * R_uv five ways in one pass (228 calls on the seed), two of them with an
+   * O(P·R) scan per person. It now adds exactly one scoring of each referral
+   * — the index every displayed strength is read from — on top of the pass.
    */
-  test("computeView computes R_uv exactly once per referral, through the model", () => {
+  test("the pass scores each referral once per signal run, the view once more", () => {
     const input = seedModelInput();
+    const calibration = () =>
+      computeJudgeCalibration({
+        people: input.people,
+        referrals: input.referrals,
+        outcomes: input.outcomes,
+        opportunities: input.opportunities,
+        now: input.now,
+        spec: specs.judge_reliability,
+        referralSpec: specs.referral_signal,
+      });
+
     strengthCalls = 0;
-    computeJudgeCalibration({
-      people: input.people,
-      referrals: input.referrals,
-      outcomes: input.outcomes,
-      opportunities: input.opportunities,
-      now: input.now,
-      spec: specs.judge_reliability,
-      referralSpec: specs.referral_signal,
-    });
+    calibration();
     const calibrationCalls = strengthCalls;
 
     strengthCalls = 0;
+    advance(
+      null,
+      {
+        people: input.people,
+        referrals: input.referrals,
+        comparisons: input.comparisons,
+        outcomes: input.outcomes,
+        opportunities: input.opportunities,
+      },
+      specs,
+      input.now,
+      { asOf: true, drift: false },
+    );
+    const passCalls = strengthCalls;
+    expect(passCalls).toBe(2 * input.referrals.length + calibrationCalls);
+
+    strengthCalls = 0;
     computeView(initialState(), specs);
-    expect(strengthCalls).toBe(input.referrals.length + calibrationCalls);
+    expect(strengthCalls).toBe(input.referrals.length + passCalls);
   });
 
   /**
