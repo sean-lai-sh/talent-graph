@@ -1,0 +1,62 @@
+{
+  "referral_signal": {
+    "id": "referral_signal_v0@0.1.0:6e29b052b7c2:b0b95269",
+    "modelType": "referral_signal_v0",
+    "modelVersion": "0.1.0",
+    "inputHash": "6e29b052b7c2944a28710c8657491f02704600cc018343482f2fe8fd79412fcc",
+    "outputsHash": "4092d74d65fdecdae88308a0802cbbec21ae50e58f0f6024a9235b47e242080f",
+    "parameterKeys": ["judgeBias", "judgeReliability", "judgeWeighted", "spec", "topK"]
+  },
+  "referral_signal_judge_weighted": {
+    "id": "referral_signal_v0@0.1.0+judge_reliability:6e29b052b7c2:31c808c4",
+    "modelType": "referral_signal_v0",
+    "modelVersion": "0.1.0+judge_reliability",
+    "inputHash": "6e29b052b7c2944a28710c8657491f02704600cc018343482f2fe8fd79412fcc",
+    "outputsHash": "bdd9cfd5094aa4e773e5662a61c2a409746b764baf5aaca53dae42be029498f7",
+    "parameterKeys": ["judgeBias", "judgeReliability", "judgeWeighted", "spec", "topK"]
+  },
+  "judge_calibration": {
+    "id": "judge_reliability_v2@2.0.0:3a98f0226b21:9be09b94",
+    "modelType": "judge_reliability_v2",
+    "modelVersion": "2.0.0",
+    "inputHash": "3a98f0226b210c2ef2d1810f34465f62894b30a22230fd953602c3194ecdb462",
+    "outputsHash": "c65c50992b27692ba2bdb4979f7b83c4a4f452f25dfeab412e7e049095782387",
+    "parameterKeys": ["now", "referralSpec", "spec"]
+  },
+  "capability": {
+    "id": "bradley_terry_v1@1.0.0:38fa7190826b:cdb1a3fd",
+    "modelType": "bradley_terry_v1",
+    "modelVersion": "1.0.0",
+    "inputHash": "38fa7190826b9c78532139a18d9ed9c8cc7a9a6dce1d413dc049e15933ee16dd",
+    "outputsHash": "74cc6686b4f1fe62d0798cb69e37f8c8b830a576b949e929843f5cc6b9977b1c",
+    "parameterKeys": [
+      "anchorStrength",
+      "anchored",
+      "bt",
+      "minComparisons",
+      "minOpponents",
+      "previousRunId",
+      "previousThetaHash",
+      "spec",
+      "tieHandling"
+    ]
+  },
+  "capability_anchored": {
+    "id": "bradley_terry_v1@1.0.0:38fa7190826b:74239587",
+    "modelType": "bradley_terry_v1",
+    "modelVersion": "1.0.0",
+    "inputHash": "38fa7190826b9c78532139a18d9ed9c8cc7a9a6dce1d413dc049e15933ee16dd",
+    "outputsHash": "a7d48f8a607891cfb4551cf5aac772990d1b6ced472b918c2d3753b208892fa4",
+    "parameterKeys": [
+      "anchorStrength",
+      "anchored",
+      "bt",
+      "minComparisons",
+      "minOpponents",
+      "previousRunId",
+      "previousThetaHash",
+      "spec",
+      "tieHandling"
+    ]
+  }
+}

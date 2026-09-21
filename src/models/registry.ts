@@ -122,3 +122,26 @@ export function isRegisteredSpec(spec: ModelSpec): boolean {
   const registered = SPEC_HISTORY.find((s) => specId(s) === specId(spec));
   return registered !== undefined && JSON.stringify(registered) === JSON.stringify(spec);
 }
+
+/**
+ * The runtime model registry. Kept here so `registry.ts` remains the one
+ * place to look for "what does this system know about"; the map itself lives
+ * in `define.ts`, which imports no model code, so a definition can depend on
+ * the registry without a cycle.
+ */
+// Side-effect import: running the definition modules is what registers them,
+// so importing the registry is enough to see every shipped model. It must be
+// imported from here rather than from `define.ts`, which the definitions
+// themselves import — the other direction touches `REGISTRY` before its
+// initialiser has run.
+import "./definitions/index.ts";
+
+export {
+  type AnyModelDefinition,
+  defineModel,
+  getModel,
+  MODELS,
+  type ModelDefinition,
+  registeredModels,
+  runModel,
+} from "./define.ts";
