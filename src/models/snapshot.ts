@@ -7,7 +7,7 @@
  */
 
 import type { PredictionSnapshot } from "../domain/types.ts";
-import { hashInputs } from "../modelRun.ts";
+import { hashInputs } from "../provenance/hash.ts";
 
 export interface CreateSnapshotInput {
   personId: string;
