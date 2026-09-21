@@ -50,6 +50,7 @@ export {
   type EngineState,
   judgeWeightedReferralRun,
   type Observations,
+  type PipelineKind,
   type RunOfKind,
   requireRun,
 } from "./pipeline/advance.ts";

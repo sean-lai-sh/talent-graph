@@ -35,28 +35,8 @@ import { type JudgeCalibrationRun, judgeWeightOptions } from "../judges/reliabil
 import { runCapabilityVectors } from "../models/definitions/bradleyTerry.ts";
 import { runJudgeCalibration } from "../models/definitions/judgeReliability.ts";
 import { runReferralSignals } from "../models/definitions/referralSignal.ts";
-import { CURRENT_SPECS } from "../models/registry.ts";
 import type { ModelRun } from "../models/run.ts";
-import type { ModelSpecKind } from "../models/spec.ts";
 import type { ReferralSignalResult } from "../scoring/referralSignal.ts";
-
-/**
- * The kinds a pass can run, and therefore the kinds it can drift-compare:
- * the registered spec kinds the loaded specs carry. A kind can be registered
- * (and live in `SPEC_HISTORY`) without being one of these — a rubric, say,
- * is a spec but not an env-tunable math spec, so `LoadedSpecs` has no key for
- * it and `advance` never runs it. Deriving the type from `LoadedSpecs` rather
- * than from `ModelSpecKind` is what keeps that a compile error instead of a
- * runtime surprise.
- */
-export type DriftKind = keyof LoadedSpecs & ModelSpecKind;
-
-/** The `DriftKind`s of a given `LoadedSpecs`, sorted. */
-export function driftKinds(specs: LoadedSpecs): DriftKind[] {
-  return Object.keys(specs)
-    .filter((k): k is DriftKind => k in CURRENT_SPECS)
-    .sort();
-}
 
 /** The raw observations a pass reads. Immutable; nothing here is rewritten. */
 export interface Observations {
@@ -67,15 +47,51 @@ export interface Observations {
   opportunities: readonly Opportunity[];
 }
 
-/** What each kind's run carries in `outputs`. */
+/**
+ * What each kind's run carries in `outputs` — and, because it is keyed by
+ * kind, the list of kinds a pass runs at all. A `ModelSpec` kind can be
+ * registered without appearing here: a rubric spec, say, is versioned data
+ * the pipeline never evaluates. Nothing in this module is keyed on the
+ * `ModelSpecKind` union, so such a kind is simply not one of ours rather
+ * than a hole to index into.
+ */
 interface RunOutputs {
   referral_signal: Map<string, ReferralSignalResult>;
   bradley_terry: CapabilityRun;
   judge_reliability: JudgeCalibrationRun;
 }
 
-/** A run of the given kind, with its outputs typed. */
-export type RunOfKind<K extends ModelSpecKind> = ModelRun<RunOutputs[K]>;
+/** The kinds `advance` runs. A subset of `ModelSpecKind`, never all of it. */
+export type PipelineKind = keyof RunOutputs;
+
+/** A run of a kind the pipeline runs, with its outputs typed. */
+export type RunOfKind<K extends PipelineKind> = ModelRun<RunOutputs[K]>;
+
+/**
+ * The kinds a pass can drift-compare: the ones it runs *and* the loaded
+ * specs carry. A kind the deployment cannot tune (no `LoadedSpecs` key) and a
+ * kind the pipeline never evaluates (no `RunOutputs` key) are both excluded,
+ * at compile time rather than by a runtime surprise.
+ */
+export type DriftKind = PipelineKind & keyof LoadedSpecs;
+
+/**
+ * Membership test for `PipelineKind`, written as a total record so that
+ * adding a kind to `RunOutputs` without listing it here — or listing one that
+ * is not there — is a compile error.
+ */
+const PIPELINE_KINDS: Readonly<Record<PipelineKind, true>> = Object.freeze({
+  bradley_terry: true,
+  judge_reliability: true,
+  referral_signal: true,
+});
+
+/** The `DriftKind`s of a given `LoadedSpecs`, sorted. */
+export function driftKinds(specs: LoadedSpecs): DriftKind[] {
+  return Object.keys(specs)
+    .filter((k): k is DriftKind => k in PIPELINE_KINDS)
+    .sort();
+}
 
 /**
  * What one pass hands to the next: the current run of each kind.
@@ -89,7 +105,7 @@ export type RunOfKind<K extends ModelSpecKind> = ModelRun<RunOutputs[K]>;
  * one.
  */
 export interface EngineState {
-  runs: Partial<{ [K in ModelSpecKind]: RunOfKind<K> }>;
+  runs: Partial<{ [K in PipelineKind]: RunOfKind<K> }>;
 }
 
 export interface AdvanceOptions {
@@ -139,7 +155,7 @@ export function judgeWeightedReferralRun(result: AdvanceResult): RunOfKind<"refe
  * knows the pass ran a kind should not have to re-narrow `undefined`; a
  * caller that does not know asks `state.runs` directly.
  */
-export function requireRun<K extends ModelSpecKind>(state: EngineState, kind: K): RunOfKind<K> {
+export function requireRun<K extends PipelineKind>(state: EngineState, kind: K): RunOfKind<K> {
   const run = state.runs[kind];
   if (run === undefined) throw new Error(`no ${kind} run in this state`);
   return run;

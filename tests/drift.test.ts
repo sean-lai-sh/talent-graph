@@ -20,7 +20,7 @@ import {
   REFERRAL_SIGNAL_V0_1_0,
 } from "../src/models/registry.ts";
 import type { ReferralSignalSpec } from "../src/models/spec.ts";
-import { type DriftKind, driftKinds } from "../src/pipeline/advance.ts";
+import { type DriftKind, driftKinds, type PipelineKind } from "../src/pipeline/advance.ts";
 import { computeAllReferralSignals } from "../src/scoring/referralSignal.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 
@@ -296,7 +296,10 @@ describe("scripts/drift.ts CLI", () => {
   test("DriftKind is exactly the kinds LoadedSpecs carries", () => {
     // @ts-expect-error a kind LoadedSpecs has no key for is not a DriftKind
     const notDriftable: DriftKind = "career_evidence";
+    // @ts-expect-error a kind `advance` never runs is not a PipelineKind
+    const notRun: PipelineKind = "career_evidence";
     expect(notDriftable as string).toBe("career_evidence");
+    expect(notRun as string).toBe("career_evidence");
     expect(driftKinds(loadSpecs({}, { warn: () => {} }))).toEqual([
       "bradley_terry",
       "judge_reliability",
@@ -319,6 +322,12 @@ describe("scripts/drift.ts CLI", () => {
     const out = text(proc.stdout);
     expect(out).toContain("referral_signal (0.1.0 → 0.1.0 (judge-weighted))");
     expect(out).toContain("Largest movers:");
+  });
+
+  test("--v0-vs-v2 refuses a --kind that has no V2 variant", () => {
+    const proc = run("--v0-vs-v2", "--kind", "bradley_terry");
+    expect(proc.exitCode).toBe(2);
+    expect(text(proc.stderr)).toContain("--v0-vs-v2 compares referral_signal runs");
   });
 
   test("--kind referral_signal still compares the V0 runs of two specs", () => {

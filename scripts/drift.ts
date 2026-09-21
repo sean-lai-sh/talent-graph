@@ -121,7 +121,20 @@ function print(reports: readonly DriftReport[]): void {
  * V0 vs V2 — one spec, one pass, judge weights on or off.
  * ---------------------------------------------------------------- */
 
+function getReferralSpec(version: string): SpecOfKind<"referral_signal"> {
+  return version === ENV_VERSION
+    ? loadSpecs().referral_signal
+    : getSpec("referral_signal", version);
+}
+
 if (flag("v0-vs-v2")) {
+  // Judge weights are a Referral Signal question; there is nothing to weight
+  // on another kind, so a `--kind` that says otherwise is a mistake, not a
+  // silently ignored argument.
+  if (arg("kind") !== undefined && kind !== "referral_signal") {
+    console.error(`--v0-vs-v2 compares referral_signal runs; --kind ${kind} has no V2 variant`);
+    process.exit(2);
+  }
   const version = arg("spec") ?? ENV_VERSION;
   const specs = specsWith(loadSpecs(), "referral_signal", getReferralSpec(version));
   const pass = advance(null, observations, specs, T, { drift: false });
@@ -129,12 +142,6 @@ if (flag("v0-vs-v2")) {
     referralSignalDrift(baselineReferralRun(pass).outputs, judgeWeightedReferralRun(pass).outputs),
   ]);
   process.exit(0);
-}
-
-function getReferralSpec(version: string): SpecOfKind<"referral_signal"> {
-  return version === ENV_VERSION
-    ? loadSpecs().referral_signal
-    : getSpec("referral_signal", version);
 }
 
 /* ---------------------------------------------------------------- *
