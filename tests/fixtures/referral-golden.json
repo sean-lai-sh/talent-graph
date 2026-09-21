@@ -1,0 +1,630 @@
+{
+  "now": "2026-12-31T00:00:00.000Z",
+  "counts": {
+    "people": 32,
+    "referrals": 50,
+    "viewPeople": 32
+  },
+  "signals": {
+    "p-001": {
+      "signal": 42.5,
+      "s": 0.425,
+      "incomingCount": 1,
+      "usedCount": 1,
+      "firsthandCount": 1,
+      "strongest": 0.425,
+      "evidenceTypes": ["firsthand_work"],
+      "specVersion": "0.1.0"
+    },
+    "p-002": {
+      "signal": 36.04166666666666,
+      "s": 0.3604166666666666,
+      "incomingCount": 3,
+      "usedCount": 3,
+      "firsthandCount": 0,
+      "strongest": 0.48875,
+      "evidenceTypes": ["artifact", "other", "reputation"],
+      "specVersion": "0.1.0"
+    },
+    "p-003": {
+      "signal": 0,
+      "s": 0,
+      "incomingCount": 0,
+      "usedCount": 0,
+      "firsthandCount": 0,
+      "strongest": null,
+      "evidenceTypes": [],
+      "specVersion": "0.1.0"
+    },
+    "p-004": {
+      "signal": 0,
+      "s": 0,
+      "incomingCount": 0,
+      "usedCount": 0,
+      "firsthandCount": 0,
+      "strongest": null,
+      "evidenceTypes": [],
+      "specVersion": "0.1.0"
+    },
+    "p-005": {
+      "signal": 36,
+      "s": 0.36,
+      "incomingCount": 1,
+      "usedCount": 1,
+      "firsthandCount": 0,
+      "strongest": 0.36,
+      "evidenceTypes": ["reputation"],
+      "specVersion": "0.1.0"
+    },
+    "p-006": {
+      "signal": 0,
+      "s": 0,
+      "incomingCount": 0,
+      "usedCount": 0,
+      "firsthandCount": 0,
+      "strongest": null,
+      "evidenceTypes": [],
+      "specVersion": "0.1.0"
+    },
+    "p-007": {
+      "signal": 39.54166666666667,
+      "s": 0.3954166666666667,
+      "incomingCount": 3,
+      "usedCount": 3,
+      "firsthandCount": 1,
+      "strongest": 0.65,
+      "evidenceTypes": ["firsthand_work", "artifact", "other"],
+      "specVersion": "0.1.0"
+    },
+    "p-008": {
+      "signal": 31.5,
+      "s": 0.315,
+      "incomingCount": 1,
+      "usedCount": 1,
+      "firsthandCount": 0,
+      "strongest": 0.315,
+      "evidenceTypes": ["reputation"],
+      "specVersion": "0.1.0"
+    },
+    "p-009": {
+      "signal": 77.5,
+      "s": 0.775,
+      "incomingCount": 1,
+      "usedCount": 1,
+      "firsthandCount": 1,
+      "strongest": 0.775,
+      "evidenceTypes": ["firsthand_work"],
+      "specVersion": "0.1.0"
+    },
+    "p-010": {
+      "signal": 37.625,
+      "s": 0.37625,
+      "incomingCount": 3,
+      "usedCount": 3,
+      "firsthandCount": 0,
+      "strongest": 0.5599999999999999,
+      "evidenceTypes": ["other", "artifact", "reputation"],
+      "specVersion": "0.1.0"
+    },
+    "p-011": {
+      "signal": 33.75,
+      "s": 0.3375,
+      "incomingCount": 2,
+      "usedCount": 2,
+      "firsthandCount": 2,
+      "strongest": 0.39999999999999997,
+      "evidenceTypes": ["firsthand_work"],
+      "specVersion": "0.1.0"
+    },
+    "p-012": {
+      "signal": 0,
+      "s": 0,
+      "incomingCount": 0,
+      "usedCount": 0,
+      "firsthandCount": 0,
+      "strongest": null,
+      "evidenceTypes": [],
+      "specVersion": "0.1.0"
+    },
+    "p-013": {
+      "signal": 36.00000000000001,
+      "s": 0.36000000000000004,
+      "incomingCount": 1,
+      "usedCount": 1,
+      "firsthandCount": 0,
+      "strongest": 0.36000000000000004,
+      "evidenceTypes": ["reputation"],
+      "specVersion": "0.1.0"
+    },
+    "p-014": {
+      "signal": 20,
+      "s": 0.2,
+      "incomingCount": 1,
+      "usedCount": 1,
+      "firsthandCount": 1,
+      "strongest": 0.2,
+      "evidenceTypes": ["firsthand_work"],
+      "specVersion": "0.1.0"
+    },
+    "p-015": {
+      "signal": 23.9375,
+      "s": 0.239375,
+      "incomingCount": 2,
+      "usedCount": 2,
+      "firsthandCount": 0,
+      "strongest": 0.40375,
+      "evidenceTypes": ["artifact", "reputation"],
+      "specVersion": "0.1.0"
+    },
+    "p-016": {
+      "signal": 0,
+      "s": 0,
+      "incomingCount": 0,
+      "usedCount": 0,
+      "firsthandCount": 0,
+      "strongest": null,
+      "evidenceTypes": [],
+      "specVersion": "0.1.0"
+    },
+    "p-017": {
+      "signal": 49.75000000000001,
+      "s": 0.49750000000000005,
+      "incomingCount": 2,
+      "usedCount": 2,
+      "firsthandCount": 1,
+      "strongest": 0.5400000000000001,
+      "evidenceTypes": ["firsthand_personal", "other"],
+      "specVersion": "0.1.0"
+    },
+    "p-018": {
+      "signal": 0,
+      "s": 0,
+      "incomingCount": 0,
+      "usedCount": 0,
+      "firsthandCount": 0,
+      "strongest": null,
+      "evidenceTypes": [],
+      "specVersion": "0.1.0"
+    },
+    "p-019": {
+      "signal": 40.25,
+      "s": 0.40249999999999997,
+      "incomingCount": 1,
+      "usedCount": 1,
+      "firsthandCount": 0,
+      "strongest": 0.40249999999999997,
+      "evidenceTypes": ["other"],
+      "specVersion": "0.1.0"
+    },
+    "p-020": {
+      "signal": 46.70833333333333,
+      "s": 0.4670833333333333,
+      "incomingCount": 3,
+      "usedCount": 3,
+      "firsthandCount": 0,
+      "strongest": 0.7,
+      "evidenceTypes": ["other", "artifact"],
+      "specVersion": "0.1.0"
+    },
+    "p-021": {
+      "signal": 12.5,
+      "s": 0.125,
+      "incomingCount": 1,
+      "usedCount": 1,
+      "firsthandCount": 1,
+      "strongest": 0.125,
+      "evidenceTypes": ["firsthand_work"],
+      "specVersion": "0.1.0"
+    },
+    "p-022": {
+      "signal": 0,
+      "s": 0,
+      "incomingCount": 0,
+      "usedCount": 0,
+      "firsthandCount": 0,
+      "strongest": null,
+      "evidenceTypes": [],
+      "specVersion": "0.1.0"
+    },
+    "p-023": {
+      "signal": 42.75,
+      "s": 0.4275,
+      "incomingCount": 1,
+      "usedCount": 1,
+      "firsthandCount": 1,
+      "strongest": 0.4275,
+      "evidenceTypes": ["firsthand_personal"],
+      "specVersion": "0.1.0"
+    },
+    "p-024": {
+      "signal": 0,
+      "s": 0,
+      "incomingCount": 0,
+      "usedCount": 0,
+      "firsthandCount": 0,
+      "strongest": null,
+      "evidenceTypes": [],
+      "specVersion": "0.1.0"
+    },
+    "p-025": {
+      "signal": 57.50000000000001,
+      "s": 0.5750000000000001,
+      "incomingCount": 1,
+      "usedCount": 1,
+      "firsthandCount": 1,
+      "strongest": 0.5750000000000001,
+      "evidenceTypes": ["firsthand_work"],
+      "specVersion": "0.1.0"
+    },
+    "p-026": {
+      "signal": 48.24999999999999,
+      "s": 0.48249999999999993,
+      "incomingCount": 4,
+      "usedCount": 4,
+      "firsthandCount": 0,
+      "strongest": 0.765,
+      "evidenceTypes": ["artifact", "other", "reputation"],
+      "specVersion": "0.1.0"
+    },
+    "p-alice": {
+      "signal": 84.5,
+      "s": 0.845,
+      "incomingCount": 4,
+      "usedCount": 4,
+      "firsthandCount": 4,
+      "strongest": 1,
+      "evidenceTypes": ["firsthand_work", "firsthand_personal"],
+      "specVersion": "0.1.0"
+    },
+    "p-bram": {
+      "signal": 77,
+      "s": 0.77,
+      "incomingCount": 4,
+      "usedCount": 4,
+      "firsthandCount": 3,
+      "strongest": 0.875,
+      "evidenceTypes": ["firsthand_work", "firsthand_personal", "artifact"],
+      "specVersion": "0.1.0"
+    },
+    "p-cleo": {
+      "signal": 12,
+      "s": 0.12,
+      "incomingCount": 1,
+      "usedCount": 1,
+      "firsthandCount": 0,
+      "strongest": 0.12,
+      "evidenceTypes": ["reputation"],
+      "specVersion": "0.1.0"
+    },
+    "p-dev": {
+      "signal": 100,
+      "s": 1,
+      "incomingCount": 1,
+      "usedCount": 1,
+      "firsthandCount": 1,
+      "strongest": 1,
+      "evidenceTypes": ["firsthand_work"],
+      "specVersion": "0.1.0"
+    },
+    "p-ember": {
+      "signal": 17.5,
+      "s": 0.175,
+      "incomingCount": 6,
+      "usedCount": 5,
+      "firsthandCount": 0,
+      "strongest": 0.175,
+      "evidenceTypes": ["other"],
+      "specVersion": "0.1.0"
+    },
+    "p-fox": {
+      "signal": 49.4375,
+      "s": 0.494375,
+      "incomingCount": 2,
+      "usedCount": 2,
+      "firsthandCount": 1,
+      "strongest": 0.5,
+      "evidenceTypes": ["firsthand_work", "artifact"],
+      "specVersion": "0.1.0"
+    }
+  },
+  "view": {
+    "p-001": {
+      "v0Signal": 43,
+      "v2Signal": 34,
+      "incomingCount": 1,
+      "strongest": 0.425,
+      "referralStrength": {
+        "ref-025": 0.425
+      }
+    },
+    "p-002": {
+      "v0Signal": 36,
+      "v2Signal": 32,
+      "incomingCount": 3,
+      "strongest": 0.48875,
+      "referralStrength": {
+        "ref-030": 0.22499999999999998,
+        "ref-041": 0.48875,
+        "ref-045": 0.3675
+      }
+    },
+    "p-003": {
+      "v0Signal": null,
+      "v2Signal": null,
+      "incomingCount": 0,
+      "strongest": null,
+      "referralStrength": {}
+    },
+    "p-004": {
+      "v0Signal": null,
+      "v2Signal": null,
+      "incomingCount": 0,
+      "strongest": null,
+      "referralStrength": {}
+    },
+    "p-005": {
+      "v0Signal": 36,
+      "v2Signal": 35,
+      "incomingCount": 1,
+      "strongest": 0.36,
+      "referralStrength": {
+        "ref-040": 0.36
+      }
+    },
+    "p-006": {
+      "v0Signal": null,
+      "v2Signal": null,
+      "incomingCount": 0,
+      "strongest": null,
+      "referralStrength": {}
+    },
+    "p-007": {
+      "v0Signal": 40,
+      "v2Signal": 38,
+      "incomingCount": 3,
+      "strongest": 0.65,
+      "referralStrength": {
+        "ref-037": 0.175,
+        "ref-043": 0.65,
+        "ref-046": 0.36124999999999996
+      }
+    },
+    "p-008": {
+      "v0Signal": 32,
+      "v2Signal": 25,
+      "incomingCount": 1,
+      "strongest": 0.315,
+      "referralStrength": {
+        "ref-023": 0.315
+      }
+    },
+    "p-009": {
+      "v0Signal": 78,
+      "v2Signal": 72,
+      "incomingCount": 1,
+      "strongest": 0.775,
+      "referralStrength": {
+        "ref-050": 0.775
+      }
+    },
+    "p-010": {
+      "v0Signal": 38,
+      "v2Signal": 33,
+      "incomingCount": 3,
+      "strongest": 0.5599999999999999,
+      "referralStrength": {
+        "ref-020": 0.40375,
+        "ref-031": 0.5599999999999999,
+        "ref-032": 0.165
+      }
+    },
+    "p-011": {
+      "v0Signal": 34,
+      "v2Signal": 29,
+      "incomingCount": 2,
+      "strongest": 0.39999999999999997,
+      "referralStrength": {
+        "ref-028": 0.39999999999999997,
+        "ref-035": 0.275
+      }
+    },
+    "p-012": {
+      "v0Signal": null,
+      "v2Signal": null,
+      "incomingCount": 0,
+      "strongest": null,
+      "referralStrength": {}
+    },
+    "p-013": {
+      "v0Signal": 36,
+      "v2Signal": 33,
+      "incomingCount": 1,
+      "strongest": 0.36000000000000004,
+      "referralStrength": {
+        "ref-039": 0.36000000000000004
+      }
+    },
+    "p-014": {
+      "v0Signal": 20,
+      "v2Signal": 19,
+      "incomingCount": 1,
+      "strongest": 0.2,
+      "referralStrength": {
+        "ref-036": 0.2
+      }
+    },
+    "p-015": {
+      "v0Signal": 24,
+      "v2Signal": 18,
+      "incomingCount": 2,
+      "strongest": 0.40375,
+      "referralStrength": {
+        "ref-026": 0.40375,
+        "ref-048": 0.075
+      }
+    },
+    "p-016": {
+      "v0Signal": null,
+      "v2Signal": null,
+      "incomingCount": 0,
+      "strongest": null,
+      "referralStrength": {}
+    },
+    "p-017": {
+      "v0Signal": 50,
+      "v2Signal": 47,
+      "incomingCount": 2,
+      "strongest": 0.5400000000000001,
+      "referralStrength": {
+        "ref-019": 0.5400000000000001,
+        "ref-033": 0.45499999999999996
+      }
+    },
+    "p-018": {
+      "v0Signal": null,
+      "v2Signal": null,
+      "incomingCount": 0,
+      "strongest": null,
+      "referralStrength": {}
+    },
+    "p-019": {
+      "v0Signal": 40,
+      "v2Signal": 31,
+      "incomingCount": 1,
+      "strongest": 0.40249999999999997,
+      "referralStrength": {
+        "ref-034": 0.40249999999999997
+      }
+    },
+    "p-020": {
+      "v0Signal": 47,
+      "v2Signal": 36,
+      "incomingCount": 3,
+      "strongest": 0.7,
+      "referralStrength": {
+        "ref-027": 0.48875,
+        "ref-038": 0.2125,
+        "ref-047": 0.7
+      }
+    },
+    "p-021": {
+      "v0Signal": 13,
+      "v2Signal": 10,
+      "incomingCount": 1,
+      "strongest": 0.125,
+      "referralStrength": {
+        "ref-049": 0.125
+      }
+    },
+    "p-022": {
+      "v0Signal": null,
+      "v2Signal": null,
+      "incomingCount": 0,
+      "strongest": null,
+      "referralStrength": {}
+    },
+    "p-023": {
+      "v0Signal": 43,
+      "v2Signal": 33,
+      "incomingCount": 1,
+      "strongest": 0.4275,
+      "referralStrength": {
+        "ref-021": 0.4275
+      }
+    },
+    "p-024": {
+      "v0Signal": null,
+      "v2Signal": null,
+      "incomingCount": 0,
+      "strongest": null,
+      "referralStrength": {}
+    },
+    "p-025": {
+      "v0Signal": 58,
+      "v2Signal": 54,
+      "incomingCount": 1,
+      "strongest": 0.5750000000000001,
+      "referralStrength": {
+        "ref-024": 0.5750000000000001
+      }
+    },
+    "p-026": {
+      "v0Signal": 48,
+      "v2Signal": 41,
+      "incomingCount": 4,
+      "strongest": 0.765,
+      "referralStrength": {
+        "ref-022": 0.595,
+        "ref-029": 0.765,
+        "ref-042": 0.12,
+        "ref-044": 0.44999999999999996
+      }
+    },
+    "p-alice": {
+      "v0Signal": 85,
+      "v2Signal": 78,
+      "incomingCount": 4,
+      "strongest": 1,
+      "referralStrength": {
+        "ref-001": 0.875,
+        "ref-002": 1,
+        "ref-003": 0.63,
+        "ref-004": 0.875
+      }
+    },
+    "p-bram": {
+      "v0Signal": 77,
+      "v2Signal": 62,
+      "incomingCount": 4,
+      "strongest": 0.875,
+      "referralStrength": {
+        "ref-005": 0.875,
+        "ref-006": 0.7424999999999999,
+        "ref-007": 0.8250000000000001,
+        "ref-008": 0.6375
+      }
+    },
+    "p-cleo": {
+      "v0Signal": 12,
+      "v2Signal": 7,
+      "incomingCount": 1,
+      "strongest": 0.12,
+      "referralStrength": {
+        "ref-009": 0.12
+      }
+    },
+    "p-dev": {
+      "v0Signal": 100,
+      "v2Signal": 93,
+      "incomingCount": 1,
+      "strongest": 1,
+      "referralStrength": {
+        "ref-010": 1
+      }
+    },
+    "p-ember": {
+      "v0Signal": 18,
+      "v2Signal": 13,
+      "incomingCount": 6,
+      "strongest": 0.175,
+      "referralStrength": {
+        "ref-011": 0.175,
+        "ref-012": 0.175,
+        "ref-013": 0.175,
+        "ref-014": 0.175,
+        "ref-015": 0.175,
+        "ref-016": 0.175
+      }
+    },
+    "p-fox": {
+      "v0Signal": 49,
+      "v2Signal": 40,
+      "incomingCount": 2,
+      "strongest": 0.5,
+      "referralStrength": {
+        "ref-017": 0.5,
+        "ref-018": 0.48875
+      }
+    }
+  }
+}
