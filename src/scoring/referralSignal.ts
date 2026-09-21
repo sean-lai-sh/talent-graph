@@ -16,6 +16,11 @@
  * reproduced bit-for-bit. This module never computes p̂_u itself; see
  * src/judges/. Inputs are referrals plus optional judge weights. Rubric
  * evaluations, comparisons, affiliation and bio are not parameters.
+ *
+ * Both paths now go through one `EdgeWeighting` (see ./weighting.ts): V0 is
+ * `IDENTITY_WEIGHTING` and V2 is `judgeWeighting(...)`, which the judge maps
+ * still construct as sugar. The loop below applies whichever it is given, so a
+ * later weighting is added there and not here.
  */
 
 import { FIRSTHAND_EVIDENCE_TYPES } from "../domain/constants.ts";
@@ -23,6 +28,8 @@ import type { EvidenceType, Person, Referral } from "../domain/types.ts";
 import { CURRENT_SPECS } from "../models/registry.ts";
 import { assertSpec, type ReferralSignalSpec } from "../models/spec.ts";
 import { type ReferralStrengthBreakdown, referralStrengthBreakdown } from "./referralStrength.ts";
+import type { ScoredEdge } from "./scoredGraph.ts";
+import { type EdgeWeighting, IDENTITY_WEIGHTING, judgeWeighting } from "./weighting.ts";
 
 export const REFERRAL_SIGNAL_EXPLANATION =
   "Referral Signal summarizes the current strength of referral evidence. It is not an objective measure of ability.";
@@ -62,7 +69,7 @@ export interface ReferralSignalResult {
   explanation: string;
   /** Spec that produced the number, for provenance. */
   specVersion: string;
-  /** True when per-judge reliability or bias was applied (V2). */
+  /** The weighting's own `weighted` flag: true when a non-identity weighting ran (V2). */
   judgeWeighted: boolean;
 }
 
@@ -70,14 +77,40 @@ export interface ReferralSignalOptions {
   spec?: ReferralSignalSpec;
   /** Overrides `spec.topK`. Prefer passing a spec. */
   topK?: number;
+  /**
+   * How R_uv becomes the contribution entering S_v. Defaults to
+   * `IDENTITY_WEIGHTING`, i.e. the V0 path. Mutually exclusive with the
+   * `judgeReliability` / `judgeBias` sugar below: passing both would silently
+   * weight twice, so it throws.
+   */
+  weighting?: EdgeWeighting;
   /** p̂_u per judge id from V2 calibration; missing judges count as 1. */
   judgeReliability?: ReadonlyMap<string, number>;
   /** b̂_u per judge id from V2 calibration; missing judges count as 0. */
   judgeBias?: ReadonlyMap<string, number>;
 }
 
-function clip01(x: number): number {
-  return x < 0 ? 0 : x > 1 ? 1 : x;
+/**
+ * The weighting a call runs under. The judge maps are kept as sugar for
+ * `judgeWeighting(...)` so no existing caller changes; either map being present
+ * (even empty) selects the judge path, exactly as before the refactor.
+ */
+function resolveWeighting(opts: ReferralSignalOptions): EdgeWeighting {
+  const sugar = opts.judgeReliability !== undefined || opts.judgeBias !== undefined;
+  if (opts.weighting !== undefined) {
+    if (sugar) {
+      throw new Error(
+        "computeReferralSignal: pass either `weighting` or `judgeReliability`/`judgeBias`, not both",
+      );
+    }
+    return opts.weighting;
+  }
+  if (!sugar) return IDENTITY_WEIGHTING;
+  const maps: { reliability?: ReadonlyMap<string, number>; bias?: ReadonlyMap<string, number> } =
+    {};
+  if (opts.judgeReliability !== undefined) maps.reliability = opts.judgeReliability;
+  if (opts.judgeBias !== undefined) maps.bias = opts.judgeBias;
+  return judgeWeighting(maps);
 }
 
 function compareContributing(a: ContributingReferral, b: ContributingReferral): number {
@@ -99,26 +132,50 @@ export function computeReferralSignal(
   // Defensive: a self-referral should already be rejected by validateReferral.
   const incoming = referrals.filter((r) => r.candidateId === personId && r.referrerId !== personId);
 
-  const judgeWeighted = opts.judgeReliability !== undefined || opts.judgeBias !== undefined;
-  const scored = incoming
-    .map((referral): ContributingReferral => {
+  const weighting = resolveWeighting(opts);
+  const judgeWeighted = weighting.weighted;
+  const weighed = incoming
+    .map((referral): { c: ContributingReferral; eligible: boolean } => {
       const breakdown = referralStrengthBreakdown(referral, spec);
-      const reliability = opts.judgeReliability?.get(referral.referrerId) ?? 1;
-      const bias = opts.judgeBias?.get(referral.referrerId) ?? 0;
-      if (!(reliability >= 0 && reliability <= 1) || !Number.isFinite(bias)) {
-        throw new Error(
-          `computeReferralSignal: judge ${referral.referrerId} has reliability ${reliability}, bias ${bias}`,
-        );
-      }
-      const adjusted = bias === 0 ? breakdown.strength : clip01(breakdown.strength - bias);
-      const strength = reliability === 1 ? adjusted : reliability * adjusted;
-      return { referral, strength, breakdown, judge: { reliability, bias, adjusted } };
+      // The edge a weighting reads. Built inline from this referral's own
+      // breakdown rather than from `scoreReferralGraph`, so the arithmetic and
+      // the evaluation order are the pre-refactor ones exactly. `dangling` is
+      // false because this entry point is given referrals, not a node set, and
+      // V0 scores every referral either way; no weighting reads it. Reading the
+      // shared scored graph here is #56 T5.
+      const edge: ScoredEdge = {
+        referral,
+        strength: breakdown.strength,
+        breakdown,
+        dangling: false,
+      };
+      const w = weighting.weigh(edge);
+      return {
+        c: {
+          referral,
+          strength: w.contribution,
+          breakdown,
+          // `judge` is the view shape; `factors` is a superset of it. A
+          // weighting that reports no judge intermediate is not a judge with a
+          // weight of 0 — it is the neutral element (p̂ = 1, b̂ = 0, adjusted = R_uv).
+          judge: {
+            reliability: w.factors.reliability ?? 1,
+            bias: w.factors.bias ?? 0,
+            adjusted: w.factors.adjusted ?? breakdown.strength,
+          },
+        },
+        eligible: w.eligible,
+      };
     })
-    .sort(compareContributing);
+    .sort((a, b) => compareContributing(a.c, b.c));
+  const scored = weighed.map((x) => x.c);
 
-  // A zero-reliability judge must not occupy a Top-K slot or dilute the mean.
-  const eligible = judgeWeighted ? scored.filter((c) => c.judge.reliability > 0) : scored;
-  const contributing = eligible.slice(0, topK);
+  // An ineligible edge (today: a zero-reliability judge) must not occupy a
+  // Top-K slot or dilute the mean.
+  const contributing = weighed
+    .filter((x) => x.eligible)
+    .slice(0, topK)
+    .map((x) => x.c);
   const s =
     contributing.length === 0
       ? 0
