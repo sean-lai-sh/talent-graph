@@ -112,6 +112,7 @@ export async function processEvidence(input: ProcessEvidenceInput): Promise<Proc
       }
 
       const assessment = await input.judgments.assessClaim(evidence);
+      const completeDimensions = hasCompleteDimensionJudgments(assessment.dimensions);
       const lowDimensionConfidence = assessment.dimensions.some(
         (judgment) => judgment.confidence < policy.dimensionConfidence,
       );
@@ -119,6 +120,7 @@ export async function processEvidence(input: ProcessEvidenceInput): Promise<Proc
         identity.decision === "review" ||
         identity.confidence < policy.identityConfidence ||
         assessment.eventConfidence < policy.eventConfidence ||
+        !completeDimensions ||
         lowDimensionConfidence;
       const status =
         assessment.eventKind === null ? "rejected" : needsReview ? "review" : "accepted";
@@ -181,10 +183,28 @@ function contradictoryFieldMatches(
   fieldMatches: { name: number; affiliation: number; handle: number },
   threshold: number,
 ): boolean {
-  return (
-    [fieldMatches.name, fieldMatches.affiliation, fieldMatches.handle].filter(
-      (value) => value < threshold,
-    ).length >= 2
+  return [fieldMatches.name, fieldMatches.affiliation, fieldMatches.handle].some(
+    (value) => !Number.isFinite(value) || value < threshold,
+  );
+}
+
+function hasCompleteDimensionJudgments(
+  judgments: readonly CareerEvent["judgments"][number][],
+): boolean {
+  if (judgments.length !== DIMENSIONS.length) return false;
+  return DIMENSIONS.every(
+    (dimension) =>
+      judgments.filter((judgment) => judgment.dimension === dimension).length === 1 &&
+      judgments.some(
+        (judgment) =>
+          judgment.dimension === dimension &&
+          Number.isFinite(judgment.score) &&
+          judgment.score >= 0 &&
+          judgment.score <= 4 &&
+          Number.isFinite(judgment.confidence) &&
+          judgment.confidence >= 0 &&
+          judgment.confidence <= 1,
+      ),
   );
 }
 

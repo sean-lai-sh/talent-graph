@@ -1,6 +1,6 @@
 import { choice, noul, score, type TypeSafeClient } from "@typesafe-ai/sdk";
 import type { JevJudgmentService } from "../../../../src/longitudinal/judgments.ts";
-import type { IdentityDecision, ProgressDimension } from "../../../../src/longitudinal/types.ts";
+import type { ProgressDimension } from "../../../../src/longitudinal/types.ts";
 
 const EVENT_CRITERIA = {
   selective_role_transition:
@@ -81,11 +81,12 @@ export function createJevJudgmentService(client: TypeSafeClient): JevJudgmentSer
           },
         },
         questions: {
-          decision: score("How should the incoming evidence be linked to the canonical person?", [
-            "It describes a different person and must remain unlinked.",
-            "It may describe the person, but the evidence is ambiguous and needs human review.",
-            "It describes the same person and can be linked.",
-          ]),
+          decision: choice("How should the incoming evidence be linked to the canonical person?", {
+            different: "It describes a different person and must remain unlinked.",
+            review:
+              "It may describe the person, but the evidence is ambiguous and needs human review.",
+            same: "It describes the same person and can be linked.",
+          }),
           same_name: noul(
             "Does the incoming evidence identify the same name or a documented alias?",
           ),
@@ -96,10 +97,8 @@ export function createJevJudgmentService(client: TypeSafeClient): JevJudgmentSer
         },
       });
       const decisionAnswer = response.answers.decision;
-      const rounded = Math.min(2, Math.max(0, Math.round(decisionAnswer.score)));
-      const decisions: readonly IdentityDecision[] = ["different", "review", "same"];
       return {
-        decision: decisions[rounded] as IdentityDecision,
+        decision: decisionAnswer.choice,
         confidence: decisionAnswer.confidence,
         fieldMatches: {
           name: response.answers.same_name.noul,

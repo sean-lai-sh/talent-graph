@@ -7,6 +7,7 @@ import type {
   SourceKind,
 } from "../../../../src/longitudinal/types.ts";
 import { validateGrokEvidencePacket } from "../../../../src/longitudinal/validate.ts";
+import { verifyGrokCallbackSignature } from "./grok.ts";
 
 export type JsonFetcher = (url: string, init?: RequestInit) => Promise<unknown>;
 
@@ -78,10 +79,18 @@ export async function fetchGitHubEvidence(
     for (const raw of reposValue) {
       const repo = record(raw);
       if (!repo) continue;
-      const updatedAt = string(repo.updated_at);
+      const createdAt = string(repo.created_at);
       const url = string(repo.html_url);
       const name = string(repo.full_name) ?? string(repo.name);
-      if (!updatedAt || !url || !name || !insideWindow(updatedAt, from, cutoff)) continue;
+      if (
+        !createdAt ||
+        !url ||
+        !name ||
+        repo.fork === true ||
+        !insideWindow(createdAt, from, cutoff)
+      ) {
+        continue;
+      }
       const description = string(repo.description) ?? "No repository description.";
       evidence.push(
         item({
@@ -89,9 +98,9 @@ export async function fetchGitHubEvidence(
           sourceId: `repo:${name}`,
           url,
           publisher: username,
-          publishedAt: updatedAt,
+          publishedAt: createdAt,
           quotedText: description,
-          statement: `${username} maintained or published ${name}: ${description}`,
+          statement: `${username} created the public repository ${name}: ${description}`,
           proposedEventKind: "open_source_contribution",
           raw,
         }),
@@ -108,7 +117,15 @@ export async function fetchGitHubEvidence(
       const type = string(event.type);
       const repo = record(event.repo);
       const repoName = repo ? string(repo.name) : null;
-      if (!createdAt || !id || !type || !repoName || !insideWindow(createdAt, from, cutoff)) {
+      const payload = record(event.payload);
+      const contribution = githubContributionDescription(type, payload, repoName);
+      if (
+        !createdAt ||
+        !id ||
+        !repoName ||
+        contribution === null ||
+        !insideWindow(createdAt, from, cutoff)
+      ) {
         continue;
       }
       evidence.push(
@@ -118,8 +135,8 @@ export async function fetchGitHubEvidence(
           url: `https://github.com/${repoName}`,
           publisher: username,
           publishedAt: createdAt,
-          quotedText: `${type} in ${repoName}`,
-          statement: `${username} had a public ${type} event in ${repoName}.`,
+          quotedText: contribution,
+          statement: `${username} ${contribution}.`,
           proposedEventKind: "open_source_contribution",
           raw,
         }),
@@ -127,6 +144,26 @@ export async function fetchGitHubEvidence(
     }
   }
   return evidence;
+}
+
+function githubContributionDescription(
+  type: string | null,
+  payload: Record<string, unknown> | null,
+  repoName: string | null,
+): string | null {
+  if (!type || !repoName) return null;
+  if (type === "ReleaseEvent") return `published a release in ${repoName}`;
+  if (type === "PushEvent") return `pushed commits to ${repoName}`;
+  if (type === "CreateEvent" && string(payload?.ref_type) === "tag") {
+    return `created a release tag in ${repoName}`;
+  }
+  if (type === "PullRequestEvent") {
+    const pullRequest = record(payload?.pull_request);
+    if (string(payload?.action) === "closed" && string(pullRequest?.merged_at)) {
+      return `merged a pull request in ${repoName}`;
+    }
+  }
+  return null;
 }
 
 export async function fetchOrcidEvidence(
@@ -160,16 +197,25 @@ export async function fetchOrcidEvidence(
       const putCode = summary["put-code"];
       const date = record(summary["publication-date"]);
       const year = string(record(date?.year)?.value);
-      const month = string(record(date?.month)?.value) ?? "01";
-      const day = string(record(date?.day)?.value) ?? "01";
-      if (!title || (typeof putCode !== "number" && typeof putCode !== "string") || !year) continue;
+      const month = string(record(date?.month)?.value);
+      const day = string(record(date?.day)?.value);
+      if (
+        !title ||
+        (typeof putCode !== "number" && typeof putCode !== "string") ||
+        !year ||
+        !month ||
+        !day
+      ) {
+        continue;
+      }
       const publishedAt = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T00:00:00.000Z`;
       if (!insideWindow(publishedAt, from, cutoff)) continue;
+      const workUrl = string(record(summary.url)?.value) ?? `https://orcid.org/${orcid}`;
       evidence.push(
         item({
           source: "orcid",
           sourceId: `work:${putCode}`,
-          url: `https://orcid.org/${orcid}`,
+          url: workUrl,
           publisher: orcid,
           publishedAt,
           quotedText: title,
@@ -178,20 +224,26 @@ export async function fetchOrcidEvidence(
           raw: summaryRaw,
         }),
       );
+      break;
     }
   }
   return evidence;
 }
 
-export interface GrokIngestMemory {
-  runIds: Set<string>;
-  itemKeys: Set<string>;
+export interface GrokIngestStore {
+  /**
+   * Atomically claim a packet and its evidence keys.
+   * Return null for a replayed run, otherwise the newly claimed item keys.
+   */
+  claimPacket(runId: string, itemKeys: readonly string[]): Promise<readonly string[] | null>;
 }
 
-const defaultGrokIngestMemory: GrokIngestMemory = {
-  runIds: new Set(),
-  itemKeys: new Set(),
-};
+export interface ExpectedGrokRun {
+  personId: string;
+  runId: string;
+  cutoffAt: Date;
+  signingSecret: string;
+}
 
 export function grokEvidenceItemKey(
   personId: string,
@@ -200,20 +252,62 @@ export function grokEvidenceItemKey(
   return `${personId}\u0000${item.sourceId}\u0000${item.publishedAt}\u0000${item.contentHash}`;
 }
 
-export function ingestGrokEvidencePacket(
-  packet: GrokEvidencePacket,
-  memory: GrokIngestMemory = defaultGrokIngestMemory,
-): GrokEvidenceItem[] {
+export async function ingestGrokEvidenceCallback(
+  rawBody: string,
+  signature: string,
+  expected: ExpectedGrokRun,
+  store: GrokIngestStore,
+): Promise<GrokEvidenceItem[]> {
+  if (!verifyGrokCallbackSignature(rawBody, signature, expected.signingSecret)) {
+    throw new Error("invalid Grok callback signature");
+  }
+  const parsed: unknown = JSON.parse(rawBody);
+  if (!isGrokEvidencePacket(parsed)) throw new Error("invalid Grok evidence packet");
+  const packet = parsed;
   const validation = validateGrokEvidencePacket(packet);
   if (!validation.ok) throw new Error(validation.errors.join("; "));
-  if (memory.runIds.has(packet.runId)) return [];
-  memory.runIds.add(packet.runId);
-  return packet.items.filter((candidate) => {
-    const key = grokEvidenceItemKey(packet.personId, candidate);
-    if (memory.itemKeys.has(key)) return false;
-    memory.itemKeys.add(key);
-    return true;
+  if (packet.personId !== expected.personId) throw new Error("Grok callback person mismatch");
+  if (packet.runId !== expected.runId) throw new Error("Grok callback run mismatch");
+  if (packet.cutoffAt !== expected.cutoffAt.toISOString()) {
+    throw new Error("Grok callback cutoff mismatch");
+  }
+  const byKey = new Map(
+    packet.items.map((candidate) => [grokEvidenceItemKey(packet.personId, candidate), candidate]),
+  );
+  const claimed = await store.claimPacket(packet.runId, [...byKey.keys()]);
+  if (claimed === null) return [];
+  return claimed.flatMap((key) => {
+    const candidate = byKey.get(key);
+    return candidate ? [candidate] : [];
   });
+}
+
+function isGrokEvidencePacket(value: unknown): value is GrokEvidencePacket {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const packet = value as Record<string, unknown>;
+  return (
+    packet.schemaVersion === "1" &&
+    typeof packet.personId === "string" &&
+    typeof packet.runId === "string" &&
+    typeof packet.retrievedAt === "string" &&
+    typeof packet.cutoffAt === "string" &&
+    Array.isArray(packet.items)
+  );
+}
+
+/** Test/local adapter. Production callbacks must use a durable transactional store. */
+export function createInMemoryGrokIngestStore(): GrokIngestStore {
+  const runIds = new Set<string>();
+  const itemKeys = new Set<string>();
+  return {
+    async claimPacket(runId, keys) {
+      if (runIds.has(runId)) return null;
+      runIds.add(runId);
+      const claimed = keys.filter((key) => !itemKeys.has(key));
+      for (const key of claimed) itemKeys.add(key);
+      return claimed;
+    },
+  };
 }
 
 export function knownHandle(identity: CanonicalIdentity, source: SourceKind): string | null {

@@ -34,7 +34,11 @@ export async function runDueMonitoringPlans(input: {
       const identity = input.identities.get(batch.personId);
       if (!identity) {
         for (const plan of batch.plans) {
-          updates.set(plan.id, failMonitoringPlan(plan, "canonical identity not found", input.now));
+          const running = startMonitoringPlan(plan, input.now);
+          updates.set(
+            plan.id,
+            failMonitoringPlan(running, "canonical identity not found", input.now),
+          );
         }
         return;
       }

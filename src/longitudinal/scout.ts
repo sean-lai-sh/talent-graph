@@ -5,6 +5,7 @@ export interface ScoutHit {
   judgeId: string;
   personId: string;
   forecastKind: "unspecified" | "will_compound";
+  referredAt: Date;
   /** Unweighted V0 recognition before this judge's referral, normalized to [0, 1]. */
   priorRecognition: number;
   slope: LongitudinalResidualSlope;
@@ -21,8 +22,16 @@ export interface ScoutInformationGain {
 export function scoutHitGain(hit: ScoutHit): number | null {
   if (hit.forecastKind !== "will_compound") return null;
   if (hit.slope.state !== "defined" || hit.slope.delta === null) return null;
-  const prior = Math.min(1, Math.max(0, hit.priorRecognition));
-  return (1 - prior) * Math.max(hit.slope.delta, 0);
+  if (hit.personId !== hit.slope.personId) return null;
+  if (!Number.isFinite(hit.referredAt.getTime()) || hit.referredAt > hit.slope.t0) return null;
+  if (
+    !Number.isFinite(hit.priorRecognition) ||
+    hit.priorRecognition < 0 ||
+    hit.priorRecognition > 1
+  ) {
+    return null;
+  }
+  return (1 - hit.priorRecognition) * Math.max(hit.slope.delta, 0);
 }
 
 /** Shrink each scout's mean information gain toward zero by n / (n + λ). */

@@ -1,6 +1,7 @@
 import type { MonitoringPlan } from "./types.ts";
 
 const DAY_MS = 86_400_000;
+export const DEFAULT_MONITORING_LEASE_MS = 15 * 60 * 1000;
 
 export interface CreateMonitoringPlanInput {
   id: string;
@@ -47,11 +48,12 @@ export interface DuePersonBatch {
 export function batchDueMonitoringPlans(
   plans: readonly MonitoringPlan[],
   now: Date,
+  runningLeaseMs = DEFAULT_MONITORING_LEASE_MS,
 ): DuePersonBatch[] {
   const groups = new Map<string, DuePersonBatch>();
   for (const plan of plans) {
     if (
-      (plan.status !== "pending" && plan.status !== "failed") ||
+      !monitoringPlanIsRetryable(plan, now, runningLeaseMs) ||
       plan.dueAt.getTime() > now.getTime()
     ) {
       continue;
@@ -81,8 +83,12 @@ export function batchDueMonitoringPlans(
     );
 }
 
-export function startMonitoringPlan(plan: MonitoringPlan, attemptedAt: Date): MonitoringPlan {
-  if (plan.status !== "pending" && plan.status !== "failed") return plan;
+export function startMonitoringPlan(
+  plan: MonitoringPlan,
+  attemptedAt: Date,
+  runningLeaseMs = DEFAULT_MONITORING_LEASE_MS,
+): MonitoringPlan {
+  if (!monitoringPlanIsRetryable(plan, attemptedAt, runningLeaseMs)) return plan;
   return {
     ...plan,
     status: "running",
@@ -90,6 +96,17 @@ export function startMonitoringPlan(plan: MonitoringPlan, attemptedAt: Date): Mo
     lastAttemptAt: new Date(attemptedAt.getTime()),
     error: null,
   };
+}
+
+function monitoringPlanIsRetryable(
+  plan: MonitoringPlan,
+  now: Date,
+  runningLeaseMs: number,
+): boolean {
+  if (plan.status === "pending" || plan.status === "failed") return true;
+  if (plan.status !== "running") return false;
+  if (plan.lastAttemptAt === null) return true;
+  return now.getTime() - plan.lastAttemptAt.getTime() >= runningLeaseMs;
 }
 
 export function completeMonitoringPlan(

@@ -6,30 +6,36 @@
  * made before accepted events are translated into Outcome/Opportunity rows.
  */
 
-export type SourceKind =
-  | "github"
-  | "personal_site"
-  | "resume"
-  | "orcid"
-  | "openalex"
-  | "package_registry"
-  | "company_site"
-  | "x"
-  | "grok_web"
-  | "other";
+export const SOURCE_KINDS = [
+  "github",
+  "personal_site",
+  "resume",
+  "orcid",
+  "openalex",
+  "package_registry",
+  "company_site",
+  "x",
+  "grok_web",
+  "other",
+] as const;
+
+export type SourceKind = (typeof SOURCE_KINDS)[number];
 
 export type ClaimStatus = "proposed" | "accepted" | "review" | "rejected";
 export type MonitoringStatus = "pending" | "running" | "completed" | "review" | "failed";
 export type IdentityDecision = "same" | "review" | "different";
 
-export type CareerEventKind =
-  | "selective_role_transition"
-  | "shipped_product"
-  | "open_source_contribution"
-  | "research_output"
-  | "venture_traction"
-  | "grant_or_award"
-  | "community_or_craft_contribution";
+export const CAREER_EVENT_KINDS = [
+  "selective_role_transition",
+  "shipped_product",
+  "open_source_contribution",
+  "research_output",
+  "venture_traction",
+  "grant_or_award",
+  "community_or_craft_contribution",
+] as const;
+
+export type CareerEventKind = (typeof CAREER_EVENT_KINDS)[number];
 
 export type ProgressDimension =
   | "difficulty"

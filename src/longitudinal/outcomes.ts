@@ -12,7 +12,7 @@ const OUTCOME_DIMENSIONS: readonly ProgressDimension[] = [
 ];
 
 function mean(values: readonly number[]): number {
-  return values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 /**
@@ -40,11 +40,21 @@ export function careerEventsToLongitudinalRecords(events: readonly CareerEvent[]
       });
       continue;
     }
-    const values = OUTCOME_DIMENSIONS.flatMap((dimension) =>
-      event.judgments
-        .filter((judgment) => judgment.dimension === dimension)
-        .map((judgment) => judgment.score / 4),
+    const grouped = OUTCOME_DIMENSIONS.map((dimension) =>
+      event.judgments.filter((judgment) => judgment.dimension === dimension),
     );
+    if (
+      grouped.some(
+        (judgments) =>
+          judgments.length !== 1 ||
+          !Number.isFinite(judgments[0]?.score) ||
+          (judgments[0]?.score ?? -1) < 0 ||
+          (judgments[0]?.score ?? 5) > 4,
+      )
+    ) {
+      continue;
+    }
+    const values = grouped.map((judgments) => (judgments[0]?.score as number) / 4);
     outcomes.push({
       id: `outcome-${event.id}`,
       personId: event.personId,

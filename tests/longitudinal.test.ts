@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { buildGrokRoutineRequest } from "../apps/club/lib/longitudinal/grok.ts";
+import {
+  buildGrokRoutineRequest,
+  signGrokCallbackBody,
+} from "../apps/club/lib/longitudinal/grok.ts";
 import { createJevJudgmentService } from "../apps/club/lib/longitudinal/jev.ts";
 import {
+  createInMemoryGrokIngestStore,
   fetchGitHubEvidence,
-  ingestGrokEvidencePacket,
+  fetchOrcidEvidence,
+  ingestGrokEvidenceCallback,
 } from "../apps/club/lib/longitudinal/sources.ts";
 import type { Opportunity, Outcome } from "../src/domain/types.ts";
 import type {
@@ -20,6 +25,7 @@ import {
   checkpointJobKey,
   contentFingerprint,
   createMonitoringPlan,
+  DEFAULT_MONITORING_LEASE_MS,
   evaluateLongitudinalCases,
   failMonitoringPlan,
   processEvidence,
@@ -27,6 +33,7 @@ import {
   residualSlope,
   runDueMonitoringPlans,
   scoutHitGain,
+  startMonitoringPlan,
   validateGrokEvidencePacket,
 } from "../src/index.ts";
 import { JUDGE_RELIABILITY_V2_0_0 } from "../src/models/registry.ts";
@@ -97,7 +104,7 @@ const acceptingJudgments: JevJudgmentService = {
 };
 
 describe("longitudinal source ingestion", () => {
-  test("Grok packets reject evidence after the immutable cutoff and dedupe valid items", () => {
+  test("Grok callbacks require a signature, stored run binding, and durable dedupe", async () => {
     const packet: GrokEvidencePacket = {
       schemaVersion: "1",
       personId: "p-1",
@@ -111,43 +118,38 @@ describe("longitudinal source ingestion", () => {
       errors: ["items[0].publishedAt exceeds cutoffAt"],
     });
 
-    const valid = { ...packet, items: [evidence("valid", 80), evidence("valid", 80)] };
-    expect(
-      ingestGrokEvidencePacket(valid, { runIds: new Set(), itemKeys: new Set() }),
-    ).toHaveLength(1);
-  });
-
-  test("Grok packet replays are dropped across invocations", () => {
-    const memory = { runIds: new Set<string>(), itemKeys: new Set<string>() };
-    const packet: GrokEvidencePacket = {
-      schemaVersion: "1",
-      personId: "p-1",
-      runId: "run-1",
-      retrievedAt: day(100).toISOString(),
-      cutoffAt: day(90).toISOString(),
-      items: [evidence("valid", 80)],
+    const valid: GrokEvidencePacket = {
+      ...packet,
+      items: [evidence("valid", 80), evidence("valid", 80)],
     };
-    expect(ingestGrokEvidencePacket(packet, memory)).toHaveLength(1);
-    expect(ingestGrokEvidencePacket(packet, memory)).toHaveLength(0);
-    expect(
-      ingestGrokEvidencePacket(
-        { ...packet, runId: "run-2", items: [evidence("valid", 80)] },
-        memory,
-      ),
-    ).toHaveLength(0);
-  });
-
-  test("Grok ingest memory persists when the caller does not pass a store", () => {
-    const packet: GrokEvidencePacket = {
-      schemaVersion: "1",
+    const rawBody = JSON.stringify(valid);
+    const signingSecret = "per-run-test-secret";
+    const expected = {
       personId: "p-1",
       runId: "default-store",
-      retrievedAt: day(100).toISOString(),
-      cutoffAt: day(90).toISOString(),
-      items: [evidence("default-store", 80)],
+      cutoffAt: day(90),
+      signingSecret,
     };
-    expect(ingestGrokEvidencePacket(packet)).toHaveLength(1);
-    expect(ingestGrokEvidencePacket(packet)).toHaveLength(0);
+    const boundPacket = JSON.stringify({ ...valid, runId: expected.runId });
+    const signature = signGrokCallbackBody(boundPacket, signingSecret);
+    const store = createInMemoryGrokIngestStore();
+    expect(await ingestGrokEvidenceCallback(boundPacket, signature, expected, store)).toHaveLength(
+      1,
+    );
+    expect(await ingestGrokEvidenceCallback(boundPacket, signature, expected, store)).toHaveLength(
+      0,
+    );
+    await expect(
+      ingestGrokEvidenceCallback(boundPacket, "sha256=bad", expected, store),
+    ).rejects.toThrow("invalid Grok callback signature");
+    await expect(
+      ingestGrokEvidenceCallback(
+        rawBody,
+        signGrokCallbackBody(rawBody, signingSecret),
+        expected,
+        createInMemoryGrokIngestStore(),
+      ),
+    ).rejects.toThrow("Grok callback run mismatch");
   });
 
   test("GitHub adapter retains only evidence inside the requested window", async () => {
@@ -159,14 +161,24 @@ describe("longitudinal source ingestion", () => {
           {
             full_name: "avery/new-work",
             html_url: "https://github.com/avery/new-work",
-            updated_at: day(50).toISOString(),
+            created_at: day(50).toISOString(),
             description: "A difficult compiler.",
+            fork: false,
           },
           {
             full_name: "avery/too-new",
             html_url: "https://github.com/avery/too-new",
-            updated_at: day(95).toISOString(),
+            created_at: day(95).toISOString(),
             description: "After cutoff.",
+            fork: false,
+          },
+          {
+            full_name: "avery/old-fork",
+            html_url: "https://github.com/avery/old-fork",
+            created_at: day(50).toISOString(),
+            updated_at: day(60).toISOString(),
+            description: "Not authored work.",
+            fork: true,
           },
         ];
       }
@@ -177,19 +189,63 @@ describe("longitudinal source ingestion", () => {
           created_at: day(60).toISOString(),
           repo: { name: "avery/new-work" },
         },
+        {
+          id: "event-2",
+          type: "WatchEvent",
+          created_at: day(61).toISOString(),
+          repo: { name: "avery/someone-elses-work" },
+        },
       ];
     });
     expect(calls).toHaveLength(2);
     expect(fetched.map((item) => item.sourceId)).toEqual(["repo:avery/new-work", "event:event-1"]);
   });
 
+  test("ORCID adapter rejects incomplete publication dates", async () => {
+    const fetched = await fetchOrcidEvidence(
+      "0000-0000-0000-0001",
+      day(0),
+      day(180),
+      "token",
+      async () => ({
+        group: [
+          {
+            "work-summary": [
+              {
+                "put-code": 1,
+                title: { title: { value: "Year only" } },
+                "publication-date": { year: { value: "2026" } },
+              },
+              {
+                "put-code": 2,
+                title: { title: { value: "Fully dated work" } },
+                "publication-date": {
+                  year: { value: "2026" },
+                  month: { value: "03" },
+                  day: { value: "01" },
+                },
+                url: { value: "https://example.com/work" },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(fetched).toHaveLength(1);
+    expect(fetched[0]?.sourceId).toBe("work:2");
+    expect(fetched[0]?.url).toBe("https://example.com/work");
+  });
+
   test("Grok routine request is bounded to person, identities, and cutoff", () => {
     const request = buildGrokRoutineRequest({
+      runId: "run-1",
       identity,
       from: day(0),
       cutoffAt: day(90),
       callbackUrl: "https://example.com/api/evidence",
+      callbackSigningSecret: "per-run-secret",
     });
+    expect(request.runId).toBe("run-1");
     expect(request.person.knownIdentities[0]?.externalId).toBe("avery");
     expect(request.cutoffAt).toBe(day(90).toISOString());
     expect(request.instructions).toContain("Exclude evidence after cutoffAt");
@@ -205,7 +261,7 @@ describe("Jev judgments and evidence policy", () => {
         if ("decision" in request.questions) {
           return {
             answers: {
-              decision: { score: 2, confidence: 0.91 },
+              decision: { choice: "same", confidence: 0.91 },
               same_name: { noul: 0.95 },
               same_affiliation: { noul: 0.8 },
               same_handle: { noul: 1 },
@@ -352,6 +408,33 @@ describe("Jev judgments and evidence policy", () => {
     expect(result.needsReview).toBe(true);
     expect(careerEventsToLongitudinalRecords(result.events).outcomes).toEqual([]);
   });
+
+  test("missing dimensions route to review and never become a zero outcome", async () => {
+    const missingDimensions: JevJudgmentService = {
+      ...acceptingJudgments,
+      async assessClaim() {
+        return {
+          eventKind: "shipped_product",
+          eventConfidence: 0.99,
+          dimensions: [],
+        };
+      },
+    };
+    const result = await processEvidence({
+      identity,
+      evidence: [evidence("work", 40)],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments: missingDimensions,
+    });
+    expect(result.claims[0]?.status).toBe("review");
+    expect(result.events[0]?.status).toBe("review");
+    expect(careerEventsToLongitudinalRecords(result.events).outcomes).toEqual([]);
+
+    const malformedAccepted = { ...event("malformed", "p-1", 40, 2), judgments: [] };
+    expect(careerEventsToLongitudinalRecords([malformedAccepted]).outcomes).toEqual([]);
+  });
 });
 
 describe("checkpoint scheduling", () => {
@@ -435,6 +518,31 @@ describe("checkpoint scheduling", () => {
     expect(batches).toHaveLength(1);
     expect(batches[0]?.plans).toHaveLength(1);
     expect(batches[0]?.plans[0]?.status).toBe("failed");
+  });
+
+  test("running plans retry only after their lease expires", () => {
+    const pending = createMonitoringPlan({
+      id: "leased",
+      personId: "p-1",
+      caseId: "c-1",
+      caseOpenedAt: day(0),
+      horizonDays: 90,
+      pipelineVersion: "1",
+    });
+    const attemptedAt = day(100);
+    const running = startMonitoringPlan(pending, attemptedAt);
+    expect(
+      batchDueMonitoringPlans(
+        [running],
+        new Date(attemptedAt.getTime() + DEFAULT_MONITORING_LEASE_MS - 1),
+      ),
+    ).toHaveLength(0);
+    expect(
+      batchDueMonitoringPlans(
+        [running],
+        new Date(attemptedAt.getTime() + DEFAULT_MONITORING_LEASE_MS),
+      ),
+    ).toHaveLength(1);
   });
 
   test("shared fetch still filters each plan to its own baseline window", async () => {
@@ -527,6 +635,9 @@ function event(id: string, personId: string, observedDay: number, score: number)
     judgments: [
       { dimension: "difficulty", score, probabilities: [], confidence: 1 },
       { dimension: "ownership", score, probabilities: [], confidence: 1 },
+      { dimension: "external_impact", score, probabilities: [], confidence: 1 },
+      { dimension: "originality", score, probabilities: [], confidence: 1 },
+      { dimension: "peer_validation", score, probabilities: [], confidence: 1 },
     ],
     status: "accepted",
     model: "test",
@@ -550,7 +661,7 @@ describe("outcome mapping and slope", () => {
     expect(records.outcomes[0]?.value).toBe(1);
     const vector = progressVector("p-1", day(0), day(90), [accepted, review]);
     expect(vector.dimensions.difficulty).toBe(1);
-    expect(vector.dimensions.external_impact).toBeNull();
+    expect(vector.dimensions.external_impact).toBe(1);
   });
 
   test("computes opportunity-adjusted residual slope over fixed cutoffs", () => {
@@ -640,11 +751,14 @@ describe("outcome mapping and slope", () => {
       judgeId: "u",
       personId: "p",
       forecastKind: "will_compound" as const,
+      referredAt: day(0),
       priorRecognition: 0.25,
       slope,
     };
     expect(scoutHitGain(hit)).toBeCloseTo(0.45);
     expect(scoutHitGain({ ...hit, forecastKind: "unspecified" })).toBeNull();
+    expect(scoutHitGain({ ...hit, personId: "other" })).toBeNull();
+    expect(scoutHitGain({ ...hit, referredAt: day(1) })).toBeNull();
     const aggregate = aggregateScoutInformationGain([hit], 3).get("u");
     expect(aggregate?.rawGain).toBeCloseTo(0.45);
     expect(aggregate?.gain).toBeCloseTo(0.1125);

@@ -5,6 +5,7 @@ import type {
   MonitoringPlan,
   SourceProvenance,
 } from "./types.ts";
+import { CAREER_EVENT_KINDS, SOURCE_KINDS } from "./types.ts";
 
 export type LongitudinalValidationResult = { ok: true } | { ok: false; errors: string[] };
 
@@ -118,19 +119,36 @@ export function validateGrokEvidencePacket(
   const cutoffAt = Date.parse(packet.cutoffAt);
   packet.items.forEach((item, index) => {
     const prefix = `items[${index}]`;
-    if (item.sourceId.trim() === "") errors.push(`${prefix}.sourceId must be non-empty`);
-    if (!validHttpUrl(item.url)) errors.push(`${prefix}.url must be HTTP(S)`);
-    if (item.publisher.trim() === "") errors.push(`${prefix}.publisher must be non-empty`);
-    if (!validIso(item.publishedAt)) errors.push(`${prefix}.publishedAt must be an ISO date`);
-    else if (Date.parse(item.publishedAt) > cutoffAt) {
+    if (!SOURCE_KINDS.includes(item.source)) errors.push(`${prefix}.source is invalid`);
+    if (typeof item.sourceId !== "string" || item.sourceId.trim() === "") {
+      errors.push(`${prefix}.sourceId must be non-empty`);
+    }
+    if (typeof item.url !== "string" || !validHttpUrl(item.url)) {
+      errors.push(`${prefix}.url must be HTTP(S)`);
+    }
+    if (typeof item.publisher !== "string" || item.publisher.trim() === "") {
+      errors.push(`${prefix}.publisher must be non-empty`);
+    }
+    if (typeof item.publishedAt !== "string" || !validIso(item.publishedAt)) {
+      errors.push(`${prefix}.publishedAt must be an ISO date`);
+    } else if (Date.parse(item.publishedAt) > cutoffAt) {
       errors.push(`${prefix}.publishedAt exceeds cutoffAt`);
     }
     if (Number.isFinite(retrievedAt) && Date.parse(item.publishedAt) > retrievedAt) {
       errors.push(`${prefix}.publishedAt exceeds retrievedAt`);
     }
-    if (item.quotedText.trim() === "") errors.push(`${prefix}.quotedText must be non-empty`);
-    if (item.contentHash.trim() === "") errors.push(`${prefix}.contentHash must be non-empty`);
-    if (item.statement.trim() === "") errors.push(`${prefix}.statement must be non-empty`);
+    if (typeof item.quotedText !== "string" || item.quotedText.trim() === "") {
+      errors.push(`${prefix}.quotedText must be non-empty`);
+    }
+    if (typeof item.contentHash !== "string" || item.contentHash.trim() === "") {
+      errors.push(`${prefix}.contentHash must be non-empty`);
+    }
+    if (typeof item.statement !== "string" || item.statement.trim() === "") {
+      errors.push(`${prefix}.statement must be non-empty`);
+    }
+    if (item.proposedEventKind !== null && !CAREER_EVENT_KINDS.includes(item.proposedEventKind)) {
+      errors.push(`${prefix}.proposedEventKind is invalid`);
+    }
   });
   return result(errors);
 }
