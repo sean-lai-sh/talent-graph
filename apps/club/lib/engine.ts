@@ -35,21 +35,19 @@ import {
   validateEvaluation,
   validateReferral,
 } from "../../../src/domain/validate.ts";
-import { buildReferralGraph, referredBy, referrersOf } from "../../../src/graph/referralGraph.ts";
+import { referredBy, referrersOf } from "../../../src/graph/referralGraph.ts";
 import {
   computeCapabilityVectors,
   dimensionLabel,
 } from "../../../src/inference/capabilityVector.ts";
-import { computeJudgeCalibration, judgeWeightOptions } from "../../../src/judges/reliability.ts";
 import { judgeTrackRecord, TRACK_RECORD_ORDER } from "../../../src/judges/trackRecord.ts";
 import {
-  computeAllReferralSignals,
   displayReferralSignal,
   type ReferralSignalResult,
 } from "../../../src/scoring/referralSignal.ts";
-import { referralStrength } from "../../../src/scoring/referralStrength.ts";
 import { generateSeed } from "../../../src/seed/generate.ts";
 import { PERSONA_IDS } from "../../../src/seed/personas.ts";
+import { buildReferralModel } from "./engine/referralModel.ts";
 import {
   daysBetween,
   defaultReviewStatus,
@@ -315,26 +313,27 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
   const byId = new Map(state.people.map((p) => [p.id, p] as const));
   const reviewOf = (p: ClubPerson): ReviewStatus => p.reviewStatus ?? defaultReviewStatus(p.status);
 
-  const v0 = computeAllReferralSignals(people, referralsNow, { spec: specs.referral_signal });
-  const cap = computeCapabilityVectors(people, comparisons, { spec: specs.bradley_terry });
-  const cal = computeJudgeCalibration({
+  // One scored index for the whole view: R_uv per referral is computed once
+  // here and every strength below is read from it.
+  const {
+    scored,
+    v0,
+    v2,
+    calibration: cal,
+  } = buildReferralModel({
     people,
     referrals: referralsNow,
     outcomes,
     opportunities,
     now,
-    spec: specs.judge_reliability,
-    referralSpec: specs.referral_signal,
+    specs,
   });
-  const v2 = computeAllReferralSignals(people, referralsNow, {
-    spec: specs.referral_signal,
-    ...judgeWeightOptions(cal),
-  });
+  const cap = computeCapabilityVectors(people, comparisons, { spec: specs.bradley_terry });
   const gaps = underRecognitionGaps(v2, cap);
   const queue = new Map<string, ReviewEntry>(
     buildReviewQueue({ people, signals: v2, capRun: cap, gaps }).map((e) => [e.personId, e]),
   );
-  const graph = buildReferralGraph(people, referralsNow);
+  const graph = scored.graph;
 
   const windowMs = specs.judge_reliability.observationWindowDays * 86_400_000;
   const earliestReferral = Math.min(...referralsNow.map((r) => r.createdAt.getTime()));
@@ -382,7 +381,9 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
     const entry = queue.get(p.id);
     const myEvaluations = evaluationsOf.get(p.id) ?? [];
     const myComparisons = comparisonsOf.get(p.id) ?? [];
-    const myReferrals = referralsNow.filter((r) => r.candidateId === p.id);
+    // Already scored, already in input order — the same set the old
+    // `referralsNow.filter(...)` produced, without the per-person scan.
+    const myReferrals = scored.in.get(p.id) ?? [];
     const contributingIds = new Set((s2?.contributing ?? []).map((c) => c.referral.id));
     const rubric = summarizeEvaluations(myEvaluations);
 
@@ -445,15 +446,15 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
     });
 
     const referralViews: ReferralView[] = myReferrals
-      .map((r) => {
-        const scored = s2?.contributing.find((c) => c.referral.id === r.id);
-        const breakdown = scored?.breakdown;
+      .map((edge) => {
+        const r = edge.referral;
+        const breakdown = s2?.contributing.find((c) => c.referral.id === r.id)?.breakdown;
         return {
           referralId: r.id,
           referrerId: r.referrerId,
           referrerName: nameOf(state, r.referrerId),
           judgeTrackRecord: trackOf(r.referrerId),
-          strength: scored?.breakdown.strength ?? referralStrength(r, specs.referral_signal),
+          strength: edge.strength,
           conviction: r.conviction,
           confidence: r.confidence,
           relationshipDepth: r.relationshipDepth,
@@ -654,24 +655,28 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
       }))
       .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt) || a.id.localeCompare(b.id));
 
+    // Strength comes from the shared index; absence of an edge stays absence
+    // (the `""` / 0 placeholder is the pre-existing shape, not a new score).
     const neighbour = (q: Person, referral: Referral | undefined) => ({
       personId: q.id,
       name: q.name,
       status: q.status,
       referralId: referral?.id ?? "",
-      strength: referral ? referralStrength(referral, specs.referral_signal) : 0,
+      strength: referral ? (scored.byReferralId.get(referral.id)?.strength ?? 0) : 0,
     });
+    const incomingEdges = graph.in.get(p.id) ?? [];
+    const outgoingEdges = graph.out.get(p.id) ?? [];
     const neighbourhood = {
       referrers: referrersOf(graph, p.id).map((q) =>
         neighbour(
           q,
-          referralsNow.find((r) => r.referrerId === q.id && r.candidateId === p.id),
+          incomingEdges.find((r) => r.referrerId === q.id),
         ),
       ),
       referred: referredBy(graph, p.id).map((q) =>
         neighbour(
           q,
-          referralsNow.find((r) => r.referrerId === p.id && r.candidateId === q.id),
+          outgoingEdges.find((r) => r.candidateId === q.id),
         ),
       ),
     };

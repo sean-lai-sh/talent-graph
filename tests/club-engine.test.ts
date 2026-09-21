@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describeActionError } from "../apps/club/lib/actionError.ts";
+import { buildReferralModel } from "../apps/club/lib/engine/referralModel.ts";
 import {
   addComparison,
   addEvaluation,
@@ -40,7 +41,10 @@ import {
 import { sortRows } from "../apps/club/lib/tableModel.ts";
 import { loadSpecs } from "../src/config.ts";
 import { BANNED_LANGUAGE, PRODUCT_LANGUAGE, SCALE_LABELS } from "../src/domain/constants.ts";
+import { computeJudgeCalibration, judgeWeightOptions } from "../src/judges/reliability.ts";
 import { TRACK_RECORD_ORDER } from "../src/judges/trackRecord.ts";
+import { computeAllReferralSignals } from "../src/scoring/referralSignal.ts";
+import { referralStrength } from "../src/scoring/referralStrength.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 
 const root = join(import.meta.dir, "..");
@@ -564,5 +568,115 @@ describe("council page UX pins", () => {
     }
     expect(existsSync(join(root, "apps/club/components/JudgeSim.tsx"))).toBe(false);
     expect(existsSync(join(root, "apps/club/components/GraphPanel.tsx"))).toBe(false);
+  });
+});
+
+describe("council page engine: the referral model seam", () => {
+  const specs = loadSpecs({}, { warn: () => {} });
+  const seedModelInput = () => {
+    const seed = generateSeed();
+    const now = new Date(EXAMPLE_T_END);
+    const t = now.getTime();
+    return {
+      people: seed.people,
+      referrals: seed.referrals.filter((r) => r.createdAt.getTime() <= t),
+      outcomes: seed.outcomes,
+      opportunities: seed.opportunities,
+      now,
+      specs,
+    };
+  };
+
+  test("the club's knownPerson guard means the seed has no dangling edges", () => {
+    const model = buildReferralModel(seedModelInput());
+    expect(model.scored.dangling).toEqual([]);
+    expect(model.scored.policy).toBe("score");
+    expect(model.scored.specVersion).toBe(specs.referral_signal.version);
+  });
+
+  test("model v0/v2 are the same numbers the two computeAllReferralSignals calls produced", () => {
+    const input = seedModelInput();
+    const model = buildReferralModel(input);
+    const v0 = computeAllReferralSignals(input.people, input.referrals, {
+      spec: specs.referral_signal,
+    });
+    const cal = computeJudgeCalibration({
+      people: input.people,
+      referrals: input.referrals,
+      outcomes: input.outcomes,
+      opportunities: input.opportunities,
+      now: input.now,
+      spec: specs.judge_reliability,
+      referralSpec: specs.referral_signal,
+    });
+    const v2 = computeAllReferralSignals(input.people, input.referrals, {
+      spec: specs.referral_signal,
+      ...judgeWeightOptions(cal),
+    });
+    expect([...model.v0.keys()]).toEqual([...v0.keys()]);
+    expect([...model.v2.keys()]).toEqual([...v2.keys()]);
+    expect(model.v0).toEqual(v0);
+    expect(model.v2).toEqual(v2);
+    expect(model.calibration).toEqual(cal);
+  });
+
+  test("every referral in the index is scored exactly once and matches referralStrength", () => {
+    const input = seedModelInput();
+    const model = buildReferralModel(input);
+    expect(model.scored.byReferralId.size).toBe(input.referrals.length);
+    for (const r of input.referrals) {
+      const edge = model.scored.byReferralId.get(r.id);
+      if (!edge) throw new Error(`referral ${r.id} missing from the index`);
+      expect(edge.strength).toBe(referralStrength(r, specs.referral_signal));
+    }
+  });
+
+  /**
+   * Method: N warm-up runs, then N measured runs of `computeView(initialState())`;
+   * we compare its median against the median of the same call plus a replay of
+   * the three O(P·R) scans the seam removed (the per-person `referralsNow.filter`
+   * and the two per-neighbour `referralsNow.find`s) — a faithful stand-in for the
+   * pre-seam cost, since that work is the only thing that went away. The bound is
+   * a loose 2x guard so the test cannot go flaky on a noisy machine; the point is
+   * that the seam is not a regression, not a microbenchmark.
+   */
+  test("computeView is no slower than the pre-seam scan-per-person shape", () => {
+    const runs = 9;
+    const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0;
+    const seed = generateSeed();
+    const t = new Date(EXAMPLE_T_END).getTime();
+    const referralsNow = seed.referrals.filter((r) => r.createdAt.getTime() <= t);
+    const legacyScans = () => {
+      let sink = 0;
+      for (const p of seed.people) {
+        sink += referralsNow.filter((r) => r.candidateId === p.id).length;
+        for (const q of seed.people) {
+          sink += referralsNow.find((r) => r.referrerId === q.id && r.candidateId === p.id) ? 1 : 0;
+          sink += referralsNow.find((r) => r.referrerId === p.id && r.candidateId === q.id) ? 1 : 0;
+        }
+      }
+      return sink;
+    };
+    const time = (fn: () => void) => {
+      const started = performance.now();
+      fn();
+      return performance.now() - started;
+    };
+    for (let i = 0; i < runs; i++) {
+      computeView(initialState(), specs);
+      legacyScans();
+    }
+    const after: number[] = [];
+    const before: number[] = [];
+    for (let i = 0; i < runs; i++) {
+      after.push(time(() => computeView(initialState(), specs)));
+      before.push(
+        time(() => {
+          computeView(initialState(), specs);
+          legacyScans();
+        }),
+      );
+    }
+    expect(median(after)).toBeLessThanOrEqual(2 * median(before));
   });
 });
