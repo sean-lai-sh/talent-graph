@@ -795,28 +795,32 @@ describe("checkpoint scheduling", () => {
 });
 
 describe("bounded judgment fan-out", () => {
-  // Ten items, each judgment call held open for a tick, so a pool that let more
-  // than its cap through would be observed by the counter below.
+  // Ten items, each judgment call held open long enough for the counter below
+  // to observe a pool that let more than its cap through. The hold is a
+  // deterministic per-item delay that *decreases* with the item's position, so
+  // later items finish before earlier ones and a pool that appended results in
+  // completion order would scramble them.
   const tenItems = Array.from({ length: 10 }, (_, index) => evidence(`item-${index}`, index + 1));
+  const holdMs = (sourceId: string) => tenItems.length - Number(sourceId.split("-")[1]);
 
   function instrumented(): { service: JevJudgmentService; peak: () => number } {
     let inFlight = 0;
     let peak = 0;
-    const hold = async () => {
+    const hold = async (sourceId: string) => {
       inFlight += 1;
       peak = Math.max(peak, inFlight);
-      await new Promise((resolve) => setTimeout(resolve, 1));
+      await new Promise((resolve) => setTimeout(resolve, holdMs(sourceId)));
       inFlight -= 1;
     };
     return {
       peak: () => peak,
       service: {
         async assessIdentity(canonical, item) {
-          await hold();
+          await hold(item.sourceId);
           return acceptingJudgments.assessIdentity(canonical, item);
         },
         async assessClaim(item) {
-          await hold();
+          await hold(item.sourceId);
           return acceptingJudgments.assessClaim(item);
         },
       },
