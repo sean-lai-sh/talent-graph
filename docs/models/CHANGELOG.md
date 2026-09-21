@@ -156,13 +156,14 @@ Not a spec version either: how the runs of a pass are ordered and recorded.
 
 ### `advance()` — one pass, one run per kind (#55 T4)
 
-- **What:** `src/pipeline/advance.ts` is the only place the calibration →
-  weights → signal order is written. One pass produces a `judge_reliability`
-  run, a `bradley_terry` run and a `referral_signal` run, plus the
-  judge-weighted `referral_signal` run the calibration's weights feed. It
-  never combines two kinds into one number. `now` is a parameter — the
-  evaluation time step T — and `src/pipeline/` never reads the clock
-  (`tests/invariants.test.ts`).
+- **What:** `src/pipeline/advance.ts` is the only place a pass's evaluation
+  order is written: V0 referral signal → capability → calibration →
+  judge-weighted referral signal. One pass produces a `referral_signal` run,
+  a `bradley_terry` run and a `judge_reliability` run, plus the
+  judge-weighted `referral_signal` run the calibration's weights feed — four
+  runs, of which the first and the last share a kind. It never combines two
+  kinds into one number. `now` is a parameter — the evaluation time step T —
+  and `src/pipeline/` never reads the clock (`tests/invariants.test.ts`).
 - **Why:** `scripts/demo.ts` and `scripts/drift.ts` each wrote that order out
   by hand, so the order could drift apart between callers and every new
   caller had to rediscover which spec feeds which step.
@@ -177,3 +178,39 @@ Not a spec version either: how the runs of a pass are ordered and recorded.
   thresholds and verdict rules — and `--v0-vs-v2` compares the unweighted
   Referral Signal against the judge-weighted one from a single pass.
 - **PR:** #55 T4.
+
+### The kind unions, collapsed onto `PipelineKind` (#55 T7)
+
+- **What:** `LoadedSpecs` (src/config.ts) is a mapped type,
+  `{ config: TalentGraphConfig } & { [K in PipelineKind]: SpecOfKind<K> }`,
+  instead of three named fields; `DriftReport["kind"]` is `PipelineKind`
+  instead of its own string union; `DriftKind` is `PipelineKind` rather than
+  an intersection guarding the two lists against each other. `RunOutputs` in
+  `src/pipeline/advance.ts` is now the single hand-written list of the kinds
+  a pass runs, and everything else is derived from it or checked against it.
+- **Why:** four lists of kinds were maintained by hand and could disagree —
+  and one already had. `PipelineKind` rather than `ModelSpecKind` because the
+  two are not the same question: a registered spec kind the pipeline never
+  evaluates (versioned rubric data, say) produces no number, so it has
+  nothing for a `TG_*` override to move and nothing to drift-compare, and
+  mapping the env bridge over every registered kind would have forced it in.
+- **Numbers:** unchanged; no run id moved. The mapped type resolves to the
+  same concrete field types, so every `specs.referral_signal` /
+  `specs.bradley_terry` / `specs.judge_reliability` / `specs.config` read —
+  the Club's included — compiles and means exactly what it did.
+- **Drift:** none to report: no spec version moved. The drift CLI's
+  invocations print byte-identical output.
+- **Fixtures:** `tests/specKinds.test.ts` pins the collapse with
+  `@ts-expect-error` fixtures, and records the two simulations behind the
+  acceptance criterion: registering a kind the pipeline does not run is one
+  compile error (`CURRENT_SPECS`), and registering one it does run is three
+  (`CURRENT_SPECS`, the `loadSpecs()` return, `PIPELINE_KINDS`) plus the
+  kind's own `defineModel` file, which is new code rather than a break.
+- **Gate:** `scripts/drift-gate.ts` partitions the moved versions with
+  `driftableMoves`. The append-only and in-place-edit checks still apply to
+  every registered kind; only a kind a pass runs reaches `scripts/drift.ts`.
+  A bump of a rubric-only kind prints
+  `skipped <kind> <before> → <after>: not a pipeline kind, nothing to measure`
+  and passes, where it used to be handed to a CLI that exits 2 and be read as
+  a failed drift report.
+- **PR:** #55 T7.

@@ -16,6 +16,7 @@ import { rankPercentiles } from "../domain/rank.ts";
 import type { Dimension } from "../domain/types.ts";
 import type { CapabilityRun } from "../inference/capabilityVector.ts";
 import type { JudgeCalibrationRun } from "../judges/reliability.ts";
+import type { PipelineKind } from "../pipeline/advance.ts";
 import type { ReferralSignalResult } from "../scoring/referralSignal.ts";
 
 export interface DriftThresholds {
@@ -73,7 +74,14 @@ export type JudgeDriftMeasure = "reliability" | "bias";
 export type JudgeDriftFacet = JudgeDriftMeasure | "weighted referral signals";
 
 export interface DriftReport {
-  kind: "referral_signal" | "bradley_terry" | "judge_reliability";
+  /**
+   * Which kind moved. `PipelineKind` — the kinds a pass runs — rather than a
+   * third hand-written union beside it and `LoadedSpecs`: drift is measured
+   * between two runs, so a registered spec kind the pipeline never evaluates
+   * has nothing to report and cannot be named here. (Type-only import; the
+   * comparisons below know nothing about the pipeline.)
+   */
+  kind: PipelineKind;
   dimension?: Dimension;
   /** Set on `judge_reliability` reports only. */
   measure?: JudgeDriftFacet;
