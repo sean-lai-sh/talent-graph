@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
+import { RoleHomeRedirect } from "@/components/auth/RoleHomeRedirect.tsx";
 import { SignInForm } from "@/components/auth/SignInForm.tsx";
 import { hasClubSession } from "@/lib/clubSession.ts";
 import { safeReturnPath } from "@/lib/loginReturnPath.ts";
@@ -21,7 +21,11 @@ export default async function LoginPage({
   const params = await searchParams;
   const next = safeReturnPath(params.next);
   if (await hasClubSession()) {
-    redirect(next);
+    return (
+      <main className="login">
+        <RoleHomeRedirect nextHref={next} />
+      </main>
+    );
   }
 
   return (

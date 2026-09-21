@@ -159,7 +159,9 @@ describe("SEA-10 Convex persistence path", () => {
     expect(shell).toContain("<Authenticated>");
     expect(shell).toContain("<Unauthenticated>");
     expect(shell).toContain("<AuthLoading>");
+    expect(shell).toContain("<PersistedClub");
     expect(shell.indexOf("<PersistedClub")).toBeGreaterThan(shell.indexOf("<Authenticated>"));
+    expect(shell).not.toContain("Signed in as");
     expect(shell).not.toContain("configured ? <PersistedClub");
     expect(shell).toContain("convexConfigured()");
     expect(persisted).toContain("api.club.getBoard");

@@ -21,6 +21,7 @@ export function TopBar({
   onAddPerson,
   onReset,
   onConfig,
+  onSignOut,
 }: {
   config: ReviewConfig;
   dirty: boolean;
@@ -34,6 +35,7 @@ export function TopBar({
   onAddPerson: (input: AddPersonInput) => void;
   onReset: () => void;
   onConfig: (input: SetReviewConfigInput) => void;
+  onSignOut?: () => void;
 }) {
   return (
     <header className="app-toolbar">
@@ -88,6 +90,7 @@ export function TopBar({
         onAddPerson={onAddPerson}
         onReset={onReset}
         onConfig={onConfig}
+        onSignOut={onSignOut}
       />
     </header>
   );
@@ -102,6 +105,7 @@ function AccountMenu({
   onAddPerson,
   onReset,
   onConfig,
+  onSignOut,
 }: {
   config: ReviewConfig;
   dirty: boolean;
@@ -111,6 +115,7 @@ function AccountMenu({
   onAddPerson: (input: AddPersonInput) => void;
   onReset: () => void;
   onConfig: (input: SetReviewConfigInput) => void;
+  onSignOut?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState<"menu" | "add" | "settings">("menu");
@@ -202,6 +207,22 @@ function AccountMenu({
                 >
                   Reset to seed
                 </button>
+              ) : null}
+              {onSignOut ? (
+                <>
+                  <div className="my-1 h-px bg-line" />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="press flex w-full rounded-md px-2.5 py-1.5 text-left text-sm hover:bg-subtle"
+                    onClick={() => {
+                      close();
+                      onSignOut();
+                    }}
+                  >
+                    Sign out
+                  </button>
+                </>
               ) : null}
             </>
           ) : panel === "add" ? (

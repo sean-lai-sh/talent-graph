@@ -73,6 +73,7 @@ export function ClubBoard({
   sync,
   clock = "example",
   role = "council",
+  onSignOut,
 }: {
   initial: EngineResult;
   variant?: "example" | "club";
@@ -81,6 +82,7 @@ export function ClubBoard({
   /** "example": feedback windows tick against the seed clock. "wall": against real time. */
   clock?: "example" | "wall";
   role?: "council";
+  onSignOut?: () => void;
 }) {
   const run: ClubBoardActions = resolveBoardActions(variant, actions);
   const firstId = sortQueue(initial.view.candidates)[0]?.personId ?? null;
@@ -269,6 +271,7 @@ export function ClubBoard({
           onAddPerson={onAddPerson}
           onReset={resetToSeed}
           onConfig={onConfig}
+          onSignOut={onSignOut}
         />
       ) : (
         <div className="app-toolbar text-xs text-muted">

@@ -1,5 +1,6 @@
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
+import { type ClubRole, extraAdminEmailsFromEnv, resolveRole } from "../lib/clubRole.ts";
 import {
   addPerson as addPersonEngine,
   addReferral as addReferralEngine,
@@ -11,6 +12,7 @@ import {
   setReviewConfig as setReviewConfigEngine,
   setStatus as setStatusEngine,
 } from "../lib/engine.ts";
+import { toDirectoryMembers } from "../lib/memberDirectory.ts";
 import { reviveState } from "../lib/serialize.ts";
 import type { ClubState, EngineResult } from "../lib/types.ts";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
@@ -30,8 +32,8 @@ import {
  * (`src/` compute). Do not reimplement scoring / inference / judges.
  *
  * SEA-12: writes and board reads require a Better Auth session
- * (`authComponent.getAuthUser` / `safeGetAuthUser`). Each signed-in owner
- * gets a `clubOrgs` row keyed by `ownerUserId`.
+ * (`authComponent.getAuthUser` / `safeGetAuthUser`) and a marked admin
+ * role. Each signed-in admin gets a `clubOrgs` row keyed by `ownerUserId`.
  * Owner-keyed club, not a membership / invite model.
  *
  * Clock: the engine never reads a clock. Each mutation stamps `now` with
@@ -85,11 +87,42 @@ async function loadOwnedOrg(
     .first();
 }
 
-/** Board reads: missing session → no org. Mutations use getAuthUser and throw. */
+type AuthUser = { _id: string; email?: string; name?: string };
+
+function extraAdminEmails(): string[] {
+  return extraAdminEmailsFromEnv(process.env.CLUB_ADMIN_EMAILS);
+}
+
+async function storedRole(ctx: QueryCtx | MutationCtx, userId: string): Promise<ClubRole | null> {
+  const account = await ctx.db
+    .query("clubAccounts")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .first();
+  return account?.role ?? null;
+}
+
+async function roleForUser(ctx: QueryCtx | MutationCtx, user: AuthUser): Promise<ClubRole> {
+  return resolveRole({
+    email: typeof user.email === "string" ? user.email : "",
+    stored: await storedRole(ctx, user._id),
+    extraAdminEmails: extraAdminEmails(),
+  });
+}
+
+/** Board reads: missing session or a non-admin → no org. Mutations throw. */
 async function loadOrgForSession(ctx: QueryCtx | MutationCtx): Promise<Doc<"clubOrgs"> | null> {
   const user = await authComponent.safeGetAuthUser(ctx);
   if (!user) return null;
+  if ((await roleForUser(ctx, user)) !== "admin") return null;
   return await loadOwnedOrg(ctx, user._id);
+}
+
+async function requireAdmin(ctx: MutationCtx): Promise<AuthUser> {
+  const user = await authComponent.getAuthUser(ctx);
+  if ((await roleForUser(ctx, user)) !== "admin") {
+    throw new Error("admin only");
+  }
+  return user;
 }
 
 async function ensureOrg(
@@ -101,7 +134,7 @@ async function ensureOrg(
   state: ClubState;
   view: ReturnType<typeof computeView>;
 }> {
-  const user = await authComponent.getAuthUser(ctx);
+  const user = await requireAdmin(ctx);
   const existing = await loadOwnedOrg(ctx, user._id);
   if (existing) {
     const state = orgToState(existing);
@@ -268,6 +301,71 @@ export const setReviewConfig = mutation({
   args: { requiredDimensions: v.array(dimension) },
   handler: async (ctx, args) => {
     return await applyEngine(ctx, (state) => setReviewConfigEngine(state, args));
+  },
+});
+
+/** Session role. Stored clubAccounts wins; else bootstrap / listed emails. */
+export const getMyRole = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) return null;
+    const email = typeof user.email === "string" ? user.email : "";
+    return { role: await roleForUser(ctx, user), email };
+  },
+});
+
+/** Shared member forum. Any signed-in account can read and post. */
+export const listPosts = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) return null;
+    const rows = await ctx.db.query("clubPosts").withIndex("by_created").order("desc").take(100);
+    return rows.map((row) => ({
+      id: row._id,
+      body: row.body,
+      authorName: row.authorName,
+      createdAt: row.createdAt,
+    }));
+  },
+});
+
+export const addPost = mutation({
+  args: { body: v.string() },
+  handler: async (ctx, args) => {
+    const user = await authComponent.getAuthUser(ctx);
+    const body = args.body.trim();
+    if (body.length === 0) return;
+    const authorName =
+      (typeof user.name === "string" && user.name.trim()) ||
+      (typeof user.email === "string" && user.email.trim()) ||
+      "Member";
+    await ctx.db.insert("clubPosts", {
+      body,
+      authorName,
+      authorUserId: user._id,
+      createdAt: new Date().toISOString(),
+    });
+  },
+});
+
+/** Shared directory. Any signed-in account; members only, no scores. */
+export const listMembers = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) return null;
+    const orgs = await ctx.db.query("clubOrgs").take(20);
+    const seen = new Set<string>();
+    const people = orgs
+      .flatMap((org) => org.people)
+      .filter((person) => {
+        if (seen.has(person.id)) return false;
+        seen.add(person.id);
+        return true;
+      });
+    return toDirectoryMembers(people);
   },
 });
 
