@@ -5,9 +5,9 @@
  *
  * Runs the pipeline twice on the seed dataset and prints the drift reports
  * for the requested kind (one per dimension for `bradley_terry`; for
- * `judge_reliability`, one per per-judge measure plus one for the
- * judge-weighted Referral Signal the calibration feeds). Paste the verdict
- * line into docs/models/CHANGELOG.md when shipping a new spec version.
+ * `judge_reliability`, one per judge measure plus one for the judge-weighted
+ * Referral Signal the calibration feeds). Paste the verdict line into
+ * docs/models/CHANGELOG.md when shipping a new spec version.
  *
  * The kinds are the registered spec kinds, so a new kind is driftable the
  * day it is registered: nothing here enumerates them.
