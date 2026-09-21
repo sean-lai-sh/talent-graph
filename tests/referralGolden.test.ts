@@ -14,6 +14,10 @@
  * approximate — so a one-ULP change to any number fails here first. Later
  * tickets in #56 assert against this same file.
  *
+ * Specs are pinned to the registered ones (`TG_*` env overrides are stripped),
+ * so a Doppler-backed shell can neither fail the assertion nor poison a
+ * regenerated fixture.
+ *
  * REGENERATE: only when a number is *meant* to change, and never as a reflex.
  *   REGENERATE_REFERRAL_GOLDEN=1 bun test tests/referralGolden.test.ts && bun run format
  * then read the diff line by line before committing it.
@@ -23,6 +27,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { computeView, initialState } from "../apps/club/lib/engine.ts";
+import { type LoadedSpecs, loadSpecs } from "../src/config.ts";
 import { computeAllReferralSignals } from "../src/scoring/referralSignal.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 
@@ -37,11 +42,29 @@ function byKey<T>(entries: Array<[string, T]>): Record<string, T> {
   return out;
 }
 
-function buildGolden() {
+/**
+ * The golden is pinned to the REGISTERED specs, never to the ambient
+ * environment. A Doppler-backed or CI run can carry `TG_*` overrides, and
+ * `computeView`'s default `loadSpecs(process.env)` would otherwise both break
+ * the assertion and bake the override into a regenerated fixture. So every
+ * `TG_*` key is stripped before the specs are loaded — the env is read only to
+ * be discarded, on the assertion path and the regenerate path alike.
+ */
+function pinnedSpecs(env: Record<string, string | undefined>): LoadedSpecs {
+  const withoutOverrides = Object.fromEntries(
+    Object.entries(env).filter(([key]) => !key.startsWith("TG_")),
+  );
+  return loadSpecs(withoutOverrides, { warn: () => {} });
+}
+
+function buildGolden(env: Record<string, string | undefined> = {}) {
+  const specs = pinnedSpecs(env);
   const seed = generateSeed();
-  const signals = computeAllReferralSignals(seed.people, seed.referrals);
+  const signals = computeAllReferralSignals(seed.people, seed.referrals, {
+    spec: specs.referral_signal,
+  });
   const state = initialState();
-  const view = computeView(state);
+  const view = computeView(state, specs);
 
   return {
     // Recorded so the golden is reproducible: the engine clock is fixed.
@@ -116,6 +139,11 @@ describe("referral golden: seed-wide signal numbers are pinned (V0 behaviour)", 
     expect(Object.keys(parsed.signals).length).toBe(parsed.counts.people);
     expect(Object.keys(parsed.view).length).toBe(parsed.counts.viewPeople);
     expect(parsed.now).toBe(expected.now);
+  });
+
+  test("the golden ignores TG_* overrides: a Doppler-backed run sees the same baseline", () => {
+    const expected = canonical(JSON.parse(readFileSync(FIXTURE, "utf8")));
+    expect(canonical(buildGolden({ TG_TOP_K_REFERRALS: "1" }))).toBe(expected);
   });
 
   test("missing stays missing: no incoming referrals means null, never 0", () => {
