@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describeActionError } from "../apps/club/lib/actionError.ts";
 import { buildReferralModel } from "../apps/club/lib/engine/referralModel.ts";
@@ -68,6 +68,15 @@ mock.module("../src/scoring/referralStrength.ts", () => ({
 
 const root = join(import.meta.dir, "..");
 const read = (rel: string) => readFileSync(join(root, rel), "utf8");
+
+/** Every module of the split engine, `engine.ts` first. */
+const engineSources = (): string[] => [
+  "apps/club/lib/engine.ts",
+  ...readdirSync(join(root, "apps/club/lib/engine"))
+    .filter((f) => f.endsWith(".ts"))
+    .sort()
+    .map((f) => `apps/club/lib/engine/${f}`),
+];
 
 function personNamed(view: ReturnType<typeof computeView>, name: string) {
   const p = view.people.find((row) => row.name === name);
@@ -229,12 +238,16 @@ describe("council page engine: seed pins", () => {
     expect(late.calibration.windowOpen).toBe(true);
     expect(late.calibration.judgesWithEvidence).toBeGreaterThan(0);
     expect(late.people.some((p) => p.persona && p.v2Signal !== p.v0Signal)).toBe(true);
-    const source = read("apps/club/lib/engine.ts");
+    // The as-of filter and the spec default live with the orchestrator.
+    const source = read("apps/club/lib/engine/computeView.ts");
     expect(source).toContain("referralsAsOf");
     expect(source).toContain("createdAt.getTime() <= t");
     expect(source).toContain("loadSpecs()");
-    expect(source).not.toContain("CURRENT_SPECS");
-    expect(source).not.toContain("Date.UTC(2026");
+    for (const rel of engineSources()) {
+      const text = read(rel);
+      expect(text, `${rel} must not pin a spec snapshot`).not.toContain("CURRENT_SPECS");
+      expect(text, `${rel} must not hardcode the example clock`).not.toContain("Date.UTC(2026");
+    }
   });
 
   test("club view applies loadSpecs TG_* the same way as the CLI", () => {
