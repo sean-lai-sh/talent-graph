@@ -23,13 +23,6 @@ import type { ModelSpecKind } from "./spec.ts";
 export const RUN_ID_FORMAT = 2;
 
 /**
- * @deprecated The `modelType` naming scheme of run id format 1. Runs now
- * carry `kind: ModelSpecKind`, the same word the spec uses. Kept only so
- * existing importers of `src/modelRun.ts` keep compiling.
- */
-export type ModelType = "referral_signal_v0" | "bradley_terry_v1" | "judge_reliability_v2";
-
-/**
  * How an upstream run's output entered this one.
  *
  * `anchor` — the previous capability fit an anchored refit was pulled toward.
@@ -56,7 +49,7 @@ export interface UpstreamRun {
 
 export interface ModelRun<TOut = unknown> {
   id: string;
-  /** Was `modelType: ModelType`. One naming scheme, shared with ModelSpec. */
+  /** Was `modelType` under run id format 1. One naming scheme, shared with ModelSpec. */
   kind: ModelSpecKind;
   /** Always resolvable by `getSpec()`, or a `+env` tag. Never a composed tag. */
   specVersion: string;

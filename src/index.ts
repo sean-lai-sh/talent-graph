@@ -38,7 +38,10 @@ export * from "./models/blend.ts";
 export * from "./models/careerEvidence.ts";
 // The three shipped model definitions and the `ModelRun` record, exported
 // from where they live. `./modelRun.ts` used to re-export them into the
-// barrel; the shim is gone (#55 T8) and the surface is unchanged.
+// barrel; the shim is gone (#55 T8). The surface is not quite identical:
+// `export *` additionally exposes the type `RunRecordInput`, which the shim
+// named no export for, and the only names it removes are the shim's own
+// deprecated `createModelRun` alias and the `ModelType` alias it forwarded.
 export * from "./models/definitions/index.ts";
 export * from "./models/registry.ts";
 export * from "./models/run.ts";

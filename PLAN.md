@@ -32,7 +32,7 @@ Concretely, in code:
   explicitly labelled exploratory), `analysis/dashboard.ts` (presentation of
   both, computes nothing), `analysis/reviewQueue.ts` (categorical review
   buckets, no merged number), `analysis/drift.ts` (bookkeeping: comparing
-  runs of either kind) and `pipeline/kinds.ts` (the kind vocabulary; types
+  runs of either kind), `pipeline/kinds.ts` (the kind vocabulary; types
   only), and `index.ts` (the public barrel).
 - `graph/` is structural only: it imports nothing outside `domain/`. The
   dependency direction is `domain → graph → scoring → judges/inference →

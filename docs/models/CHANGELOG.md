@@ -224,8 +224,14 @@ Not a spec version either: how the runs of a pass are ordered and recorded.
   working; `scripts/drift-gate.ts`, `src/config.ts` and `src/analysis/drift.ts`
   now import the leaf. `src/modelRun.ts` — the compatibility shim left behind
   by #55 T3 — is deleted; `src/index.ts` exports the real modules
-  (`models/definitions/`, `models/run.ts`, `provenance/hash.ts`) in its place,
-  and its deprecated `createModelRun` alias for `createRun` is gone with it.
+  (`models/definitions/`, `models/run.ts`, `provenance/hash.ts`) in its place.
+- **Public surface:** two deprecated names go with the shim — its
+  `createModelRun` alias for `createRun`, and `ModelType`, the run id format 1
+  naming scheme `src/models/run.ts` kept only for the shim's importers and
+  which nothing under `src/`, `scripts/`, `tests/` or `apps/club/` referenced.
+  One name is added: exporting `src/models/run.ts` with `export *` rather than
+  through the shim's named list also exposes the type `RunRecordInput`. No
+  value export changed except `createModelRun`.
 - **Why:** asking "is this a kind a pass runs?" should not import a pass. The
   CI gate script walks a registry diff and the env bridge keys itself on the
   pipeline's kinds; neither evaluates anything, and both were pulling in the

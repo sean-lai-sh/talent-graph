@@ -60,13 +60,11 @@ describe("invariants: Referral Signal ≠ Relative Capability", () => {
       "src/analysis/reviewQueue.ts", // categorical review buckets over both channels; no merged number
       // The pipeline's kind vocabulary: `RunOutputs` names each kind's
       // output type, so it imports both — as types only, and it computes
-      // nothing (#55 T8).
+      // nothing. It is where `src/pipeline/advance.ts` used to be on this
+      // list: since #55 T8 the orchestrator imports the two channels'
+      // *runners*, not their result types, so it no longer meets the rule
+      // this allow-list is about.
       "src/pipeline/kinds.ts",
-      // The orchestrator: one pass over the observations, in the order
-      // calibration → weights → signal. It returns one run per kind, never a
-      // merged number — the two channels stay two runs, and the judge
-      // calibration is a third.
-      "src/pipeline/advance.ts",
       "src/index.ts", // public barrel
     ]);
     const both = SRC.filter((f) => {
