@@ -1,3 +1,4 @@
+import { MAX_LEVEL } from "./dimensions.ts";
 import type {
   CareerEvent,
   EvidenceClaim,
@@ -72,8 +73,8 @@ export function validateCareerEvent(event: CareerEvent): LongitudinalValidationR
   if (!validDate(event.observedAt)) errors.push("observedAt must be a valid Date");
   if (event.evidenceClaimIds.length === 0) errors.push("at least one evidence claim is required");
   for (const judgment of event.judgments) {
-    if (!Number.isFinite(judgment.score) || judgment.score < 0 || judgment.score > 4) {
-      errors.push(`${judgment.dimension} score must be in [0, 4]`);
+    if (!Number.isFinite(judgment.score) || judgment.score < 0 || judgment.score > MAX_LEVEL) {
+      errors.push(`${judgment.dimension} score must be in [0, ${MAX_LEVEL}]`);
     }
     if (
       !Number.isFinite(judgment.confidence) ||

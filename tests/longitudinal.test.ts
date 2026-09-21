@@ -3,7 +3,7 @@ import {
   buildGrokRoutineRequest,
   signGrokCallbackBody,
 } from "../apps/club/lib/longitudinal/grok.ts";
-import { createJevJudgmentService } from "../apps/club/lib/longitudinal/jev.ts";
+import { createJevJudgmentService, LEVELS } from "../apps/club/lib/longitudinal/jev.ts";
 import {
   createInMemoryGrokIngestStore,
   fetchGitHubEvidence,
@@ -36,6 +36,8 @@ import {
   startMonitoringPlan,
   validateGrokEvidencePacket,
 } from "../src/index.ts";
+import { CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL } from "../src/longitudinal/dimensions.ts";
+import type { ProgressDimension } from "../src/longitudinal/types.ts";
 import { JUDGE_RELIABILITY_V2_0_0 } from "../src/models/registry.ts";
 
 const day = (n: number) => new Date(Date.UTC(2026, 0, 1 + n));
@@ -791,5 +793,36 @@ describe("offline signal evaluation", () => {
     expect(evaluation.meanSourceAgeDays).toBe(10);
     expect(evaluation.quietCompoundingDetectionRate).toBe(1);
     expect(evaluation.prestigiousFlatFalsePositiveRate).toBe(0);
+  });
+});
+
+describe("career-evidence dimension list", () => {
+  test("CAREER_EVIDENCE_DIMENSIONS matches the LEVELS rubric keys", () => {
+    expect([...CAREER_EVIDENCE_DIMENSIONS].sort()).toEqual(
+      [...Object.keys(LEVELS)].sort() as ProgressDimension[],
+    );
+  });
+
+  test("CAREER_EVIDENCE_DIMENSIONS matches the ProgressDimension union", () => {
+    // This map is exhaustive by construction: adding a member to the union
+    // without adding it here is a typecheck failure.
+    const union: Record<ProgressDimension, true> = {
+      difficulty: true,
+      ownership: true,
+      external_impact: true,
+      originality: true,
+      peer_validation: true,
+    };
+    expect([...CAREER_EVIDENCE_DIMENSIONS].sort()).toEqual(
+      [...Object.keys(union)].sort() as ProgressDimension[],
+    );
+    expect(new Set(CAREER_EVIDENCE_DIMENSIONS).size).toBe(CAREER_EVIDENCE_DIMENSIONS.length);
+  });
+
+  test("MAX_LEVEL is the top of the shared rubric scale", () => {
+    expect(MAX_LEVEL).toBe(4);
+    for (const dimension of CAREER_EVIDENCE_DIMENSIONS) {
+      expect(LEVELS[dimension].length).toBe(MAX_LEVEL + 1);
+    }
   });
 });

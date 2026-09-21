@@ -1,4 +1,5 @@
 import { choice, noul, score, type TypeSafeClient } from "@typesafe-ai/sdk";
+import { CAREER_EVIDENCE_DIMENSIONS } from "../../../../src/longitudinal/dimensions.ts";
 import type { JevJudgmentService } from "../../../../src/longitudinal/judgments.ts";
 import type { ProgressDimension } from "../../../../src/longitudinal/types.ts";
 
@@ -20,7 +21,8 @@ const EVENT_CRITERIA = {
 
 type ScoreLevels = [string, string, ...string[]];
 
-const LEVELS: Record<ProgressDimension, ScoreLevels> = {
+/** Rubric text for each dimension: one entry per point on the shared 0..MAX_LEVEL scale. */
+export const LEVELS: Record<ProgressDimension, ScoreLevels> = {
   difficulty: [
     "Routine work with no evidence of unusual technical, creative, or operational difficulty.",
     "Some non-routine difficulty, but the evidence does not show demanding constraints.",
@@ -146,9 +148,7 @@ export function createJevJudgmentService(client: TypeSafeClient): JevJudgmentSer
         },
       });
       const event = response.answers.event_kind;
-      const dimensions = (
-        ["difficulty", "ownership", "external_impact", "originality", "peer_validation"] as const
-      ).map((dimension) => {
+      const dimensions = CAREER_EVIDENCE_DIMENSIONS.map((dimension) => {
         const answer = response.answers[dimension];
         return {
           dimension,

@@ -1,15 +1,8 @@
 import type { Opportunity, Outcome } from "../domain/types.ts";
 import { residualOutcomes } from "../judges/outcomes.ts";
 import type { JudgeReliabilitySpec } from "../models/spec.ts";
-import type { CareerEvent, LongitudinalResidualSlope, ProgressDimension } from "./types.ts";
-
-const OUTCOME_DIMENSIONS: readonly ProgressDimension[] = [
-  "difficulty",
-  "ownership",
-  "external_impact",
-  "originality",
-  "peer_validation",
-];
+import { CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL } from "./dimensions.ts";
+import type { CareerEvent, LongitudinalResidualSlope } from "./types.ts";
 
 function mean(values: readonly number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
@@ -40,7 +33,7 @@ export function careerEventsToLongitudinalRecords(events: readonly CareerEvent[]
       });
       continue;
     }
-    const grouped = OUTCOME_DIMENSIONS.map((dimension) =>
+    const grouped = CAREER_EVIDENCE_DIMENSIONS.map((dimension) =>
       event.judgments.filter((judgment) => judgment.dimension === dimension),
     );
     if (
@@ -49,12 +42,12 @@ export function careerEventsToLongitudinalRecords(events: readonly CareerEvent[]
           judgments.length !== 1 ||
           !Number.isFinite(judgments[0]?.score) ||
           (judgments[0]?.score ?? -1) < 0 ||
-          (judgments[0]?.score ?? 5) > 4,
+          (judgments[0]?.score ?? MAX_LEVEL + 1) > MAX_LEVEL,
       )
     ) {
       continue;
     }
-    const values = grouped.map((judgments) => (judgments[0]?.score as number) / 4);
+    const values = grouped.map((judgments) => (judgments[0]?.score as number) / MAX_LEVEL);
     outcomes.push({
       id: `outcome-${event.id}`,
       personId: event.personId,
