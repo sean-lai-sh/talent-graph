@@ -49,14 +49,16 @@ describe("scoreReferralGraph: the seed", () => {
   test("sg.in strengths equal the V0 per-candidate strengths element-for-element", () => {
     let checked = 0;
     for (const p of seed.people) {
+      // V0's incoming filter, self-referral exclusion included.
       const expected = seed.referrals
-        .filter((r) => r.candidateId === p.id)
+        .filter((r) => r.candidateId === p.id && r.referrerId !== p.id)
         .map((r) => referralStrength(r, SPEC));
       const actual = (sg.in.get(p.id) ?? []).map((e) => e.strength);
       expect(actual).toEqual(expected);
       checked += expected.length;
     }
-    expect(checked).toBe(seed.referrals.length);
+    expect(checked).toBe([...sg.in.values()].reduce((n, l) => n + l.length, 0));
+    expect(checked).toBeGreaterThan(0);
   });
 
   test("sg.graph deep-equals buildReferralGraph(people, referrals)", () => {
@@ -82,9 +84,57 @@ describe("scoreReferralGraph: the seed", () => {
 
   test("sg.out mirrors the same edges, in input order, keyed by referrer", () => {
     for (const p of seed.people) {
-      const expected = seed.referrals.filter((r) => r.referrerId === p.id).map((r) => r.id);
+      const expected = seed.referrals
+        .filter((r) => r.referrerId === p.id && r.candidateId !== p.id)
+        .map((r) => r.id);
       expect((sg.out.get(p.id) ?? []).map((e) => e.referral.id)).toEqual(expected);
     }
+  });
+});
+
+// The seed never emits a self-referral (`src/seed/generate.ts` rejects the
+// pair), so the seed tests above can only pin V0's self-referral rule if the
+// data actually contains one. Inject exactly one and keep the same equalities.
+describe("scoreReferralGraph: the seed with a self-referral injected", () => {
+  const seed = generateSeed();
+  const p0 = seed.people[0]?.id as string;
+  const injected: Referral = {
+    ...(seed.referrals[0] as Referral),
+    id: "self-inject",
+    referrerId: p0,
+    candidateId: p0,
+  };
+  const referrals = [...seed.referrals, injected];
+  const sg = scoreReferralGraph(seed.people, referrals, SPEC);
+
+  test("sg.in still equals V0's incoming filter element-for-element", () => {
+    for (const p of seed.people) {
+      const expected = referrals
+        .filter((r) => r.candidateId === p.id && r.referrerId !== p.id)
+        .map((r) => referralStrength(r, SPEC));
+      expect((sg.in.get(p.id) ?? []).map((e) => e.strength)).toEqual(expected);
+    }
+    // And V0 agrees about the candidate who referred themselves.
+    expect((sg.in.get(p0) ?? []).length).toBe(
+      computeReferralSignal(p0, referrals, { spec: SPEC }).incomingCount,
+    );
+  });
+
+  test("sg.out excludes the self-referral too, in input order", () => {
+    for (const p of seed.people) {
+      const expected = referrals
+        .filter((r) => r.referrerId === p.id && r.candidateId !== p.id)
+        .map((r) => r.id);
+      expect((sg.out.get(p.id) ?? []).map((e) => e.referral.id)).toEqual(expected);
+    }
+  });
+
+  test("the self-referral is still scored once and indexed", () => {
+    expect(sg.byReferralId.has("self-inject")).toBe(true);
+    expect(sg.byReferralId.size).toBe(referrals.length);
+    expect(sg.byReferralId.get("self-inject")?.strength).toBe(referralStrength(injected, SPEC));
+    expect(sg.byReferralId.get("self-inject")?.dangling).toBe(false);
+    expect(sg.dangling).toEqual([]);
   });
 });
 
