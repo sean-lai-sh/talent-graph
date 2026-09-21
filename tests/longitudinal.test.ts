@@ -25,9 +25,12 @@ import {
   checkpointJobKey,
   contentFingerprint,
   createMonitoringPlan,
+  DEFAULT_EVIDENCE_CONCURRENCY,
+  DEFAULT_MAX_MONITORING_ATTEMPTS,
   DEFAULT_MONITORING_LEASE_MS,
   evaluateLongitudinalCases,
   failMonitoringPlan,
+  MAX_MONITORING_ATTEMPTS_ERROR,
   processEvidence,
   progressVector,
   residualSlope,
@@ -788,6 +791,225 @@ describe("checkpoint scheduling", () => {
     expect(run.plans[0]?.status).toBe("completed");
     expect(run.plans[0]?.attemptCount).toBe(1);
     expect(run.results[0]?.result.events).toHaveLength(1);
+  });
+});
+
+describe("bounded judgment fan-out", () => {
+  // Ten items, each judgment call held open long enough for the counter below
+  // to observe a pool that let more than its cap through. The hold is a
+  // deterministic per-item delay that *decreases* with the item's position, so
+  // later items finish before earlier ones and a pool that appended results in
+  // completion order would scramble them.
+  const tenItems = Array.from({ length: 10 }, (_, index) => evidence(`item-${index}`, index + 1));
+  const holdMs = (sourceId: string) => tenItems.length - Number(sourceId.split("-")[1]);
+
+  function instrumented(): { service: JevJudgmentService; peak: () => number } {
+    let inFlight = 0;
+    let peak = 0;
+    const hold = async (sourceId: string) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, holdMs(sourceId)));
+      inFlight -= 1;
+    };
+    return {
+      peak: () => peak,
+      service: {
+        async assessIdentity(canonical, item) {
+          await hold(item.sourceId);
+          return acceptingJudgments.assessIdentity(canonical, item);
+        },
+        async assessClaim(item) {
+          await hold(item.sourceId);
+          return acceptingJudgments.assessClaim(item);
+        },
+      },
+    };
+  }
+
+  const run = (judgments: JevJudgmentService, concurrency?: number) =>
+    processEvidence({
+      identity,
+      evidence: tenItems,
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments,
+      ...(concurrency === undefined ? {} : { runtime: { concurrency } }),
+    });
+
+  test("concurrency 2 keeps at most two judgment calls in flight and preserves order", async () => {
+    const capped = instrumented();
+    const unbounded = instrumented();
+    const bounded = await run(capped.service, 2);
+    const wide = await run(unbounded.service, tenItems.length);
+    expect(capped.peak()).toBe(2);
+    expect(unbounded.peak()).toBe(tenItems.length);
+    expect(bounded.claims).toEqual(wide.claims);
+    expect(bounded.events).toEqual(wide.events);
+    expect(bounded.snapshot).toEqual(wide.snapshot);
+    expect(bounded.claims.map((claim) => claim.provenance.sourceId)).toEqual(
+      tenItems.map((item) => item.sourceId),
+    );
+  });
+
+  test("the default concurrency is four", async () => {
+    const fake = instrumented();
+    const result = await run(fake.service);
+    expect(DEFAULT_EVIDENCE_CONCURRENCY).toBe(4);
+    expect(fake.peak()).toBe(4);
+    expect(result.claims).toHaveLength(tenItems.length);
+  });
+
+  test("concurrency must be an integer of at least one", async () => {
+    for (const bad of [0, -1, 1.5, Number.NaN]) {
+      await expect(run(acceptingJudgments, bad)).rejects.toThrow(/integer >= 1/);
+    }
+  });
+
+  test("one failing identity call still rejects the whole call", async () => {
+    const failing: JevJudgmentService = {
+      ...acceptingJudgments,
+      async assessIdentity(canonical, item) {
+        if (item.sourceId === "item-7") throw new Error("jev identity 500");
+        return acceptingJudgments.assessIdentity(canonical, item);
+      },
+    };
+    await expect(run(failing, 2)).rejects.toThrow("jev identity 500");
+  });
+
+  test("one failing item still rejects the whole call", async () => {
+    const failing: JevJudgmentService = {
+      ...acceptingJudgments,
+      async assessClaim(item) {
+        if (item.sourceId === "item-7") throw new Error("jev 500");
+        return acceptingJudgments.assessClaim(item);
+      },
+    };
+    await expect(run(failing, 2)).rejects.toThrow("jev 500");
+  });
+});
+
+describe("monitoring attempt cap", () => {
+  const plan = () =>
+    createMonitoringPlan({
+      id: "capped",
+      personId: "p-1",
+      caseId: "c-1",
+      caseOpenedAt: day(0),
+      horizonDays: 90,
+      pipelineVersion: "1",
+    });
+
+  const burnAttempts = (count: number) => {
+    let current = plan();
+    for (let attempt = 0; attempt < count; attempt++) {
+      current = failMonitoringPlan(
+        startMonitoringPlan(current, day(100 + attempt)),
+        "github 503",
+        day(100 + attempt),
+      );
+    }
+    return current;
+  };
+
+  test("a plan below the cap is still readmitted and retried", () => {
+    const belowCap = burnAttempts(DEFAULT_MAX_MONITORING_ATTEMPTS - 1);
+    expect(belowCap.attemptCount).toBe(DEFAULT_MAX_MONITORING_ATTEMPTS - 1);
+    expect(batchDueMonitoringPlans([belowCap], day(200))).toHaveLength(1);
+    expect(startMonitoringPlan(belowCap, day(200)).status).toBe("running");
+  });
+
+  test("a plan at the cap is not readmitted and never runs again", async () => {
+    const exhausted = burnAttempts(DEFAULT_MAX_MONITORING_ATTEMPTS);
+    expect(exhausted.attemptCount).toBe(DEFAULT_MAX_MONITORING_ATTEMPTS);
+    expect(batchDueMonitoringPlans([exhausted], day(200))).toEqual([]);
+    // Already failed: it keeps the error that spent its last attempt.
+    expect(startMonitoringPlan(exhausted, day(200))).toEqual(exhausted);
+    expect(exhausted.status).toBe("failed");
+
+    let fetches = 0;
+    const sweep = await runDueMonitoringPlans({
+      plans: [exhausted],
+      identities: new Map([["p-1", identity]]),
+      now: day(200),
+      collector: {
+        async collect() {
+          fetches++;
+          return [evidence("recovered", 40)];
+        },
+      },
+      judgments: acceptingJudgments,
+    });
+    expect(fetches).toBe(0);
+    expect(sweep.plans[0]).toEqual(exhausted);
+    expect(sweep.results).toEqual([]);
+  });
+
+  test("a stale running lease at the cap settles as failed instead of looping", () => {
+    let current = plan();
+    for (let attempt = 0; attempt < DEFAULT_MAX_MONITORING_ATTEMPTS - 1; attempt++) {
+      current = failMonitoringPlan(
+        startMonitoringPlan(current, day(100 + attempt)),
+        "github 503",
+        day(100 + attempt),
+      );
+    }
+    const stranded = startMonitoringPlan(current, day(150));
+    expect(stranded.status).toBe("running");
+    expect(stranded.attemptCount).toBe(DEFAULT_MAX_MONITORING_ATTEMPTS);
+    const afterLease = new Date(day(150).getTime() + DEFAULT_MONITORING_LEASE_MS);
+    expect(batchDueMonitoringPlans([stranded], afterLease)).toEqual([]);
+    const settled = startMonitoringPlan(stranded, afterLease);
+    expect(settled.status).toBe("failed");
+    expect(settled.error).toBe(MAX_MONITORING_ATTEMPTS_ERROR);
+    expect(settled.attemptCount).toBe(DEFAULT_MAX_MONITORING_ATTEMPTS);
+  });
+
+  test("the sweep terminalizes a plan stranded running at the cap", async () => {
+    // A worker that died after the last allowed start leaves the plan
+    // `running` at the cap. The batch will never readmit it, so the sweep must
+    // settle it itself or it stays `running` forever.
+    let current = plan();
+    for (let attempt = 0; attempt < DEFAULT_MAX_MONITORING_ATTEMPTS - 1; attempt++) {
+      current = failMonitoringPlan(
+        startMonitoringPlan(current, day(100 + attempt)),
+        "github 503",
+        day(100 + attempt),
+      );
+    }
+    const stranded = startMonitoringPlan(current, day(150));
+    expect(stranded.status).toBe("running");
+    expect(stranded.attemptCount).toBe(DEFAULT_MAX_MONITORING_ATTEMPTS);
+
+    let fetches = 0;
+    const sweep = await runDueMonitoringPlans({
+      plans: [stranded],
+      identities: new Map([["p-1", identity]]),
+      now: new Date(day(150).getTime() + DEFAULT_MONITORING_LEASE_MS * 10),
+      collector: {
+        async collect() {
+          fetches++;
+          return [evidence("recovered", 40)];
+        },
+      },
+      judgments: acceptingJudgments,
+    });
+    expect(fetches).toBe(0);
+    expect(sweep.fetchCount).toBe(0);
+    expect(sweep.plans[0]?.status).toBe("failed");
+    expect(sweep.plans[0]?.error).toBe(MAX_MONITORING_ATTEMPTS_ERROR);
+    expect(sweep.plans[0]?.attemptCount).toBe(DEFAULT_MAX_MONITORING_ATTEMPTS);
+    expect(sweep.results).toEqual([]);
+  });
+
+  test("an explicit lower cap stops a plan sooner", () => {
+    const once = burnAttempts(1);
+    expect(batchDueMonitoringPlans([once], day(200), DEFAULT_MONITORING_LEASE_MS, 1)).toEqual([]);
+    expect(startMonitoringPlan(once, day(200), DEFAULT_MONITORING_LEASE_MS, 1)).toEqual(once);
+    expect(batchDueMonitoringPlans([once], day(200), DEFAULT_MONITORING_LEASE_MS, 2)).toHaveLength(
+      1,
+    );
   });
 });
 

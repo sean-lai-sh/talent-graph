@@ -1,6 +1,8 @@
 import {
   batchDueMonitoringPlans,
   completeMonitoringPlan,
+  DEFAULT_MAX_MONITORING_ATTEMPTS,
+  DEFAULT_MONITORING_LEASE_MS,
   failMonitoringPlan,
   startMonitoringPlan,
 } from "./checkpoints.ts";
@@ -24,17 +26,35 @@ export async function runDueMonitoringPlans(input: {
   now: Date;
   collector: EvidenceCollector;
   judgments: JevJudgmentService;
+  maxAttempts?: number;
 }): Promise<MonitoringRunResult> {
+  const maxAttempts = input.maxAttempts ?? DEFAULT_MAX_MONITORING_ATTEMPTS;
+  const start = (plan: MonitoringPlan) =>
+    startMonitoringPlan(plan, input.now, DEFAULT_MONITORING_LEASE_MS, maxAttempts);
   const updates = new Map(input.plans.map((plan) => [plan.id, plan]));
+  // A worker that died after the last allowed start leaves a plan `running` at
+  // the cap, and the batch will never readmit it. `start` settles a stale lease
+  // as failed and returns a live one untouched, so this only terminalizes what
+  // is already abandoned, without a fetch.
+  for (const plan of input.plans) {
+    if (plan.status === "running" && plan.attemptCount >= maxAttempts) {
+      updates.set(plan.id, start(plan));
+    }
+  }
   const results: MonitoringRunResult["results"] = [];
-  const batches = batchDueMonitoringPlans(input.plans, input.now);
+  const batches = batchDueMonitoringPlans(
+    input.plans,
+    input.now,
+    DEFAULT_MONITORING_LEASE_MS,
+    maxAttempts,
+  );
 
   await Promise.all(
     batches.map(async (batch) => {
       const identity = input.identities.get(batch.personId);
       if (!identity) {
         for (const plan of batch.plans) {
-          const running = startMonitoringPlan(plan, input.now);
+          const running = start(plan);
           updates.set(
             plan.id,
             failMonitoringPlan(running, "canonical identity not found", input.now),
@@ -50,14 +70,14 @@ export async function runDueMonitoringPlans(input: {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         for (const plan of batch.plans) {
-          const running = startMonitoringPlan(plan, input.now);
+          const running = start(plan);
           updates.set(plan.id, failMonitoringPlan(running, message, input.now));
         }
         return;
       }
 
       for (const plan of batch.plans) {
-        const running = startMonitoringPlan(plan, input.now);
+        const running = start(plan);
         try {
           const result = await processEvidence({
             identity,
