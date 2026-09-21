@@ -68,6 +68,12 @@ export function careerEventsToLongitudinalRecords(events: readonly CareerEvent[]
   return { outcomes, opportunities };
 }
 
+/**
+ * Reporting slope deliberately reuses the V2 opportunity-corrected residual
+ * definition under the caller-supplied JudgeReliabilitySpec. A spec change can
+ * move these values, so callers must record it in the monitoring pipeline
+ * version rather than comparing runs as if their semantics were unchanged.
+ */
 export function residualSlope(
   personId: string,
   t0: Date,
