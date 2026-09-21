@@ -74,6 +74,15 @@ export const bradleyTerryModel = defineModel<
   ],
   resolveOptions: (spec, opts) => {
     const { previous } = opts;
+    // Naming a prior run without handing over its θ values leaves nothing to
+    // digest: the refit is unanchored, and the claimed link would sit outside
+    // the hash entirely. Refused rather than dropped.
+    if (opts.previousRunId !== undefined && previous === undefined) {
+      throw new Error(
+        "previousRunId without `previous` on a bradley_terry run: " +
+          "the named run supplied no prior, so it cannot be recorded as lineage",
+      );
+    }
     return {
       parameters: {
         spec,

@@ -335,3 +335,63 @@ describe("runJudgeCalibration", () => {
     ).toThrow(/unrecorded option "weighting"/);
   });
 });
+
+/**
+ * An orphan lineage key is a claim about an upstream run that nothing checks.
+ *
+ * `judgeRunId` only becomes lineage when there are weight maps to fingerprint,
+ * and `previousRunId` only when there is a prior to anchor against. Accepting
+ * the id on its own let a caller name an upstream run that never entered the
+ * hash: two calls claiming different calibrations produced one id. Under the
+ * fail-closed rule the orphan is refused rather than dropped.
+ */
+describe("a lineage id without the run output it names is refused", () => {
+  const T = new Date("2026-12-31T00:00:00.000Z");
+
+  test("judgeRunId without either judge weight map throws", () => {
+    expect(() =>
+      runReferralSignals(data.people, data.referrals, T, { judgeRunId: "fake-a" }),
+    ).toThrow(/judgeRunId.*without/s);
+    // The bug this closes: two different claimed calibrations, one id.
+    expect(() =>
+      runReferralSignals(data.people, data.referrals, T, { judgeRunId: "fake-b" }),
+    ).toThrow(/judgeRunId.*without/s);
+  });
+
+  test("judgeRunId with either map alone is still accepted", () => {
+    const reliabilityOnly = runReferralSignals(data.people, data.referrals, T, {
+      judgeReliability: new Map([["p-001", 0.5]]),
+      judgeRunId: "judge-run-1",
+    });
+    expect(reliabilityOnly.upstreamRuns[0]?.runId).toBe("judge-run-1");
+    const biasOnly = runReferralSignals(data.people, data.referrals, T, {
+      judgeBias: new Map([["p-001", 0.1]]),
+      judgeRunId: "judge-run-1",
+    });
+    expect(biasOnly.upstreamRuns[0]?.runId).toBe("judge-run-1");
+  });
+
+  test("weight maps without a judgeRunId still record lineage with runId null", () => {
+    const run = runReferralSignals(data.people, data.referrals, T, {
+      judgeReliability: new Map([["p-001", 0.5]]),
+    });
+    expect(run.upstreamRuns).toHaveLength(1);
+    expect(run.upstreamRuns[0]?.runId).toBeNull();
+  });
+
+  test("previousRunId without `previous` throws", () => {
+    expect(() =>
+      runCapabilityVectors(data.people, data.comparisons, NOW, { previousRunId: "fake-prior" }),
+    ).toThrow(/previousRunId.*without/s);
+  });
+
+  test("`previous` without previousRunId still anchors, with runId null", () => {
+    const prior = runCapabilityVectors(data.people, data.comparisons, NOW);
+    const run = runCapabilityVectors(data.people, data.comparisons, NOW, {
+      previous: prior.outputs,
+      anchorStrength: 1,
+    });
+    expect(run.upstreamRuns[0]?.role).toBe("anchor");
+    expect(run.upstreamRuns[0]?.runId).toBeNull();
+  });
+});

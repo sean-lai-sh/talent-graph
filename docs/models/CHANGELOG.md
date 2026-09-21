@@ -92,3 +92,13 @@ Run ids are not spec versions: this section records changes to the format of
 - **Persistence:** no run id was stored anywhere (no run-id column in
   `apps/club/convex/schema.ts`; `ClubSnapshot` has no `modelRunIds`), so
   nothing written was invalidated.
+- **Orphan lineage ids (review round 2):** a lineage id is only accepted
+  together with the run output it names. `judgeRunId` without
+  `judgeReliability` or `judgeBias`, and `previousRunId` without `previous`,
+  used to be accepted and left out of `upstreamRuns` — two calls claiming
+  different upstream runs produced one id. Both now throw in `resolveOptions`,
+  before anything is hashed. Well-formed combinations are unchanged: an id with
+  its output is recorded as `{ role, runId, digest }`, and an output passed
+  without an id is still recorded, with `runId: null`, so an unnamed prior is
+  reported as unknown rather than invented. No id moved; both fixtures pass
+  without regeneration.
