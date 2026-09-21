@@ -17,11 +17,11 @@ not a second frontend. Do not add a login wall to `/demo`.
 | `/` | public chips landing; underlined `info` | no seed board |
 | `/info` | public note: login, contact, copy, underlined `home` | no seed board |
 | `/demo` | hidden public seed — no sign-in, noindex | in-memory `generateSeed()` |
-| `/demo/home` | hidden public admin chrome + local forum | in-memory posts |
+| `/demo/home` | hidden public member chrome + local forum | in-memory posts |
 | `/example` | redirect to `/demo` | — |
 | `/login` | public door, noindex | email/password `SignInForm`; no create-account |
-| `/club` | signed-in owner admin landing | forum + Review board; Convex persist |
-| `/members` | signed-in member | sidebar shell (referral / evaluations / events) |
+| `/club` | signed-in owner | council board; Convex persist |
+| `/members` | signed-in member | sidebar + forum |
 
 Unauthenticated `/club` and `/members` redirect to `/login`. Sign-out from `/club` returns to `/login`. There is no create-account path.
 Owners are provisioned by an admin. The seed board never mounts on `/` or `/club`.

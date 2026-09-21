@@ -156,14 +156,11 @@ describe("SEA-10 Convex persistence path", () => {
       expect(source).not.toContain("PersistedClub");
       expect(source).not.toContain("api.club");
     }
-    const admin = read("apps/club/app/club/AdminHome.tsx");
     expect(shell).toContain("<Authenticated>");
     expect(shell).toContain("<Unauthenticated>");
     expect(shell).toContain("<AuthLoading>");
-    expect(shell).toContain("<AdminHome");
-    expect(shell.indexOf("<AdminHome")).toBeGreaterThan(shell.indexOf("<Authenticated>"));
-    expect(admin).toContain("<PersistedClub");
-    expect(admin).toContain("<AdminChrome");
+    expect(shell).toContain("<PersistedClub");
+    expect(shell.indexOf("<PersistedClub")).toBeGreaterThan(shell.indexOf("<Authenticated>"));
     expect(shell).not.toContain("Signed in as");
     expect(shell).not.toContain("configured ? <PersistedClub");
     expect(shell).toContain("convexConfigured()");

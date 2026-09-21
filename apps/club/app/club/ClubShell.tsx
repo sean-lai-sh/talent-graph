@@ -6,13 +6,13 @@ import { useEffect } from "react";
 import { authClient } from "@/lib/auth-client";
 import { convexConfigured } from "@/lib/convexEnv";
 import { clubLoginHref, SIGN_OUT_HREF } from "@/lib/loginReturnPath.ts";
-import { AdminHome } from "./AdminHome";
+import { PersistedClub } from "./PersistedClub";
 
 /**
  * Official Better Auth + Convex gate on the /club door only.
  * Unauthenticated visitors go to `/login` — never the seed board
  * and never PersistedClub. `/demo` is the hidden public seed.
- * Signed-in owners land on the admin home (forum), not an identity card.
+ * Signed-in owners land on the council board. The member forum is `/members`.
  */
 export function ClubShell() {
   const configured = convexConfigured();
@@ -41,7 +41,7 @@ export function ClubShell() {
 function ClubSignedIn() {
   const router = useRouter();
   return (
-    <AdminHome
+    <PersistedClub
       onSignOut={() => {
         void authClient.signOut().then(() => {
           router.replace(SIGN_OUT_HREF);

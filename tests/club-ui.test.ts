@@ -60,14 +60,13 @@ describe("SEA-25 shared Club UI", () => {
 
   test("club door uses shared Button; sign-in lives on /login", () => {
     const shell = read("apps/club/app/club/ClubShell.tsx");
-    const admin = read("apps/club/app/club/AdminHome.tsx");
     const chrome = read("apps/club/components/shell/SignedInShell.tsx");
     const persisted = read("apps/club/app/club/PersistedClub.tsx");
     const login = read("apps/club/app/login/page.tsx");
     const form = read("apps/club/components/auth/SignInForm.tsx");
     expect(shell).toContain("SIGN_OUT_HREF");
     expect(shell).toContain("clubLoginHref");
-    expect(shell).toContain("<AdminHome");
+    expect(shell).toContain("<PersistedClub");
     expect(shell).not.toContain("Signed in as");
     expect(shell).not.toContain("<Field");
     expect(shell).not.toContain("<Input");
@@ -76,7 +75,6 @@ describe("SEA-25 shared Club UI", () => {
     expect(chrome).toContain("<Button");
     expect(chrome).toContain("Sign out");
     expect(chrome).not.toContain("Signed in as");
-    expect(admin).toContain("<AdminChrome");
     expect(login).toContain("SignInForm");
     expect(form).toContain('type="email"');
     expect(form).toContain('type="password"');

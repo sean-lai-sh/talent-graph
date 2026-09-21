@@ -14,7 +14,7 @@ import { api } from "../../convex/_generated/api";
  * `api.club.setStatus` and `api.club.addReferral` exist for other pages; the
  * council page decides through `api.club.decide`.
  */
-export function PersistedClub() {
+export function PersistedClub({ onSignOut }: { onSignOut?: () => void }) {
   const board = useQuery(api.club.getBoard);
   const ensure = useMutation(api.club.ensureOrganization);
   const addPerson = useMutation(api.club.addPerson);
@@ -49,6 +49,7 @@ export function PersistedClub() {
         sync={board}
         variant="club"
         clock="wall"
+        onSignOut={onSignOut}
         actions={{
           decide: async (_state, personId, decision) => await decide({ personId, decision }),
           requestFeedback: async (_state, input) => await requestFeedback(input),

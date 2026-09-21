@@ -27,8 +27,8 @@ describe("SEA-12 Better Auth gate on /club", () => {
     expect(shell).not.toContain("SignInForm");
     expect(shell).not.toContain("Create account");
     expect(shell).not.toContain("signUp");
-    expect(shell).toContain("<AdminHome");
-    expect(shell.indexOf("<AdminHome")).toBeGreaterThan(shell.indexOf("<Authenticated>"));
+    expect(shell).toContain("<PersistedClub");
+    expect(shell.indexOf("<PersistedClub")).toBeGreaterThan(shell.indexOf("<Authenticated>"));
     expect(shell).toMatch(/<Unauthenticated>\s*<ClubSignInRedirect/);
     expect(shell).not.toContain("loadClub()");
     expect(shell).not.toContain("generateSeed()");
