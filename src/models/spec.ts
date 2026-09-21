@@ -12,7 +12,7 @@
 
 import { EVIDENCE_TYPES } from "../domain/constants.ts";
 import type { EvidenceType } from "../domain/types.ts";
-import { CAREER_EVIDENCE_DIMENSIONS } from "../longitudinal/dimensions.ts";
+import { CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL } from "../longitudinal/dimensions.ts";
 import type { CareerEventKind, ProgressDimension } from "../longitudinal/types.ts";
 import { CAREER_EVENT_KINDS } from "../longitudinal/types.ts";
 
@@ -297,6 +297,15 @@ function validateCareerEvidenceLevels(spec: CareerEvidenceSpec, errors: string[]
     }
     if (rubric.length < 2) {
       errors.push(`levels.${dimension} must have at least 2 levels (got ${rubric.length})`);
+    }
+    // Temporary, until the vector normalises by `spec.levels[d].length - 1`
+    // (#54 T6/T8's `careerEvidenceVector(events, spec)`): `progressVector` and
+    // `outcomes.ts` still divide by the fixed `MAX_LEVEL`, so a 2- or 6-level
+    // rubric would silently cap normalised values at 0.25 or push them past 1.
+    if (rubric.length !== MAX_LEVEL + 1) {
+      errors.push(
+        `levels.${dimension} has ${rubric.length} levels; the shared scale is 0..${MAX_LEVEL}, so it must have ${MAX_LEVEL + 1}`,
+      );
     }
     if (!rubric.every(isNonEmptyString)) {
       errors.push(`levels.${dimension} descriptions must be non-empty strings`);

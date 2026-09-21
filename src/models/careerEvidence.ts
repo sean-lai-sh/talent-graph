@@ -124,7 +124,7 @@ export function careerEvidenceRubricHash(spec: CareerEvidenceSpec): string {
 }
 
 /**
- * `"career_evidence@1.0.0:9f2c1ab4"` — the plain spec id plus the rubric
+ * `"career_evidence@1.0.0:6290bc28"` — the plain spec id plus the rubric
  * hash, so a silently edited level description changes the identifier even
  * though the version did not move.
  */

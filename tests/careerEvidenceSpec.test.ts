@@ -188,6 +188,35 @@ describe("CareerEvidenceSpec: validateSpec rejections", () => {
     );
   });
 
+  test("a rubric that is not the shared 0..MAX_LEVEL scale is rejected, even when every dimension agrees", () => {
+    // Six levels everywhere: the ">= 2" and "equal across dimensions" rules
+    // both pass, so only the exact-length rule can catch it. `progressVector`
+    // still divides by the fixed MAX_LEVEL, so a level 5 would normalise to
+    // 1.25 — a value outside [0, 1] that no downstream reader expects.
+    const broken = mutableSpec();
+    for (const dimension of CAREER_EVIDENCE_DIMENSIONS) {
+      levelsOf(broken)[dimension] = [...spec.levels[dimension], "A sixth level."];
+    }
+    expect(errorsOf(broken)).toContain(
+      `levels.difficulty has 6 levels; the shared scale is 0..${MAX_LEVEL}, so it must have ${MAX_LEVEL + 1}`,
+    );
+  });
+
+  test("a two-level rubric on every dimension is rejected for the same reason", () => {
+    // Structurally fine under the generic rules; normalised scores would never
+    // exceed 0.25 because the divisor is still the fixed MAX_LEVEL.
+    const broken = mutableSpec();
+    for (const dimension of CAREER_EVIDENCE_DIMENSIONS) {
+      levelsOf(broken)[dimension] = [...spec.levels[dimension]].slice(0, 2);
+    }
+    const errors = errorsOf(broken);
+    for (const dimension of CAREER_EVIDENCE_DIMENSIONS) {
+      expect(errors).toContain(
+        `levels.${dimension} has 2 levels; the shared scale is 0..${MAX_LEVEL}, so it must have ${MAX_LEVEL + 1}`,
+      );
+    }
+  });
+
   test("an event taxonomy missing no_supported_event is rejected", () => {
     const broken = mutableSpec();
     delete (broken.eventCriteria as Record<string, unknown>).no_supported_event;
