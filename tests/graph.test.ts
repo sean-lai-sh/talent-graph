@@ -151,9 +151,9 @@ describe("referral graph", () => {
     const edges = [referral("a", "phantom")];
 
     const h = buildReferralGraph(pair, edges);
-    expect(toEdgeList(h)).toHaveLength(0);
-    expect(inDegree(h, "phantom")).toBe(0);
-    expect(outDegree(h, "a")).toBe(0);
+    expect(toEdgeList(scoreReferralGraph(pair, edges, REFERRAL_SIGNAL_V0_1_0))).toHaveLength(0);
+    expect(h.in.get("phantom")?.length ?? 0).toBe(0);
+    expect(h.out.get("a")?.length ?? 0).toBe(0);
 
     const signals = computeAllReferralSignals(pair, edges);
     expect(signals.has("phantom")).toBe(false);
