@@ -15,7 +15,6 @@ import type { EvidenceType } from "../domain/types.ts";
 import { CAREER_EVIDENCE_DIMENSIONS } from "../longitudinal/dimensions.ts";
 import type { CareerEventKind, ProgressDimension } from "../longitudinal/types.ts";
 import { CAREER_EVENT_KINDS } from "../longitudinal/types.ts";
-import { hashInputs } from "../provenance/hash.ts";
 
 /** Parameters of the V0 Referral Signal. */
 export interface ReferralSignalSpec {
@@ -441,27 +440,4 @@ export function assertSpec<S extends ModelSpec>(spec: S): S {
 /** Stable identifier for a spec, used in ModelRun records and drift reports. */
 export function specId(spec: ModelSpec): string {
   return `${spec.kind}@${spec.version}`;
-}
-
-/**
- * Hash of everything in the spec that can change an answer: the rubric
- * levels, the question text, the event criteria and the model requested. The
- * version alone cannot catch a silent edit — this can.
- */
-export function careerEvidenceRubricHash(spec: CareerEvidenceSpec): string {
-  return hashInputs({
-    levels: spec.levels,
-    questions: spec.questions,
-    eventCriteria: spec.eventCriteria,
-    model: spec.model,
-  });
-}
-
-/**
- * `"career_evidence@1.0.0:9f2c1ab4"` — the plain spec id plus the rubric
- * hash, so a silently edited level description changes the identifier even
- * though the version did not move.
- */
-export function careerEvidenceSpecId(spec: CareerEvidenceSpec): string {
-  return `${specId(spec)}:${careerEvidenceRubricHash(spec).slice(0, 8)}`;
 }

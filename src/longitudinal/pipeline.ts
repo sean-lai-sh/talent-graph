@@ -1,4 +1,4 @@
-import { CAREER_EVIDENCE_V1_0_0 } from "../models/registry.ts";
+import { CAREER_EVIDENCE_V1_0_0 } from "../models/careerEvidence.ts";
 import { assertSpec, type CareerEvidenceSpec } from "../models/spec.ts";
 import { CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL } from "./dimensions.ts";
 import type { JevJudgmentService } from "./judgments.ts";

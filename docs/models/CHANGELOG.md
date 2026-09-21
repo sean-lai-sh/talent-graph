@@ -75,7 +75,11 @@ the seed dataset and paste the summary line into the entry.
   `same`) with its three field questions, the seven `CareerEventKind` criteria
   plus the mandatory `no_supported_event` escape hatch, `model "jev"`, and
   thresholds `identityConfidence 0.75`, `identityContradiction 0.25`,
-  `eventConfidence 0.65`, `dimensionConfidence 0.5`. The Club adapter takes the
+  `eventConfidence 0.65`, `dimensionConfidence 0.5`. The constant lives in the
+  leaf module `src/models/careerEvidence.ts`, which `registry.ts` imports to
+  append the version — the longitudinal pipeline and the Club adapter read the
+  leaf, never the registry, so the evidence signal does not reach the Referral
+  Signal or capability code even transitively. The Club adapter takes the
   spec and builds its SDK questions from it; `DEFAULT_EVIDENCE_POLICY` is the
   policy the spec implies. Events keep the stamp they already carry
   (`questionVersion "career-evidence@1.0.0"`, `model "jev"`) — the stamp names

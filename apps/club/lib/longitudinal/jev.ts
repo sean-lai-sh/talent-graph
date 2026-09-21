@@ -2,7 +2,7 @@ import { choice, noul, score, type TypeSafeClient } from "@typesafe-ai/sdk";
 import { CAREER_EVIDENCE_DIMENSIONS } from "../../../../src/longitudinal/dimensions.ts";
 import type { JevJudgmentService } from "../../../../src/longitudinal/judgments.ts";
 import type { ProgressDimension } from "../../../../src/longitudinal/types.ts";
-import { CAREER_EVIDENCE_V1_0_0 } from "../../../../src/models/registry.ts";
+import { CAREER_EVIDENCE_V1_0_0 } from "../../../../src/models/careerEvidence.ts";
 import { assertSpec, type CareerEvidenceSpec } from "../../../../src/models/spec.ts";
 
 type ScoreLevels = readonly [string, string, ...string[]];

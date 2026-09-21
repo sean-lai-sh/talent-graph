@@ -10,19 +10,20 @@
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { createJevJudgmentService } from "../apps/club/lib/longitudinal/jev.ts";
 import { CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL } from "../src/longitudinal/dimensions.ts";
 import { DEFAULT_EVIDENCE_POLICY } from "../src/longitudinal/pipeline.ts";
 import type { CanonicalIdentity, GrokEvidenceItem } from "../src/longitudinal/types.ts";
 import { CAREER_EVENT_KINDS } from "../src/longitudinal/types.ts";
-import { CAREER_EVIDENCE_V1_0_0, isRegisteredSpec } from "../src/models/registry.ts";
-import type { CareerEvidenceSpec } from "../src/models/spec.ts";
 import {
+  CAREER_EVIDENCE_V1_0_0,
   careerEvidenceRubricHash,
   careerEvidenceSpecId,
-  validateSpec,
-} from "../src/models/spec.ts";
+} from "../src/models/careerEvidence.ts";
+import { isRegisteredSpec } from "../src/models/registry.ts";
+import type { CareerEvidenceSpec } from "../src/models/spec.ts";
+import { validateSpec } from "../src/models/spec.ts";
 
 const ROOT = join(import.meta.dir, "..");
 
@@ -94,6 +95,65 @@ describe("CareerEvidenceSpec: registration", () => {
     const changelog = readFileSync(join(ROOT, "docs/models/CHANGELOG.md"), "utf8");
     expect(changelog).toContain("## career_evidence@1.0.0");
     expect(changelog).toContain("- **Drift:**");
+  });
+});
+
+/**
+ * The longitudinal signal must never reach Referral Signal or capability code.
+ * `src/models/registry.ts` side-effect-imports the model definitions, which
+ * pull `scoring/`, `inference/` and `judges/` in behind them — so a
+ * longitudinal module importing the registry drags the whole model graph into
+ * the pipeline and into the Club (Next/Convex) bundle, transitively crossing a
+ * boundary nothing crosses directly. The spec constant lives in a leaf module
+ * for exactly this reason; these checks are textual, like tests/invariants.test.ts.
+ */
+describe("CareerEvidenceSpec: the spec module is a leaf", () => {
+  const listTs = (dir: string): string[] => {
+    const glob = new Bun.Glob("**/*.ts");
+    return [...glob.scanSync({ cwd: join(ROOT, dir), absolute: true })].sort();
+  };
+
+  /** Strip block and line comments so prose never trips an import rule. */
+  const stripComments = (source: string): string =>
+    source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+
+  const importsPath = (source: string, needle: string): boolean =>
+    new RegExp(`from\\s+["'][^"']*${needle}[^"']*["']`).test(stripComments(source));
+
+  const LONGITUDINAL = [...listTs("src/longitudinal"), ...listTs("apps/club/lib/longitudinal")];
+
+  test("no longitudinal module imports the model registry or the definitions", () => {
+    expect(LONGITUDINAL.length).toBeGreaterThan(0);
+    for (const file of LONGITUDINAL) {
+      const source = readFileSync(file, "utf8");
+      const name = relative(ROOT, file);
+      expect(importsPath(source, "models/registry"), `${name} imports models/registry`).toBe(false);
+      expect(importsPath(source, "models/definitions"), `${name} imports models/definitions`).toBe(
+        false,
+      );
+    }
+  });
+
+  test("the career-evidence spec module pulls in no model, scoring or inference code", () => {
+    const source = readFileSync(join(ROOT, "src/models/careerEvidence.ts"), "utf8");
+    for (const needle of [
+      "scoring/",
+      "inference/",
+      "judges/",
+      "models/registry",
+      "./registry.ts",
+      "models/definitions",
+      "./definitions",
+    ]) {
+      expect(importsPath(source, needle), `careerEvidence.ts imports ${needle}`).toBe(false);
+    }
+  });
+
+  test("at least one longitudinal module reads the spec, so the rule has teeth", () => {
+    const pipeline = readFileSync(join(ROOT, "src/longitudinal/pipeline.ts"), "utf8");
+    const adapter = readFileSync(join(ROOT, "apps/club/lib/longitudinal/jev.ts"), "utf8");
+    expect(importsPath(pipeline, "models/careerEvidence")).toBe(true);
+    expect(importsPath(adapter, "models/careerEvidence")).toBe(true);
   });
 });
 
