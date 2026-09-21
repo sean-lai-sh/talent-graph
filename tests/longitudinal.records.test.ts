@@ -536,6 +536,23 @@ describe("judgment records: append-only and frozen", () => {
     expect(JSON.stringify(record)).toBe(before);
   });
 
+  test("a record whose id is not its own address is rejected on put", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    const client = fakeClient();
+    const result = await run(createJevJudgmentService(client.client, spec));
+    const record = result.records[0] as JevJudgmentRecord;
+    // The honest record writes and reads back.
+    await store.put(record);
+    expect(await store.get(record.id)).toEqual(record);
+    // A record whose id does not derive from its own fingerprint and evidence
+    // key would be written where nothing looks for it — a silent miss for
+    // every later run. It is refused at the write, by name.
+    const misfiled = { ...record, id: `jev-${record.requestFingerprint}` };
+    await expect(store.put(misfiled)).rejects.toThrow(/misfiled/);
+    await expect(store.put({ ...record, evidenceKey: "p-9|work|x|y" })).rejects.toThrow(/misfiled/);
+    expect(await store.get(misfiled.id)).toBe(null);
+  });
+
   test("a second put of the same fingerprint throws unless the content is identical", async () => {
     const store = new InMemoryJevJudgmentStore();
     const client = fakeClient();

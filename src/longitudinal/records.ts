@@ -62,9 +62,10 @@ export type JevAnswer = JevRawScoreAnswer | JevNoulAnswer | JevChoiceAnswer;
  * One request to the judgment model and everything it answered.
  *
  * Append-only: a record is frozen when it is written, and a second write of
- * the same `requestFingerprint` with different content is an error, not an
- * update. The fingerprint is the cache key; the id is derived from it, so two
- * identical requests name the same observation.
+ * the same `id` with different content is an error, not an update. The id is
+ * the address — the request fingerprint *and* the evidence key (`recordIdFor`)
+ * — so the same question asked about the same person's evidence names one
+ * observation, and the same question about someone else's names another.
  */
 export interface JevJudgmentRecord {
   /**
@@ -140,8 +141,11 @@ export const NO_SUPPORTED_EVENT = "no_supported_event";
 
 /**
  * The evidence one record is about: person plus the source item's identity.
- * Not the cache key — two spec versions asking about the same evidence share
- * this and differ in `requestFingerprint`.
+ *
+ * Half the address (`recordIdFor` is the other half's input): the request
+ * fingerprint alone cannot tell two people's judgments apart, because the
+ * person is never sent. Two spec versions asking about the same evidence
+ * share this key and differ in `requestFingerprint`.
  */
 export function evidenceKeyFor(personId: string, evidence: GrokEvidenceItem): string {
   return [personId, evidence.sourceId, evidence.publishedAt, evidence.contentHash].join("|");
@@ -186,11 +190,14 @@ export function recordContent(record: JevJudgmentRecord): string {
 }
 
 /**
- * The reference store: a `Map`, an append-only `put`, and frozen records.
+ * The reference store: a `Map` addressed by record id, an append-only `put`,
+ * and frozen records.
  *
- * A second `put` of the same fingerprint with identical content is a no-op — a
- * retried write is not a rewrite — and with different content it throws, so a
- * record can never be silently replaced by a later, different answer.
+ * A second `put` of the same id with identical content is a no-op — a retried
+ * write is not a rewrite — and with different content it throws, so a record
+ * can never be silently replaced by a later, different answer. A record whose
+ * id is not its own address is refused outright: written under any other key
+ * it would be a record nothing can find.
  */
 export class InMemoryJevJudgmentStore implements JevJudgmentStore {
   readonly #records = new Map<string, JevJudgmentRecord>();
@@ -200,6 +207,7 @@ export class InMemoryJevJudgmentStore implements JevJudgmentStore {
   }
 
   async put(record: JevJudgmentRecord): Promise<void> {
+    assertRecordAddress(record);
     const frozen = freezeRecord(record);
     const existing = this.#records.get(frozen.id);
     if (existing !== undefined) {
@@ -425,6 +433,24 @@ export function requestFingerprint(input: {
  */
 export function recordIdFor(fingerprint: string, evidenceKey: string): string {
   return `jev-${fingerprint}-${contentFingerprint(evidenceKey).slice(0, 8)}`;
+}
+
+/**
+ * A record must be stored where a later run will look for it.
+ *
+ * Every store write goes through here: an id that is not
+ * `recordIdFor(requestFingerprint, evidenceKey)` is a record filed under an
+ * address nothing computes, which reads back as a permanent cache miss and a
+ * re-billed judgment rather than as an error. Loud at the write instead.
+ */
+export function assertRecordAddress(record: JevJudgmentRecord): void {
+  const address = recordIdFor(record.requestFingerprint, record.evidenceKey);
+  if (record.id !== address) {
+    throw new Error(
+      `JevJudgmentStore: record ${record.id} is misfiled; its request fingerprint and evidence ` +
+        `key address ${address}`,
+    );
+  }
 }
 
 /**

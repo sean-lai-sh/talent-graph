@@ -72,8 +72,9 @@ export interface EvidenceRuntime {
   concurrency?: number;
   /**
    * Where judgment records are read and written. Consulted before the
-   * network: a request whose fingerprint is already recorded is answered from
-   * the record, so a repeated run over identical evidence is free.
+   * network: a judgment already recorded for this request *about this
+   * person's evidence* — the record id addresses both — is answered from the
+   * record, so a repeated run over identical evidence is free.
    *
    * Free only for the *same* rubric. The fingerprint is over the request and
    * the spec id, and the spec id carries the version, so a spec bump misses

@@ -41,6 +41,7 @@ import {
   MAX_MONITORING_ATTEMPTS_ERROR,
   processEvidence,
   progressVector,
+  recordIdFor,
   residualSlope,
   runDueMonitoringPlans,
   scoutHitGain,
@@ -143,11 +144,12 @@ function fakeRecord(
   answers: Record<string, JevAnswer>,
 ): JevJudgmentRecord {
   const fingerprint = contentFingerprint({ kind, personId, sourceId: evidence.sourceId });
+  const evidenceKey = evidenceKeyFor(personId, evidence);
   return freezeRecord({
-    id: `jev-${fingerprint}`,
+    id: recordIdFor(fingerprint, evidenceKey),
     kind,
     personId,
-    evidenceKey: evidenceKeyFor(personId, evidence),
+    evidenceKey,
     requestFingerprint: fingerprint,
     specId: careerEvidenceSpecId(CAREER_EVIDENCE_V1_0_0),
     requestedModel: CAREER_EVIDENCE_V1_0_0.model,
