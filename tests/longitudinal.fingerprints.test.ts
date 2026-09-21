@@ -8,9 +8,10 @@
  * and snapshot `contentHash`es are derived from it, and the Club adapter uses it
  * for the Grok/GitHub/ORCID dedupe key.
  *
- * This file was written and its fixture recorded BEFORE the serializer swap, so
- * the recorded values are the pre-change digests. Every input below is one the
- * pipeline actually hashes today:
+ * The fixture values are the pre-#54-T4 digests (recorded with the private
+ * serializer, before the swap); this test asserts they are unchanged under
+ * `stableStringify`, and after merge it is the ongoing lock on those ids.
+ * Every input below is one the pipeline actually hashes today:
  *   - claim-id inputs      `src/longitudinal/stages.ts` (`materialize`)
  *   - event-id inputs      `src/longitudinal/stages.ts` (`materialize`)
  *   - snapshot-hash inputs `src/longitudinal/pipeline.ts` (`processEvidence`)
