@@ -30,6 +30,7 @@ export * from "./longitudinal/monitor.ts";
 export * from "./longitudinal/outcomes.ts";
 export * from "./longitudinal/pipeline.ts";
 export * from "./longitudinal/provenance.ts";
+export * from "./longitudinal/records.ts";
 export * from "./longitudinal/scout.ts";
 export * from "./longitudinal/types.ts";
 export * from "./longitudinal/validate.ts";

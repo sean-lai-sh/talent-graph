@@ -14,14 +14,20 @@ import type { Opportunity, Outcome } from "../src/domain/types.ts";
 import type {
   CanonicalIdentity,
   CareerEvent,
+  ClaimAssessment,
   GrokEvidenceItem,
   GrokEvidencePacket,
+  IdentityAssessment,
+  JevAnswer,
+  JevJudgmentRecord,
   JevJudgmentService,
 } from "../src/index.ts";
 import {
   aggregateScoutInformationGain,
   batchDueMonitoringPlans,
+  CAREER_EVIDENCE_V1_0_0,
   careerEventsToLongitudinalRecords,
+  careerEvidenceSpecId,
   checkpointJobKey,
   contentFingerprint,
   createMonitoringPlan,
@@ -29,7 +35,9 @@ import {
   DEFAULT_MAX_MONITORING_ATTEMPTS,
   DEFAULT_MONITORING_LEASE_MS,
   evaluateLongitudinalCases,
+  evidenceKeyFor,
   failMonitoringPlan,
+  freezeRecord,
   MAX_MONITORING_ATTEMPTS_ERROR,
   processEvidence,
   progressVector,
@@ -75,7 +83,111 @@ function evidence(id: string, observedDay: number): GrokEvidenceItem {
   };
 }
 
-const acceptingJudgments: JevJudgmentService = {
+/**
+ * The judgment service the pipeline now expects: an assessment *and* the
+ * record it was projected from. The assessments are still the ones the cases
+ * below state — the assertions pin those numbers — and the record is the
+ * observation they would have come from, so nothing here is a second source
+ * of truth for a number.
+ */
+interface FakeJudgments {
+  assessIdentity(
+    identity: CanonicalIdentity,
+    evidence: GrokEvidenceItem,
+  ): Promise<IdentityAssessment>;
+  assessClaim(evidence: GrokEvidenceItem): Promise<ClaimAssessment>;
+}
+
+const LEVEL_COUNT = 5;
+
+function identityAnswers(assessment: IdentityAssessment): Record<string, JevAnswer> {
+  return {
+    decision: {
+      choice: assessment.decision,
+      confidence: assessment.confidence,
+      probabilities: { [assessment.decision]: assessment.confidence },
+    },
+    same_name: { noul: assessment.fieldMatches.name },
+    same_affiliation: { noul: assessment.fieldMatches.affiliation },
+    same_handle: { noul: assessment.fieldMatches.handle },
+  };
+}
+
+function claimAnswers(assessment: ClaimAssessment): Record<string, JevAnswer> {
+  const kind = assessment.eventKind ?? "no_supported_event";
+  const answers: Record<string, JevAnswer> = {
+    event_kind: {
+      choice: kind,
+      confidence: assessment.eventConfidence,
+      probabilities: { [kind]: assessment.eventConfidence },
+    },
+  };
+  for (const dimension of CAREER_EVIDENCE_DIMENSIONS) {
+    const judgment = assessment.dimensions.find((entry) => entry.dimension === dimension);
+    answers[dimension] = {
+      score: judgment?.score ?? 0,
+      confidence: judgment?.confidence ?? 0,
+      probabilities:
+        judgment?.probabilities ??
+        Array.from({ length: LEVEL_COUNT }, (_value, i) => (i === 0 ? 1 : 0)),
+      legend: [...CAREER_EVIDENCE_V1_0_0.levels[dimension]],
+    };
+  }
+  return answers;
+}
+
+function fakeRecord(
+  kind: JevJudgmentRecord["kind"],
+  personId: string,
+  evidence: GrokEvidenceItem,
+  answers: Record<string, JevAnswer>,
+): JevJudgmentRecord {
+  const fingerprint = contentFingerprint({ kind, personId, sourceId: evidence.sourceId });
+  return freezeRecord({
+    id: `jev-${fingerprint}`,
+    kind,
+    personId,
+    evidenceKey: evidenceKeyFor(personId, evidence),
+    requestFingerprint: fingerprint,
+    specId: careerEvidenceSpecId(CAREER_EVIDENCE_V1_0_0),
+    requestedModel: CAREER_EVIDENCE_V1_0_0.model,
+    respondedModel: `${CAREER_EVIDENCE_V1_0_0.model}-test`,
+    requestId: null,
+    answers,
+    usage: { inputTokens: 100, outputTokens: 20 },
+    observedAt: new Date(0),
+  });
+}
+
+/** Wrap assessment-only fakes in the record-returning service interface. */
+function serviceOf(fake: FakeJudgments): JevJudgmentService {
+  return {
+    identityFingerprint: (identity, evidence) =>
+      contentFingerprint({
+        kind: "identity",
+        personId: identity.personId,
+        sourceId: evidence.sourceId,
+      }),
+    claimFingerprint: (evidence) =>
+      contentFingerprint({ kind: "claim", sourceId: evidence.sourceId }),
+    async assessIdentity(identity, evidence) {
+      const assessment = await fake.assessIdentity(identity, evidence);
+      return {
+        assessment,
+        record: fakeRecord("identity", identity.personId, evidence, identityAnswers(assessment)),
+      };
+    },
+    async assessClaim(evidence, personId) {
+      const assessment = await fake.assessClaim(evidence);
+      return {
+        assessment,
+        record: fakeRecord("claim", personId, evidence, claimAnswers(assessment)),
+      };
+    },
+  };
+}
+
+const acceptingJudgments: FakeJudgments = {
   async assessIdentity() {
     return {
       decision: "same",
@@ -260,62 +372,89 @@ describe("longitudinal source ingestion", () => {
 describe("Jev judgments and evidence policy", () => {
   test("TypeSafe adapter maps Jev typed answers into identity and progress judgments", async () => {
     let requestCount = 0;
+    const legendFor = (dimension: ProgressDimension) =>
+      Object.fromEntries(CAREER_EVIDENCE_V1_0_0.levels[dimension].map((t, i) => [i, t]));
     const client = {
-      async systemOne(request: { questions: Record<string, unknown> }) {
+      systemOne(request: { questions: Record<string, unknown> }) {
         requestCount++;
-        if ("decision" in request.questions) {
-          return {
-            answers: {
-              decision: { choice: "same", confidence: 0.91 },
-              same_name: { noul: 0.95 },
-              same_affiliation: { noul: 0.8 },
-              same_handle: { noul: 1 },
-            },
-          };
-        }
+        const data =
+          "decision" in request.questions
+            ? {
+                model: "jev-test",
+                usage: { input_tokens: 11, output_tokens: 3 },
+                answers: {
+                  decision: { choice: "same", confidence: 0.91, probabilities: { same: 0.91 } },
+                  same_name: { noul: 0.95 },
+                  same_affiliation: { noul: 0.8 },
+                  same_handle: { noul: 1 },
+                },
+              }
+            : {
+                model: "jev-test",
+                usage: { input_tokens: 42, output_tokens: 7 },
+                answers: {
+                  event_kind: {
+                    choice: "shipped_product",
+                    confidence: 0.88,
+                    probabilities: { shipped_product: 0.88 },
+                  },
+                  difficulty: {
+                    score: 3,
+                    probabilities: { 0: 0, 1: 0, 2: 0.2, 3: 0.8, 4: 0 },
+                    confidence: 0.8,
+                    legend: legendFor("difficulty"),
+                  },
+                  ownership: {
+                    score: 3,
+                    probabilities: { 0: 0, 1: 0, 2: 0.2, 3: 0.8, 4: 0 },
+                    confidence: 0.8,
+                    legend: legendFor("ownership"),
+                  },
+                  external_impact: {
+                    score: 2,
+                    probabilities: { 0: 0, 1: 0, 2: 1, 3: 0, 4: 0 },
+                    confidence: 1,
+                    legend: legendFor("external_impact"),
+                  },
+                  originality: {
+                    score: 3,
+                    probabilities: { 0: 0, 1: 0, 2: 0, 3: 1, 4: 0 },
+                    confidence: 1,
+                    legend: legendFor("originality"),
+                  },
+                  peer_validation: {
+                    score: 2,
+                    probabilities: { 0: 0, 1: 0, 2: 1, 3: 0, 4: 0 },
+                    confidence: 1,
+                    legend: legendFor("peer_validation"),
+                  },
+                },
+              };
         return {
-          answers: {
-            event_kind: { choice: "shipped_product", confidence: 0.88 },
-            difficulty: {
-              score: 3,
-              probabilities: { 0: 0, 1: 0, 2: 0.2, 3: 0.8, 4: 0 },
-              confidence: 0.8,
-            },
-            ownership: {
-              score: 3,
-              probabilities: { 0: 0, 1: 0, 2: 0.2, 3: 0.8, 4: 0 },
-              confidence: 0.8,
-            },
-            external_impact: {
-              score: 2,
-              probabilities: { 0: 0, 1: 0, 2: 1, 3: 0, 4: 0 },
-              confidence: 1,
-            },
-            originality: {
-              score: 3,
-              probabilities: { 0: 0, 1: 0, 2: 0, 3: 1, 4: 0 },
-              confidence: 1,
-            },
-            peer_validation: {
-              score: 2,
-              probabilities: { 0: 0, 1: 0, 2: 1, 3: 0, 4: 0 },
-              confidence: 1,
-            },
+          async withResponse() {
+            return { data, response: new Response(null), requestId: "req-1" };
           },
         };
       },
     } as unknown as Parameters<typeof createJevJudgmentService>[0];
     const service = createJevJudgmentService(client);
-    expect((await service.assessIdentity(identity, evidence("x", 30))).decision).toBe("same");
-    const claim = await service.assessClaim(evidence("x", 30));
-    expect(claim.eventKind).toBe("shipped_product");
-    expect(claim.dimensions).toHaveLength(5);
+    const judged = await service.assessIdentity(identity, evidence("x", 30));
+    expect(judged.assessment.decision).toBe("same");
+    // The record is the observation the assessment was projected from.
+    expect(judged.record.kind).toBe("identity");
+    expect(judged.record.respondedModel).toBe("jev-test");
+    expect(judged.record.requestId).toBe("req-1");
+    expect(judged.record.usage).toEqual({ inputTokens: 11, outputTokens: 3 });
+    const claim = await service.assessClaim(evidence("x", 30), identity.personId);
+    expect(claim.assessment.eventKind).toBe("shipped_product");
+    expect(claim.assessment.dimensions).toHaveLength(5);
+    expect(claim.record.usage).toEqual({ inputTokens: 42, outputTokens: 7 });
     expect(requestCount).toBe(2);
   });
 
   test("an ambiguous identity stops before assessClaim is ever called", async () => {
     let assessClaimCalls = 0;
-    const ambiguous: JevJudgmentService = {
+    const ambiguous: FakeJudgments = {
       async assessIdentity() {
         return {
           decision: "review",
@@ -334,7 +473,7 @@ describe("Jev judgments and evidence policy", () => {
       cutoffAt: day(90),
       retrievedAt: day(100),
       pipelineVersion: "1",
-      judgments: ambiguous,
+      judgments: serviceOf(ambiguous),
     });
     expect(assessClaimCalls).toBe(0);
     expect(result.claims).toHaveLength(1);
@@ -349,7 +488,7 @@ describe("Jev judgments and evidence policy", () => {
   });
 
   test("an assessed claim keeps Grok's proposed kind apart from Jev's assessed kind", async () => {
-    const disagreeing: JevJudgmentService = {
+    const disagreeing: FakeJudgments = {
       ...acceptingJudgments,
       async assessClaim() {
         const accepted = await acceptingJudgments.assessClaim(evidence("work", 40));
@@ -362,7 +501,7 @@ describe("Jev judgments and evidence policy", () => {
       cutoffAt: day(90),
       retrievedAt: day(100),
       pipelineVersion: "1",
-      judgments: disagreeing,
+      judgments: serviceOf(disagreeing),
     });
     expect(result.claims[0]?.status).toBe("accepted");
     expect(result.claims[0]?.proposedEventKind).toBe("open_source_contribution");
@@ -373,7 +512,7 @@ describe("Jev judgments and evidence policy", () => {
 
   test("an identity-rejected claim carries no assessed kind and keeps Grok's", async () => {
     let assessClaimCalls = 0;
-    const different: JevJudgmentService = {
+    const different: FakeJudgments = {
       async assessIdentity() {
         return {
           decision: "different",
@@ -392,7 +531,7 @@ describe("Jev judgments and evidence policy", () => {
       cutoffAt: day(90),
       retrievedAt: day(100),
       pipelineVersion: "1",
-      judgments: different,
+      judgments: serviceOf(different),
     });
     expect(assessClaimCalls).toBe(0);
     expect(result.claims[0]?.status).toBe("rejected");
@@ -406,7 +545,7 @@ describe("Jev judgments and evidence policy", () => {
 
   test("a same-person decision below the confidence threshold stops before assessment", async () => {
     let assessClaimCalls = 0;
-    const unsure: JevJudgmentService = {
+    const unsure: FakeJudgments = {
       async assessIdentity() {
         return {
           decision: "same",
@@ -425,7 +564,7 @@ describe("Jev judgments and evidence policy", () => {
       cutoffAt: day(90),
       retrievedAt: day(100),
       pipelineVersion: "1",
-      judgments: unsure,
+      judgments: serviceOf(unsure),
     });
     expect(assessClaimCalls).toBe(0);
     expect(result.claims[0]?.status).toBe("review");
@@ -438,7 +577,7 @@ describe("Jev judgments and evidence policy", () => {
     // Routing to review is already covered by the incomplete-judgment gate; what
     // this pins is that the empty case is labelled, not silently lumped in with
     // a partial or out-of-range judgment set.
-    const unjudged: JevJudgmentService = {
+    const unjudged: FakeJudgments = {
       ...acceptingJudgments,
       async assessClaim() {
         const accepted = await acceptingJudgments.assessClaim(evidence("work", 40));
@@ -451,7 +590,7 @@ describe("Jev judgments and evidence policy", () => {
       cutoffAt: day(90),
       retrievedAt: day(100),
       pipelineVersion: "1",
-      judgments: unjudged,
+      judgments: serviceOf(unjudged),
     });
     expect(result.claims[0]?.status).toBe("review");
     expect(result.claims[0]?.reviewReasons).toEqual(["no_dimensions"]);
@@ -467,7 +606,7 @@ describe("Jev judgments and evidence policy", () => {
       cutoffAt: day(90),
       retrievedAt: day(100),
       pipelineVersion: "1",
-      judgments: acceptingJudgments,
+      judgments: serviceOf(acceptingJudgments),
     });
     expect(result.claims[0]?.status).toBe("accepted");
     expect("reviewReasons" in (result.claims[0] ?? {})).toBe(false);
@@ -476,7 +615,7 @@ describe("Jev judgments and evidence policy", () => {
   });
 
   test("missing dimensions route to review and never become a zero outcome", async () => {
-    const missingDimensions: JevJudgmentService = {
+    const missingDimensions: FakeJudgments = {
       ...acceptingJudgments,
       async assessClaim() {
         return {
@@ -492,7 +631,7 @@ describe("Jev judgments and evidence policy", () => {
       cutoffAt: day(90),
       retrievedAt: day(100),
       pipelineVersion: "1",
-      judgments: missingDimensions,
+      judgments: serviceOf(missingDimensions),
     });
     expect(result.claims[0]?.status).toBe("review");
     expect(result.events[0]?.status).toBe("review");
@@ -561,7 +700,7 @@ describe("checkpoint scheduling", () => {
           return [evidence("early-event", 80), evidence("late-event", 120)];
         },
       },
-      judgments: acceptingJudgments,
+      judgments: serviceOf(acceptingJudgments),
     });
     expect(fetches).toBe(1);
     expect(run.fetchCount).toBe(1);
@@ -644,7 +783,7 @@ describe("checkpoint scheduling", () => {
           ];
         },
       },
-      judgments: acceptingJudgments,
+      judgments: serviceOf(acceptingJudgments),
     });
     expect(fetches).toBe(1);
     expect(
@@ -681,7 +820,7 @@ describe("checkpoint scheduling", () => {
           return [evidence("recovered", 40)];
         },
       },
-      judgments: acceptingJudgments,
+      judgments: serviceOf(acceptingJudgments),
     });
     expect(run.plans[0]?.status).toBe("completed");
     expect(run.plans[0]?.attemptCount).toBe(1);
@@ -709,7 +848,7 @@ describe("bounded judgment fan-out", () => {
     };
     return {
       peak: () => peak,
-      service: {
+      service: serviceOf({
         async assessIdentity(canonical, item) {
           await hold(item.sourceId);
           return acceptingJudgments.assessIdentity(canonical, item);
@@ -718,7 +857,7 @@ describe("bounded judgment fan-out", () => {
           await hold(item.sourceId);
           return acceptingJudgments.assessClaim(item);
         },
-      },
+      }),
     };
   }
 
@@ -758,30 +897,30 @@ describe("bounded judgment fan-out", () => {
 
   test("concurrency must be an integer of at least one", async () => {
     for (const bad of [0, -1, 1.5, Number.NaN]) {
-      await expect(run(acceptingJudgments, bad)).rejects.toThrow(/integer >= 1/);
+      await expect(run(serviceOf(acceptingJudgments), bad)).rejects.toThrow(/integer >= 1/);
     }
   });
 
   test("one failing identity call still rejects the whole call", async () => {
-    const failing: JevJudgmentService = {
+    const failing: FakeJudgments = {
       ...acceptingJudgments,
       async assessIdentity(canonical, item) {
         if (item.sourceId === "item-7") throw new Error("jev identity 500");
         return acceptingJudgments.assessIdentity(canonical, item);
       },
     };
-    await expect(run(failing, 2)).rejects.toThrow("jev identity 500");
+    await expect(run(serviceOf(failing), 2)).rejects.toThrow("jev identity 500");
   });
 
   test("one failing item still rejects the whole call", async () => {
-    const failing: JevJudgmentService = {
+    const failing: FakeJudgments = {
       ...acceptingJudgments,
       async assessClaim(item) {
         if (item.sourceId === "item-7") throw new Error("jev 500");
         return acceptingJudgments.assessClaim(item);
       },
     };
-    await expect(run(failing, 2)).rejects.toThrow("jev 500");
+    await expect(run(serviceOf(failing), 2)).rejects.toThrow("jev 500");
   });
 });
 
@@ -834,7 +973,7 @@ describe("monitoring attempt cap", () => {
           return [evidence("recovered", 40)];
         },
       },
-      judgments: acceptingJudgments,
+      judgments: serviceOf(acceptingJudgments),
     });
     expect(fetches).toBe(0);
     expect(sweep.plans[0]).toEqual(exhausted);
@@ -888,7 +1027,7 @@ describe("monitoring attempt cap", () => {
           return [evidence("recovered", 40)];
         },
       },
-      judgments: acceptingJudgments,
+      judgments: serviceOf(acceptingJudgments),
     });
     expect(fetches).toBe(0);
     expect(sweep.fetchCount).toBe(0);

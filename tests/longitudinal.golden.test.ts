@@ -28,9 +28,20 @@ import type {
   CanonicalIdentity,
   ClaimAssessment,
   GrokEvidenceItem,
+  IdentityAssessment,
+  JevAnswer,
+  JevJudgmentRecord,
   JevJudgmentService,
 } from "../src/index.ts";
-import { contentFingerprint, processEvidence } from "../src/index.ts";
+import {
+  CAREER_EVIDENCE_V1_0_0,
+  careerEvidenceSpecId,
+  contentFingerprint,
+  evidenceKeyFor,
+  freezeRecord,
+  processEvidence,
+} from "../src/index.ts";
+import { CAREER_EVIDENCE_DIMENSIONS } from "../src/longitudinal/dimensions.ts";
 import type { EvidencePipelinePolicy } from "../src/longitudinal/pipeline.ts";
 
 const FIXTURE = join(import.meta.dir, "fixtures", "longitudinal-golden.json");
@@ -98,11 +109,115 @@ const sameIdentity = {
   fieldMatches: { name: 0.99, affiliation: 0.8, handle: 1 },
 };
 
+/**
+ * The judgment service the pipeline now expects: an assessment *and* the
+ * record it was projected from. The assessments are still the ones the cases
+ * below state — the golden pins those numbers — and the record is the
+ * observation they would have come from, so nothing here is a second source
+ * of truth for a number.
+ */
+interface FakeJudgments {
+  assessIdentity(
+    identity: CanonicalIdentity,
+    evidence: GrokEvidenceItem,
+  ): Promise<IdentityAssessment>;
+  assessClaim(evidence: GrokEvidenceItem): Promise<ClaimAssessment>;
+}
+
+const LEVEL_COUNT = 5;
+
+function identityAnswers(assessment: IdentityAssessment): Record<string, JevAnswer> {
+  return {
+    decision: {
+      choice: assessment.decision,
+      confidence: assessment.confidence,
+      probabilities: { [assessment.decision]: assessment.confidence },
+    },
+    same_name: { noul: assessment.fieldMatches.name },
+    same_affiliation: { noul: assessment.fieldMatches.affiliation },
+    same_handle: { noul: assessment.fieldMatches.handle },
+  };
+}
+
+function claimAnswers(assessment: ClaimAssessment): Record<string, JevAnswer> {
+  const kind = assessment.eventKind ?? "no_supported_event";
+  const answers: Record<string, JevAnswer> = {
+    event_kind: {
+      choice: kind,
+      confidence: assessment.eventConfidence,
+      probabilities: { [kind]: assessment.eventConfidence },
+    },
+  };
+  for (const dimension of CAREER_EVIDENCE_DIMENSIONS) {
+    const judgment = assessment.dimensions.find((entry) => entry.dimension === dimension);
+    answers[dimension] = {
+      score: judgment?.score ?? 0,
+      confidence: judgment?.confidence ?? 0,
+      probabilities:
+        judgment?.probabilities ??
+        Array.from({ length: LEVEL_COUNT }, (_value, i) => (i === 0 ? 1 : 0)),
+      legend: [...CAREER_EVIDENCE_V1_0_0.levels[dimension]],
+    };
+  }
+  return answers;
+}
+
+function fakeRecord(
+  kind: JevJudgmentRecord["kind"],
+  personId: string,
+  evidence: GrokEvidenceItem,
+  answers: Record<string, JevAnswer>,
+): JevJudgmentRecord {
+  const fingerprint = contentFingerprint({ kind, personId, sourceId: evidence.sourceId });
+  return freezeRecord({
+    id: `jev-${fingerprint}`,
+    kind,
+    personId,
+    evidenceKey: evidenceKeyFor(personId, evidence),
+    requestFingerprint: fingerprint,
+    specId: careerEvidenceSpecId(CAREER_EVIDENCE_V1_0_0),
+    requestedModel: CAREER_EVIDENCE_V1_0_0.model,
+    respondedModel: `${CAREER_EVIDENCE_V1_0_0.model}-test`,
+    requestId: null,
+    answers,
+    usage: { inputTokens: 100, outputTokens: 20 },
+    observedAt: new Date(0),
+  });
+}
+
+/** Wrap assessment-only fakes in the record-returning service interface. */
+function serviceOf(fake: FakeJudgments): JevJudgmentService {
+  return {
+    identityFingerprint: (identity, evidence) =>
+      contentFingerprint({
+        kind: "identity",
+        personId: identity.personId,
+        sourceId: evidence.sourceId,
+      }),
+    claimFingerprint: (evidence) =>
+      contentFingerprint({ kind: "claim", sourceId: evidence.sourceId }),
+    async assessIdentity(identity, evidence) {
+      const assessment = await fake.assessIdentity(identity, evidence);
+      return {
+        assessment,
+        record: fakeRecord("identity", identity.personId, evidence, identityAnswers(assessment)),
+      };
+    },
+    async assessClaim(evidence, personId) {
+      const assessment = await fake.assessClaim(evidence);
+      return {
+        assessment,
+        record: fakeRecord("claim", personId, evidence, claimAnswers(assessment)),
+      };
+    },
+  };
+}
+
 function service(
-  overrides: Partial<JevJudgmentService> = {},
+  overrides: Partial<FakeJudgments> = {},
   assessment: ClaimAssessment = acceptedAssessment,
 ): JevJudgmentService {
-  return {
+  return serviceOf({
     async assessIdentity() {
       return sameIdentity;
     },
@@ -110,7 +225,7 @@ function service(
       return structuredClone(assessment);
     },
     ...overrides,
-  };
+  });
 }
 
 interface GoldenCase {
@@ -228,7 +343,11 @@ function isoDates(_key: string, value: unknown): unknown {
 async function runAll(): Promise<string> {
   const output: Record<string, unknown> = {};
   for (const item of cases) {
-    output[item.name] = await processEvidence({
+    // The judgment records the run collected are deliberately not pinned here:
+    // they carry an observation time and a fake responded model, and what this
+    // golden locks is the *derivation* — the claims, events, snapshot and
+    // review flag. `tests/longitudinal.records.test.ts` pins the records.
+    const { records: _records, ...derived } = await processEvidence({
       identity,
       evidence: item.evidence,
       ...(item.baselineAt === undefined ? {} : { baselineAt: item.baselineAt }),
@@ -238,6 +357,7 @@ async function runAll(): Promise<string> {
       judgments: item.judgments,
       policy,
     });
+    output[item.name] = derived;
   }
   return `${JSON.stringify(output, isoDates, 2)}\n`;
 }

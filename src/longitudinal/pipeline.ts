@@ -1,8 +1,15 @@
 import { CAREER_EVIDENCE_V1_0_0 } from "../models/careerEvidence.ts";
 import { assertSpec, type CareerEvidenceSpec } from "../models/spec.ts";
 import { CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL } from "./dimensions.ts";
-import type { JevJudgmentService } from "./judgments.ts";
+import type {
+  ClaimAssessment,
+  IdentityAssessment,
+  JevJudgment,
+  JevJudgmentService,
+} from "./judgments.ts";
 import { contentFingerprint } from "./provenance.ts";
+import type { JevJudgmentRecord, JevJudgmentStore } from "./records.ts";
+import { evidenceKeyFor, projectClaim, projectIdentity } from "./records.ts";
 import type { EvidenceThresholds } from "./stages.ts";
 import { decideStatus, gateIdentity, materialize, selectEligible } from "./stages.ts";
 import type {
@@ -57,6 +64,12 @@ export const DEFAULT_EVIDENCE_CONCURRENCY = 4;
 export interface EvidenceRuntime {
   /** Maximum evidence items assessed at once. Integer >= 1. */
   concurrency?: number;
+  /**
+   * Where judgment records are read and written. Consulted before the
+   * network: a request whose fingerprint is already recorded is answered from
+   * the record, so a repeated run over identical evidence is free.
+   */
+  store?: JevJudgmentStore;
 }
 
 export interface ProcessEvidenceInput {
@@ -79,6 +92,73 @@ export interface ProcessEvidenceResult {
   events: CareerEvent[];
   snapshot: ProfileSnapshot;
   needsReview: boolean;
+  /**
+   * Every judgment record the run read or wrote, in evaluation order
+   * (identity before claim, item by item). These are the raw observations
+   * `runCareerEvidence` derives from; the claims and events above are one
+   * derivation of them.
+   */
+  records: JevJudgmentRecord[];
+}
+
+/** What a judgment stage needs: the service, and where records are kept. */
+export interface JudgmentDeps {
+  service: JevJudgmentService;
+  store?: JevJudgmentStore;
+}
+
+/**
+ * The identity judgment for one evidence item, from the store when it is
+ * already recorded and from the network otherwise.
+ *
+ * With `deps.store` populated this issues no request at all: the record is the
+ * observation, and the assessment is a projection of it. The fingerprint is
+ * the service's, because only the service knows what it would send.
+ */
+export async function judgeIdentity(
+  evidence: GrokEvidenceItem,
+  identity: CanonicalIdentity,
+  spec: CareerEvidenceSpec,
+  deps: JudgmentDeps,
+): Promise<JevJudgment<IdentityAssessment>> {
+  const fingerprint = deps.service.identityFingerprint(identity, evidence);
+  const recorded = await recordedJudgment(fingerprint, "identity", deps.store);
+  if (recorded !== null) return { assessment: projectIdentity(recorded, spec), record: recorded };
+  const judged = await deps.service.assessIdentity(identity, evidence);
+  await deps.store?.put(judged.record);
+  return judged;
+}
+
+/** The claim judgment for one evidence item; store first, network second. */
+export async function judgeClaim(
+  evidence: GrokEvidenceItem,
+  personId: string,
+  spec: CareerEvidenceSpec,
+  deps: JudgmentDeps,
+): Promise<JevJudgment<ClaimAssessment>> {
+  const fingerprint = deps.service.claimFingerprint(evidence);
+  const recorded = await recordedJudgment(fingerprint, "claim", deps.store);
+  if (recorded !== null) return { assessment: projectClaim(recorded, spec), record: recorded };
+  const judged = await deps.service.assessClaim(evidence, personId);
+  await deps.store?.put(judged.record);
+  return judged;
+}
+
+/** A stored record for this exact request, or `null`. Never a near miss. */
+async function recordedJudgment(
+  fingerprint: string,
+  kind: JevJudgmentRecord["kind"],
+  store: JevJudgmentStore | undefined,
+): Promise<JevJudgmentRecord | null> {
+  const record = (await store?.get(fingerprint)) ?? null;
+  if (record === null) return null;
+  if (record.requestFingerprint !== fingerprint || record.kind !== kind) {
+    throw new TypeError(
+      `judgment store: ${fingerprint} holds a ${record.kind} record fingerprinted ` +
+        `${record.requestFingerprint}; a store must return the record it was asked for`,
+    );
+  }
+  return record;
 }
 
 /**
@@ -93,6 +173,10 @@ export async function processEvidence(input: ProcessEvidenceInput): Promise<Proc
   const policy = input.policy ?? evidencePolicyFor(spec);
   const stamp = { model: policy.model, questionVersion: policy.questionVersion };
   const concurrency = resolveConcurrency(input.runtime?.concurrency);
+  const deps: JudgmentDeps = {
+    service: input.judgments,
+    ...(input.runtime?.store === undefined ? {} : { store: input.runtime.store }),
+  };
   const eligible = selectEligible(input.evidence, input.baselineAt, input.cutoffAt);
 
   // A bounded worker pool, not `Promise.all` over every item: the judgment
@@ -100,12 +184,91 @@ export async function processEvidence(input: ProcessEvidenceInput): Promise<Proc
   // the output order is the eligible order regardless of completion order, and
   // the first rejection still rejects the whole call.
   const processed = await mapWithConcurrency(eligible, concurrency, async (evidence) => {
-    const identity = await input.judgments.assessIdentity(input.identity, evidence);
+    const identity = await judgeIdentity(evidence, input.identity, spec, deps);
     // Identity is settled before any claim assessment. An ambiguous or
     // contradicted identity stops here, so no paid assessment is spent on an
     // item we cannot attribute, and no event is produced for one.
+    const gate = gateIdentity(identity.assessment, policy);
+    const claim =
+      gate.kind === "stop" ? null : await judgeClaim(evidence, input.identity.personId, spec, deps);
+    return {
+      ...materialize({
+        personId: input.identity.personId,
+        evidence,
+        retrievedAt: input.retrievedAt,
+        identity: identity.assessment,
+        assessment: claim?.assessment ?? null,
+        decision: decideStatus(identity.assessment, claim?.assessment ?? null, policy),
+        stamp,
+      }),
+      records: claim === null ? [identity.record] : [identity.record, claim.record],
+    };
+  });
+
+  const claims = processed.map(({ claim }) => claim);
+  const events = processed.flatMap(({ event }) => (event === null ? [] : [event]));
+  const records = processed.flatMap(({ records: itemRecords }) => itemRecords);
+  const snapshotHash = contentFingerprint({
+    personId: input.identity.personId,
+    cutoffAt: input.cutoffAt.toISOString(),
+    claims: claims.map((claim) => [claim.id, claim.status]),
+    pipelineVersion: input.pipelineVersion,
+  });
+  return {
+    claims,
+    events,
+    snapshot: {
+      id: `profile-${snapshotHash}`,
+      personId: input.identity.personId,
+      capturedAt: new Date(input.retrievedAt.getTime()),
+      cutoffAt: new Date(input.cutoffAt.getTime()),
+      claimIds: claims.map((claim) => claim.id),
+      contentHash: snapshotHash,
+      pipelineVersion: input.pipelineVersion,
+    },
+    needsReview: claims.some((claim) => claim.status === "review"),
+    records,
+  };
+}
+
+/** What a derivation reads: the same inputs, with records instead of a service. */
+export interface DeriveEvidenceInput {
+  identity: CanonicalIdentity;
+  evidence: readonly GrokEvidenceItem[];
+  /** The raw observations. One identity record per eligible item, at least. */
+  records: readonly JevJudgmentRecord[];
+  baselineAt?: Date;
+  cutoffAt: Date;
+  retrievedAt: Date;
+  pipelineVersion: string;
+}
+
+/**
+ * The same pipeline, with the judgments already made: pure, no service, no
+ * store, no network.
+ *
+ * `processEvidence` is this function plus the two impure stages that fetch the
+ * records. Re-running a rubric whose thresholds moved is therefore a
+ * derivation over observations already paid for, which is what
+ * `runCareerEvidence` (see `./run.ts`) wraps in a `ModelRun`.
+ */
+export function deriveEvidence(
+  input: DeriveEvidenceInput,
+  spec: CareerEvidenceSpec,
+): Omit<ProcessEvidenceResult, "records"> {
+  const used = assertSpec(spec);
+  const policy = evidencePolicyFor(used);
+  const stamp = { model: policy.model, questionVersion: policy.questionVersion };
+  const byKey = indexRecords(input.records);
+  const eligible = selectEligible(input.evidence, input.baselineAt, input.cutoffAt);
+  const processed = eligible.map((evidence) => {
+    const key = evidenceKeyFor(input.identity.personId, evidence);
+    const identity = projectIdentity(requireRecord(byKey, key, "identity"), used);
+    // The same order the pipeline judged in: a claim record only exists for an
+    // item whose identity passed, so the gate is what decides to read one.
     const gate = gateIdentity(identity, policy);
-    const assessment = gate.kind === "stop" ? null : await input.judgments.assessClaim(evidence);
+    const claimRecord = gate.kind === "stop" ? undefined : requireRecord(byKey, key, "claim");
+    const assessment = claimRecord === undefined ? null : projectClaim(claimRecord, used);
     return materialize({
       personId: input.identity.personId,
       evidence,
@@ -116,7 +279,6 @@ export async function processEvidence(input: ProcessEvidenceInput): Promise<Proc
       stamp,
     });
   });
-
   const claims = processed.map(({ claim }) => claim);
   const events = processed.flatMap(({ event }) => (event === null ? [] : [event]));
   const snapshotHash = contentFingerprint({
@@ -139,6 +301,38 @@ export async function processEvidence(input: ProcessEvidenceInput): Promise<Proc
     },
     needsReview: claims.some((claim) => claim.status === "review"),
   };
+}
+
+/** Records by `${kind}\u0000${evidenceKey}`; a duplicate is ambiguous, so it throws. */
+function indexRecords(records: readonly JevJudgmentRecord[]): Map<string, JevJudgmentRecord> {
+  const byKey = new Map<string, JevJudgmentRecord>();
+  for (const record of records) {
+    const key = `${record.kind}\u0000${record.evidenceKey}`;
+    const existing = byKey.get(key);
+    if (existing !== undefined && existing.id !== record.id) {
+      throw new TypeError(
+        `deriveEvidence: two different ${record.kind} records for ${record.evidenceKey} ` +
+          `(${existing.id}, ${record.id}); a derivation cannot choose between them`,
+      );
+    }
+    byKey.set(key, record);
+  }
+  return byKey;
+}
+
+function requireRecord(
+  byKey: Map<string, JevJudgmentRecord>,
+  evidenceKey: string,
+  kind: JevJudgmentRecord["kind"],
+): JevJudgmentRecord {
+  const record = byKey.get(`${kind}\u0000${evidenceKey}`);
+  if (record === undefined) {
+    throw new TypeError(
+      `deriveEvidence: no ${kind} judgment record for ${evidenceKey}; a derivation is over ` +
+        "the records it was given, and a missing judgment is not a low one",
+    );
+  }
+  return record;
 }
 
 export function progressVector(
