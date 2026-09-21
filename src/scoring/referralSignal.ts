@@ -21,6 +21,15 @@
  * `IDENTITY_WEIGHTING` and V2 is `judgeWeighting(...)`, which the judge maps
  * still construct as sugar. The loop below applies whichever it is given, so a
  * later weighting is added there and not here.
+ *
+ * Since #56 T5 the many-person path reads the shared index rather than
+ * re-deriving one of its own: `computeAllReferralSignals` is
+ * `scoreReferralGraph(...)` followed by `computeSignalsFromGraph(...)`, so R_uv
+ * is computed exactly once per referral per run and the signal and the graph
+ * can no longer disagree about a strength. `computeReferralSignal` keeps its
+ * (personId, referrals) signature for the single-person path. Both share one
+ * per-person core, `signalFromScoredEdges`, so neither can drift; the numbers
+ * are unchanged, which is what the T1 golden pins.
  */
 
 import { FIRSTHAND_EVIDENCE_TYPES } from "../domain/constants.ts";
@@ -28,7 +37,7 @@ import type { EvidenceType, Person, Referral } from "../domain/types.ts";
 import { CURRENT_SPECS } from "../models/registry.ts";
 import { assertSpec, type ReferralSignalSpec } from "../models/spec.ts";
 import { type ReferralStrengthBreakdown, referralStrengthBreakdown } from "./referralStrength.ts";
-import type { ScoredEdge } from "./scoredGraph.ts";
+import { type ScoredEdge, type ScoredReferralGraph, scoreReferralGraph } from "./scoredGraph.ts";
 import { type EdgeWeighting, IDENTITY_WEIGHTING, judgeWeighting } from "./weighting.ts";
 
 export const REFERRAL_SIGNAL_EXPLANATION =
@@ -120,39 +129,35 @@ function compareContributing(a: ContributingReferral, b: ContributingReferral): 
   return a.referral.id < b.referral.id ? -1 : a.referral.id > b.referral.id ? 1 : 0;
 }
 
-/** Referral Signal for one person from the referrals that name them as candidate. */
-export function computeReferralSignal(
+/**
+ * The one per-person computation, shared by every entry point.
+ *
+ * `incoming` is already exactly the V0 incoming set for `personId`: the
+ * referrals naming them as candidate, self-referrals excluded, in the input
+ * order of the original referral array. That ordering is load-bearing —
+ * `compareContributing` falls through to it for equal (strength, createdAt,
+ * id), and the Top-K mean below sums in the resulting order, so a reordering
+ * would move the last bits of S_v.
+ *
+ * Both the single-person path and the graph path funnel through here so they
+ * cannot drift apart; the only difference between them is where the
+ * `ScoredEdge`s come from.
+ */
+function signalFromScoredEdges(
   personId: string,
-  referrals: readonly Referral[],
-  opts: ReferralSignalOptions = {},
+  incoming: readonly ScoredEdge[],
+  spec: ReferralSignalSpec,
+  topK: number,
+  weighting: EdgeWeighting,
 ): ReferralSignalResult {
-  const spec = assertSpec(opts.spec ?? CURRENT_SPECS.referral_signal);
-  const topK = opts.topK ?? spec.topK;
-
-  // Defensive: a self-referral should already be rejected by validateReferral.
-  const incoming = referrals.filter((r) => r.candidateId === personId && r.referrerId !== personId);
-
-  const weighting = resolveWeighting(opts);
   const judgeWeighted = weighting.weighted;
   const weighed = incoming
-    .map((referral): { c: ContributingReferral; eligible: boolean } => {
-      const breakdown = referralStrengthBreakdown(referral, spec);
-      // The edge a weighting reads. Built inline from this referral's own
-      // breakdown rather than from `scoreReferralGraph`, so the arithmetic and
-      // the evaluation order are the pre-refactor ones exactly. `dangling` is
-      // false because this entry point is given referrals, not a node set, and
-      // V0 scores every referral either way; no weighting reads it. Reading the
-      // shared scored graph here is #56 T5.
-      const edge: ScoredEdge = {
-        referral,
-        strength: breakdown.strength,
-        breakdown,
-        dangling: false,
-      };
+    .map((edge): { c: ContributingReferral; eligible: boolean } => {
+      const breakdown = edge.breakdown;
       const w = weighting.weigh(edge);
       return {
         c: {
-          referral,
+          referral: edge.referral,
           strength: w.contribution,
           breakdown,
           // `judge` is the view shape; `factors` is a superset of it. A
@@ -193,8 +198,9 @@ export function computeReferralSignal(
     contributing,
     incomingCount: incoming.length,
     usedCount: contributing.length,
-    firsthandCount: incoming.filter((r) => FIRSTHAND_EVIDENCE_TYPES.includes(r.evidenceType))
-      .length,
+    firsthandCount: incoming.filter((e) =>
+      FIRSTHAND_EVIDENCE_TYPES.includes(e.referral.evidenceType),
+    ).length,
     // Raw max R_uv, independent of judge weighting (the documented contract).
     strongest: scored.length === 0 ? null : Math.max(...scored.map((c) => c.breakdown.strength)),
     evidenceTypes,
@@ -204,23 +210,80 @@ export function computeReferralSignal(
   };
 }
 
+/** Referral Signal for one person from the referrals that name them as candidate. */
+export function computeReferralSignal(
+  personId: string,
+  referrals: readonly Referral[],
+  opts: ReferralSignalOptions = {},
+): ReferralSignalResult {
+  const spec = assertSpec(opts.spec ?? CURRENT_SPECS.referral_signal);
+  const topK = opts.topK ?? spec.topK;
+
+  // Defensive: a self-referral should already be rejected by validateReferral.
+  const incoming = referrals.filter((r) => r.candidateId === personId && r.referrerId !== personId);
+
+  // This path is given referrals, not a node set, so there is no graph to read
+  // a `dangling` flag from and no node set to make one meaningful: every
+  // referral here is incoming evidence, exactly as in V0. The edges are built
+  // inline from each referral's own breakdown, which is the same arithmetic in
+  // the same order as `scoreReferralGraph` would produce for them.
+  const edges = incoming.map((referral): ScoredEdge => {
+    const breakdown = referralStrengthBreakdown(referral, spec);
+    return { referral, strength: breakdown.strength, breakdown, dangling: false };
+  });
+
+  return signalFromScoredEdges(personId, edges, spec, topK, resolveWeighting(opts));
+}
+
+/**
+ * Referral Signal for every person in a scored graph — the primary entry point.
+ *
+ * Signals now read the same index the graph reads: R_uv is computed once, by
+ * `scoreReferralGraph`, and this function only weighs, ranks and averages what
+ * is already there. `sg.in` is exactly V0's incoming filter (candidate matches,
+ * self-referrals dropped, dangling referrers kept under the default `"score"`
+ * policy) in the input order of the referral array, so the numbers are V0's bit
+ * for bit.
+ *
+ * `spec` is not an option here: the spec is whichever one `sg` was scored
+ * under, so a historical index reproduces its own numbers and no call can mix
+ * two specs in one result.
+ *
+ * Which people get a result: every node of `sg.graph`, in `people` order. Not
+ * `sg.in.keys()`, which under `"score"` also carries keys for unknown ids that
+ * were never people. A person with no incoming edges gets today's empty-evidence
+ * result (`s = 0`, `strongest: null`, `evidenceTypes: []`) — absence is not
+ * reshaped into a score, and the `null` is never a 0.
+ */
+export function computeSignalsFromGraph(
+  sg: ScoredReferralGraph,
+  opts: Omit<ReferralSignalOptions, "spec"> = {},
+): Map<string, ReferralSignalResult> {
+  const spec = sg.spec;
+  const topK = opts.topK ?? spec.topK;
+  const weighting = resolveWeighting(opts);
+  const out = new Map<string, ReferralSignalResult>();
+  for (const personId of sg.graph.nodes.keys()) {
+    out.set(
+      personId,
+      signalFromScoredEdges(personId, sg.in.get(personId) ?? [], spec, topK, weighting),
+    );
+  }
+  return out;
+}
+
 /** Referral Signal for every person, keyed by person id. */
 export function computeAllReferralSignals(
   people: readonly Person[],
   referrals: readonly Referral[],
   opts: ReferralSignalOptions = {},
 ): Map<string, ReferralSignalResult> {
-  const byCandidate = new Map<string, Referral[]>();
-  for (const r of referrals) {
-    const list = byCandidate.get(r.candidateId);
-    if (list) list.push(r);
-    else byCandidate.set(r.candidateId, [r]);
-  }
-  const out = new Map<string, ReferralSignalResult>();
-  for (const p of people) {
-    out.set(p.id, computeReferralSignal(p.id, byCandidate.get(p.id) ?? [], opts));
-  }
-  return out;
+  const spec = assertSpec(opts.spec ?? CURRENT_SPECS.referral_signal);
+  // `"score"` is the V0 dangling rule and the default; it is spelled out here
+  // because this function must reproduce V0 and not follow a changed default.
+  const sg = scoreReferralGraph(people, referrals, spec, { dangling: "score" });
+  const { spec: _ignored, ...rest } = opts;
+  return computeSignalsFromGraph(sg, rest);
 }
 
 /** Integer 0..100 for display. The only place rounding happens. */

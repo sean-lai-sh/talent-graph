@@ -66,6 +66,14 @@ export interface ScoredReferralGraph {
   /** Every referral, scored once — self-referrals and dangling edges included, whatever the policy. */
   byReferralId: ReadonlyMap<string, ScoredEdge>;
   dangling: readonly ScoredEdge[];
+  /**
+   * The validated spec every strength here was computed under. Carried so a
+   * consumer (`computeSignalsFromGraph`) reads the index's own spec — its
+   * `topK` and its `version` — rather than reaching for a current-spec default
+   * and silently mixing two specs into one result.
+   */
+  spec: ReferralSignalSpec;
+  /** `spec.version`, kept as its own field for callers that only stamp provenance. */
   specVersion: string;
   policy: DanglingPolicy;
 }
@@ -128,6 +136,7 @@ export function scoreReferralGraph(
     out: outgoing,
     byReferralId,
     dangling,
+    spec: checked,
     specVersion: checked.version,
     policy,
   };
