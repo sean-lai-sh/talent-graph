@@ -34,6 +34,12 @@ Concretely, in code:
   buckets, no merged number), `analysis/drift.ts` and `modelRun.ts`
   (bookkeeping: comparing and recording runs of either kind), and `index.ts`
   (the public barrel).
+- `graph/` is structural only: it imports nothing outside `domain/`. The
+  dependency direction is `domain → graph → scoring → judges/inference →
+  analysis → apps`, so `scoring → graph` is allowed and `graph → scoring` is
+  not. Edge weights (`toEdgeList`) live in `scoring/scoredGraph.ts` and
+  score-based sub-graph selection (`selectBySignal`) in
+  `analysis/graphSelection.ts`. `tests/invariants.test.ts` enforces this.
 - Rubric `Evaluation` records are stored and summarised but feed **no** score.
 - Affiliation / credentials are display metadata; no function in `src/` reads
   them to compute a number.
@@ -59,6 +65,7 @@ talent-graph/
       referralStrength.ts # R_uv = X_uv * m_e
       referralSignal.ts   # S_v = mean(Top5 R_uv), metadata, explanation
       referralPercentile.ts
+      scoredGraph.ts      # every R_uv once, indexed by endpoint; toEdgeList
     inference/            # V1 — Relative Capability
       logistic.ts         # stable sigmoid / logSigmoid
       components.ts       # connected components of comparison graph per dimension
@@ -69,8 +76,10 @@ talent-graph/
     analysis/
       underRecognition.ts # U_{i,k} = capPct − referralPct (exploratory)
       dashboard.ts        # aggregate summaries for a future UI
+      graphSelection.ts   # selectBySignal: score-based sub-graph selection
     graph/
-      referralGraph.ts    # adjacency, in/out neighbourhoods, filters
+      referralGraph.ts    # adjacency: who referred whom (buildReferralGraph,
+                          #   referrersOf, referredBy) — domain-only imports
     seed/
       generate.ts         # deterministic synthetic dataset (seeded PRNG)
       personas.ts         # Candidates A–F as specified

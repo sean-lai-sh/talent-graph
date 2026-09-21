@@ -1,21 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { Person, Referral } from "../src/domain/types.ts";
-import {
-  buildReferralGraph,
-  filterGraph,
-  inDegree,
-  neighbourhood,
-  outDegree,
-  referredBy,
-  referrersOf,
-  toEdgeList,
-} from "../src/graph/referralGraph.ts";
-import { REFERRAL_SIGNAL_V0_1_0 } from "../src/models/registry.ts";
+import { buildReferralGraph, referredBy, referrersOf } from "../src/graph/referralGraph.ts";
+import { CURRENT_SPECS, REFERRAL_SIGNAL_V0_1_0 } from "../src/models/registry.ts";
 import {
   computeAllReferralSignals,
   type ReferralSignalResult,
 } from "../src/scoring/referralSignal.ts";
 import { referralStrength } from "../src/scoring/referralStrength.ts";
+import { scoreReferralGraph, toEdgeList } from "../src/scoring/scoredGraph.ts";
 
 const T0 = new Date("2026-01-01T00:00:00.000Z");
 
@@ -56,63 +48,17 @@ const referrals = [
 const g = buildReferralGraph(people, referrals);
 
 describe("referral graph", () => {
-  test("degrees", () => {
-    expect(outDegree(g, "a")).toBe(2);
-    expect(inDegree(g, "a")).toBe(0);
-    expect(inDegree(g, "c")).toBe(2);
-    expect(outDegree(g, "e")).toBe(0);
-    expect(inDegree(g, "missing")).toBe(0);
-  });
-
   test("referrersOf / referredBy", () => {
     expect(referrersOf(g, "c").map((p) => p.id)).toEqual(["b", "a"]);
     expect(referredBy(g, "a").map((p) => p.id)).toEqual(["b", "c"]);
   });
 
-  test("neighbourhood depth 1 vs 2", () => {
-    const n1 = neighbourhood(g, "a", 1);
-    expect(n1.people.map((p) => p.id).sort()).toEqual(["a", "b", "c"]);
-    expect(n1.referrals.map((r) => r.id).sort()).toEqual(["a->b", "a->c", "b->c"]);
-
-    const n2 = neighbourhood(g, "a", 2);
-    expect(n2.people.map((p) => p.id).sort()).toEqual(["a", "b", "c", "d"]);
-    expect(n2.referrals).toHaveLength(4);
-
-    expect(neighbourhood(g, "e").people.map((p) => p.id)).toEqual(["e"]);
-    expect(neighbourhood(g, "nope")).toEqual({ people: [], referrals: [] });
-  });
-
-  test("filter by status keeps only matching nodes and their edges", () => {
-    const f = filterGraph(g, { status: ["candidate"] });
-    expect([...f.nodes.keys()].sort()).toEqual(["b", "c", "d"]);
-    expect(inDegree(f, "b")).toBe(0); // a was dropped
-    expect(inDegree(f, "c")).toBe(1);
-  });
-
-  test("filter by evidence type and affiliation", () => {
-    const f = filterGraph(g, { evidenceTypes: ["firsthand_work"] });
-    expect(
-      toEdgeList(f)
-        .map((e) => `${e.source}->${e.target}`)
-        .sort(),
-    ).toEqual(["a->b", "a->c"]);
-
-    const x = filterGraph(g, { affiliation: "X" });
-    expect([...x.nodes.keys()].sort()).toEqual(["a", "b"]);
-  });
-
-  test("filter by minSignal uses supplied signals and refuses to compute them", () => {
-    const signals = computeAllReferralSignals(people, referrals);
-    const f = filterGraph(g, { minSignal: 60, signals });
-    for (const id of f.nodes.keys()) {
-      expect((signals.get(id)?.signal ?? 0) >= 60).toBe(true);
-    }
-    expect(() => filterGraph(g, { minSignal: 10 })).toThrow(/signals/);
-  });
-
+  // `toEdgeList` moved to scoring/scoredGraph.ts in #56 T3: the weight is a
+  // score, so it takes a ScoredReferralGraph. Same R_uv, same order.
   test("edge weights equal referralStrength", () => {
-    const edges = toEdgeList(g);
+    const edges = toEdgeList(scoreReferralGraph(people, referrals, CURRENT_SPECS.referral_signal));
     expect(edges).toHaveLength(4);
+    expect(edges.map((e) => `${e.source}->${e.target}`)).toEqual(["a->b", "a->c", "b->c", "c->d"]);
     for (const e of edges) {
       const r = referrals.find((x) => x.referrerId === e.source && x.candidateId === e.target);
       expect(e.weight).toBe(referralStrength(r as Referral));
@@ -125,8 +71,10 @@ describe("referral graph", () => {
       version: "0.0.1",
       evidenceMultiplier: { ...REFERRAL_SIGNAL_V0_1_0.evidenceMultiplier, firsthand_work: 0.1 },
     };
-    const current = toEdgeList(g);
-    const old = toEdgeList(g, historical);
+    const current = toEdgeList(
+      scoreReferralGraph(people, referrals, CURRENT_SPECS.referral_signal),
+    );
+    const old = toEdgeList(scoreReferralGraph(people, referrals, historical));
     expect(old).toHaveLength(current.length);
     const key = (e: { source: string; target: string }) => `${e.source}->${e.target}`;
     for (const e of old) {
@@ -144,8 +92,20 @@ describe("referral graph", () => {
   });
 
   test("referrals with unknown endpoints are dropped", () => {
-    const h = buildReferralGraph(people, [...referrals, referral("ghost", "a")]);
-    expect(inDegree(h, "a")).toBe(0);
+    const extra = [...referrals, referral("ghost", "a")];
+    const h = buildReferralGraph(people, extra);
+    expect(h.in.get("a")?.length ?? 0).toBe(0);
+
+    // `toEdgeList` emits the closed graph only, so the dangling edge is scored
+    // (it is in `dangling`) but never becomes an edge.
+    const sg = scoreReferralGraph(people, extra, CURRENT_SPECS.referral_signal);
+    expect(sg.dangling.map((e) => e.referral.id)).toEqual(["ghost->a"]);
+    expect(toEdgeList(sg).map((e) => `${e.source}->${e.target}`)).toEqual([
+      "a->b",
+      "a->c",
+      "b->c",
+      "c->d",
+    ]);
   });
 
   // #56 T1. The graph and the scorer apply different edge-admission rules:
@@ -168,9 +128,9 @@ describe("referral graph", () => {
     const a = signals.get("a") as ReferralSignalResult;
 
     // The graph admits only b → a; ghost is not a node, so its edge vanishes.
-    expect(inDegree(h, "a")).toBe(1);
+    expect(h.in.get("a")?.length ?? 0).toBe(1);
     expect(referrersOf(h, "a").map((p) => p.id)).toEqual(["b"]);
-    expect(toEdgeList(h)).toHaveLength(1);
+    expect(toEdgeList(scoreReferralGraph(pair, edges, REFERRAL_SIGNAL_V0_1_0))).toHaveLength(1);
 
     // The scorer counts both, including the one from the unknown referrer.
     expect(a.incomingCount).toBe(2);
@@ -179,7 +139,7 @@ describe("referral graph", () => {
     expect(a.contributing.map((c) => c.referral.referrerId).sort()).toEqual(["b", "ghost"]);
 
     // The divergence itself, stated once.
-    expect(a.incomingCount).not.toBe(inDegree(h, "a"));
+    expect(a.incomingCount).not.toBe(h.in.get("a")?.length ?? 0);
   });
 
   // #56 T1, the other half: an unknown *candidate* does not diverge. Both
@@ -191,9 +151,9 @@ describe("referral graph", () => {
     const edges = [referral("a", "phantom")];
 
     const h = buildReferralGraph(pair, edges);
-    expect(toEdgeList(h)).toHaveLength(0);
-    expect(inDegree(h, "phantom")).toBe(0);
-    expect(outDegree(h, "a")).toBe(0);
+    expect(toEdgeList(scoreReferralGraph(pair, edges, REFERRAL_SIGNAL_V0_1_0))).toHaveLength(0);
+    expect(h.in.get("phantom")?.length ?? 0).toBe(0);
+    expect(h.out.get("a")?.length ?? 0).toBe(0);
 
     const signals = computeAllReferralSignals(pair, edges);
     expect(signals.has("phantom")).toBe(false);
