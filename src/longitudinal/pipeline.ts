@@ -9,6 +9,7 @@ import type {
   ProfileSnapshot,
   ProgressDimension,
   ProgressVector,
+  ReviewReason,
 } from "./types.ts";
 
 export interface EvidencePipelinePolicy {
@@ -81,14 +82,26 @@ export async function processEvidence(input: ProcessEvidenceInput): Promise<Proc
         contentHash: evidence.contentHash,
       };
 
-      const contradictoryIdentity =
-        identity.decision === "same" &&
-        contradictoryFieldMatches(identity.fieldMatches, policy.identityContradiction);
+      // Identity is settled before any claim assessment. An ambiguous or
+      // contradicted identity stops here, so no paid assessment is spent on an
+      // item we cannot attribute, and no event is produced for one.
+      // `contradictoryFieldMatches` stays scoped to `same`: a `review` decision
+      // already stops, so consulting the field matches could not change the
+      // outcome, only the reason we record.
+      const identityReviewReasons: ReviewReason[] = [];
+      if (identity.decision === "review") {
+        identityReviewReasons.push("identity_ambiguous");
+      }
+      if (identity.decision === "same" && identity.confidence < policy.identityConfidence) {
+        identityReviewReasons.push("identity_low_confidence");
+      }
       if (
-        identity.decision === "different" ||
-        (identity.decision === "same" && identity.confidence < policy.identityConfidence) ||
-        contradictoryIdentity
+        identity.decision === "same" &&
+        contradictoryFieldMatches(identity.fieldMatches, policy.identityContradiction)
       ) {
+        identityReviewReasons.push("identity_contradictory_fields");
+      }
+      if (identity.decision === "different" || identityReviewReasons.length > 0) {
         const status = identity.decision === "different" ? "rejected" : "review";
         const claim: EvidenceClaim = {
           id: claimId,
@@ -96,9 +109,11 @@ export async function processEvidence(input: ProcessEvidenceInput): Promise<Proc
           provenance,
           statement: evidence.statement,
           proposedEventKind: evidence.proposedEventKind,
+          assessedEventKind: null,
           status,
           identityDecision: identity.decision,
           identityConfidence: identity.confidence,
+          ...(status === "review" ? { reviewReasons: identityReviewReasons } : {}),
           createdAt: new Date(input.retrievedAt.getTime()),
         };
         return { claim, event: null };
@@ -114,9 +129,9 @@ export async function processEvidence(input: ProcessEvidenceInput): Promise<Proc
       // only records *why*, so the empty case is distinguishable from a
       // partial or out-of-range judgment set.
       const noDimensions = assessment.dimensions.length === 0;
+      // Identity is already settled above: anything reaching here is `same` at
+      // or above the confidence threshold, so only event grounds remain.
       const needsReview =
-        identity.decision === "review" ||
-        identity.confidence < policy.identityConfidence ||
         assessment.eventConfidence < policy.eventConfidence ||
         !completeDimensions ||
         lowDimensionConfidence;
@@ -127,7 +142,8 @@ export async function processEvidence(input: ProcessEvidenceInput): Promise<Proc
         personId: input.identity.personId,
         provenance,
         statement: evidence.statement,
-        proposedEventKind: assessment.eventKind,
+        proposedEventKind: evidence.proposedEventKind,
+        assessedEventKind: assessment.eventKind,
         status,
         identityDecision: identity.decision,
         identityConfidence: identity.confidence,

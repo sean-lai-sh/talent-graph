@@ -29,7 +29,11 @@ export type IdentityDecision = "same" | "review" | "different";
  * Why a claim was routed to review. Kept as a union so later stages can add
  * their own reasons without changing the field's shape.
  */
-export type ReviewReason = "no_dimensions";
+export type ReviewReason =
+  | "no_dimensions"
+  | "identity_ambiguous"
+  | "identity_low_confidence"
+  | "identity_contradictory_fields";
 
 export const CAREER_EVENT_KINDS = [
   "selective_role_transition",
@@ -82,7 +86,15 @@ export interface EvidenceClaim {
   personId: string;
   provenance: SourceProvenance;
   statement: string;
+  /** The kind Grok proposed with the evidence item, before any assessment. */
   proposedEventKind: CareerEventKind | null;
+  /**
+   * The kind the judgment service assessed. Always present; `null` means no
+   * assessment ran (the item stopped on identity) or the assessment found no
+   * event. The two fields are kept apart so a reader always knows whose kind
+   * they are holding.
+   */
+  assessedEventKind: CareerEventKind | null;
   status: ClaimStatus;
   identityDecision: IdentityDecision;
   identityConfidence: number;

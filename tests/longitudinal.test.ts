@@ -331,8 +331,132 @@ describe("Jev judgments and evidence policy", () => {
     });
     expect(result.claims).toHaveLength(1);
     expect(result.claims[0]?.status).toBe("review");
-    expect(result.events[0]?.status).toBe("review");
+    expect(result.claims[0]?.reviewReasons).toEqual(["identity_ambiguous"]);
+    // An ambiguous identity stops before assessment, so there is no event to
+    // review: we never established who the evidence is about.
+    expect(result.events).toHaveLength(0);
     expect(result.needsReview).toBe(true);
+  });
+
+  test("an ambiguous identity stops before assessClaim is ever called", async () => {
+    let assessClaimCalls = 0;
+    const ambiguous: JevJudgmentService = {
+      async assessIdentity() {
+        return {
+          decision: "review",
+          confidence: 0.55,
+          fieldMatches: { name: 0.6, affiliation: 0.5, handle: 0.4 },
+        };
+      },
+      async assessClaim(item) {
+        assessClaimCalls++;
+        return acceptingJudgments.assessClaim(item);
+      },
+    };
+    const result = await processEvidence({
+      identity,
+      evidence: [evidence("work", 40)],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments: ambiguous,
+    });
+    expect(assessClaimCalls).toBe(0);
+    expect(result.claims).toHaveLength(1);
+    expect(result.claims[0]?.status).toBe("review");
+    expect(result.claims[0]?.identityDecision).toBe("review");
+    expect(result.claims[0]?.reviewReasons).toContain("identity_ambiguous");
+    expect(result.claims[0]?.assessedEventKind).toBe(null);
+    expect(result.claims[0]?.proposedEventKind).toBe("open_source_contribution");
+    expect(result.events).toHaveLength(0);
+    expect(result.needsReview).toBe(true);
+    expect(careerEventsToLongitudinalRecords(result.events).outcomes).toEqual([]);
+  });
+
+  test("an assessed claim keeps Grok's proposed kind apart from Jev's assessed kind", async () => {
+    const disagreeing: JevJudgmentService = {
+      ...acceptingJudgments,
+      async assessClaim() {
+        const accepted = await acceptingJudgments.assessClaim(evidence("work", 40));
+        return { ...accepted, eventKind: "shipped_product" as const };
+      },
+    };
+    const result = await processEvidence({
+      identity,
+      evidence: [evidence("work", 40)],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments: disagreeing,
+    });
+    expect(result.claims[0]?.status).toBe("accepted");
+    expect(result.claims[0]?.proposedEventKind).toBe("open_source_contribution");
+    expect(result.claims[0]?.assessedEventKind).toBe("shipped_product");
+    // The event is built from the assessed kind, not the proposed one.
+    expect(result.events[0]?.kind).toBe("shipped_product");
+  });
+
+  test("an identity-rejected claim carries no assessed kind and keeps Grok's", async () => {
+    let assessClaimCalls = 0;
+    const different: JevJudgmentService = {
+      async assessIdentity() {
+        return {
+          decision: "different",
+          confidence: 0.97,
+          fieldMatches: { name: 0.1, affiliation: 0.1, handle: 0.05 },
+        };
+      },
+      async assessClaim(item) {
+        assessClaimCalls++;
+        return acceptingJudgments.assessClaim(item);
+      },
+    };
+    const result = await processEvidence({
+      identity,
+      evidence: [evidence("work", 40)],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments: different,
+    });
+    expect(assessClaimCalls).toBe(0);
+    expect(result.claims[0]?.status).toBe("rejected");
+    expect(result.claims[0]?.assessedEventKind).toBe(null);
+    expect(result.claims[0]?.proposedEventKind).toBe("open_source_contribution");
+    // A rejected claim is not under review, so it carries no reasons.
+    expect("reviewReasons" in (result.claims[0] ?? {})).toBe(false);
+    expect(result.events).toHaveLength(0);
+    expect(result.needsReview).toBe(false);
+  });
+
+  test("a same-person decision below the confidence threshold stops before assessment", async () => {
+    let assessClaimCalls = 0;
+    const unsure: JevJudgmentService = {
+      async assessIdentity() {
+        return {
+          decision: "same",
+          confidence: 0.6,
+          fieldMatches: { name: 0.99, affiliation: 0.8, handle: 1 },
+        };
+      },
+      async assessClaim(item) {
+        assessClaimCalls++;
+        return acceptingJudgments.assessClaim(item);
+      },
+    };
+    const result = await processEvidence({
+      identity,
+      evidence: [evidence("work", 40)],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments: unsure,
+    });
+    expect(assessClaimCalls).toBe(0);
+    expect(result.claims[0]?.status).toBe("review");
+    expect(result.claims[0]?.reviewReasons).toEqual(["identity_low_confidence"]);
+    expect(result.claims[0]?.assessedEventKind).toBe(null);
+    expect(result.events).toHaveLength(0);
   });
 
   test("same-person high confidence with contradictory fieldMatches goes to review", async () => {
@@ -357,6 +481,7 @@ describe("Jev judgments and evidence policy", () => {
     expect(result.claims).toHaveLength(1);
     expect(result.claims[0]?.status).toBe("review");
     expect(result.claims[0]?.identityDecision).toBe("same");
+    expect(result.claims[0]?.reviewReasons).toEqual(["identity_contradictory_fields"]);
     expect(result.events).toHaveLength(0);
     expect(result.needsReview).toBe(true);
     expect(careerEventsToLongitudinalRecords(result.events).outcomes).toEqual([]);
@@ -399,6 +524,8 @@ describe("Jev judgments and evidence policy", () => {
     });
     expect(result.claims[0]?.status).toBe("accepted");
     expect("reviewReasons" in (result.claims[0] ?? {})).toBe(false);
+    expect(result.claims[0]?.proposedEventKind).toBe("open_source_contribution");
+    expect(result.claims[0]?.assessedEventKind).toBe("open_source_contribution");
   });
 
   test("low event confidence never creates accepted outcomes", async () => {
