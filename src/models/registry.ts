@@ -129,6 +129,13 @@ export function isRegisteredSpec(spec: ModelSpec): boolean {
  * in `define.ts`, which imports no model code, so a definition can depend on
  * the registry without a cycle.
  */
+// Side-effect import: running the definition modules is what registers them,
+// so importing the registry is enough to see every shipped model. It must be
+// imported from here rather than from `define.ts`, which the definitions
+// themselves import — the other direction touches `REGISTRY` before its
+// initialiser has run.
+import "./definitions/index.ts";
+
 export {
   type AnyModelDefinition,
   defineModel,

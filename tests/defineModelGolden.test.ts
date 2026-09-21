@@ -94,3 +94,29 @@ describe("golden run ids", () => {
     }
   });
 });
+
+/**
+ * `resolveOptions` re-derives the effective solver thresholds rather than
+ * reading them off the outputs, so a future change to how the solver
+ * defaults them would silently desynchronise the record from the numbers.
+ * Cheap guard: the two must agree, with and without overrides.
+ */
+describe("recorded solver options match the ones the fit used", () => {
+  const data = generateSeed();
+  const cases: Array<[string, Parameters<typeof runCapabilityVectors>[3]]> = [
+    ["defaults", {}],
+    ["minComparisons override", { minComparisons: 99 }],
+    ["minOpponents override", { minOpponents: 7 }],
+    ["tieHandling override", { tieHandling: "half" }],
+  ];
+
+  for (const [name, opts] of cases) {
+    test(name, () => {
+      const run = runCapabilityVectors(data.people, data.comparisons, NOW, opts);
+      expect(run.parameters.minComparisons).toBe(run.outputs.options.minComparisons);
+      expect(run.parameters.minOpponents).toBe(run.outputs.options.minOpponents);
+      expect(run.parameters.tieHandling).toBe(run.outputs.options.tieHandling);
+      expect(run.parameters.anchored).toBe(run.outputs.options.anchored);
+    });
+  }
+});
