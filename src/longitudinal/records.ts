@@ -32,6 +32,32 @@ import type {
 } from "./types.ts";
 import { CAREER_EVENT_KINDS } from "./types.ts";
 
+/**
+ * A judgment invariant was broken: a record that is not what it claims to be,
+ * an answer that cannot be read under this rubric, a value the pipeline
+ * cannot represent.
+ *
+ * Its own class because the fan-out has to tell two failures apart. A
+ * judgment that could not be *made* — the host is down, the request timed
+ * out, `fetch` threw — is an unavailable judgment, and one item's problem: it
+ * becomes a `review` claim and the batch carries on. A broken invariant is a
+ * bug in this code, in a store or in a service, and no amount of retrying
+ * fixes it; it is raised to the caller whatever `onItemError` says, because a
+ * plausible-looking `review` claim would hide it.
+ *
+ * It extends `TypeError` — what these throws have always been — so nothing
+ * that catches or asserts on `TypeError` changes meaning. What changed is
+ * that the pipeline decides by *class*, not by shape: `fetch` reports a
+ * connection failure as a plain `TypeError`, and a common outage must not
+ * read as a broken invariant.
+ */
+export class JudgmentInvariantError extends TypeError {
+  constructor(message: string) {
+    super(message);
+    this.name = "JudgmentInvariantError";
+  }
+}
+
 /** What a score question really answered, before any derivation. */
 export interface JevRawScoreAnswer {
   /** Expected score, which may fall between rubric levels. Never rounded. */
@@ -158,7 +184,7 @@ export function evidenceKeyFor(personId: string, evidence: GrokEvidenceItem): st
  */
 export function freezeRecord(record: JevJudgmentRecord): JevJudgmentRecord {
   if (typeof record.observedAt !== "string" || Number.isNaN(Date.parse(record.observedAt))) {
-    throw new TypeError(
+    throw new JudgmentInvariantError(
       `freezeRecord: observedAt must be an ISO 8601 instant (got ${String(record.observedAt)})`,
     );
   }
@@ -240,7 +266,7 @@ function assertAnswerKeys(
   const missing = expected.filter((key) => !present.has(key));
   const unknown = [...present].filter((key) => !expected.includes(key));
   if (missing.length > 0 || unknown.length > 0) {
-    throw new TypeError(
+    throw new JudgmentInvariantError(
       `${what}: record ${record.id} does not answer this spec's questions` +
         (missing.length > 0 ? `; missing ${missing.join(", ")}` : "") +
         (unknown.length > 0 ? `; unknown ${unknown.join(", ")}` : ""),
@@ -269,7 +295,7 @@ function assertClaimAnswerKeys(record: JevJudgmentRecord): ProgressDimension[] {
       : CAREER_EVIDENCE_DIMENSIONS.filter((dimension) => !present.has(dimension))),
   ];
   if (missing.length > 0 || unknown.length > 0) {
-    throw new TypeError(
+    throw new JudgmentInvariantError(
       `projectClaim: record ${record.id} does not answer this spec's questions` +
         (missing.length > 0 ? `; missing ${missing.join(", ")}` : "") +
         (unknown.length > 0 ? `; unknown ${unknown.join(", ")}` : ""),
@@ -280,7 +306,7 @@ function assertClaimAnswerKeys(record: JevJudgmentRecord): ProgressDimension[] {
 
 function assertKind(record: JevJudgmentRecord, kind: JevJudgmentRecord["kind"]): void {
   if (record.kind !== kind) {
-    throw new TypeError(
+    throw new JudgmentInvariantError(
       `project${kind === "identity" ? "Identity" : "Claim"}: record ${record.id} is a ` +
         `${record.kind} record, not a ${kind} one`,
     );
@@ -289,14 +315,14 @@ function assertKind(record: JevJudgmentRecord, kind: JevJudgmentRecord["kind"]):
 
 function finite(value: unknown, what: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new TypeError(`${what} must be a finite number (got ${String(value)})`);
+    throw new JudgmentInvariantError(`${what} must be a finite number (got ${String(value)})`);
   }
   return value;
 }
 
 function choiceAnswer(answer: JevAnswer | undefined, what: string): JevChoiceAnswer {
   if (answer === undefined || typeof (answer as JevChoiceAnswer).choice !== "string") {
-    throw new TypeError(`${what} must be a choice answer`);
+    throw new JudgmentInvariantError(`${what} must be a choice answer`);
   }
   const choice = answer as JevChoiceAnswer;
   finite(choice.confidence, `${what}.confidence`);
@@ -305,7 +331,7 @@ function choiceAnswer(answer: JevAnswer | undefined, what: string): JevChoiceAns
 
 function noulAnswer(answer: JevAnswer | undefined, what: string): number {
   if (answer === undefined || typeof (answer as JevNoulAnswer).noul !== "number") {
-    throw new TypeError(`${what} must be a noul answer`);
+    throw new JudgmentInvariantError(`${what} must be a noul answer`);
   }
   return finite((answer as JevNoulAnswer).noul, `${what}.noul`);
 }
@@ -317,12 +343,12 @@ function scoreAnswer(
 ): JevRawScoreAnswer {
   const raw = answer as JevRawScoreAnswer | undefined;
   if (raw === undefined || typeof raw.score !== "number" || !Array.isArray(raw.probabilities)) {
-    throw new TypeError(`${what} must be a score answer`);
+    throw new JudgmentInvariantError(`${what} must be a score answer`);
   }
   finite(raw.score, `${what}.score`);
   finite(raw.confidence, `${what}.confidence`);
   if (raw.probabilities.length !== levels.length) {
-    throw new TypeError(
+    throw new JudgmentInvariantError(
       `${what}.probabilities has ${raw.probabilities.length} entries; this rubric has ` +
         `${levels.length} levels, and the vector is indexed by level`,
     );
@@ -347,7 +373,7 @@ export function projectIdentity(
   assertAnswerKeys(record, IDENTITY_ANSWER_KEYS, "projectIdentity");
   const decision = choiceAnswer(record.answers.decision, "projectIdentity: decision");
   if (!IDENTITY_DECISIONS.includes(decision.choice as IdentityDecision)) {
-    throw new TypeError(
+    throw new JudgmentInvariantError(
       `projectIdentity: "${decision.choice}" is not an identity decision ` +
         `(${IDENTITY_DECISIONS.join(", ")})`,
     );
@@ -382,7 +408,9 @@ export function projectClaim(record: JevJudgmentRecord, spec: CareerEvidenceSpec
   const event = choiceAnswer(record.answers.event_kind, "projectClaim: event_kind");
   const known: readonly string[] = [...CAREER_EVENT_KINDS, NO_SUPPORTED_EVENT];
   if (!known.includes(event.choice)) {
-    throw new TypeError(`projectClaim: "${event.choice}" is not an event kind in this taxonomy`);
+    throw new JudgmentInvariantError(
+      `projectClaim: "${event.choice}" is not an event kind in this taxonomy`,
+    );
   }
   // Only the dimensions the record actually answers, in rubric order. A
   // record that carries no dimension answers projects to no judgments — the
@@ -446,7 +474,7 @@ export function recordIdFor(fingerprint: string, evidenceKey: string): string {
 export function assertRecordAddress(record: JevJudgmentRecord): void {
   const address = recordIdFor(record.requestFingerprint, record.evidenceKey);
   if (record.id !== address) {
-    throw new Error(
+    throw new JudgmentInvariantError(
       `JevJudgmentStore: record ${record.id} is misfiled; its request fingerprint and evidence ` +
         `key address ${address}`,
     );

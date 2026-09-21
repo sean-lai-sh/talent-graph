@@ -12,6 +12,7 @@ import { contentFingerprint } from "./provenance.ts";
 import type { JevJudgmentRecord, JevJudgmentStore } from "./records.ts";
 import {
   evidenceKeyFor,
+  JudgmentInvariantError,
   projectClaim,
   projectIdentity,
   recordIdFor,
@@ -238,8 +239,6 @@ export async function judgeIdentity(
     evidence,
     spec,
   });
-  const recorded = await recordedJudgment(deps.store, expected);
-  if (recorded !== null) return { assessment: projectIdentity(recorded, spec), record: recorded };
   const coalesced = await coalesce(deps, expected, (options) =>
     deps.service.assessIdentity(identity, evidence, options),
   );
@@ -265,8 +264,6 @@ export async function judgeClaim(
     evidence,
     spec,
   });
-  const recorded = await recordedJudgment(deps.store, expected);
-  if (recorded !== null) return { assessment: projectClaim(recorded, spec), record: recorded };
   const coalesced = await coalesce(deps, expected, (options) =>
     deps.service.assessClaim(evidence, personId, options),
   );
@@ -344,14 +341,14 @@ function assertRecordedFor(
     record.personId !== expected.personId ||
     record.evidenceKey !== expected.evidenceKey
   ) {
-    throw new TypeError(
+    throw new JudgmentInvariantError(
       `judgment store: ${expected.id} holds ${record.id}, a ${record.kind} record for ` +
         `${record.evidenceKey}; a store must return the record it was asked for`,
     );
   }
   const recordedRubric = rubricHashOf(record.specId);
   if (recordedRubric !== expected.rubricHash) {
-    throw new TypeError(
+    throw new JudgmentInvariantError(
       `judgment store: ${record.id} was judged under rubric ${recordedRubric} ` +
         `(${record.specId}), not ${expected.rubricHash}; an answer to a different question is ` +
         "not a cached judgment",
@@ -501,6 +498,17 @@ async function coalesce<TAssessment>(
   let judged: JevJudgment<TAssessment> | undefined;
   const controller = deps.signal === undefined ? undefined : new AbortController();
   const record = (async () => {
+    // The lookup is part of the shared work, not something each asker does
+    // first. Done separately it can be overtaken: a `get` issued before
+    // another asker wrote can resolve "nothing recorded here" after that
+    // asker has written and gone, and believing that stale miss buys the
+    // same judgment twice. Inside, an asker arriving during the lookup joins
+    // the lookup and the judgment as one unit.
+    const recorded = await recordedJudgment(deps.store, expected);
+    if (recorded !== null) return recorded;
+    // The lookup took time, and the controller is aborted once every asker
+    // has gone: a judgment nobody is waiting for is not bought.
+    controller?.signal.throwIfAborted();
     judged = await judge(controller === undefined ? undefined : { signal: controller.signal });
     // The service answers for the request it was given. A record about
     // another person, another rubric or another question is refused here,
@@ -650,12 +658,15 @@ export async function processEvidence(input: ProcessEvidenceInput): Promise<Proc
       // all-or-nothing gets it: both reject the whole call.
       if (signal?.aborted === true || onItemError === "throw") throw error;
       // Isolation is for a judgment that could not be *made*, not for one
-      // that is not readable. A `TypeError` here is this layer saying an
-      // input is unrepresentable — a store answering with another person's
-      // record, a record under a foreign rubric, a malformed answer — and
-      // turning that into a `review` claim would hide a bug behind a
-      // plausible-looking outcome.
-      if (error instanceof TypeError) throw error;
+      // that is not readable. A broken invariant — a store answering with
+      // another person's record, a record under a foreign rubric, a
+      // malformed answer — is a bug no retry fixes, and turning it into a
+      // `review` claim would hide it behind a plausible-looking outcome.
+      //
+      // By class, never by shape: `fetch` reports a DNS or connection
+      // failure as a plain `TypeError`, and an outage is the ordinary
+      // unavailable judgment this mode exists to isolate.
+      if (error instanceof JudgmentInvariantError) throw error;
       // Everything else is one item's failure, and stays one item's failure:
       // a `review` claim that says the judgment was unavailable. No
       // assessment ran, so there is no kind, no event and no score — an
@@ -793,7 +804,7 @@ function indexRecords(
   for (const record of records) {
     const recorded = rubricHashOf(record.specId);
     if (recorded !== rubricHash) {
-      throw new TypeError(
+      throw new JudgmentInvariantError(
         `deriveEvidence: record ${record.id} was judged under rubric ${recorded} ` +
           `(${record.specId}), not ${rubricHash}; a derivation cannot read an answer to a ` +
           "different question",
@@ -802,7 +813,7 @@ function indexRecords(
     const key = `${record.kind}\u0000${record.evidenceKey}`;
     const existing = byKey.get(key);
     if (existing !== undefined && existing.id !== record.id) {
-      throw new TypeError(
+      throw new JudgmentInvariantError(
         `deriveEvidence: two different ${record.kind} records for ${record.evidenceKey} ` +
           `(${existing.id}, ${record.id}); a derivation cannot choose between them`,
       );
@@ -819,7 +830,7 @@ function requireRecord(
 ): JevJudgmentRecord {
   const record = byKey.get(`${kind}\u0000${evidenceKey}`);
   if (record === undefined) {
-    throw new TypeError(
+    throw new JudgmentInvariantError(
       `deriveEvidence: no ${kind} judgment record for ${evidenceKey}; a derivation is over ` +
         "the records it was given, and a missing judgment is not a low one",
     );
@@ -874,8 +885,16 @@ function resolveConcurrency(requested: number | undefined): number {
 
 /**
  * Run `worker` over `items` with at most `limit` calls in flight, returning the
- * results in input order. The first rejection rejects the returned promise, as
- * `Promise.all` did; every worker's rejection is observed, so none is unhandled.
+ * results in input order.
+ *
+ * Whether a failing item rejects this at all is the worker's business: under
+ * `onItemError: "review"` a failed item is isolated and never reaches here,
+ * so the pool runs to the end. A worker that does reject — `onItemError:
+ * "throw"`, a broken invariant, an abort — rejects the returned promise at
+ * once, but does not stop the pool: items already in flight, and items
+ * already handed out, may still complete and be recorded after the caller has
+ * seen the rejection. Every worker's rejection is observed, so none is
+ * unhandled.
  *
  * `signal` is checked before each item is handed out, so an abort stops the
  * pool from starting work the caller no longer wants; the items already in

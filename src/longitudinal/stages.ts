@@ -11,6 +11,7 @@
 import { CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL } from "./dimensions.ts";
 import type { ClaimAssessment, IdentityAssessment } from "./judgments.ts";
 import { contentFingerprint } from "./provenance.ts";
+import { JudgmentInvariantError } from "./records.ts";
 import type {
   CareerEvent,
   ClaimStatus,
@@ -117,7 +118,7 @@ export function decideStatus(
 ): { status: ClaimStatus; reasons: ReviewReason[] } {
   if (identity === null) {
     if (assessment !== null) {
-      throw new TypeError(
+      throw new JudgmentInvariantError(
         "decideStatus: a claim assessment without an identity judgment is not representable",
       );
     }
@@ -204,7 +205,7 @@ export function materialize(input: MaterializeInput): {
   };
   const eventKind = input.assessment?.eventKind ?? null;
   if (input.assessment !== null && input.identity === null) {
-    throw new TypeError(
+    throw new JudgmentInvariantError(
       "materialize: a claim assessment without an identity judgment is not representable",
     );
   }
@@ -212,7 +213,7 @@ export function materialize(input: MaterializeInput): {
   if (input.decision.status !== "accepted" && input.decision.status !== "review") {
     // An assessed event kind with a rejected or proposed status has no event:
     // the caller passed a decision that does not belong to this assessment.
-    throw new TypeError(
+    throw new JudgmentInvariantError(
       `materialize: assessed event kind with status "${input.decision.status}" is not representable`,
     );
   }

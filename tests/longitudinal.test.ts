@@ -47,6 +47,7 @@ import {
   failMonitoringPlan,
   freezeRecord,
   InMemoryJevJudgmentStore,
+  JudgmentInvariantError,
   MAX_MONITORING_ATTEMPTS_ERROR,
   processEvidence,
   progressVector,
@@ -64,6 +65,11 @@ import type { ProgressDimension } from "../src/longitudinal/types.ts";
 import { JUDGE_RELIABILITY_V2_0_0 } from "../src/models/registry.ts";
 
 const day = (n: number) => new Date(Date.UTC(2026, 0, 1 + n));
+
+/** Drain the microtask queue. Deterministic: nothing here waits on a clock. */
+const flushTurns = async (turns = 50) => {
+  for (let turn = 0; turn < turns; turn++) await Promise.resolve();
+};
 
 const identity: CanonicalIdentity = {
   personId: "p-1",
@@ -1387,6 +1393,123 @@ describe("a coalesced judgment belongs to every asker", () => {
       lenient.status === "fulfilled" ? lenient.value.claims[0]?.reviewReasons : undefined,
     ).toEqual(["judgment_unavailable"]);
     expect(strict.status).toBe("rejected");
+  });
+});
+
+describe("a transport failure is not a broken invariant", () => {
+  const runOver = (judgments: JevJudgmentService, runtime?: EvidenceRuntime) =>
+    processEvidence({
+      identity,
+      evidence: [evidence("work", 40)],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments,
+      ...(runtime === undefined ? {} : { runtime }),
+    });
+
+  /** What `fetch` throws when a host cannot be reached: a plain `TypeError`. */
+  const offline: FakeJudgments = {
+    ...acceptingJudgments,
+    async assessClaim() {
+      throw new TypeError("fetch failed");
+    },
+  };
+
+  test("a service that fails with a TypeError isolates the item", async () => {
+    const result = await runOver(serviceOf(offline));
+    expect(result.claims[0]?.status).toBe("review");
+    expect(result.claims[0]?.reviewReasons).toEqual(["judgment_unavailable"]);
+    // The identity judgment still happened, and is still the claim's.
+    expect(result.claims[0]?.identityDecision).toBe("same");
+  });
+
+  test("the same failure still rejects the batch under onItemError: throw", async () => {
+    await expect(runOver(serviceOf(offline), { onItemError: "throw" })).rejects.toThrow(
+      "fetch failed",
+    );
+  });
+
+  test("a broken record invariant is still loud, by class and not by shape", async () => {
+    const honest = serviceOf(acceptingJudgments);
+    const other: CanonicalIdentity = { ...identity, personId: "p-999" };
+    const misaddressed: JevJudgmentService = {
+      ...honest,
+      assessIdentity: (_canonical, item, options) => honest.assessIdentity(other, item, options),
+    };
+    const rejection = runOver(misaddressed);
+    await expect(rejection).rejects.toThrow(JudgmentInvariantError);
+    await expect(rejection).rejects.toThrow(/must return the record it was asked for/);
+    // Subclassing `TypeError` keeps every existing matcher true; the
+    // isolation decision is the class, which a transport failure never has.
+    await expect(rejection).rejects.toThrow(TypeError);
+  });
+});
+
+describe("a store lookup that is overtaken", () => {
+  test("a stale miss cannot buy a judgment another asker already made", async () => {
+    const inner = new InMemoryJevJudgmentStore();
+    let openLookup!: () => void;
+    const held = new Promise<void>((resolve) => {
+      openLookup = resolve;
+    });
+    let gated = true;
+    // The first lookup of the run is answered late — after another asker has
+    // judged, written and gone. Answering "nothing recorded" then is stale,
+    // and paying for the judgment again is the cost of believing it.
+    const overtaken: JevJudgmentStore = {
+      async get(recordId) {
+        if (gated) {
+          gated = false;
+          await held;
+          return null;
+        }
+        return inner.get(recordId);
+      },
+      async put(record) {
+        return inner.put(record);
+      },
+    };
+    let identityCalls = 0;
+    let claimCalls = 0;
+    const counting: FakeJudgments = {
+      async assessIdentity(canonical, item) {
+        identityCalls += 1;
+        return acceptingJudgments.assessIdentity(canonical, item);
+      },
+      async assessClaim(item) {
+        claimCalls += 1;
+        return acceptingJudgments.assessClaim(item);
+      },
+    };
+    const service = serviceOf(counting);
+    const once = () =>
+      processEvidence({
+        identity,
+        evidence: [evidence("work", 40)],
+        cutoffAt: day(90),
+        retrievedAt: day(100),
+        pipelineVersion: "1",
+        judgments: service,
+        runtime: { store: overtaken },
+      });
+    const first = once();
+    await flushTurns();
+    const second = once();
+    await flushTurns();
+    openLookup();
+    const [left, right] = await Promise.all([first, second]);
+    // One lookup and one judgment for the two runs: the lookup is part of the
+    // work they share, so neither can be answered by a miss the other has
+    // already overtaken.
+    expect(identityCalls).toBe(1);
+    expect(claimCalls).toBe(1);
+    expect(inner.size).toBe(2);
+    expect(left.records.map((record) => record.id)).toEqual(
+      right.records.map((record) => record.id),
+    );
+    expect(left.claims[0]?.status).toBe("accepted");
+    expect(right.claims[0]?.status).toBe("accepted");
   });
 });
 
