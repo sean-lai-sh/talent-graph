@@ -18,9 +18,13 @@
  * so a Doppler-backed shell can neither fail the assertion nor poison a
  * regenerated fixture.
  *
- * REGENERATE: only when a number is *meant* to change, and never as a reflex.
+ * REGENERATE: this mode OVERWRITES the fixture, so only run it when a number
+ * is *meant* to change, never as a reflex, and always with the explicit file
+ * path so no other suite is swept along:
  *   REGENERATE_REFERRAL_GOLDEN=1 bun test tests/referralGolden.test.ts && bun run format
- * then read the diff line by line before committing it.
+ * The write is a guarded test case that runs AFTER the comparisons, so the
+ * pinned numbers are still asserted (and still fail) before anything is
+ * rewritten. Read the diff line by line before committing it.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -123,10 +127,6 @@ function pretty(golden: unknown): string {
 describe("referral golden: seed-wide signal numbers are pinned (V0 behaviour)", () => {
   const golden = buildGolden();
 
-  if (process.env.REGENERATE_REFERRAL_GOLDEN === "1") {
-    writeFileSync(FIXTURE, pretty(golden), "utf8");
-  }
-
   test("the seed's Referral Signal numbers match tests/fixtures/referral-golden.json exactly", () => {
     const expected = canonical(JSON.parse(readFileSync(FIXTURE, "utf8")));
     expect(canonical(golden)).toBe(expected);
@@ -144,6 +144,13 @@ describe("referral golden: seed-wide signal numbers are pinned (V0 behaviour)", 
   test("the golden ignores TG_* overrides: a Doppler-backed run sees the same baseline", () => {
     const expected = canonical(JSON.parse(readFileSync(FIXTURE, "utf8")));
     expect(canonical(buildGolden({ TG_TOP_K_REFERRALS: "1" }))).toBe(expected);
+  });
+
+  // Last, and only under the flag: the comparisons above have already run and
+  // reported, so regenerating can never hide the change it is about to bake in.
+  // Always built from an empty env, so no TG_* override reaches the fixture.
+  test.if(process.env.REGENERATE_REFERRAL_GOLDEN === "1")("regenerate the fixture", () => {
+    writeFileSync(FIXTURE, pretty(buildGolden()), "utf8");
   });
 
   test("missing stays missing: no incoming referrals means null, never 0", () => {
