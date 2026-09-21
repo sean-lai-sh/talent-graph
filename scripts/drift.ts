@@ -1,10 +1,15 @@
 #!/usr/bin/env bun
 /**
- * bun run drift -- --kind <referral_signal|bradley_terry> --before <version> --after <version>
+ * bun run drift -- --kind <kind> --before <version> --after <version>
+ * bun run drift -- --v0-vs-v2 [--spec <version|env>]
  *
- * Runs two spec versions on the seed dataset and prints the drift report
- * (one per dimension for bradley_terry). Paste the verdict line into
+ * Runs the pipeline twice on the seed dataset and prints the drift reports
+ * for the requested kind (one per dimension for `bradley_terry`, one per
+ * measure for `judge_reliability`). Paste the verdict line into
  * docs/models/CHANGELOG.md when shipping a new spec version.
+ *
+ * The kinds are the registered spec kinds, so a new kind is driftable the
+ * day it is registered: nothing here enumerates them.
  *
  * A version is either a registered semver (`0.1.0`) or the literal `env`,
  * meaning "the current registered spec with `TG_*` overrides applied" via
@@ -13,87 +18,95 @@
  *
  * An unregistered `--after` can be tried with `--after-json '<ModelSpec json>'`
  * to preview a candidate before registering it.
+ *
+ * `--v0-vs-v2` is the other question: not "what does a new spec do" but
+ * "what do the judge weights do", the unweighted Referral Signal against the
+ * judge-weighted one from a single pass, under one spec.
  */
 
-import { capabilityDrift, formatDriftReport, referralSignalDrift } from "../src/analysis/drift.ts";
-import { loadSpecs } from "../src/config.ts";
-import { DIMENSIONS } from "../src/domain/constants.ts";
-import { computeCapabilityVectors } from "../src/inference/capabilityVector.ts";
+import { type DriftReport, formatDriftReport, referralSignalDrift } from "../src/analysis/drift.ts";
+import { type LoadedSpecs, loadSpecs } from "../src/config.ts";
 import { getSpec, specVersions } from "../src/models/registry.ts";
-import type {
-  BradleyTerrySpec,
-  ModelSpec,
-  ModelSpecKind,
-  ReferralSignalSpec,
-} from "../src/models/spec.ts";
+import type { ModelSpec, SpecOfKind } from "../src/models/spec.ts";
 import { validateSpec } from "../src/models/spec.ts";
-import { computeAllReferralSignals } from "../src/scoring/referralSignal.ts";
+import {
+  advance,
+  baselineReferralRun,
+  type DriftKind,
+  driftKinds,
+  judgeWeightedReferralRun,
+  type Observations,
+} from "../src/pipeline/advance.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 
 const ENV_VERSION = "env";
+/** The evaluation time step T, as `bun run demo` pins it. Never a clock read. */
+const T = new Date("2026-12-31T00:00:00.000Z");
+
+const base = loadSpecs();
+
+/**
+ * The kinds this script can compare — what a pass actually runs, not every
+ * registered kind. Derived, so a kind added to the pipeline is driftable the
+ * day it lands and one that is registered but not run is refused here rather
+ * than failing somewhere inside the comparison.
+ */
+const KINDS = driftKinds(base);
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
+const flag = (name: string): boolean => process.argv.includes(`--${name}`);
+
+function isKind(value: string): value is DriftKind {
+  return (KINDS as string[]).includes(value);
+}
 
 const kindArg = arg("kind") ?? "referral_signal";
-const beforeVersion = arg("before");
-const afterVersion = arg("after");
-const afterJson = arg("after-json");
-
-if (kindArg !== "referral_signal" && kindArg !== "bradley_terry") {
-  console.error(`unknown kind ${kindArg}; use referral_signal or bradley_terry`);
+if (!isKind(kindArg)) {
+  console.error(`unknown kind ${kindArg}; use one of ${KINDS.join(", ")}`);
   process.exit(2);
 }
-const kind: ModelSpecKind = kindArg;
-if (!beforeVersion || (!afterVersion && !afterJson)) {
-  console.error(
-    `usage: bun run drift -- --kind ${kind} --before <version|env> (--after <version|env> | --after-json '<json>')\n` +
-      `known versions: ${specVersions(kind).join(", ")} · "env" = current spec with TG_* overrides`,
-  );
-  process.exit(2);
-}
+const kind: DriftKind = kindArg;
 
 /** Registered version lookup, or the env-derived current spec for `env`. */
-function resolveVersion(version: string): ModelSpec {
+function resolveVersion(version: string): SpecOfKind<typeof kind> {
   if (version === ENV_VERSION) return loadSpecs()[kind];
   return getSpec(kind, version);
 }
 
-function resolveAfter(): ModelSpec {
-  if (afterJson) {
-    const parsed = JSON.parse(afterJson) as ModelSpec;
-    const v = validateSpec(parsed);
-    if (!v.ok) {
-      console.error(`--after-json is not a valid spec:\n  ${v.errors.join("\n  ")}`);
-      process.exit(2);
-    }
-    return parsed;
-  }
-  return resolveVersion(afterVersion as string);
+const data = generateSeed();
+const observations: Observations = {
+  people: data.people,
+  referrals: data.referrals,
+  comparisons: data.comparisons,
+  outcomes: data.outcomes,
+  opportunities: data.opportunities,
+};
+
+/**
+ * `base` with one kind's spec swapped. The computed key and the spec are the
+ * same `K`, which is what the assertion stands on: TypeScript widens a
+ * computed key to `string` and loses that on its own.
+ */
+function specsWith<K extends DriftKind>(
+  base: LoadedSpecs,
+  kind: K,
+  spec: SpecOfKind<K>,
+): LoadedSpecs {
+  return { ...base, [kind]: spec } as LoadedSpecs;
 }
 
-const data = generateSeed();
-const before = resolveVersion(beforeVersion);
-const after = resolveAfter();
-
-if (kind === "referral_signal") {
-  const a = computeAllReferralSignals(data.people, data.referrals, {
-    spec: before as ReferralSignalSpec,
-  });
-  const b = computeAllReferralSignals(data.people, data.referrals, {
-    spec: after as ReferralSignalSpec,
-  });
-  console.log(formatDriftReport(referralSignalDrift(a, b)));
-} else {
-  const a = computeCapabilityVectors(data.people, data.comparisons, {
-    spec: before as BradleyTerrySpec,
-  });
-  const b = computeCapabilityVectors(data.people, data.comparisons, {
-    spec: after as BradleyTerrySpec,
-  });
-  const reports = DIMENSIONS.map((d) => capabilityDrift(a, b, d));
+function print(reports: readonly DriftReport[]): void {
+  if (reports.length === 0) {
+    console.error(`no ${kind} drift report was produced`);
+    process.exit(1);
+  }
+  if (reports.length === 1) {
+    console.log(formatDriftReport(reports[0] as DriftReport));
+    return;
+  }
   for (const r of reports) {
     console.log(formatDriftReport(r));
     console.log();
@@ -101,5 +114,70 @@ if (kind === "referral_signal") {
   const worst = reports.reduce((w, r) =>
     r.verdict === "breaking" || (r.verdict === "review" && w.verdict === "stable") ? r : w,
   );
-  console.log(`Overall verdict across dimensions: ${worst.verdict.toUpperCase()}`);
+  console.log(`Overall verdict across ${reports.length} reports: ${worst.verdict.toUpperCase()}`);
 }
+
+/* ---------------------------------------------------------------- *
+ * V0 vs V2 — one spec, one pass, judge weights on or off.
+ * ---------------------------------------------------------------- */
+
+if (flag("v0-vs-v2")) {
+  const version = arg("spec") ?? ENV_VERSION;
+  const specs = specsWith(loadSpecs(), "referral_signal", getReferralSpec(version));
+  const pass = advance(null, observations, specs, T, { drift: false });
+  print([
+    referralSignalDrift(baselineReferralRun(pass).outputs, judgeWeightedReferralRun(pass).outputs),
+  ]);
+  process.exit(0);
+}
+
+function getReferralSpec(version: string): SpecOfKind<"referral_signal"> {
+  return version === ENV_VERSION
+    ? loadSpecs().referral_signal
+    : getSpec("referral_signal", version);
+}
+
+/* ---------------------------------------------------------------- *
+ * Spec vs spec — two passes on the same observations.
+ * ---------------------------------------------------------------- */
+
+const beforeVersion = arg("before");
+const afterVersion = arg("after");
+const afterJson = arg("after-json");
+
+if (!beforeVersion || (!afterVersion && !afterJson)) {
+  console.error(
+    `usage: bun run drift -- --kind ${kind} --before <version|env> (--after <version|env> | --after-json '<json>')\n` +
+      `   or: bun run drift -- --v0-vs-v2 [--spec <version|env>]\n` +
+      `kinds: ${KINDS.join(", ")}\n` +
+      `known ${kind} versions: ${specVersions(kind).join(", ")} · "env" = current spec with TG_* overrides`,
+  );
+  process.exit(2);
+}
+
+function resolveAfter(): SpecOfKind<typeof kind> {
+  if (afterJson) {
+    const parsed = JSON.parse(afterJson) as ModelSpec;
+    const v = validateSpec(parsed);
+    if (!v.ok) {
+      console.error(`--after-json is not a valid spec:\n  ${v.errors.join("\n  ")}`);
+      process.exit(2);
+    }
+    if (parsed.kind !== kind) {
+      console.error(`--after-json is a ${parsed.kind} spec, but --kind is ${kind}`);
+      process.exit(2);
+    }
+    return parsed as SpecOfKind<typeof kind>;
+  }
+  return resolveVersion(afterVersion as string);
+}
+
+const beforeSpecs = specsWith(base, kind, resolveVersion(beforeVersion));
+const afterSpecs = specsWith(base, kind, resolveAfter());
+
+// The first pass is the baseline the second is compared against: `advance`
+// does the comparison per kind, so this script never decides what "drift"
+// means for a kind it has never heard of.
+const before = advance(null, observations, beforeSpecs, T, { drift: false });
+const after = advance(before.state, observations, afterSpecs, T);
+print(after.drift.filter((r) => r.kind === kind));

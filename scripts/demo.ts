@@ -18,8 +18,7 @@ import { summarizeEvaluations } from "../src/analysis/rubricSummary.ts";
 import { underRecognitionGaps } from "../src/analysis/underRecognition.ts";
 import { loadSpecs } from "../src/config.ts";
 import { DIMENSIONS, SCALE_LABELS } from "../src/domain/constants.ts";
-import { computeCapabilityVectors, dimensionLabel } from "../src/inference/capabilityVector.ts";
-import { computeJudgeCalibration, judgeWeightOptions } from "../src/judges/reliability.ts";
+import { dimensionLabel } from "../src/inference/capabilityVector.ts";
 import {
   judgeTrackRecord,
   TRACK_RECORD_COPY,
@@ -27,18 +26,43 @@ import {
 } from "../src/judges/trackRecord.ts";
 import { createMonitoringPlan } from "../src/longitudinal/checkpoints.ts";
 import { residualSlope } from "../src/longitudinal/outcomes.ts";
-import { computeAllReferralSignals, displayReferralSignal } from "../src/scoring/referralSignal.ts";
+import {
+  advance,
+  baselineReferralRun,
+  judgeWeightedReferralRun,
+  requireRun,
+} from "../src/pipeline/advance.ts";
+import { displayReferralSignal } from "../src/scoring/referralSignal.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 import { PERSONA_IDS } from "../src/seed/personas.ts";
 
 const specs = loadSpecs();
 const data = generateSeed();
-const signals = computeAllReferralSignals(data.people, data.referrals, {
-  spec: specs.referral_signal,
-});
-const capRun = computeCapabilityVectors(data.people, data.comparisons, {
-  spec: specs.bradley_terry,
-});
+
+// The evaluation time step T — a year after the base date — is a literal, not
+// a clock read, so this script's output is reproducible byte for byte
+// (tests/fixtures/demo-golden.txt).
+const T = new Date("2026-12-31T00:00:00.000Z");
+
+// One pass of the engine: V0 signals, capability, calibration at T, then the
+// judge-weighted V2 signals. `advance` is the only place that order is
+// written; nothing below recomputes a number.
+const pass = advance(
+  null,
+  {
+    people: data.people,
+    referrals: data.referrals,
+    comparisons: data.comparisons,
+    outcomes: data.outcomes,
+    opportunities: data.opportunities,
+  },
+  specs,
+  T,
+);
+const signals = baselineReferralRun(pass).outputs;
+const capRun = requireRun(pass.state, "bradley_terry").outputs;
+const calibration = requireRun(pass.state, "judge_reliability").outputs;
+const weighted = judgeWeightedReferralRun(pass).outputs;
 const gaps = underRecognitionGaps(signals, capRun);
 
 console.log(formatDashboard(buildDashboard(data, signals, capRun, gaps), data.people));
@@ -83,17 +107,7 @@ for (const id of PERSONA_IDS) {
   console.log("-".repeat(72));
 }
 
-// V2 — judge calibration at a fixed time step T (a year after the base date).
-const T = new Date("2026-12-31T00:00:00.000Z");
-const calibration = computeJudgeCalibration({
-  people: data.people,
-  referrals: data.referrals,
-  outcomes: data.outcomes,
-  opportunities: data.opportunities,
-  now: T,
-  spec: specs.judge_reliability,
-  referralSpec: specs.referral_signal,
-});
+// V2 — judge calibration at the fixed time step T.
 const judged = [...calibration.estimates.values()]
   .filter((e) => e.evaluatedCount > 0)
   .map((e) => ({ e, track: judgeTrackRecord(e, specs.judge_reliability) }))
@@ -115,10 +129,6 @@ for (const { e, track } of judged) {
   );
 }
 
-const weighted = computeAllReferralSignals(data.people, data.referrals, {
-  spec: specs.referral_signal,
-  ...judgeWeightOptions(calibration),
-});
 console.log();
 console.log("Referral Signal, V0 (all judges = 1) vs V2 (judge-weighted):");
 for (const id of PERSONA_IDS) {

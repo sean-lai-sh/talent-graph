@@ -1,18 +1,26 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import {
   BREAKING_CROSSED_FRACTION,
   capabilityDrift,
   DEFAULT_DRIFT_THRESHOLDS,
   formatDriftReport,
+  judgeReliabilityDrift,
   kendallTauB,
   referralSignalDrift,
   spearmanRho,
   topKJaccard,
 } from "../src/analysis/drift.ts";
+import { loadSpecs } from "../src/config.ts";
 import { computeCapabilityVectors } from "../src/inference/capabilityVector.ts";
 import { computeJudgeCalibration, judgeWeightOptions } from "../src/judges/reliability.ts";
-import { BRADLEY_TERRY_V1_0_0, REFERRAL_SIGNAL_V0_1_0 } from "../src/models/registry.ts";
+import {
+  BRADLEY_TERRY_V1_0_0,
+  JUDGE_RELIABILITY_V2_0_0,
+  REFERRAL_SIGNAL_V0_1_0,
+} from "../src/models/registry.ts";
 import type { ReferralSignalSpec } from "../src/models/spec.ts";
+import { type DriftKind, driftKinds } from "../src/pipeline/advance.ts";
 import { computeAllReferralSignals } from "../src/scoring/referralSignal.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 
@@ -208,5 +216,114 @@ describe("capabilityDrift", () => {
     expect(r.n).toBeGreaterThan(5);
     expect(r.kendallTau).toBeGreaterThan(0.5);
     expect(["stable", "review", "breaking"]).toContain(r.verdict);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * #55 T4 — judge-reliability drift and the drift CLI.
+ * ------------------------------------------------------------------ */
+
+describe("judgeReliabilityDrift", () => {
+  const T = new Date("2026-12-31T00:00:00.000Z");
+  const calibration = computeJudgeCalibration({
+    people: data.people,
+    referrals: data.referrals,
+    outcomes: data.outcomes,
+    opportunities: data.opportunities,
+    now: T,
+  });
+
+  test("a run against itself is stable, on either measure", () => {
+    for (const measure of ["reliability", "bias"] as const) {
+      const r = judgeReliabilityDrift(calibration, calibration, measure);
+      expect(r.kind).toBe("judge_reliability");
+      expect(r.measure).toBe(measure);
+      expect(r.kendallTau).toBeCloseTo(1, 10);
+      expect(r.verdict).toBe("stable");
+      expect(r.maxAbsShift).toBe(0);
+      expect(formatDriftReport(r)).toContain(`judge_reliability · ${measure}`);
+    }
+  });
+
+  test("a judge with no evaluated prediction has no value: missing is not low", () => {
+    const r = judgeReliabilityDrift(calibration, calibration);
+    const withEvidence = [...calibration.estimates.values()].filter((e) => e.evaluatedCount >= 1);
+    expect(withEvidence.length).toBeGreaterThan(0);
+    expect(r.n).toBe(withEvidence.length);
+    expect(r.n).toBeLessThan(calibration.estimates.size);
+    // The unevaluated judges are simply absent, not counted as crossings:
+    // they have no value on either side.
+    expect(r.crossedFraction).toBe(0);
+  });
+
+  test("a shorter observation window moves the numbers it is meant to move", () => {
+    const shorter = computeJudgeCalibration({
+      people: data.people,
+      referrals: data.referrals,
+      outcomes: data.outcomes,
+      opportunities: data.opportunities,
+      now: T,
+      spec: { ...JUDGE_RELIABILITY_V2_0_0, version: "2.1.0", observationWindowDays: 30 },
+    });
+    const r = judgeReliabilityDrift(calibration, shorter);
+    expect(r.labels).toEqual({ before: "2.0.0", after: "2.1.0" });
+    expect(["stable", "review", "breaking"]).toContain(r.verdict);
+  });
+});
+
+describe("scripts/drift.ts CLI", () => {
+  const script = join(import.meta.dir, "..", "scripts", "drift.ts");
+  const run = (...args: string[]) =>
+    Bun.spawnSync(["bun", "run", script, ...args], { cwd: join(import.meta.dir, "..") });
+  const text = (b: Uint8Array) => new TextDecoder().decode(b);
+
+  test("a kind the pipeline does not run exits 2 and names the ones it does", () => {
+    const proc = run("--kind", "career_evidence", "--before", "1.0.0", "--after", "env");
+    expect(proc.exitCode).toBe(2);
+    const err = text(proc.stderr);
+    expect(err).toContain("unknown kind career_evidence");
+    for (const kind of driftKinds(loadSpecs({}, { warn: () => {} }))) {
+      expect(err).toContain(kind);
+    }
+  });
+
+  /**
+   * Compile-time half of the same rule: a registered spec kind that
+   * `LoadedSpecs` does not carry is not a `DriftKind`, so the CLI cannot
+   * index the loaded specs with it. (`career_evidence` is not a
+   * `ModelSpecKind` today either — both reasons are the same error.)
+   */
+  test("DriftKind is exactly the kinds LoadedSpecs carries", () => {
+    // @ts-expect-error a kind LoadedSpecs has no key for is not a DriftKind
+    const notDriftable: DriftKind = "career_evidence";
+    expect(notDriftable as string).toBe("career_evidence");
+    expect(driftKinds(loadSpecs({}, { warn: () => {} }))).toEqual([
+      "bradley_terry",
+      "judge_reliability",
+      "referral_signal",
+    ]);
+  });
+
+  test("--kind judge_reliability reports both measures", () => {
+    const proc = run("--kind", "judge_reliability", "--before", "2.0.0", "--after", "env");
+    expect(proc.exitCode).toBe(0);
+    const out = text(proc.stdout);
+    expect(out).toContain("judge_reliability · reliability");
+    expect(out).toContain("judge_reliability · bias");
+    expect(out).toContain("Overall verdict across 2 reports:");
+  });
+
+  test("--v0-vs-v2 compares the unweighted run against the judge-weighted one", () => {
+    const proc = run("--v0-vs-v2");
+    expect(proc.exitCode).toBe(0);
+    const out = text(proc.stdout);
+    expect(out).toContain("referral_signal (0.1.0 → 0.1.0 (judge-weighted))");
+    expect(out).toContain("Largest movers:");
+  });
+
+  test("--kind referral_signal still compares the V0 runs of two specs", () => {
+    const proc = run("--kind", "referral_signal", "--before", "0.1.0", "--after", "env");
+    expect(proc.exitCode).toBe(0);
+    expect(text(proc.stdout)).toContain("referral_signal (0.1.0 → 0.1.0)");
   });
 });

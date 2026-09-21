@@ -1,0 +1,246 @@
+Talent Graph — dashboard
+People 32 (candidates 22, members 8, archived 2) · referrals 50 · comparisons 160 · rubric evaluations 24
+
+Top Referral Signal:
+  Dev Raman          100 / 100 · 1 referrals
+  Alice Tanaka        85 / 100 · 4 referrals
+  Hana Nakamura       78 / 100 · 1 referrals
+  Bram Okafor         77 / 100 · 4 referrals
+  Otto Iyer           58 / 100 · 1 referrals
+  Tess Weber          50 / 100 · 2 referrals
+  Fox Delacroix       49 / 100 · 2 referrals
+  Idris Karlsson      48 / 100 · 4 referrals
+  Hugo Costa          47 / 100 · 3 referrals
+  Anouk Solberg       43 / 100 · 1 referrals
+
+Top Relative Capability Estimates:
+  Fox Delacroix      Problem solving    100th percentile · 13 comparisons · pool: 13 people, medium confidence
+  Alice Tanaka       Output             100th percentile · 3 comparisons · pool: 6 people, medium confidence
+  Alice Tanaka       Problem solving     92nd percentile · 11 comparisons · pool: 13 people, medium confidence
+  Cleo Marsh         Problem solving     83rd percentile · 10 comparisons · pool: 13 people, medium confidence
+  Hana Nakamura      Output              80th percentile · 3 comparisons · pool: 6 people, medium confidence
+  Ife Doyle          Problem solving     75th percentile · 3 comparisons · pool: 13 people, medium confidence
+  Tess Weber         Problem solving     67th percentile · 4 comparisons · pool: 13 people, medium confidence
+  Bram Okafor        Output              60th percentile · 4 comparisons · pool: 6 people, medium confidence
+  Noor Petrov        Problem solving     58th percentile · 3 comparisons · pool: 13 people, medium confidence
+  Zara Katz          Problem solving     50th percentile · 4 comparisons · pool: 13 people, medium confidence
+
+Under-Recognition Gap (Exploratory):
+  Cleo Marsh         Agency             +100 (capability 100th, referral 0th)
+  Cleo Marsh         Problem solving    +83 (capability 83rd, referral 0th)
+  Ember Liu          Agency             +58 (capability 67th, referral 9th)
+  Cleo Marsh         Learning velocity  +33 (capability 33rd, referral 0th)
+  Zara Katz          Problem solving    +28 (capability 50th, referral 22nd)
+  Fox Delacroix      Problem solving    +26 (capability 100th, referral 74th)
+  Fox Delacroix      Taste              +26 (capability 100th, referral 74th)
+  Tomas Lindqvist    Problem solving    +12 (capability 17th, referral 4th)
+  Arjun Bello        Problem solving    +7 (capability 42nd, referral 35th)
+  Alice Tanaka       Learning velocity  +4 (capability 100th, referral 96th)
+
+========================================================================
+
+Review queue (candidates, by evidence state):
+  Under-recognized
+    Cleo Marsh         1 incoming referral · 0 firsthand · 22 informative comparisons · 3 of 7 dimensions estimated · Agency: capability 100th vs referral 0th, +100
+    Ember Liu          6 incoming referrals · 0 firsthand · 14 informative comparisons · 2 of 7 dimensions estimated · Agency: capability 67th vs referral 9th, +58
+    Fox Delacroix      2 incoming referrals · 1 firsthand · 20 informative comparisons · 2 of 7 dimensions estimated · Problem solving: capability 100th vs referral 74th, +26
+  Ready to decide
+    Alice Tanaka       4 incoming referrals · 4 firsthand · 24 informative comparisons · 5 of 7 dimensions estimated
+    Bram Okafor        4 incoming referrals · 3 firsthand · 21 informative comparisons · 4 of 7 dimensions estimated
+    Idris Karlsson     4 incoming referrals · 0 firsthand · 8 informative comparisons · 1 of 7 dimensions estimated
+    Felix Sato         3 incoming referrals · 0 firsthand · 9 informative comparisons · 1 of 7 dimensions estimated
+  Single source
+    Rafael de Vries    1 incoming referral · 1 firsthand · 8 informative comparisons · 1 of 7 dimensions estimated
+    Arjun Bello        1 incoming referral · 0 firsthand · 9 informative comparisons · 1 of 7 dimensions estimated
+    Anouk Solberg      1 incoming referral · 1 firsthand · 7 informative comparisons · 1 of 7 dimensions estimated
+    Wren Mehta         1 incoming referral · 1 firsthand · 4 informative comparisons · 0 of 7 dimensions estimated
+    Cassian Levi       1 incoming referral · 0 firsthand · 6 informative comparisons · 0 of 7 dimensions estimated
+    Otto Iyer          1 incoming referral · 1 firsthand · 6 informative comparisons · 0 of 7 dimensions estimated
+    Dev Raman          1 incoming referral · 1 firsthand · 1 informative comparison · 0 of 7 dimensions estimated
+  Needs more compares
+    Beniamino Haddad   3 incoming referrals · 0 firsthand · 4 informative comparisons · 0 of 7 dimensions estimated
+    Hugo Costa         3 incoming referrals · 0 firsthand · 6 informative comparisons · 0 of 7 dimensions estimated
+    Leah Marchetti     2 incoming referrals · 2 firsthand · 5 informative comparisons · 0 of 7 dimensions estimated
+    Milo Rahimi        2 incoming referrals · 0 firsthand · 3 informative comparisons · 0 of 7 dimensions estimated
+  No referrals
+    Ife Doyle          no incoming referrals · 5 informative comparisons · 1 of 7 dimensions estimated
+    Vera Ricci         no incoming referrals · 7 informative comparisons · 1 of 7 dimensions estimated
+    Dagny Adeyemi      no incoming referrals · 7 informative comparisons · 0 of 7 dimensions estimated
+    Mira Novak         no incoming referrals · 6 informative comparisons · 0 of 7 dimensions estimated
+
+========================================================================
+
+Alice Tanaka
+Referral Signal
+85 / 100
+4 incoming referrals · 4 firsthand · strongest 1.00
+Why:
+  Tess Weber → 1.00 · 5/5/5 · firsthand_work (×1)
+  Sunny Byrne → 0.88 · 5/4/4 · firsthand_work (×1)
+  Idris Karlsson → 0.88 · 5/4/4 · firsthand_work (×1)
+  Mira Novak → 0.63 · 4/4/3 · firsthand_personal (×0.9)
+
+Relative Capability Estimate
+Problem solving     92nd percentile · 11 comparisons · 9 opponents · pool: 13 people, medium confidence
+Learning velocity   100th percentile · 3 comparisons · 3 opponents · pool: 4 people, low confidence
+Agency              33rd percentile · 3 comparisons · 3 opponents · pool: 4 people, low confidence
+Taste               0th percentile · 4 comparisons · 3 opponents · pool: 2 people, low confidence
+Output              100th percentile · 3 comparisons · 3 opponents · pool: 6 people, medium confidence
+Generativity        Insufficient Evidence (0 comparisons; need at least 3; 0 unique opponents; need at least 2)
+Originality         Insufficient Evidence (0 comparisons; need at least 3; 0 unique opponents; need at least 2)
+
+------------------------------------------------------------------------
+
+Bram Okafor
+Referral Signal
+77 / 100
+4 incoming referrals · 3 firsthand · strongest 0.88
+Why:
+  Sunny Byrne → 0.88 · 5/4/4 · firsthand_work (×1)
+  Dagny Adeyemi → 0.83 · 4/5/4 · firsthand_work (×1)
+  Rafael de Vries → 0.74 · 5/4/3 · firsthand_personal (×0.9)
+  Oren Goldberg → 0.64 · 5/3/3 · artifact (×0.85)
+
+Relative Capability Estimate
+Problem solving     8th percentile · 7 comparisons · 7 opponents · pool: 13 people, medium confidence
+Learning velocity   67th percentile · 3 comparisons · 3 opponents · pool: 4 people, low confidence
+Agency              0th percentile · 4 comparisons · 4 opponents · pool: 4 people, low confidence
+Taste               Insufficient Evidence (2 comparisons; need at least 3)
+Output              60th percentile · 4 comparisons · 4 opponents · pool: 6 people, medium confidence
+Generativity        Insufficient Evidence (1 comparison; need at least 3; 1 unique opponent; need at least 2)
+Originality         Insufficient Evidence (0 comparisons; need at least 3; 0 unique opponents; need at least 2)
+
+Structured Evidence (rubric, feeds no score)
+Generativity        4.0 / 4 · repeatedly surprising even to strong domain experts · 1 scored · 0 not observed · 1 evaluator
+
+------------------------------------------------------------------------
+
+Cleo Marsh
+Referral Signal
+12 / 100
+1 incoming referral · 0 firsthand · strongest 0.12
+Why:
+  Rafael de Vries → 0.12 · 2/2/1 · reputation (×0.6)
+
+Relative Capability Estimate
+Problem solving     83rd percentile · 10 comparisons · 9 opponents · pool: 13 people, medium confidence
+Learning velocity   33rd percentile · 3 comparisons · 3 opponents · pool: 4 people, low confidence
+Agency              100th percentile · 3 comparisons · 3 opponents · pool: 4 people, low confidence
+Taste               Insufficient Evidence (2 comparisons; need at least 3; 1 unique opponent; need at least 2)
+Output              Insufficient Evidence (1 comparison; need at least 3; 1 unique opponent; need at least 2)
+Generativity        Insufficient Evidence (1 comparison; need at least 3; 1 unique opponent; need at least 2)
+Originality         Insufficient Evidence (2 comparisons; need at least 3)
+
+Interesting signal: pairwise capability estimate substantially exceeds referral recognition (gap +100 on agency) · Exploratory
+
+Structured Evidence (rubric, feeds no score)
+Output              2.0 / 4 · clearly above ordinary peers · 1 scored · 0 not observed · 1 evaluator
+
+------------------------------------------------------------------------
+
+Dev Raman
+Referral Signal
+100 / 100
+1 incoming referral · 1 firsthand · strongest 1.00
+Why:
+  Sunny Byrne → 1.00 · 5/5/5 · firsthand_work (×1)
+
+Relative Capability Estimate
+Problem solving     Insufficient Evidence (1 comparison; need at least 3; 1 unique opponent; need at least 2)
+Learning velocity   Insufficient Evidence (0 comparisons; need at least 3; 0 unique opponents; need at least 2)
+Agency              Insufficient Evidence (0 comparisons; need at least 3; 0 unique opponents; need at least 2)
+Taste               Insufficient Evidence (0 comparisons; need at least 3; 0 unique opponents; need at least 2)
+Output              Insufficient Evidence (0 comparisons; need at least 3; 0 unique opponents; need at least 2)
+Generativity        Insufficient Evidence (0 comparisons; need at least 3; 0 unique opponents; need at least 2)
+Originality         Insufficient Evidence (0 comparisons; need at least 3; 0 unique opponents; need at least 2)
+
+Structured Evidence (rubric, feeds no score)
+Agency              3.5 / 4 · repeatedly surprising even to strong domain experts · 2 scored · 0 not observed · 2 evaluators
+Generativity        not observed · 0 scored · 1 not observed · 1 evaluator
+
+------------------------------------------------------------------------
+
+Ember Liu
+Referral Signal
+18 / 100
+6 incoming referrals · 0 firsthand · strongest 0.17
+Why:
+  Otto Iyer → 0.17 · 2/2/2 · other (×0.7)
+  Priya Okoye → 0.17 · 2/2/2 · other (×0.7)
+  Cleo Marsh → 0.17 · 2/2/2 · other (×0.7)
+  Dagny Adeyemi → 0.17 · 2/2/2 · other (×0.7)
+  Ife Doyle → 0.17 · 2/2/2 · other (×0.7)
+
+Relative Capability Estimate
+Problem solving     Insufficient Evidence (2 comparisons; need at least 3)
+Learning velocity   Insufficient Evidence (1 comparison; need at least 3; 1 unique opponent; need at least 2)
+Agency              67th percentile · 4 comparisons · 4 opponents · pool: 4 people, low confidence
+Taste               Insufficient Evidence (1 comparison; need at least 3; 1 unique opponent; need at least 2)
+Output              0th percentile · 4 comparisons · 4 opponents · pool: 6 people, medium confidence
+Generativity        Insufficient Evidence (0 comparisons; need at least 3; 0 unique opponents; need at least 2)
+Originality         Insufficient Evidence (2 comparisons; need at least 3)
+
+Interesting signal: pairwise capability estimate substantially exceeds referral recognition (gap +58 on agency) · Exploratory
+
+------------------------------------------------------------------------
+
+Fox Delacroix
+Referral Signal
+49 / 100
+2 incoming referrals · 1 firsthand · strongest 0.50
+Why:
+  Cleo Marsh → 0.50 · 3/3/3 · firsthand_work (×1)
+  Noor Petrov → 0.49 · 4/3/2 · artifact (×0.85)
+
+Relative Capability Estimate
+Problem solving     100th percentile · 13 comparisons · 11 opponents · pool: 13 people, medium confidence
+Learning velocity   Insufficient Evidence (1 comparison; need at least 3; 1 unique opponent; need at least 2)
+Agency              Insufficient Evidence (0 comparisons; need at least 3; 0 unique opponents; need at least 2)
+Taste               100th percentile · 3 comparisons · 3 opponents · pool: 2 people, low confidence
+Output              Insufficient Evidence (0 comparisons; need at least 3; 0 unique opponents; need at least 2)
+Generativity        Insufficient Evidence (0 comparisons; need at least 3; 0 unique opponents; need at least 2)
+Originality         Insufficient Evidence (no one else in this pool has enough evidence to rank against)
+
+Interesting signal: pairwise capability estimate substantially exceeds referral recognition (gap +26 on problem_solving) · Exploratory
+
+Structured Evidence (rubric, feeds no score)
+Output              4.0 / 4 · repeatedly surprising even to strong domain experts · 1 scored · 0 not observed · 1 evaluator
+Originality         0.0 / 4 · strong evidence behavior is weak · 1 scored · 0 not observed · 1 evaluator
+
+------------------------------------------------------------------------
+
+Judge calibration at T = 2026-12-31 (V2, Exploratory)
+27 referrals scored against 20 people with outcomes · 14 judges with evidence · track record is a display label, not a weight
+  Tomas Lindqvist    calibrated         · 4 scored
+  Rafael de Vries    tends to underrate · 3 scored
+  Sunny Byrne        unproven           · 2 scored
+  Dagny Adeyemi      unproven           · 2 scored
+  Kai Duval          unproven           · 2 scored
+  Zara Katz          unproven           · 2 scored
+  Tess Weber         unproven           · 2 scored
+  Noor Petrov        unproven           · 2 scored
+  Otto Iyer          unproven           · 2 scored
+  Cleo Marsh         unproven           · 2 scored
+  Oren Goldberg      unproven           · 1 scored
+  Priya Okoye        unproven           · 1 scored
+  Hana Nakamura      unproven           · 1 scored
+  Ife Doyle          unproven           · 1 scored
+
+Referral Signal, V0 (all judges = 1) vs V2 (judge-weighted):
+  Alice Tanaka        85 →  78  (-7)
+  Bram Okafor         77 →  62  (-15)
+  Cleo Marsh          12 →   7  (-5)
+  Dev Raman          100 →  93  (-7)
+  Ember Liu           18 →  13  (-5)
+  Fox Delacroix       49 →  40  (-9)
+
+Longitudinal progress checkpoints (reporting only):
+  Example case: Cleo Marsh · 180-day checkpoint due 2026-09-01
+  Alice Tanaka       insufficient early
+  Bram Okafor        insufficient early
+  Cleo Marsh         +0.033 residual slope
+  Dev Raman          +0.045 residual slope
+  Ember Liu          insufficient early
+  Fox Delacroix      -0.024 residual slope
+
+Referral Signal spec 0.1.0 · Bradley–Terry spec 1.0.0 · Judge reliability spec 2.0.0

@@ -15,6 +15,7 @@
 import { rankPercentiles } from "../domain/rank.ts";
 import type { Dimension } from "../domain/types.ts";
 import type { CapabilityRun } from "../inference/capabilityVector.ts";
+import type { JudgeCalibrationRun } from "../judges/reliability.ts";
 import type { ReferralSignalResult } from "../scoring/referralSignal.ts";
 
 export interface DriftThresholds {
@@ -54,9 +55,18 @@ export interface DriftMover {
   delta: number;
 }
 
+/**
+ * Which per-judge map a `judge_reliability` report compares. Both feed the
+ * same weights, and both move a judge-weighted Referral Signal, so both are
+ * worth reporting; a capability report uses `dimension` for the same job.
+ */
+export type JudgeDriftMeasure = "reliability" | "bias";
+
 export interface DriftReport {
-  kind: "referral_signal" | "bradley_terry";
+  kind: "referral_signal" | "bradley_terry" | "judge_reliability";
   dimension?: Dimension;
+  /** Set on `judge_reliability` reports only. */
+  measure?: JudgeDriftMeasure;
   /** People with a value on both sides. */
   n: number;
   spearman: number;
@@ -280,6 +290,38 @@ export function referralSignalDrift(
   return buildReport("referral_signal", toValues(before), toValues(after), thresholds, labels);
 }
 
+/**
+ * Drift between two judge calibrations, per judge (`reliability` or `bias`).
+ *
+ * Both maps live on 0–1, so they are compared as points out of 100 — the
+ * same unit as the Referral Signal and capability reports, which is what
+ * `maxP95Shift` is stated in. A judge with no evaluated prediction has no
+ * measured value at all (only the spec's prior), so the value is `null`:
+ * missing is not low, and appearing or disappearing is counted by
+ * `crossedFraction` exactly as an insufficient-evidence crossing is
+ * elsewhere. No threshold and no verdict rule is special-cased here.
+ */
+export function judgeReliabilityDrift(
+  before: JudgeCalibrationRun,
+  after: JudgeCalibrationRun,
+  measure: JudgeDriftMeasure = "reliability",
+  thresholds: DriftThresholds = DEFAULT_DRIFT_THRESHOLDS,
+): DriftReport {
+  const toValues = (run: JudgeCalibrationRun) =>
+    new Map<string, number | null>(
+      [...run.estimates.values()].map((e) => [
+        e.judgeId,
+        e.evaluatedCount >= 1 ? e[measure] * 100 : null,
+      ]),
+    );
+  const report = buildReport("judge_reliability", toValues(before), toValues(after), thresholds, {
+    before: before.options.specVersion,
+    after: after.options.specVersion,
+  });
+  report.measure = measure;
+  return report;
+}
+
 /** Drift between two capability runs on one dimension (percentile space). */
 export function capabilityDrift(
   before: CapabilityRun,
@@ -307,7 +349,8 @@ export function capabilityDrift(
 const fmt = (x: number, d = 3) => x.toFixed(d);
 
 export function formatDriftReport(r: DriftReport): string {
-  const head = r.dimension ? `${r.kind} · ${r.dimension}` : r.kind;
+  const facet = r.dimension ?? r.measure;
+  const head = facet ? `${r.kind} · ${facet}` : r.kind;
   const lines = [
     `Drift report — ${head} (${r.labels.before} → ${r.labels.after})`,
     `Verdict: ${r.verdict.toUpperCase()}   n=${r.n}`,
