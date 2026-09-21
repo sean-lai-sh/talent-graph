@@ -1,3 +1,4 @@
 [test]
 root = "tests"
 coverage = false
+preload = ["./tests/preload/club-install-check.ts"]

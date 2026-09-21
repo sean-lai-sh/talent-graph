@@ -92,7 +92,8 @@ Directory control). Full dashboard and CLI steps:
 
 ```sh
 bun install
-bun run club:install # install Club dependencies used by shared adapter tests
+bun run club:install # install Club dependencies used by shared adapter tests (needs bun >= 1.4;
+                    # skipping it makes `bun test` abort with a message telling you to run it)
 bun run lint        # biome
 bun run typecheck   # tsc --noEmit
 bun run club:typecheck
