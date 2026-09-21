@@ -284,24 +284,48 @@ describe("CareerEvidenceSpec: the pipeline policy reads the spec", () => {
   });
 });
 
-/** Records every request the adapter sends, and answers plausibly. */
+/**
+ * Records every request the adapter sends, and answers plausibly.
+ *
+ * The adapter reads its answers through `withResponse()` now, so the fake
+ * client hands back the request id and the parsed body the same way the SDK
+ * does; what is captured here is still the request, byte for byte.
+ */
 function recordingClient(requests: unknown[]): Parameters<typeof createJevJudgmentService>[0] {
-  const level = { score: 3, probabilities: { 0: 0, 1: 0, 2: 0.2, 3: 0.8, 4: 0 }, confidence: 0.8 };
+  const legend = Object.fromEntries(
+    CAREER_EVIDENCE_V1_0_0.levels.difficulty.map((text, index) => [index, text]),
+  );
+  const level = {
+    score: 3,
+    probabilities: { 0: 0, 1: 0, 2: 0.2, 3: 0.8, 4: 0 },
+    confidence: 0.8,
+    legend,
+  };
   return {
-    async systemOne(request: unknown) {
+    systemOne(request: unknown) {
       requests.push(request);
       return {
-        answers: {
-          decision: { choice: "same", confidence: 0.98, probabilities: {} },
-          same_name: { noul: 0.99 },
-          same_affiliation: { noul: 0.8 },
-          same_handle: { noul: 1 },
-          event_kind: { choice: "shipped_product", confidence: 0.9, probabilities: {} },
-          difficulty: level,
-          ownership: level,
-          external_impact: level,
-          originality: level,
-          peer_validation: level,
+        async withResponse() {
+          return {
+            data: {
+              model: "jev-test",
+              usage: { input_tokens: 10, output_tokens: 5 },
+              answers: {
+                decision: { choice: "same", confidence: 0.98, probabilities: {} },
+                same_name: { noul: 0.99 },
+                same_affiliation: { noul: 0.8 },
+                same_handle: { noul: 1 },
+                event_kind: { choice: "shipped_product", confidence: 0.9, probabilities: {} },
+                difficulty: level,
+                ownership: level,
+                external_impact: level,
+                originality: level,
+                peer_validation: level,
+              },
+            },
+            response: new Response(null),
+            requestId: undefined,
+          };
         },
       };
     },
@@ -340,7 +364,7 @@ async function capture(): Promise<{ identity: unknown; claim: unknown }> {
   const requests: unknown[] = [];
   const service = createJevJudgmentService(recordingClient(requests));
   await service.assessIdentity(identity, evidence);
-  await service.assessClaim(evidence);
+  await service.assessClaim(evidence, identity.personId);
   expect(requests).toHaveLength(2);
   return { identity: requests[0], claim: requests[1] };
 }
