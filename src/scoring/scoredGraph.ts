@@ -3,9 +3,12 @@
  *
  * Today each surface re-derives referral strength on its own (the scorer, the
  * edge list, the Club view). This module is the single place that pairs a
- * referral with its R_uv under one spec, so later callers can read a strength
- * instead of recomputing it. Nothing consumes it yet — adding it changes no
- * displayed number.
+ * referral with its R_uv under one spec, so callers read a strength instead of
+ * recomputing it. Three consume it today: `computeSignalsFromGraph` (and
+ * `computeAllReferralSignals`, which is `scoreReferralGraph` followed by it),
+ * `toEdgeList` below, and the Club view's `buildReferralModel`, which scores
+ * once and feeds V0, V2 and every strength the view renders from this one
+ * index. None of them changed a displayed number by moving here.
  *
  * Layering (owner decision D2): `scoring → graph` is the allowed direction, so
  * this module imports `buildReferralGraph`. Since #56 T3 that direction is the

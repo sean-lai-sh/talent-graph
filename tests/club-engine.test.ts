@@ -1,7 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describeActionError } from "../apps/club/lib/actionError.ts";
+import { buildReferralModel } from "../apps/club/lib/engine/referralModel.ts";
 import {
   addComparison,
   addEvaluation,
@@ -38,10 +39,32 @@ import {
   statusForReview,
 } from "../apps/club/lib/review.ts";
 import { sortRows } from "../apps/club/lib/tableModel.ts";
+import type { ClubState } from "../apps/club/lib/types.ts";
 import { loadSpecs } from "../src/config.ts";
 import { BANNED_LANGUAGE, PRODUCT_LANGUAGE, SCALE_LABELS } from "../src/domain/constants.ts";
+import { computeJudgeCalibration, judgeWeightOptions } from "../src/judges/reliability.ts";
 import { TRACK_RECORD_ORDER } from "../src/judges/trackRecord.ts";
+import { computeAllReferralSignals } from "../src/scoring/referralSignal.ts";
+import * as referralStrengthModule from "../src/scoring/referralStrength.ts";
 import { generateSeed } from "../src/seed/generate.ts";
+
+/**
+ * R_uv is computed in exactly one place — `referralStrengthBreakdown` — so
+ * counting its calls counts the work the seam was supposed to remove. The mock
+ * delegates to the real implementation captured before the swap, so no number
+ * moves; only `strengthCalls` changes.
+ */
+const realStrength = { ...referralStrengthModule };
+let strengthCalls = 0;
+mock.module("../src/scoring/referralStrength.ts", () => ({
+  ...realStrength,
+  referralStrengthBreakdown: (
+    ...args: Parameters<typeof realStrength.referralStrengthBreakdown>
+  ) => {
+    strengthCalls++;
+    return realStrength.referralStrengthBreakdown(...args);
+  },
+}));
 
 const root = join(import.meta.dir, "..");
 const read = (rel: string) => readFileSync(join(root, rel), "utf8");
@@ -564,5 +587,148 @@ describe("council page UX pins", () => {
     }
     expect(existsSync(join(root, "apps/club/components/JudgeSim.tsx"))).toBe(false);
     expect(existsSync(join(root, "apps/club/components/GraphPanel.tsx"))).toBe(false);
+  });
+});
+
+describe("council page engine: the referral model seam", () => {
+  const specs = loadSpecs({}, { warn: () => {} });
+  const seedModelInput = () => {
+    const seed = generateSeed();
+    const now = new Date(EXAMPLE_T_END);
+    const t = now.getTime();
+    return {
+      people: seed.people,
+      referrals: seed.referrals.filter((r) => r.createdAt.getTime() <= t),
+      outcomes: seed.outcomes,
+      opportunities: seed.opportunities,
+      now,
+      specs,
+    };
+  };
+
+  test("the club's knownPerson guard means the seed has no dangling edges", () => {
+    const model = buildReferralModel(seedModelInput());
+    expect(model.scored.dangling).toEqual([]);
+    expect(model.scored.policy).toBe("score");
+    expect(model.scored.specVersion).toBe(specs.referral_signal.version);
+  });
+
+  test("model v0/v2 are the same numbers the two computeAllReferralSignals calls produced", () => {
+    const input = seedModelInput();
+    const model = buildReferralModel(input);
+    const v0 = computeAllReferralSignals(input.people, input.referrals, {
+      spec: specs.referral_signal,
+    });
+    const cal = computeJudgeCalibration({
+      people: input.people,
+      referrals: input.referrals,
+      outcomes: input.outcomes,
+      opportunities: input.opportunities,
+      now: input.now,
+      spec: specs.judge_reliability,
+      referralSpec: specs.referral_signal,
+    });
+    const v2 = computeAllReferralSignals(input.people, input.referrals, {
+      spec: specs.referral_signal,
+      ...judgeWeightOptions(cal),
+    });
+    expect([...model.v0.keys()]).toEqual([...v0.keys()]);
+    expect([...model.v2.keys()]).toEqual([...v2.keys()]);
+    expect(model.v0).toEqual(v0);
+    expect(model.v2).toEqual(v2);
+    expect(model.calibration).toEqual(cal);
+  });
+
+  test("every referral in the index is scored exactly once and matches referralStrength", () => {
+    const input = seedModelInput();
+    const model = buildReferralModel(input);
+    expect(model.scored.byReferralId.size).toBe(input.referrals.length);
+    for (const r of input.referrals) {
+      const edge = model.scored.byReferralId.get(r.id);
+      if (!edge) throw new Error(`referral ${r.id} missing from the index`);
+      expect(edge.strength).toBe(realStrength.referralStrength(r, specs.referral_signal));
+    }
+  });
+
+  /**
+   * The regression guard for the seam itself. Pre-seam, `computeView` derived
+   * R_uv five ways in one pass (228 calls on the seed); through the model each
+   * referral is scored exactly once, and the only other R_uv work left in the
+   * view is whatever `computeJudgeCalibration` does on its own — measured here
+   * against the same inputs rather than hard-coded.
+   */
+  test("computeView computes R_uv exactly once per referral, through the model", () => {
+    const input = seedModelInput();
+    strengthCalls = 0;
+    computeJudgeCalibration({
+      people: input.people,
+      referrals: input.referrals,
+      outcomes: input.outcomes,
+      opportunities: input.opportunities,
+      now: input.now,
+      spec: specs.judge_reliability,
+      referralSpec: specs.referral_signal,
+    });
+    const calibrationCalls = strengthCalls;
+
+    strengthCalls = 0;
+    computeView(initialState(), specs);
+    expect(strengthCalls).toBe(input.referrals.length + calibrationCalls);
+  });
+
+  /**
+   * Pins the self-referral exclusion documented at the `myReferrals` seam:
+   * `scoreReferralGraph` drops u → u under V0's incoming rule, so the view has
+   * no row for it and no NaN strength. `addReferral` cannot produce one
+   * (`validateReferral` rejects it), hence the hand-built state.
+   */
+  test("a hand-built self-referral produces no referral row and no NaN strength", () => {
+    const now = "2024-06-01T00:00:00.000Z";
+    const earlier = "2024-05-01T00:00:00.000Z";
+    const person = (id: string, name: string) => ({
+      id,
+      name,
+      status: "member" as const,
+      createdAt: earlier,
+      updatedAt: earlier,
+    });
+    const referral = (id: string, referrerId: string, candidateId: string) => ({
+      id,
+      referrerId,
+      candidateId,
+      conviction: 4 as const,
+      confidence: 4 as const,
+      relationshipDepth: 3 as const,
+      evidenceType: "firsthand_work" as const,
+      evidenceText: "worked together on the same team for two years",
+      createdAt: earlier,
+      updatedAt: earlier,
+    });
+    const state: ClubState = {
+      people: [person("p-self", "Ada"), person("p-other", "Bo")],
+      referrals: [referral("r-self", "p-self", "p-self"), referral("r-real", "p-other", "p-self")],
+      comparisons: [],
+      evaluations: [],
+      outcomes: [],
+      opportunities: [],
+      snapshots: [],
+      feedbackRequests: [],
+      config: { requiredDimensions: [...EXAMPLE_REQUIRED_DIMENSIONS] },
+      now,
+    };
+
+    const view = computeView(state, specs);
+    const ada = view.people.find((p) => p.id === "p-self");
+    if (!ada) throw new Error("hand-built person missing from the view");
+    expect(ada.referrals.map((r) => r.referralId)).toEqual(["r-real"]);
+    expect(ada.incomingCount).toBe(1);
+    for (const p of view.people) {
+      for (const r of p.referrals) {
+        expect(Number.isNaN(r.strength)).toBe(false);
+      }
+      for (const n of [...p.neighbourhood.referrers, ...p.neighbourhood.referred]) {
+        expect(Number.isNaN(n.strength)).toBe(false);
+      }
+    }
   });
 });
