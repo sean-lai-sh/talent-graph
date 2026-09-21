@@ -20,8 +20,17 @@ export function safeReturnPath(raw: unknown): string {
   if (value.includes("://") || value.includes("\\") || value.includes("\0")) {
     return DEFAULT_AFTER_LOGIN;
   }
-  if (value !== "/club" && !value.startsWith("/club/")) {
-    return DEFAULT_AFTER_LOGIN;
+  if (isAppPath(value)) {
+    return value;
   }
-  return value;
+  return DEFAULT_AFTER_LOGIN;
+}
+
+function isAppPath(value: string): boolean {
+  return (
+    value === "/club" ||
+    value.startsWith("/club/") ||
+    value === "/members" ||
+    value.startsWith("/members/")
+  );
 }

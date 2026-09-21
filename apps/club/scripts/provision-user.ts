@@ -8,8 +8,12 @@
  *   OWNER_EMAIL=you@club.edu \
  *   OWNER_NAME="You" \
  *   OWNER_PASSWORD='…' \
+ *   ACCOUNT_ROLE=admin \
  *   ADMIN_PROVISION_SECRET='…' \
  *   bun scripts/provision-user.ts
+ *
+ * `ACCOUNT_ROLE=member` marks a non-admin account (member forum).
+ * Omit or set `admin` for a council owner. Default is admin.
  *
  * Run from apps/club so `npx convex run` targets CONVEX_DEPLOYMENT.
  */
@@ -20,6 +24,7 @@ const email = process.env.OWNER_EMAIL?.trim().toLowerCase();
 const name = process.env.OWNER_NAME?.trim() || email;
 const password = process.env.OWNER_PASSWORD;
 const secret = process.env.ADMIN_PROVISION_SECRET;
+const role = process.env.ACCOUNT_ROLE === "member" ? "member" : "admin";
 
 if (!email || !password || !secret) {
   console.error("Set OWNER_EMAIL, OWNER_PASSWORD, and ADMIN_PROVISION_SECRET.");
@@ -32,7 +37,7 @@ if (password.length < 8) {
 }
 
 const passwordHash = await hashPassword(password);
-const payload = JSON.stringify({ email, name, passwordHash, secret });
+const payload = JSON.stringify({ email, name, passwordHash, secret, role });
 const result = spawnSync("npx", ["convex", "run", "auth:provisionUser", payload], {
   stdio: "inherit",
   cwd: new URL("..", import.meta.url).pathname,

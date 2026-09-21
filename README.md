@@ -17,11 +17,13 @@ not a second frontend. Do not add a login wall to `/demo`.
 | `/` | public chips landing; underlined `info` | no seed board |
 | `/info` | public note: login, contact, copy, underlined `home` | no seed board |
 | `/demo` | hidden public seed — no sign-in, noindex | in-memory `generateSeed()` |
+| `/demo/home` | hidden public member chrome + local forum | in-memory posts |
 | `/example` | redirect to `/demo` | — |
 | `/login` | public door, noindex | email/password `SignInForm`; no create-account |
-| `/club` | signed-in owner | Better Auth gate + Convex persist; views from `src/` |
+| `/club` | marked admin | council board; Convex persist |
+| `/members` | signed-in, not marked admin | sidebar + forum + member list |
 
-Unauthenticated `/club` redirects to `/login?next=/club`. Sign-out from `/club` returns to `/login`. There is no create-account path.
+Unauthenticated `/club` and `/members` redirect to `/login`. Sign-out from `/club` returns to `/login`. There is no create-account path.
 Owners are provisioned by an admin. The seed board never mounts on `/` or `/club`.
 
 ### Env for a live `/club` door (Sean)
@@ -50,7 +52,8 @@ npx convex env set ADMIN_PROVISION_SECRET=$(openssl rand -base64 32)
 
 Public signup is disabled (`disableSignUp`). Create the first owner from
 `apps/club` so the password is hashed with Better Auth's hasher before it
-reaches Convex:
+reaches Convex. Default role is admin. `ACCOUNT_ROLE=member` marks a
+non-admin account (member forum, not `/club`):
 
 ```sh
 OWNER_EMAIL=you@club.edu OWNER_NAME="You" OWNER_PASSWORD='…' \

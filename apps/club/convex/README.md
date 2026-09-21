@@ -12,9 +12,13 @@ time for new orgs; not `EXAMPLE_T_*`). Snapshot `values.referralSignal`
 is accept/archive provenance only.
 
 **Auth (SEA-12):** board reads and all mutations require a Better Auth
-session via `authComponent.safeGetAuthUser` / `getAuthUser`. Each
-signed-in owner gets a `clubOrgs` row keyed by `ownerUserId` (index
-`by_owner`). Owner-keyed club, not a membership / invite model.
+session via `authComponent.safeGetAuthUser` / `getAuthUser` and a marked
+admin role (`clubAccounts.role`, else `chips@techatnyu.org` /
+`CLUB_ADMIN_EMAILS`). Each signed-in admin gets a `clubOrgs` row keyed by
+`ownerUserId` (index `by_owner`). Owner-keyed club, not a membership /
+invite model. Accounts that are not marked admin land on `/members`.
+The member forum is `clubPosts` — any signed-in user can post.
+The member directory is `listMembers` (name, LinkedIn, email).
 
 **Computed:** every mutation and `getBoard` call `computeView` / `addPerson`
 / `setStatus` / `addReferral` / … from `lib/engine.ts`, which imports

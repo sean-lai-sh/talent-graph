@@ -27,11 +27,12 @@ describe("SEA-12 Better Auth gate on /club", () => {
     expect(shell).not.toContain("SignInForm");
     expect(shell).not.toContain("Create account");
     expect(shell).not.toContain("signUp");
-    expect(shell).toContain("<PersistedClub />");
+    expect(shell).toContain("<PersistedClub");
     expect(shell.indexOf("<PersistedClub")).toBeGreaterThan(shell.indexOf("<Authenticated>"));
     expect(shell).toMatch(/<Unauthenticated>\s*<ClubSignInRedirect/);
     expect(shell).not.toContain("loadClub()");
     expect(shell).not.toContain("generateSeed()");
+    expect(shell).not.toContain("Signed in as");
     expect(shell).not.toContain("configured ? <PersistedClub");
   });
 
@@ -109,6 +110,8 @@ describe("SEA-12 Better Auth gate on /club", () => {
     expect(info).toContain('href="/login"');
     expect(info).toMatch(/>\s*login\s*</);
     expect(info).not.toContain("Create account");
-    expect(robots).toContain('disallow: ["/demo", "/example", "/club", "/login", "/api/"]');
+    expect(robots).toContain(
+      'disallow: ["/demo", "/example", "/club", "/members", "/login", "/api/"]',
+    );
   });
 });
