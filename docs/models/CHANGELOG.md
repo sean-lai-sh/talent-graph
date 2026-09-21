@@ -285,10 +285,16 @@ Not a spec version either: how the runs of a pass are ordered and recorded.
   pure re-derivation and the vector), `store.ts` (append-only, frozen) and
   `projections.ts` (what a record states). `apps/club/lib/longitudinal/jev.ts`
   splits into the adapter, `jevClient.ts` and `jevRecord.ts`.
-- **Public surface:** unchanged, name for name, apart from the rename itself.
-  The barrel re-exports the new modules with the same names `pipeline.ts` and
-  `records.ts` used to carry; `coalesce`, `pendingFor` and everything in
-  `expectations.ts` are internal to the fan-out and are deliberately not on it.
+- **Public surface:** the split moved no name. The barrel re-exports the new
+  modules with exactly the names `pipeline.ts` and `records.ts` used to carry;
+  `coalesce`, `pendingFor` and everything in `expectations.ts` are internal to
+  the fan-out and are deliberately not on it. **One name is added**, and it is
+  not from the split: `EVIDENCE_KEY_SEPARATOR`, the `"|"` that `evidenceKeyFor`
+  joins on. It is exported because the format is now pinned rather than
+  implied — a component containing the separator is refused by name — and a
+  test that pins a format has to be able to name it instead of re-spelling the
+  literal. So 194 exported names become 195, plus the rename swapping
+  `progressVector` for `careerEvidenceVector`.
 - **Types:** the Club adapter's dependency is narrowed from the `TypeSafeClient`
   class to `JevClient`, the `systemOne`/`withResponse()` surface it actually
   calls. The class has private members, so a test double could only ever be one

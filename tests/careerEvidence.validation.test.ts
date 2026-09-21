@@ -8,38 +8,10 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
+
 import { CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL } from "../src/longitudinal/dimensions.ts";
 import { DEFAULT_EVIDENCE_POLICY } from "../src/longitudinal/policy.ts";
-import { CAREER_EVIDENCE_V1_0_0 } from "../src/models/careerEvidence.ts";
-import type { CareerEvidenceSpec } from "../src/models/spec.ts";
-import { validateSpec } from "../src/models/spec.ts";
-
-const _ROOT = join(import.meta.dir, "..");
-
-/**
- * The hash of the wording that shipped. If this line has to change, every
- * career event already stamped `career-evidence@1.0.0` has become
- * unreproducible — ship a new spec version instead of editing this one.
- */
-const _PINNED_RUBRIC_HASH = "6290bc28b1a9b5a61ecab7dc389203daf1d4527a5b1b5c7d20866a34e26bac97";
-
-const spec = CAREER_EVIDENCE_V1_0_0;
-
-/** A structurally-typed clone of the frozen spec, safe to mutate in a test. */
-function mutableSpec(): CareerEvidenceSpec {
-  return structuredClone(spec) as CareerEvidenceSpec;
-}
-
-/** The clone's `levels`, seen as the mutable map a broken spec would carry. */
-function levelsOf(candidate: CareerEvidenceSpec): Record<string, string[]> {
-  return candidate.levels as unknown as Record<string, string[]>;
-}
-
-function errorsOf(candidate: CareerEvidenceSpec): string[] {
-  const result = validateSpec(candidate);
-  return result.ok ? [] : result.errors;
-}
+import { errorsOf, levelsOf, mutableSpec, spec } from "./helpers/careerEvidenceSpec.ts";
 
 describe("CareerEvidenceSpec: validateSpec rejections", () => {
   test("a missing dimension is rejected", () => {

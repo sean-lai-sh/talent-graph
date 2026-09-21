@@ -94,6 +94,28 @@ describe("a store lookup that is overtaken", () => {
   });
 });
 
+/**
+ * A store that answers an empty address with `undefined` instead of `null`.
+ *
+ * `JevJudgmentStore.get` returns `JevJudgmentRecord | null`, so `undefined` is
+ * a value the port cannot express — which is the whole subject of the test
+ * below: the pipeline writes `?? null` on both read paths precisely because a
+ * real store may do this anyway, and that guard has to be exercised. Saying it
+ * in types takes one assertion, and this is it: named, in one place, and not
+ * through `unknown`.
+ */
+function answersUndefined(): JevJudgmentStore {
+  const store = {
+    async get(): Promise<JevJudgmentRecord | undefined> {
+      return undefined;
+    },
+    async put(): Promise<void> {
+      throw new Error("append-only");
+    },
+  };
+  return store as JevJudgmentStore;
+}
+
 describe("a judgment is addressed where it will be looked for", () => {
   /** A service that answers with a record about somebody else entirely. */
   const lying = (): JevJudgmentService => {
@@ -134,15 +156,7 @@ describe("a judgment is addressed where it will be looked for", () => {
   });
 
   test("a store whose re-read answers with nothing surfaces the write failure", async () => {
-    const sloppy = {
-      async get() {
-        return undefined;
-      },
-      async put() {
-        throw new Error("append-only");
-      },
-    } as unknown as JevJudgmentStore;
-    const result = await runOver(serviceOf(acceptingJudgments), { store: sloppy });
+    const result = await runOver(serviceOf(acceptingJudgments), { store: answersUndefined() });
     expect(result.claims[0]?.reviewReasons).toEqual(["judgment_unavailable"]);
   });
 });

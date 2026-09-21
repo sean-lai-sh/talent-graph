@@ -14,36 +14,10 @@ import { createJevJudgmentService } from "../apps/club/lib/longitudinal/jev.ts";
 import { CAREER_EVIDENCE_DIMENSIONS } from "../src/longitudinal/dimensions.ts";
 import type { CanonicalIdentity, GrokEvidenceItem } from "../src/longitudinal/types.ts";
 import { CAREER_EVENT_KINDS } from "../src/longitudinal/types.ts";
-import { CAREER_EVIDENCE_V1_0_0 } from "../src/models/careerEvidence.ts";
-import type { CareerEvidenceSpec } from "../src/models/spec.ts";
-import { validateSpec } from "../src/models/spec.ts";
+import { spec } from "./helpers/careerEvidenceSpec.ts";
 import { recordingClient } from "./helpers/records.ts";
 
 const ROOT = join(import.meta.dir, "..");
-
-/**
- * The hash of the wording that shipped. If this line has to change, every
- * career event already stamped `career-evidence@1.0.0` has become
- * unreproducible — ship a new spec version instead of editing this one.
- */
-const _PINNED_RUBRIC_HASH = "6290bc28b1a9b5a61ecab7dc389203daf1d4527a5b1b5c7d20866a34e26bac97";
-
-const spec = CAREER_EVIDENCE_V1_0_0;
-
-/** A structurally-typed clone of the frozen spec, safe to mutate in a test. */
-function _mutableSpec(): CareerEvidenceSpec {
-  return structuredClone(spec) as CareerEvidenceSpec;
-}
-
-/** The clone's `levels`, seen as the mutable map a broken spec would carry. */
-function _levelsOf(candidate: CareerEvidenceSpec): Record<string, string[]> {
-  return candidate.levels as unknown as Record<string, string[]>;
-}
-
-function _errorsOf(candidate: CareerEvidenceSpec): string[] {
-  const result = validateSpec(candidate);
-  return result.ok ? [] : result.errors;
-}
 
 /**
  * The adapter's questions, captured. The client is `recordingClient`, whose
@@ -116,7 +90,7 @@ describe("CareerEvidenceSpec: the adapter builds its questions from the spec", (
     ]);
     for (const dimension of CAREER_EVIDENCE_DIMENSIONS) {
       expect(cq[dimension]?.instructions).toBe(spec.questions.dimensions[dimension]);
-      expect(cq[dimension]?.criteria).toEqual(spec.levels[dimension] as unknown as string[]);
+      expect(cq[dimension]?.criteria).toEqual([...spec.levels[dimension]]);
     }
     expect(Object.keys(cq)).toEqual(["event_kind", ...CAREER_EVIDENCE_DIMENSIONS]);
   });

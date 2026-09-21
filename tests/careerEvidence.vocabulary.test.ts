@@ -19,22 +19,45 @@ import { LEVELS } from "../apps/club/lib/longitudinal/jev.ts";
 import { CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL } from "../src/longitudinal/dimensions.ts";
 import type { CareerEvidenceDimension } from "../src/longitudinal/types.ts";
 
-const LONGITUDINAL = join(import.meta.dir, "..", "src", "longitudinal");
+const ROOT = join(import.meta.dir, "..");
+
+/**
+ * Both halves of the longitudinal code: the engine's, and the Club adapter's.
+ *
+ * The adapter is guarded for the same reason the engine is — it names the
+ * dimensions, holds the rubric and builds the questions, so it is where the
+ * retired word would most easily come back, and it is the half a reader is
+ * most likely to copy a name out of.
+ */
+const LONGITUDINAL_ROOTS = ["src/longitudinal", "apps/club/lib/longitudinal"] as const;
 
 describe('the word "progress" is retired', () => {
-  test("no file under src/longitudinal contains it, in any case, anywhere", () => {
+  test("no longitudinal file contains it, in any case, anywhere", () => {
     const glob = new Bun.Glob("**/*.ts");
     const offenders: string[] = [];
     // Nothing is excluded: not comments, not prose, not a test fixture path.
     // The point of the rename is that the word has no meaning left here, so a
     // surviving mention is a surviving concept.
-    for (const file of [...glob.scanSync({ cwd: LONGITUDINAL })].sort()) {
-      const source = readFileSync(join(LONGITUDINAL, file), "utf8");
-      for (const [index, line] of source.split("\n").entries()) {
-        if (/progress/i.test(line)) offenders.push(`${file}:${index + 1}: ${line.trim()}`);
+    for (const root of LONGITUDINAL_ROOTS) {
+      const dir = join(ROOT, root);
+      for (const file of [...glob.scanSync({ cwd: dir })].sort()) {
+        const source = readFileSync(join(dir, file), "utf8");
+        for (const [index, line] of source.split("\n").entries()) {
+          if (/progress/i.test(line)) {
+            offenders.push(`${root}/${file}:${index + 1}: ${line.trim()}`);
+          }
+        }
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  test("both halves of the longitudinal code are actually being read", () => {
+    // A guard whose root does not exist, or matches nothing, passes silently.
+    const glob = new Bun.Glob("**/*.ts");
+    for (const root of LONGITUDINAL_ROOTS) {
+      expect([...glob.scanSync({ cwd: join(ROOT, root) })].length).toBeGreaterThan(0);
+    }
   });
 
   test("the renamed names are the ones the barrel carries", async () => {

@@ -19,6 +19,26 @@ import type { GrokEvidenceItem } from "../src/longitudinal/types.ts";
 import { careerEvidenceSpecId } from "../src/models/careerEvidence.ts";
 import { fakeClient, identity, items, spec } from "./helpers/records.ts";
 
+/**
+ * The same record with one field of one answer replaced.
+ *
+ * Every case below hands a projection an answer it must refuse, so the patch
+ * is deliberately outside what `JevAnswer` can say — a confidence past 1, a
+ * probability vector of the wrong length. The one `as JevAnswer` here is where
+ * that is stated, in one named place, and it is a direct assertion rather than
+ * a trip through `unknown`: the patched value is still the answer's own shape
+ * with one field moved, so the two types are related and TypeScript still
+ * checks that much.
+ */
+function withAnswer(
+  record: JevJudgmentRecord,
+  key: string,
+  patch: Record<string, unknown>,
+): JevJudgmentRecord {
+  const patched = { ...record.answers[key], ...patch } as JevAnswer;
+  return { ...record, answers: { ...record.answers, [key]: patched } };
+}
+
 describe("judgment records: what the adapter keeps", () => {
   test("respondedModel is preserved verbatim, never normalised to the requested model", async () => {
     const client = fakeClient({ model: "jev-2026-09-preview" });
@@ -114,12 +134,8 @@ describe("judgment records: projections reject what they cannot represent", () =
 
   test("a probability vector that is not the rubric's length is rejected", async () => {
     const record = await aRecord("claim");
-    const difficulty = record.answers.difficulty as unknown as Record<string, unknown>;
-    const answers = {
-      ...record.answers,
-      difficulty: { ...difficulty, probabilities: [1, 0] } as unknown as JevAnswer,
-    };
-    expect(() => projectClaim({ ...record, answers }, spec)).toThrow(/probabilities/);
+    const twoLevels = withAnswer(record, "difficulty", { probabilities: [1, 0] });
+    expect(() => projectClaim(twoLevels, spec)).toThrow(/probabilities/);
   });
 });
 
@@ -143,20 +159,6 @@ describe("judgment records: projections reject a value outside its range", () =>
     const service = createJevJudgmentService(fakeClient().client, spec);
     return (await service.assessIdentity(identity, items[0] as GrokEvidenceItem)).record;
   }
-
-  /** The same record with one answer field replaced. */
-  const withAnswer = (
-    record: JevJudgmentRecord,
-    key: string,
-    patch: Record<string, unknown>,
-  ): JevJudgmentRecord =>
-    ({
-      ...record,
-      answers: {
-        ...record.answers,
-        [key]: { ...(record.answers[key] as object), ...patch },
-      },
-    }) as JevJudgmentRecord;
 
   test("an identity decision confidence above one is rejected, not clamped", async () => {
     const record = await identityRecord();
