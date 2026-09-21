@@ -35,5 +35,12 @@ function normalise(value: unknown): unknown {
 
 /** SHA-256 hex of the stable JSON form. */
 export function hashInputs(inputs: unknown): string {
-  return sha256Hex(stableStringify(inputs));
+  const json = stableStringify(inputs);
+  if (typeof json !== "string") {
+    throw new TypeError(
+      `hashInputs: inputs do not serialise to JSON (got ${typeof inputs}); ` +
+        "a provenance hash must fingerprint real inputs",
+    );
+  }
+  return sha256Hex(json);
 }

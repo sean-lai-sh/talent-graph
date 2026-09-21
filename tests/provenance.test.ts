@@ -139,6 +139,22 @@ describe("(c) no Bun global required", () => {
   });
 });
 
+describe("hashInputs rejects unhashable inputs", () => {
+  // `Bun.CryptoHasher.update` threw on these; the vendored path must not
+  // quietly fingerprint nothing and hand back the empty-bytes digest.
+  test("throws on values with no JSON representation", () => {
+    expect(() => hashInputs(undefined)).toThrow(TypeError);
+    expect(() => hashInputs(() => 1)).toThrow(TypeError);
+    expect(() => hashInputs(Symbol("x"))).toThrow(TypeError);
+  });
+
+  test("nested undefined keeps plain JSON semantics", () => {
+    expect(hashInputs({ a: undefined })).toBe(hashInputs({}));
+    expect(hashInputs([undefined])).toBe(bunDigest("[null]"));
+    expect(stableStringify([undefined])).toBe("[null]");
+  });
+});
+
 describe("(e) hashing stays fast enough for a synchronous call site", () => {
   /** Warm average; a single cold call is dominated by JIT warm-up, not by the hash. */
   function averageMs(input: unknown, runs: number): number {
