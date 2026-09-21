@@ -58,7 +58,10 @@ describe("invariants: Referral Signal ≠ Relative Capability", () => {
       "src/analysis/dashboard.ts", // presentation of both, computes nothing
       "src/analysis/drift.ts", // compares runs of either kind (types only)
       "src/analysis/reviewQueue.ts", // categorical review buckets over both channels; no merged number
-      "src/modelRun.ts", // wraps either kind in a ModelRun
+      // The pipeline's kind vocabulary: `RunOutputs` names each kind's
+      // output type, so it imports both — as types only, and it computes
+      // nothing (#55 T8).
+      "src/pipeline/kinds.ts",
       // The orchestrator: one pass over the observations, in the order
       // calibration → weights → signal. It returns one run per kind, never a
       // merged number — the two channels stay two runs, and the judge
@@ -304,6 +307,21 @@ describe("invariants: the pipeline takes its time step as a parameter", () => {
       const code = stripComments(read(f));
       expect(/Date\.now\(\)/.test(code), rel(f)).toBe(false);
       expect(/new Date\(\s*\)/.test(code), rel(f)).toBe(false);
+    }
+  });
+});
+
+// --- #55 T8: the kind vocabulary is a leaf, not the orchestrator. ---------
+// `PipelineKind` / `isPipelineKind` live in `src/pipeline/kinds.ts`, which
+// imports no value module at all. The CI gate script and the env bridge ask
+// only "is this a kind a pass runs?", and answering it must not drag in
+// `advance()` and everything it evaluates.
+describe("invariants: the kind vocabulary is a leaf module (#55 T8)", () => {
+  test("scripts/drift-gate.ts and src/config.ts do not import src/pipeline/advance.ts", () => {
+    for (const path of ["scripts/drift-gate.ts", "src/config.ts"]) {
+      const code = stripComments(read(join(ROOT, path)));
+      const imports = /from\s+["'][^"']*\/pipeline\/advance\.ts["']/.test(code);
+      expect(imports, `${path} imports the orchestrator`).toBe(false);
     }
   });
 });

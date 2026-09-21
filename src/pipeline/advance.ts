@@ -35,13 +35,12 @@ import {
 import type { LoadedSpecs } from "../config.ts";
 import { DIMENSIONS } from "../domain/constants.ts";
 import type { Comparison, Opportunity, Outcome, Person, Referral } from "../domain/types.ts";
-import type { CapabilityRun } from "../inference/capabilityVector.ts";
-import { type JudgeCalibrationRun, judgeWeightOptions } from "../judges/reliability.ts";
+import { judgeWeightOptions } from "../judges/reliability.ts";
 import { runCapabilityVectors } from "../models/definitions/bradleyTerry.ts";
 import { runJudgeCalibration } from "../models/definitions/judgeReliability.ts";
 import { runReferralSignals } from "../models/definitions/referralSignal.ts";
 import type { ModelRun } from "../models/run.ts";
-import type { ReferralSignalResult } from "../scoring/referralSignal.ts";
+import { isPipelineKind, PIPELINE_KINDS, type PipelineKind, type RunOutputs } from "./kinds.ts";
 
 /** The raw observations a pass reads. Immutable; nothing here is rewritten. */
 export interface Observations {
@@ -53,27 +52,15 @@ export interface Observations {
 }
 
 /**
- * What each kind's run carries in `outputs` — and, because it is keyed by
- * kind, the list of kinds a pass runs at all. A `ModelSpec` kind can be
- * registered without appearing here: a rubric spec, say, is versioned data
- * the pipeline never evaluates. Nothing in this module is keyed on the
- * `ModelSpecKind` union, so such a kind is simply not one of ours rather
- * than a hole to index into.
+ * The kind vocabulary, re-exported.
  *
- * This is the one hand-written list of the pipeline's kinds. `PipelineKind`,
- * `LoadedSpecs` (src/config.ts), `DriftReport["kind"]`
- * (src/analysis/drift.ts) and `PIPELINE_KINDS` below are all derived from it
- * or checked against it, so adding a kind the pipeline runs is a change
- * here, not a sweep through four parallel unions.
+ * `RunOutputs`, `PipelineKind`, `PIPELINE_KINDS` and `isPipelineKind` moved
+ * to `./kinds.ts` (#55 T8) so that asking "is this a kind a pass runs?" does
+ * not import a pass. They are re-exported here because this module is where
+ * importers already look for them, and because `PipelineKind` is only
+ * meaningful as the kinds *this* file evaluates.
  */
-interface RunOutputs {
-  referral_signal: Map<string, ReferralSignalResult>;
-  bradley_terry: CapabilityRun;
-  judge_reliability: JudgeCalibrationRun;
-}
-
-/** The kinds `advance` runs. A subset of `ModelSpecKind`, never all of it. */
-export type PipelineKind = keyof RunOutputs;
+export { isPipelineKind, PIPELINE_KINDS, type PipelineKind, type RunOutputs };
 
 /** A run of a kind the pipeline runs, with its outputs typed. */
 export type RunOfKind<K extends PipelineKind> = ModelRun<RunOutputs[K]>;
@@ -87,29 +74,6 @@ export type RunOfKind<K extends PipelineKind> = ModelRun<RunOutputs[K]>;
  * same union — not as a second list to maintain.
  */
 export type DriftKind = PipelineKind;
-
-/**
- * Membership test for `PipelineKind`, written as a total record so that
- * adding a kind to `RunOutputs` without listing it here — or listing one that
- * is not there — is a compile error.
- */
-const PIPELINE_KINDS: Readonly<Record<PipelineKind, true>> = Object.freeze({
-  bradley_terry: true,
-  judge_reliability: true,
-  referral_signal: true,
-});
-
-/**
- * Is `kind` one a pass runs? The membership test behind `driftKinds`, exposed
- * because the registry's rules and the pipeline's are not the same rules:
- * `scripts/drift-gate.ts` walks every registered kind for the append-only
- * checks, then has to ask which of them a drift report could exist for.
- */
-export function isPipelineKind(kind: string): kind is PipelineKind {
-  // Own keys only: `in` would also answer true for prototype names such as
-  // "toString", which is not a kind a pass runs.
-  return Object.hasOwn(PIPELINE_KINDS, kind);
-}
 
 /** The `DriftKind`s of a given `LoadedSpecs`, sorted. */
 export function driftKinds(specs: LoadedSpecs): DriftKind[] {

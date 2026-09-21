@@ -12,7 +12,6 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { runCapabilityVectors } from "../src/modelRun.ts";
 import {
   type AnyModelDefinition,
   defineModel,
@@ -20,7 +19,7 @@ import {
   registeredModels,
   runModel,
 } from "../src/models/define.ts";
-import { bradleyTerryModel } from "../src/models/definitions/bradleyTerry.ts";
+import { bradleyTerryModel, runCapabilityVectors } from "../src/models/definitions/bradleyTerry.ts";
 import { judgeReliabilityModel } from "../src/models/definitions/judgeReliability.ts";
 import { referralSignalModel } from "../src/models/definitions/referralSignal.ts";
 import {

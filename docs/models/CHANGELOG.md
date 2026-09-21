@@ -214,3 +214,33 @@ Not a spec version either: how the runs of a pass are ordered and recorded.
   and passes, where it used to be handed to a CLI that exits 2 and be read as
   a failed drift report.
 - **PR:** #55 T7.
+
+### The kind vocabulary is a leaf module; the `modelRun.ts` shim is gone (#55 T8)
+
+- **What:** `RunOutputs`, `PipelineKind`, `PIPELINE_KINDS` and
+  `isPipelineKind` moved from `src/pipeline/advance.ts` to a new
+  `src/pipeline/kinds.ts`, which imports types only and computes nothing.
+  `advance.ts` re-exports all four, so every existing import of them keeps
+  working; `scripts/drift-gate.ts`, `src/config.ts` and `src/analysis/drift.ts`
+  now import the leaf. `src/modelRun.ts` — the compatibility shim left behind
+  by #55 T3 — is deleted; `src/index.ts` exports the real modules
+  (`models/definitions/`, `models/run.ts`, `provenance/hash.ts`) in its place,
+  and its deprecated `createModelRun` alias for `createRun` is gone with it.
+- **Why:** asking "is this a kind a pass runs?" should not import a pass. The
+  CI gate script walks a registry diff and the env bridge keys itself on the
+  pipeline's kinds; neither evaluates anything, and both were pulling in the
+  whole scoring/inference graph through the orchestrator. `RunOutputs` stays
+  the single hand-written list of the pipeline's kinds — splitting it from
+  `PipelineKind` would have recreated one of the parallel unions #55 T7
+  collapsed — so the leaf names its three output types with `import type`,
+  which costs nothing at runtime.
+- **Numbers:** unchanged, and no run id moved. Nothing here touches a spec,
+  a parameter or an evaluation order: `tests/fixtures/run-ids-golden.json`
+  and `tests/fixtures/run-ids-format2-mapping.json` pass without
+  regeneration, and `bun run demo` is byte-identical to
+  `tests/fixtures/demo-golden.txt`.
+- **Invariant:** `tests/invariants.test.ts` now asserts that
+  `scripts/drift-gate.ts` and `src/config.ts` do not import
+  `src/pipeline/advance.ts`, and the "explicit meeting points" allow-list
+  carries `src/pipeline/kinds.ts` (types only) instead of `src/modelRun.ts`.
+- **PR:** #55 T8.

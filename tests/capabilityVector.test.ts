@@ -8,7 +8,7 @@ import {
   formatDimensionEstimate,
   poolConfidence,
 } from "../src/inference/capabilityVector.ts";
-import { runCapabilityVectors } from "../src/modelRun.ts";
+import { runCapabilityVectors } from "../src/models/definitions/bradleyTerry.ts";
 import { BRADLEY_TERRY_V1_0_0 } from "../src/models/registry.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { runCapabilityVectors, runReferralSignals } from "../src/modelRun.ts";
+import { runCapabilityVectors } from "../src/models/definitions/bradleyTerry.ts";
+import { runReferralSignals } from "../src/models/definitions/referralSignal.ts";
 import { REFERRAL_SIGNAL_V0_1_0 } from "../src/models/registry.ts";
 import { createPredictionSnapshot } from "../src/models/snapshot.ts";
 import { generateSeed } from "../src/seed/generate.ts";

@@ -15,7 +15,7 @@
 
 import { CURRENT_SPECS } from "./models/registry.ts";
 import type { BradleyTerrySpec, ReferralSignalSpec, SpecOfKind } from "./models/spec.ts";
-import type { PipelineKind } from "./pipeline/advance.ts";
+import type { PipelineKind } from "./pipeline/kinds.ts";
 
 export interface TalentGraphConfig {
   /** λ — see the note on BRADLEY_TERRY_V1_0_0 for why 0.1. */
@@ -131,7 +131,7 @@ export function referralSignalSpecFromConfig(
 /**
  * The specs a deployment runs, plus the config they were derived from.
  *
- * Keyed on `PipelineKind` (`keyof RunOutputs`, src/pipeline/advance.ts), not
+ * Keyed on `PipelineKind` (`keyof RunOutputs`, src/pipeline/kinds.ts), not
  * on `ModelSpecKind`: the env bridge exists to tune the numbers a pass
  * produces, so its keys are exactly the kinds a pass runs. A registered spec
  * kind the pipeline never evaluates — versioned rubric data, say — produces

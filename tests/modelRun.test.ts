@@ -1,20 +1,33 @@
+/**
+ * The `ModelRun` record: `createRun`'s id formula, and the provenance each
+ * shipped runner records.
+ *
+ * #55 T8 deleted `src/modelRun.ts`, the compatibility shim these tests used
+ * to import; they now import the real modules (`src/models/run.ts`,
+ * `src/models/definitions/*`, `src/provenance/hash.ts`). The assertions are
+ * unchanged, because `tests/defineModel*.test.ts` does not cover them:
+ * `createRun` is never called directly there, and the orphan-lineage rules
+ * below (`judgeRunId` without weights, `previousRunId` without `previous`)
+ * are per-model rules rather than the generic property those files probe.
+ * The one overlap is the last `runJudgeCalibration` case — an unrecorded
+ * option is refused — which `defineModelProvenance.test.ts` now asserts for
+ * every registered model; it is kept here as the concrete Referral Signal
+ * instance that first found the hole.
+ */
+
 import { describe, expect, test } from "bun:test";
 import { judgeWeightOptions } from "../src/judges/reliability.ts";
-import {
-  createModelRun,
-  hashInputs,
-  RUN_ID_FORMAT,
-  runCapabilityVectors,
-  runJudgeCalibration,
-  runReferralSignals,
-  stableStringify,
-} from "../src/modelRun.ts";
+import { runCapabilityVectors } from "../src/models/definitions/bradleyTerry.ts";
+import { runJudgeCalibration } from "../src/models/definitions/judgeReliability.ts";
+import { runReferralSignals } from "../src/models/definitions/referralSignal.ts";
 import {
   BRADLEY_TERRY_V1_0_0,
   getSpec,
   JUDGE_RELIABILITY_V2_0_0,
   REFERRAL_SIGNAL_V0_1_0,
 } from "../src/models/registry.ts";
+import { createRun, RUN_ID_FORMAT } from "../src/models/run.ts";
+import { hashInputs, stableStringify } from "../src/provenance/hash.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 
 const NOW = new Date("2026-06-01T00:00:00.000Z");
@@ -51,7 +64,7 @@ describe("hashInputs", () => {
   });
 });
 
-describe("createModelRun", () => {
+describe("createRun", () => {
   const base = {
     kind: "referral_signal",
     model: "referral_signal_v0",
@@ -62,8 +75,8 @@ describe("createModelRun", () => {
 
   test("records spec, hash and outputs; same inputs + params ⇒ same id", () => {
     const params = { spec: REFERRAL_SIGNAL_V0_1_0 };
-    const run1 = createModelRun({ ...base, parameters: params, outputs: 1 });
-    const run2 = createModelRun({ ...base, parameters: params, outputs: 2 });
+    const run1 = createRun({ ...base, parameters: params, outputs: 1 });
+    const run2 = createRun({ ...base, parameters: params, outputs: 2 });
     expect(run1.id).toBe(run2.id);
     expect(run1.inputHash).toBe(run2.inputHash);
     expect(run1.parameters.spec).toEqual(REFERRAL_SIGNAL_V0_1_0);
@@ -71,7 +84,7 @@ describe("createModelRun", () => {
     // Absence of lineage is the empty list, always present — never undefined.
     expect(run1.upstreamRuns).toEqual([]);
 
-    const other = createModelRun({
+    const other = createRun({
       ...base,
       parameters: { spec: { ...REFERRAL_SIGNAL_V0_1_0, topK: 3 } },
       outputs: 1,
@@ -80,7 +93,7 @@ describe("createModelRun", () => {
   });
 
   test("the id names kind, definition, version, inputs and parameters", () => {
-    const run = createModelRun({
+    const run = createRun({
       ...base,
       parameters: { spec: REFERRAL_SIGNAL_V0_1_0 },
       outputs: 1,
@@ -96,16 +109,16 @@ describe("createModelRun", () => {
 
   test("two definitions of one kind that differ only in compute get different ids", () => {
     const shared = { ...base, parameters: { spec: REFERRAL_SIGNAL_V0_1_0 }, outputs: 1 };
-    const a = createModelRun({ ...shared, model: "referral_signal_v0" });
-    const b = createModelRun({ ...shared, model: "referral_signal_variant" });
+    const a = createRun({ ...shared, model: "referral_signal_v0" });
+    const b = createRun({ ...shared, model: "referral_signal_variant" });
     expect(a.id).not.toBe(b.id);
   });
 
   test("upstream lineage moves the id and is copied out of the caller's array", () => {
     const upstream = [{ role: "anchor" as const, runId: "run-a", digest: "d" }];
     const params = { spec: REFERRAL_SIGNAL_V0_1_0 };
-    const plain = createModelRun({ ...base, parameters: params, outputs: 1 });
-    const linked = createModelRun({
+    const plain = createRun({ ...base, parameters: params, outputs: 1 });
+    const linked = createRun({
       ...base,
       parameters: params,
       outputs: 1,
@@ -115,7 +128,7 @@ describe("createModelRun", () => {
     expect(linked.inputHash).toBe(plain.inputHash);
     expect(linked.id).not.toBe(plain.id);
 
-    const other = createModelRun({
+    const other = createRun({
       ...base,
       parameters: params,
       outputs: 1,
@@ -133,7 +146,7 @@ describe("createModelRun", () => {
     // `runId` afterwards rewrote `run.upstreamRuns` while `run.id`, hashed
     // from the old value, stayed put — a record that disagrees with itself.
     const entry = { role: "anchor" as const, runId: "run-a", digest: "d" };
-    const run = createModelRun({
+    const run = createRun({
       ...base,
       parameters: { spec: REFERRAL_SIGNAL_V0_1_0 },
       outputs: 1,
@@ -152,7 +165,7 @@ describe("createModelRun", () => {
 
   test("copies `now` so mutating the caller's Date does not move createdAt", () => {
     const now = new Date("2026-06-01T00:00:00.000Z");
-    const run = createModelRun({ ...base, parameters: {}, outputs: 1, now });
+    const run = createRun({ ...base, parameters: {}, outputs: 1, now });
     const id = run.id;
     now.setFullYear(1999);
     expect(run.createdAt.toISOString()).toBe("2026-06-01T00:00:00.000Z");
