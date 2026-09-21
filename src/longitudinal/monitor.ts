@@ -7,6 +7,7 @@ import {
   startMonitoringPlan,
 } from "./checkpoints.ts";
 import type { JevJudgmentService } from "./judgments.ts";
+import type { EvidenceRuntime } from "./pipeline.ts";
 import { type ProcessEvidenceResult, processEvidence } from "./pipeline.ts";
 import type { CanonicalIdentity, GrokEvidenceItem, MonitoringPlan } from "./types.ts";
 
@@ -27,6 +28,14 @@ export async function runDueMonitoringPlans(input: {
   collector: EvidenceCollector;
   judgments: JevJudgmentService;
   maxAttempts?: number;
+  /**
+   * Fan-out shape for each plan's pipeline call: the concurrency cap, per-item
+   * isolation, the judgment store and the caller's cancellation. Passed
+   * through untouched — the sweep decides *which* plans run, not how one plan
+   * fans out — and a sweep given a store re-judges only what it has not
+   * already observed.
+   */
+  runtime?: EvidenceRuntime;
 }): Promise<MonitoringRunResult> {
   const maxAttempts = input.maxAttempts ?? DEFAULT_MAX_MONITORING_ATTEMPTS;
   const start = (plan: MonitoringPlan) =>
@@ -87,6 +96,7 @@ export async function runDueMonitoringPlans(input: {
             retrievedAt: input.now,
             pipelineVersion: plan.pipelineVersion,
             judgments: input.judgments,
+            ...(input.runtime === undefined ? {} : { runtime: input.runtime }),
           });
           updates.set(
             plan.id,

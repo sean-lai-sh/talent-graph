@@ -1,10 +1,12 @@
 import {
   choice,
   noul,
+  type RequestOptions,
   type ScoreResponse,
   type SystemOneResult,
   score,
-  type TypeSafeClient,
+  TypeSafeClient,
+  type TypeSafeClientConfig,
 } from "@typesafe-ai/sdk";
 import { CAREER_EVIDENCE_DIMENSIONS } from "../../../../src/longitudinal/dimensions.ts";
 import type {
@@ -12,11 +14,13 @@ import type {
   IdentityAssessment,
   JevJudgment,
   JevJudgmentService,
+  JevRequestOptions,
 } from "../../../../src/longitudinal/judgments.ts";
 import type { JevAnswer, JevJudgmentRecord } from "../../../../src/longitudinal/records.ts";
 import {
   evidenceKeyFor,
   freezeRecord,
+  JudgmentInvariantError,
   projectClaim,
   projectIdentity,
   recordIdFor,
@@ -41,6 +45,44 @@ type ScoreLevels = readonly [string, string, ...string[]];
  * is the registered rubric, re-exported for the callers that read it.
  */
 export const LEVELS: Record<ProgressDimension, ScoreLevels> = CAREER_EVIDENCE_V1_0_0.levels;
+
+/**
+ * The transport policy every judgment client starts from.
+ *
+ * Resilience is split in two: *transport* policy — how long one attempt may
+ * take, and which failures are worth another attempt — belongs to the client,
+ * and *fan-out* shape — the concurrency cap, per-item isolation and
+ * cancellation — belongs to the pipeline (`EvidenceRuntime`). Nothing in
+ * `src/` constructs a client or sets a timeout, so the two never drift into
+ * one knob.
+ *
+ * The numbers: a judgment is a single model call, so 30s is generous for one
+ * attempt and still bounded; two retries is the SDK's own default, which with
+ * `Retry-After` honoured covers a rate-limited window without hammering it. A
+ * request the pipeline has abandoned is cancelled by the caller's
+ * `AbortSignal`, which stops pending retries too, so retrying cannot outlive
+ * the batch that asked for it.
+ */
+export const JEV_CLIENT_DEFAULTS = Object.freeze({
+  timeout: 30_000,
+  retry: Object.freeze({ maxRetries: 2, respectRetryAfter: true }),
+});
+
+/**
+ * A TypeSafe client with this project's transport policy applied.
+ *
+ * Server-side only: the API key comes from the caller (or the SDK's own
+ * environment fallback) in the app layer, never from a browser bundle and
+ * never from `src/`. Callers may override any field — an explicit `timeout`
+ * or `retry` wins over the defaults above.
+ */
+export function createJevClient(config: TypeSafeClientConfig = {}): TypeSafeClient {
+  return new TypeSafeClient({
+    ...JEV_CLIENT_DEFAULTS,
+    ...config,
+    retry: { ...JEV_CLIENT_DEFAULTS.retry, ...config.retry },
+  });
+}
 
 /**
  * Server-side TypeSafe/Jev adapter. Keep the API key out of browser bundles.
@@ -122,10 +164,10 @@ export function createJevJudgmentService(
       return fingerprintOf(claimState(evidence), claimQuestions);
     },
 
-    async assessIdentity(identity, evidence): Promise<JevJudgment<IdentityAssessment>> {
+    async assessIdentity(identity, evidence, options): Promise<JevJudgment<IdentityAssessment>> {
       const state = identityState(identity, evidence);
       const { data, requestId } = await client
-        .systemOne({ state, questions: identityQuestions })
+        .systemOne({ state, questions: identityQuestions }, requestOptions(options))
         .withResponse();
       const answers = data.answers;
       const decision = answers.decision;
@@ -152,10 +194,10 @@ export function createJevJudgmentService(
       return { assessment: projectIdentity(record, spec), record };
     },
 
-    async assessClaim(evidence, personId): Promise<JevJudgment<ClaimAssessment>> {
+    async assessClaim(evidence, personId, options): Promise<JevJudgment<ClaimAssessment>> {
       const state = claimState(evidence);
       const { data, requestId } = await client
-        .systemOne({ state, questions: claimQuestions })
+        .systemOne({ state, questions: claimQuestions }, requestOptions(options))
         .withResponse();
       const answers = data.answers;
       const event = answers.event_kind;
@@ -188,6 +230,18 @@ export function createJevJudgmentService(
 }
 
 /**
+ * The caller's cancellation, and nothing else.
+ *
+ * `timeout` and `retry` are the client's, set once at construction
+ * (`createJevClient`); the only per-call transport option is the signal the
+ * pipeline threads through from `EvidenceRuntime`. A run with no signal sends
+ * no options at all rather than a key holding `undefined`.
+ */
+function requestOptions(options: JevRequestOptions | undefined): RequestOptions {
+  return options?.signal === undefined ? {} : { signal: options.signal };
+}
+
+/**
  * The probability vector and the legend, indexed by rubric level.
  *
  * The SDK keys both by score, and object key order is not the rubric's: each
@@ -211,9 +265,20 @@ function rawScoreAnswer(
   };
 }
 
+/**
+ * The number this field has to be, or a broken invariant.
+ *
+ * Every shape check in this adapter comes through here: the expected score
+ * and its confidence, each entry of the probability vector, and the token
+ * usage. A transport failure is an *unavailable* judgment and the pipeline
+ * isolates it as one; a response that arrived and cannot be read is not — it
+ * is corruption, in the model's answer or in this parsing, and no retry fixes
+ * it. Raising the same class `records.ts` raises keeps the two sides
+ * symmetric: unreadable is loud wherever it is noticed, live or recorded.
+ */
 function finite(value: unknown, what: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new TypeError(`jev: ${what} must be a finite number (got ${String(value)})`);
+    throw new JudgmentInvariantError(`jev: ${what} must be a finite number (got ${String(value)})`);
   }
   return value;
 }

@@ -38,6 +38,18 @@ export interface JevJudgment<TAssessment> {
   record: JevJudgmentRecord;
 }
 
+/**
+ * What a caller may attach to one judgment request.
+ *
+ * Cancellation only. Transport policy — how long an attempt may take, how
+ * often it is retried — is set once where the client is constructed, in the
+ * app layer; the pipeline knows nothing about either, and passes on only the
+ * `AbortSignal` its caller gave it.
+ */
+export interface JevRequestOptions {
+  signal?: AbortSignal;
+}
+
 /** Pure pipeline port; the TypeSafe SDK implementation lives in the app layer. */
 export interface JevJudgmentService {
   /**
@@ -52,11 +64,16 @@ export interface JevJudgmentService {
   assessIdentity(
     identity: CanonicalIdentity,
     evidence: GrokEvidenceItem,
+    options?: JevRequestOptions,
   ): Promise<JevJudgment<IdentityAssessment>>;
   /**
    * `personId` is not shown to the model — the claim request carries the
    * evidence alone — but the record it produces is an observation *about* a
    * person's evidence, so the person is what its `evidenceKey` is built from.
    */
-  assessClaim(evidence: GrokEvidenceItem, personId: string): Promise<JevJudgment<ClaimAssessment>>;
+  assessClaim(
+    evidence: GrokEvidenceItem,
+    personId: string,
+    options?: JevRequestOptions,
+  ): Promise<JevJudgment<ClaimAssessment>>;
 }

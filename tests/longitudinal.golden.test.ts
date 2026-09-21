@@ -44,23 +44,29 @@ import {
   projectIdentity,
   recordIdFor,
 } from "../src/index.ts";
-import type { EvidencePipelinePolicy } from "../src/longitudinal/pipeline.ts";
+import type { CareerEvidenceSpec } from "../src/models/spec.ts";
 
 const FIXTURE = join(import.meta.dir, "fixtures", "longitudinal-golden.json");
 
 const day = (n: number) => new Date(Date.UTC(2026, 0, 1 + n));
 
 /**
- * Stated in full rather than read from `DEFAULT_EVIDENCE_POLICY` or any spec
- * loader: the numbers this golden pins must not move when a default does.
+ * The rubric this golden runs under, with every number that decides an outcome
+ * stated here rather than read from a default: the pipeline takes its gate
+ * thresholds from the spec it is given (#54 T7 removed the separate `policy`
+ * override), so pinning the spec is pinning the policy. If a shipped default
+ * moves, this fixture does not.
  */
-const policy: EvidencePipelinePolicy = {
-  identityConfidence: 0.75,
-  identityContradiction: 0.25,
-  eventConfidence: 0.65,
-  dimensionConfidence: 0.5,
-  questionVersion: "career-evidence@1.0.0",
+const spec: CareerEvidenceSpec = {
+  ...CAREER_EVIDENCE_V1_0_0,
+  version: "1.0.0",
   model: "jev",
+  thresholds: {
+    identityConfidence: 0.75,
+    identityContradiction: 0.25,
+    eventConfidence: 0.65,
+    dimensionConfidence: 0.5,
+  },
 };
 
 const identity: CanonicalIdentity = {
@@ -164,13 +170,32 @@ function claimAnswers(assessment: ClaimAssessment): Record<string, JevAnswer> {
   return answers;
 }
 
+/**
+ * The fingerprints this fake service advertises.
+ *
+ * The pipeline files a record at `recordIdFor(<the fingerprint the service
+ * computes for this request>, evidenceKey)` and refuses one that arrives at
+ * any other address, so the fake has to address its records the same way it
+ * answers `identityFingerprint`/`claimFingerprint`. The claim fingerprint
+ * carries no person, exactly as the adapter's does.
+ */
+const fakeFingerprints = {
+  identity: (personId: string, evidence: GrokEvidenceItem) =>
+    contentFingerprint({ kind: "identity", personId, sourceId: evidence.sourceId }),
+  claim: (evidence: GrokEvidenceItem) =>
+    contentFingerprint({ kind: "claim", sourceId: evidence.sourceId }),
+};
+
 function fakeRecord(
   kind: JevJudgmentRecord["kind"],
   personId: string,
   evidence: GrokEvidenceItem,
   answers: Record<string, JevAnswer>,
 ): JevJudgmentRecord {
-  const fingerprint = contentFingerprint({ kind, personId, sourceId: evidence.sourceId });
+  const fingerprint =
+    kind === "identity"
+      ? fakeFingerprints.identity(personId, evidence)
+      : fakeFingerprints.claim(evidence);
   const evidenceKey = evidenceKeyFor(personId, evidence);
   return freezeRecord({
     id: recordIdFor(fingerprint, evidenceKey),
@@ -192,13 +217,8 @@ function fakeRecord(
 function serviceOf(fake: FakeJudgments): JevJudgmentService {
   return {
     identityFingerprint: (identity, evidence) =>
-      contentFingerprint({
-        kind: "identity",
-        personId: identity.personId,
-        sourceId: evidence.sourceId,
-      }),
-    claimFingerprint: (evidence) =>
-      contentFingerprint({ kind: "claim", sourceId: evidence.sourceId }),
+      fakeFingerprints.identity(identity.personId, evidence),
+    claimFingerprint: (evidence) => fakeFingerprints.claim(evidence),
     async assessIdentity(identity, evidence) {
       const assessment = await fake.assessIdentity(identity, evidence);
       return {
@@ -358,7 +378,7 @@ async function runAll(): Promise<string> {
       retrievedAt: day(100),
       pipelineVersion: "1",
       judgments: item.judgments,
-      policy,
+      spec,
     });
     output[item.name] = derived;
   }
