@@ -15,6 +15,7 @@ import type {
   ClubOutcome,
   ClubPerson,
   ClubReferral,
+  ClubSnapshot,
   ClubState,
   IsoDate,
   ReviewConfig,
@@ -201,6 +202,25 @@ export function defaultReviewConfig(): ReviewConfig {
 }
 
 /**
+ * A decision snapshot, copied deeply enough that nothing is shared with the
+ * original: `values`, the run id list and the spec versions are all its own.
+ * A transition is documented as pure, so no `ClubState` and no `ClubView` may
+ * hand back a live handle on another one's provenance.
+ *
+ * Absence is preserved. A snapshot written before the Club recorded run ids
+ * has **no** `modelRunIds` / `specVersions` key, and a copy of it must not
+ * gain one holding `undefined`: missing provenance is missing, never empty.
+ */
+export function cloneSnapshot(snapshot: ClubSnapshot): ClubSnapshot {
+  return {
+    ...snapshot,
+    values: { ...snapshot.values },
+    ...(snapshot.modelRunIds === undefined ? {} : { modelRunIds: [...snapshot.modelRunIds] }),
+    ...(snapshot.specVersions === undefined ? {} : { specVersions: { ...snapshot.specVersions } }),
+  };
+}
+
+/**
  * Deep copy plus defaults for fields added after the first persisted orgs:
  * `reviewStatus`, `feedbackRequests`, `config`.
  */
@@ -217,7 +237,7 @@ export function reviveState(state: ClubState): ClubState {
     evaluations: (partial.evaluations ?? []).map((e) => ({ ...e })),
     outcomes: (partial.outcomes ?? []).map((o) => ({ ...o })),
     opportunities: (partial.opportunities ?? []).map((o) => ({ ...o })),
-    snapshots: (partial.snapshots ?? []).map((s) => ({ ...s, values: { ...s.values } })),
+    snapshots: (partial.snapshots ?? []).map(cloneSnapshot),
     feedbackRequests: (partial.feedbackRequests ?? []).map((f) => ({ ...f })),
     config: partial.config
       ? { requiredDimensions: [...partial.config.requiredDimensions] }

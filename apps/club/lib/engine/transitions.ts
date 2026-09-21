@@ -39,6 +39,7 @@ import {
   underConsideration,
 } from "../review.ts";
 import {
+  cloneSnapshot,
   clubToReferral,
   comparisonToClub,
   evaluationToClub,
@@ -147,7 +148,10 @@ function recordSnapshot(
     specVersions: { ...provenance.specVersions },
   };
   next.snapshots = [snapshot, ...next.snapshots];
-  return { ...view, snapshots: next.snapshots.map((s) => ({ ...s, values: { ...s.values } })) };
+  // Cloned, not shared: the view a caller holds may not be a live handle on
+  // the state's provenance — `cloneSnapshot` copies the run id list and the
+  // spec versions too, and keeps a legacy snapshot's absent keys absent.
+  return { ...view, snapshots: next.snapshots.map(cloneSnapshot) };
 }
 
 export function addPerson(state: ClubState, input: AddPersonInput): EngineResult {

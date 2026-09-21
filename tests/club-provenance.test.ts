@@ -11,7 +11,8 @@ import {
   initialState,
   setStatus,
 } from "../apps/club/lib/engine.ts";
-import type { ClubSnapshot, ClubState } from "../apps/club/lib/types.ts";
+import { reviveState } from "../apps/club/lib/serialize.ts";
+import type { ClubSnapshot, ClubSpecVersions, ClubState } from "../apps/club/lib/types.ts";
 import { loadSpecs } from "../src/config.ts";
 import { getSpec } from "../src/models/registry.ts";
 import { createPredictionSnapshot } from "../src/models/snapshot.ts";
@@ -154,6 +155,73 @@ describe("#55 T5 club snapshots carry provenance", () => {
     // The one pass is memoised, not skipped: the view handed back is exactly
     // the view a second pass over the written state would have produced.
     expect(JSON.stringify(result.view)).toBe(JSON.stringify(computeView(result.state, specs)));
+  });
+
+  /**
+   * The transitions are documented as pure `(state, input) -> { state, view }`
+   * — nothing a caller holds may be a live handle on something else. Cloning
+   * `values` alone left the two new provenance fields shared: pushing a run id
+   * onto the view's snapshot rewrote the state's.
+   */
+  test("a transition's view never aliases the state's snapshot provenance", () => {
+    const result = decide(initialState(), "p-cleo", "admit", PINNED);
+    const viewSnapshot = result.view.snapshots[0] as ClubSnapshot;
+    const stateSnapshot = result.state.snapshots[0] as ClubSnapshot;
+    expect(viewSnapshot).toEqual(stateSnapshot);
+
+    const runIds = [...(stateSnapshot.modelRunIds ?? [])];
+    const versions = { ...(stateSnapshot.specVersions as ClubSpecVersions) };
+    viewSnapshot.modelRunIds?.push("x");
+    if (viewSnapshot.specVersions) viewSnapshot.specVersions.referral_signal = "9.9.9";
+    viewSnapshot.values.incomingCount = 999;
+
+    expect(stateSnapshot.modelRunIds).toEqual(runIds);
+    expect(stateSnapshot.specVersions).toEqual(versions);
+    expect(stateSnapshot.values.incomingCount).not.toBe(999);
+    expect(viewSnapshot).not.toBe(stateSnapshot);
+    expect(viewSnapshot.modelRunIds).not.toBe(stateSnapshot.modelRunIds);
+    expect(viewSnapshot.specVersions).not.toBe(stateSnapshot.specVersions);
+  });
+
+  test("reviveState never aliases the input state's snapshot provenance", () => {
+    const decided = decide(initialState(), "p-cleo", "admit", PINNED).state;
+    const revived = reviveState(decided);
+    const source = decided.snapshots[0] as ClubSnapshot;
+    const copy = revived.snapshots[0] as ClubSnapshot;
+    expect(copy).toEqual(source);
+
+    const runIds = [...(source.modelRunIds ?? [])];
+    const versions = { ...(source.specVersions as ClubSpecVersions) };
+    copy.modelRunIds?.push("x");
+    if (copy.specVersions) copy.specVersions.bradley_terry = "9.9.9";
+
+    expect(source.modelRunIds).toEqual(runIds);
+    expect(source.specVersions).toEqual(versions);
+    expect(copy.modelRunIds).not.toBe(source.modelRunIds);
+    expect(copy.specVersions).not.toBe(source.specVersions);
+  });
+
+  test("cloning a snapshot written before the new fields adds no undefined keys", () => {
+    const legacy = {
+      id: "snap:p-cleo:admitted:2026-01-01T00:00:00.000Z",
+      personId: "p-cleo",
+      personName: "Cleo Marsh",
+      decision: "admitted",
+      values: { referralSignal: 7, incomingCount: 1 },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    } as ClubSnapshot;
+    const stored: ClubState = { ...initialState(), snapshots: [legacy] };
+
+    const revived = reviveState(stored).snapshots[0] as ClubSnapshot;
+    expect("modelRunIds" in revived).toBe(false);
+    expect("specVersions" in revived).toBe(false);
+
+    // …and through a transition, where the view clones the list it returns.
+    const after = decide(stored, "p-dev", "start_review", PINNED);
+    const kept = after.view.snapshots[1] as ClubSnapshot;
+    expect(kept.id).toBe(legacy.id);
+    expect("modelRunIds" in kept).toBe(false);
+    expect("specVersions" in kept).toBe(false);
   });
 
   test("decision snapshots are no longer truncated at twenty", () => {
