@@ -122,3 +122,19 @@ export function isRegisteredSpec(spec: ModelSpec): boolean {
   const registered = SPEC_HISTORY.find((s) => specId(s) === specId(spec));
   return registered !== undefined && JSON.stringify(registered) === JSON.stringify(spec);
 }
+
+/**
+ * The runtime model registry. Kept here so `registry.ts` remains the one
+ * place to look for "what does this system know about"; the map itself lives
+ * in `define.ts`, which imports no model code, so a definition can depend on
+ * the registry without a cycle.
+ */
+export {
+  type AnyModelDefinition,
+  defineModel,
+  getModel,
+  MODELS,
+  type ModelDefinition,
+  registeredModels,
+  runModel,
+} from "./define.ts";
