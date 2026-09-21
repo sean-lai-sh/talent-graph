@@ -4,8 +4,14 @@ import type { JudgeReliabilitySpec } from "../models/spec.ts";
 import { CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL } from "./dimensions.ts";
 import type { CareerEvent, LongitudinalResidualSlope } from "./types.ts";
 
-function mean(values: readonly number[]): number {
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
+/**
+ * Missing is not low: an empty judgment list has no mean, so it yields null
+ * rather than a score of 0. The mapper above only calls this with one
+ * in-range judgment per dimension, so this is a defensive guard, not a
+ * behaviour change.
+ */
+function mean(values: readonly number[]): number | null {
+  return values.length === 0 ? null : values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 /**

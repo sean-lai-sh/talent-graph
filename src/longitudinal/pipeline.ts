@@ -109,6 +109,11 @@ export async function processEvidence(input: ProcessEvidenceInput): Promise<Proc
       const lowDimensionConfidence = assessment.dimensions.some(
         (judgment) => judgment.confidence < policy.dimensionConfidence,
       );
+      // No judgments is not agreement: `.some()` is false for an empty array.
+      // `!completeDimensions` already routes an unjudged event to review; this
+      // only records *why*, so the empty case is distinguishable from a
+      // partial or out-of-range judgment set.
+      const noDimensions = assessment.dimensions.length === 0;
       const needsReview =
         identity.decision === "review" ||
         identity.confidence < policy.identityConfidence ||
@@ -126,6 +131,9 @@ export async function processEvidence(input: ProcessEvidenceInput): Promise<Proc
         status,
         identityDecision: identity.decision,
         identityConfidence: identity.confidence,
+        ...(noDimensions && status === "review"
+          ? { reviewReasons: ["no_dimensions" as const] }
+          : {}),
         createdAt: new Date(input.retrievedAt.getTime()),
       };
       if (assessment.eventKind === null) return { claim, event: null };
