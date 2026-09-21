@@ -34,6 +34,12 @@ Concretely, in code:
   buckets, no merged number), `analysis/drift.ts` and `modelRun.ts`
   (bookkeeping: comparing and recording runs of either kind), and `index.ts`
   (the public barrel).
+- `graph/` is structural only: it imports nothing outside `domain/`. The
+  dependency direction is `domain → graph → scoring → judges/inference →
+  analysis → apps`, so `scoring → graph` is allowed and `graph → scoring` is
+  not. Edge weights (`toEdgeList`) live in `scoring/scoredGraph.ts` and
+  score-based sub-graph selection (`selectBySignal`) in
+  `analysis/graphSelection.ts`. `tests/invariants.test.ts` enforces this.
 - Rubric `Evaluation` records are stored and summarised but feed **no** score.
 - Affiliation / credentials are display metadata; no function in `src/` reads
   them to compute a number.

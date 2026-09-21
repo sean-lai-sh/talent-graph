@@ -2,6 +2,9 @@
 
 export * from "./analysis/dashboard.ts";
 export * from "./analysis/drift.ts";
+// Named, not `export *`: the barrel surface stays what it was before #56 T3,
+// when these two lived in ./graph/referralGraph.ts.
+export { selectBySignal } from "./analysis/graphSelection.ts";
 export * from "./analysis/reviewQueue.ts";
 export * from "./analysis/rubricSummary.ts";
 export * from "./analysis/underRecognition.ts";
@@ -38,6 +41,7 @@ export * from "./models/spec.ts";
 export * from "./scoring/referralPercentile.ts";
 export * from "./scoring/referralSignal.ts";
 export * from "./scoring/referralStrength.ts";
+export { toEdgeList } from "./scoring/scoredGraph.ts";
 export * from "./seed/generate.ts";
 export * from "./seed/outcomes.ts";
 export * from "./seed/personas.ts";

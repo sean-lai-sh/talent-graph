@@ -208,17 +208,18 @@ describe("invariants: provenance is runtime-agnostic", () => {
   });
 });
 
-// --- #56 T1: layering the refactor will invert (owner decision D2). ---------
-// Today `src/graph/` imports `src/models/` and `src/scoring/`; after T3 it must
-// import nothing outside `src/domain/`, and `scoring → graph` becomes the only
-// allowed direction. Expected to fail today — flipped on in T3.
+// --- #56 T3: the inverted layering, now enforced (owner decision D2). -------
+// `src/graph/` used to import `src/models/` and `src/scoring/`. Since T3 it
+// imports nothing outside `src/domain/`, and `scoring → graph` is the only
+// allowed direction: edge weights live in `scoring/scoredGraph.ts` and
+// score-based selection in `analysis/graphSelection.ts`.
 describe("invariants: referral graph layering (#56 D2)", () => {
   const GRAPH = SRC.filter((f) => f.includes("/src/graph/"));
 
   const importSpecifiers = (source: string): string[] =>
     [...source.matchAll(/from\s+["']([^"']+)["']/g)].map((m) => m[1] as string);
 
-  test.todo("src/graph/** imports nothing outside src/domain/", () => {
+  test("src/graph/** imports nothing outside src/domain/", () => {
     expect(GRAPH.length).toBeGreaterThan(0);
     for (const f of GRAPH) {
       for (const spec of importSpecifiers(read(f))) {
@@ -229,7 +230,7 @@ describe("invariants: referral graph layering (#56 D2)", () => {
     }
   });
 
-  test.todo("the dependency runs scoring → graph, never graph → scoring/models", () => {
+  test("the dependency runs scoring → graph, never graph → scoring/models", () => {
     expect(GRAPH.length).toBeGreaterThan(0);
     for (const f of GRAPH) {
       const s = read(f);

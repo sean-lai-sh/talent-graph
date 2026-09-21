@@ -1,4 +1,4 @@
-# Referral graph utilities (adjacency, neighbourhoods, filters)
+# Referral graph utilities (adjacency)
 
 > GitHub: https://github.com/sean-lai-sh/talent-graph/issues/3
 
@@ -17,16 +17,12 @@ export interface ReferralGraph {
 export function buildReferralGraph(people: Person[], referrals: Referral[]): ReferralGraph
 export function referrersOf(g, personId): Person[]
 export function referredBy(g, personId): Person[]
-export function inDegree(g, personId): number
-export function outDegree(g, personId): number
-export function neighbourhood(g, personId, depth = 1): { people: Person[]; referrals: Referral[] }
-export function filterGraph(g, f: { status?: PersonStatus[]; affiliation?: string; evidenceTypes?: EvidenceType[]; minSignal?: number; signals?: Map<string, ReferralSignalResult> }): ReferralGraph
-export function toEdgeList(g): Array<{ source: string; target: string; weight: number /* R_uv */ }>
 ```
-`toEdgeList` may import `referralStrength` from scoring (graph → scoring dependency is allowed; scoring → graph is not). `filterGraph` with `minSignal` requires `signals` to be passed in (do not compute inside).
+
+**Layering, as of #56 T3 (owner decision D2): `src/graph/` imports only `src/domain/`.** The dependency runs `scoring → graph`; `graph → scoring` is not allowed. So edge weights are not computed here — `toEdgeList(sg: ScoredReferralGraph)` lives in `src/scoring/scoredGraph.ts`, and score-based selection is `selectBySignal(g, signals, minSignal)` in `src/analysis/graphSelection.ts`, where `signals` is a required parameter (never computed inside). `inDegree`, `outDegree`, `neighbourhood` and `filterGraph` were deleted in #56 T3: no caller outside the tests ever reached them.
 
 ## Tests — `tests/graph.test.ts`
-Small 5-node fixture: in/out degree, neighbourhood depth 1 vs 2, filter by status and evidence type, edge weights equal `referralStrength`.
+Small 5-node fixture: `referrersOf` / `referredBy`, unknown endpoints dropped, edge weights equal `referralStrength`. `selectBySignal` is covered in `tests/graphSelection.test.ts`.
 
 ## Do not
 - Compute layout or positions. Layout is visual-only and lives in the future UI.

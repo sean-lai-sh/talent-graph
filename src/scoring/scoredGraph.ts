@@ -8,10 +8,10 @@
  * displayed number.
  *
  * Layering (owner decision D2): `scoring → graph` is the allowed direction, so
- * this module imports `buildReferralGraph`. `src/graph/referralGraph.ts` still
- * imports `src/scoring/` today; ESM resolves the resulting cycle fine (neither
- * module touches the other at module-evaluation time) and the direction is
- * cleaned up in a later ticket.
+ * this module imports `buildReferralGraph`. Since #56 T3 that direction is the
+ * only one: `src/graph/` imports nothing outside `src/domain/`, so there is no
+ * cycle left to resolve. `toEdgeList` lives here for the same reason — it needs
+ * a spec, and the structural module must stay spec-free.
  *
  * Admission rules, mirroring V0 exactly (`referralSignal.ts`):
  *
@@ -131,4 +131,33 @@ export function scoreReferralGraph(
     specVersion: checked.version,
     policy,
   };
+}
+
+/**
+ * Directed edge list with R_uv as weight, for export or a future renderer.
+ *
+ * Moved here from `src/graph/` in #56 T3: the weight is a score, so it belongs
+ * on the scoring side. There is no spec parameter and no `CURRENT_SPECS`
+ * fallback — the spec is whichever one `sg` was scored under, so a historical
+ * run reproduces its own weights by scoring with its own spec. Omitting a spec
+ * is now a type error at `scoreReferralGraph` rather than a silent default.
+ *
+ * Only the closed graph is emitted (`sg.graph`), matching the old behaviour:
+ * a referral with an unknown endpoint has no edge, whatever the dangling
+ * policy. Order is the adjacency order, i.e. the input order of `referrals`.
+ */
+export function toEdgeList(
+  sg: ScoredReferralGraph,
+): Array<{ source: string; target: string; weight: number }> {
+  const edges: Array<{ source: string; target: string; weight: number }> = [];
+  for (const list of sg.graph.out.values()) {
+    for (const r of list) {
+      const scored = sg.byReferralId.get(r.id);
+      // Every referral in the graph was scored, so this cannot be missing; if
+      // it ever were, the edge is omitted rather than given a fabricated 0.
+      if (scored === undefined) continue;
+      edges.push({ source: r.referrerId, target: r.candidateId, weight: scored.strength });
+    }
+  }
+  return edges;
 }
