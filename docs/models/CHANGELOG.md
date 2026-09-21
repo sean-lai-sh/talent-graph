@@ -102,3 +102,31 @@ Run ids are not spec versions: this section records changes to the format of
   without an id is still recorded, with `runId: null`, so an unnamed prior is
   reported as unknown rather than invented. No id moved; both fixtures pass
   without regeneration.
+
+## Pipeline
+
+Not a spec version either: how the runs of a pass are ordered and recorded.
+
+### `advance()` — one pass, one run per kind (#55 T4)
+
+- **What:** `src/pipeline/advance.ts` is the only place the calibration →
+  weights → signal order is written. One pass produces a `judge_reliability`
+  run, a `bradley_terry` run and a `referral_signal` run, plus the
+  judge-weighted `referral_signal` run the calibration's weights feed. It
+  never combines two kinds into one number. `now` is a parameter — the
+  evaluation time step T — and `src/pipeline/` never reads the clock
+  (`tests/invariants.test.ts`).
+- **Why:** `scripts/demo.ts` and `scripts/drift.ts` each wrote that order out
+  by hand, so the order could drift apart between callers and every new
+  caller had to rediscover which spec feeds which step.
+- **Numbers:** unchanged. `bun run demo` is byte-identical to
+  `tests/fixtures/demo-golden.txt`, captured from the pre-refactor script, and
+  `tests/advance.test.ts` asserts a pass reproduces the run ids in
+  `tests/fixtures/run-ids-golden.json` for every kind. Neither run-id fixture
+  was regenerated.
+- **Drift:** `bun run drift` takes any kind the pipeline runs (derived, not
+  enumerated) — including `judge_reliability`, whose per-judge `reliability`
+  and `bias` maps are compared as points out of 100 under the existing
+  thresholds and verdict rules — and `--v0-vs-v2` compares the unweighted
+  Referral Signal against the judge-weighted one from a single pass.
+- **PR:** #55 T4.

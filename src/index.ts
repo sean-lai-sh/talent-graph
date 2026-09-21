@@ -38,6 +38,22 @@ export * from "./models/blend.ts";
 export * from "./models/registry.ts";
 export * from "./models/snapshot.ts";
 export * from "./models/spec.ts";
+// #55 T4 — the orchestrator. Named, not `export *`: the barrel adds
+// `advance` and what a caller needs to read its result, nothing else.
+export {
+  type AdvanceOptions,
+  type AdvanceResult,
+  advance,
+  baselineReferralRun,
+  type DriftKind,
+  driftKinds,
+  type EngineState,
+  judgeWeightedReferralRun,
+  type Observations,
+  type PipelineKind,
+  type RunOfKind,
+  requireRun,
+} from "./pipeline/advance.ts";
 export * from "./scoring/referralPercentile.ts";
 export * from "./scoring/referralSignal.ts";
 export * from "./scoring/referralStrength.ts";

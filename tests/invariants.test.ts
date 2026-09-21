@@ -57,6 +57,11 @@ describe("invariants: Referral Signal ≠ Relative Capability", () => {
       "src/analysis/drift.ts", // compares runs of either kind (types only)
       "src/analysis/reviewQueue.ts", // categorical review buckets over both channels; no merged number
       "src/modelRun.ts", // wraps either kind in a ModelRun
+      // The orchestrator: one pass over the observations, in the order
+      // calibration → weights → signal. It returns one run per kind, never a
+      // merged number — the two channels stay two runs, and the judge
+      // calibration is a third.
+      "src/pipeline/advance.ts",
       "src/index.ts", // public barrel
     ]);
     const both = SRC.filter((f) => {
@@ -236,6 +241,20 @@ describe("invariants: referral graph layering (#56 D2)", () => {
       const s = read(f);
       expect(importsFrom(s, "scoring"), `${rel(f)} imports scoring`).toBe(false);
       expect(importsFrom(s, "models"), `${rel(f)} imports models`).toBe(false);
+    }
+  });
+});
+
+// --- #55 T4: the orchestrator is pure, like the calibration it runs. -------
+describe("invariants: the pipeline takes its time step as a parameter", () => {
+  const PIPELINE = SRC.filter((f) => f.includes("/src/pipeline/"));
+
+  test("src/pipeline never reads the clock; `now` is a parameter", () => {
+    expect(PIPELINE.length).toBeGreaterThan(0);
+    for (const f of PIPELINE) {
+      const code = stripComments(read(f));
+      expect(/Date\.now\(\)/.test(code), rel(f)).toBe(false);
+      expect(/new Date\(\s*\)/.test(code), rel(f)).toBe(false);
     }
   });
 });

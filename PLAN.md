@@ -80,6 +80,9 @@ talent-graph/
     graph/
       referralGraph.ts    # adjacency: who referred whom (buildReferralGraph,
                           #   referrersOf, referredBy) — domain-only imports
+    pipeline/
+      advance.ts          # advance(): one pass — calibration → weights → signal;
+                          #   one run per kind, `now` is a parameter (#55 T4)
     seed/
       generate.ts         # deterministic synthetic dataset (seeded PRNG)
       personas.ts         # Candidates A–F as specified
