@@ -6,6 +6,7 @@ import type {
   IdentityAssessment,
   JevJudgment,
   JevJudgmentService,
+  JevRequestOptions,
 } from "./judgments.ts";
 import { contentFingerprint } from "./provenance.ts";
 import type { JevJudgmentRecord, JevJudgmentStore } from "./records.ts";
@@ -63,13 +64,51 @@ export const DEFAULT_EVIDENCE_POLICY: EvidencePipelinePolicy =
 export const DEFAULT_EVIDENCE_CONCURRENCY = 4;
 
 /**
- * Fan-out shape for one `processEvidence` call. Grouped like `policy` so the
- * remaining runtime knobs (per-item isolation, cancellation, caching) have a
- * home without widening the flat input again.
+ * What one item's failure does to the batch. `review` by default: one bad
+ * item never kills the other nine.
+ */
+export type EvidenceItemErrorMode = "review" | "throw";
+
+/** Default per-item failure handling: isolate the item, keep the batch. */
+export const DEFAULT_EVIDENCE_ITEM_ERROR: EvidenceItemErrorMode = "review";
+
+/**
+ * Fan-out shape for one `processEvidence` call: how many items are judged at
+ * once, what a failing item does to the rest, where judgments are cached, and
+ * how the caller cancels.
+ *
+ * Deliberately *not* transport policy. How long one request may take and how
+ * often it is retried is the client's business, set once where the client is
+ * constructed in the app layer; nothing here reaches the wire except the
+ * signal, which is passed to the judgment service untouched.
  */
 export interface EvidenceRuntime {
   /** Maximum evidence items assessed at once. Integer >= 1. */
   concurrency?: number;
+  /**
+   * What a judgment failure does to the item and to the batch.
+   *
+   * `review` (the default) isolates it: the item becomes a `review` claim
+   * with a `judgment_unavailable` reason and no event, and the other items
+   * are judged and returned as usual. Nothing about that claim is a low
+   * assessment — there is no assessment at all, which is exactly what the
+   * reason says.
+   *
+   * `throw` restores the all-or-nothing behaviour: the first failure rejects
+   * the whole call. For callers that would rather have no result than a
+   * partial one.
+   */
+  onItemError?: EvidenceItemErrorMode;
+  /**
+   * Cancellation from the caller. Checked before each item and between the
+   * two judgments of one item, and handed to the judgment service so an
+   * in-flight request is cancelled rather than waited out.
+   *
+   * An abort rejects the whole call whatever `onItemError` says: a cancelled
+   * batch has no partial result to report, and a claim built from work the
+   * caller abandoned would be a claim nobody asked for.
+   */
+  signal?: AbortSignal;
   /**
    * Where judgment records are read and written. Consulted before the
    * network: a judgment already recorded for this request *about this
@@ -94,10 +133,16 @@ export interface ProcessEvidenceInput {
   retrievedAt: Date;
   pipelineVersion: string;
   judgments: JevJudgmentService;
-  /** Rubric the judgments were made against. Defaults to the registered version. */
+  /**
+   * Rubric the judgments were made against, and the only source of the gate
+   * thresholds. Defaults to the registered version.
+   *
+   * There is deliberately no separate `policy` override: the thresholds a run
+   * decided under have to be the ones its spec records, or a claim could be
+   * gated by numbers nothing in its provenance names. A run under different
+   * numbers is a run under a different spec.
+   */
   spec?: CareerEvidenceSpec;
-  /** Explicit override; otherwise the policy `spec` implies. */
-  policy?: EvidencePipelinePolicy;
   runtime?: EvidenceRuntime;
 }
 
@@ -111,6 +156,13 @@ export interface ProcessEvidenceResult {
    * (identity before claim, item by item). These are the raw observations
    * `runCareerEvidence` derives from; the claims and events above are one
    * derivation of them.
+   *
+   * An item the fan-out isolated contributes only what was actually observed
+   * — its identity record, or nothing at all. The set is therefore *not*
+   * complete for a run that had a `judgment_unavailable` claim, and
+   * `deriveEvidence` refuses to derive over a gap rather than invent one:
+   * re-run with the same store first, which re-judges exactly the missing
+   * item and leaves the rest a store hit.
    */
   records: JevJudgmentRecord[];
 }
@@ -119,6 +171,37 @@ export interface ProcessEvidenceResult {
 export interface JudgmentDeps {
   service: JevJudgmentService;
   store?: JevJudgmentStore;
+  /**
+   * Judgments already in flight, by record id. A second ask for a record
+   * another worker is already paying for waits for that one instead of
+   * issuing its own: duplicate evidence in one batch, or two runs sharing a
+   * store, cost one judgment, and the append-only store is never handed the
+   * same observation twice.
+   */
+  pending?: Map<string, Promise<JevJudgmentRecord>>;
+  /** Cancellation, handed to the service with every request. */
+  signal?: AbortSignal;
+}
+
+/**
+ * The in-flight judgments of every run sharing one store.
+ *
+ * Coalescing is keyed by record id, which names the request *and* the
+ * evidence, so two callers that meet here are waiting for the same
+ * observation. It is scoped per store — concurrent runs coalesce exactly when
+ * a hit by one would have been a hit for the other — and a run with no store
+ * coalesces within itself only (see `processEvidence`), because there is
+ * nowhere for a shared answer to have been recorded.
+ */
+const IN_FLIGHT_BY_STORE = new WeakMap<JevJudgmentStore, Map<string, Promise<JevJudgmentRecord>>>();
+
+/** The pending-judgment map shared by every run over `store`. */
+function pendingFor(store: JevJudgmentStore): Map<string, Promise<JevJudgmentRecord>> {
+  const existing = IN_FLIGHT_BY_STORE.get(store);
+  if (existing !== undefined) return existing;
+  const created = new Map<string, Promise<JevJudgmentRecord>>();
+  IN_FLIGHT_BY_STORE.set(store, created);
+  return created;
 }
 
 /**
@@ -136,6 +219,7 @@ export async function judgeIdentity(
   deps: JudgmentDeps,
 ): Promise<JevJudgment<IdentityAssessment>> {
   const fingerprint = deps.service.identityFingerprint(identity, evidence);
+  const address = { fingerprint, evidenceKey: evidenceKeyFor(identity.personId, evidence) };
   const recorded = await recordedJudgment({
     fingerprint,
     kind: "identity",
@@ -145,9 +229,15 @@ export async function judgeIdentity(
     store: deps.store,
   });
   if (recorded !== null) return { assessment: projectIdentity(recorded, spec), record: recorded };
-  const judged = await deps.service.assessIdentity(identity, evidence);
-  await deps.store?.put(judged.record);
-  return judged;
+  const coalesced = await coalesce(deps, address, () =>
+    deps.service.assessIdentity(identity, evidence, requestOptions(deps)),
+  );
+  return (
+    coalesced.judged ?? {
+      assessment: projectIdentity(coalesced.record, spec),
+      record: coalesced.record,
+    }
+  );
 }
 
 /** The claim judgment for one evidence item; store first, network second. */
@@ -158,6 +248,7 @@ export async function judgeClaim(
   deps: JudgmentDeps,
 ): Promise<JevJudgment<ClaimAssessment>> {
   const fingerprint = deps.service.claimFingerprint(evidence);
+  const address = { fingerprint, evidenceKey: evidenceKeyFor(personId, evidence) };
   const recorded = await recordedJudgment({
     fingerprint,
     kind: "claim",
@@ -167,9 +258,85 @@ export async function judgeClaim(
     store: deps.store,
   });
   if (recorded !== null) return { assessment: projectClaim(recorded, spec), record: recorded };
-  const judged = await deps.service.assessClaim(evidence, personId);
-  await deps.store?.put(judged.record);
-  return judged;
+  const coalesced = await coalesce(deps, address, () =>
+    deps.service.assessClaim(evidence, personId, requestOptions(deps)),
+  );
+  return (
+    coalesced.judged ?? {
+      assessment: projectClaim(coalesced.record, spec),
+      record: coalesced.record,
+    }
+  );
+}
+
+/** The cancellation the service is given; absent when the caller gave none. */
+function requestOptions(deps: JudgmentDeps): JevRequestOptions | undefined {
+  return deps.signal === undefined ? undefined : { signal: deps.signal };
+}
+
+/**
+ * Judge once, however many askers there are.
+ *
+ * The first asker runs `judge`, records what comes back and keeps its own
+ * assessment — the service is the authority on what it observed, and nothing
+ * re-projects an answer that was handed over directly. Every other asker
+ * waits on that same promise and projects the record, which is the whole
+ * point of the record being the observation: a second reader needs nothing
+ * else.
+ *
+ * `record` is what was finally recorded, which is not always what was judged:
+ * see `recordJudgment`.
+ */
+async function coalesce<TAssessment>(
+  deps: JudgmentDeps,
+  address: { fingerprint: string; evidenceKey: string },
+  judge: () => Promise<JevJudgment<TAssessment>>,
+): Promise<{ record: JevJudgmentRecord; judged?: JevJudgment<TAssessment> }> {
+  const id = recordIdFor(address.fingerprint, address.evidenceKey);
+  const pending = deps.pending;
+  const inFlight = pending?.get(id);
+  if (inFlight !== undefined) return { record: await inFlight };
+  let judged: JevJudgment<TAssessment> | undefined;
+  const promise = (async () => {
+    judged = await judge();
+    return recordJudgment(deps.store, judged.record);
+  })();
+  pending?.set(id, promise);
+  try {
+    const record = await promise;
+    // The assessment the service returned is authoritative only for the
+    // record it returned: if the store already held a different observation
+    // at this address, that one is what everyone reads.
+    return judged !== undefined && judged.record === record ? { record, judged } : { record };
+  } finally {
+    pending?.delete(id);
+  }
+}
+
+/**
+ * Write the observation down, and take the store's word for it on a collision.
+ *
+ * Records are append-only, so a `put` that loses a race against another
+ * worker's write of the *same* address throws rather than overwriting. That
+ * is not a reason to fail the batch: the judgment at that address is already
+ * recorded, and the recorded one is the observation — this run's answer to
+ * the same question arrived second. It is read back and used. A `put` that
+ * fails for any other reason (a misfiled record, a store that is down) leaves
+ * nothing at the address and is re-thrown.
+ */
+async function recordJudgment(
+  store: JevJudgmentStore | undefined,
+  record: JevJudgmentRecord,
+): Promise<JevJudgmentRecord> {
+  if (store === undefined) return record;
+  try {
+    await store.put(record);
+    return record;
+  } catch (error) {
+    const recorded = await store.get(record.id);
+    if (recorded === null) throw error;
+    return recorded;
+  }
 }
 
 /**
@@ -236,39 +403,83 @@ async function recordedJudgment(input: {
  */
 export async function processEvidence(input: ProcessEvidenceInput): Promise<ProcessEvidenceResult> {
   const spec = assertSpec(input.spec ?? CAREER_EVIDENCE_V1_0_0);
-  const policy = input.policy ?? evidencePolicyFor(spec);
+  const policy = evidencePolicyFor(spec);
   const stamp = { model: policy.model, questionVersion: policy.questionVersion };
   const concurrency = resolveConcurrency(input.runtime?.concurrency);
+  const onItemError = input.runtime?.onItemError ?? DEFAULT_EVIDENCE_ITEM_ERROR;
+  const signal = input.runtime?.signal;
+  const store = input.runtime?.store;
   const deps: JudgmentDeps = {
     service: input.judgments,
-    ...(input.runtime?.store === undefined ? {} : { store: input.runtime.store }),
+    ...(store === undefined ? {} : { store }),
+    // Shared with every other run over the same store; private to this call
+    // when there is none, which still coalesces duplicate items in one batch.
+    pending: store === undefined ? new Map() : pendingFor(store),
+    ...(signal === undefined ? {} : { signal }),
   };
   const eligible = selectEligible(input.evidence, input.baselineAt, input.cutoffAt);
+  signal?.throwIfAborted();
 
   // A bounded worker pool, not `Promise.all` over every item: the judgment
   // service is a paid, rate-limited API. Results are written back by index, so
-  // the output order is the eligible order regardless of completion order, and
-  // the first rejection still rejects the whole call.
-  const processed = await mapWithConcurrency(eligible, concurrency, async (evidence) => {
-    const identity = await judgeIdentity(evidence, input.identity, spec, deps);
-    // Identity is settled before any claim assessment. An ambiguous or
-    // contradicted identity stops here, so no paid assessment is spent on an
-    // item we cannot attribute, and no event is produced for one.
-    const gate = gateIdentity(identity.assessment, policy);
-    const claim =
-      gate.kind === "stop" ? null : await judgeClaim(evidence, input.identity.personId, spec, deps);
-    return {
-      ...materialize({
-        personId: input.identity.personId,
-        evidence,
-        retrievedAt: input.retrievedAt,
-        identity: identity.assessment,
-        assessment: claim?.assessment ?? null,
-        decision: decideStatus(identity.assessment, claim?.assessment ?? null, policy),
-        stamp,
-      }),
-      records: claim === null ? [identity.record] : [identity.record, claim.record],
-    };
+  // the output order is the eligible order regardless of completion order.
+  const processed = await mapWithConcurrency(eligible, concurrency, signal, async (evidence) => {
+    // What was observed for this item before it failed, if it failed. An
+    // identity judgment already paid for is kept whatever happens next.
+    let observedIdentity: JevJudgment<IdentityAssessment> | null = null;
+    try {
+      const identity = await judgeIdentity(evidence, input.identity, spec, deps);
+      observedIdentity = identity;
+      // Identity is settled before any claim assessment. An ambiguous or
+      // contradicted identity stops here, so no paid assessment is spent on an
+      // item we cannot attribute, and no event is produced for one.
+      const gate = gateIdentity(identity.assessment, policy);
+      signal?.throwIfAborted();
+      const claim =
+        gate.kind === "stop"
+          ? null
+          : await judgeClaim(evidence, input.identity.personId, spec, deps);
+      return {
+        ...materialize({
+          personId: input.identity.personId,
+          evidence,
+          retrievedAt: input.retrievedAt,
+          identity: identity.assessment,
+          assessment: claim?.assessment ?? null,
+          decision: decideStatus(identity.assessment, claim?.assessment ?? null, policy),
+          stamp,
+        }),
+        records: claim === null ? [identity.record] : [identity.record, claim.record],
+      };
+    } catch (error) {
+      // A cancelled batch has no partial result, and a caller that asked for
+      // all-or-nothing gets it: both reject the whole call.
+      if (signal?.aborted === true || onItemError === "throw") throw error;
+      // Isolation is for a judgment that could not be *made*, not for one
+      // that is not readable. A `TypeError` here is this layer saying an
+      // input is unrepresentable — a store answering with another person's
+      // record, a record under a foreign rubric, a malformed answer — and
+      // turning that into a `review` claim would hide a bug behind a
+      // plausible-looking outcome.
+      if (error instanceof TypeError) throw error;
+      // Everything else is one item's failure, and stays one item's failure:
+      // a `review` claim that says the judgment was unavailable. No
+      // assessment ran, so there is no kind, no event and no score — an
+      // absence, never a zero.
+      const identity = observedIdentity?.assessment ?? null;
+      return {
+        ...materialize({
+          personId: input.identity.personId,
+          evidence,
+          retrievedAt: input.retrievedAt,
+          identity,
+          assessment: null,
+          decision: decideStatus(identity, null, policy),
+          stamp,
+        }),
+        records: observedIdentity === null ? [] : [observedIdentity.record],
+      };
+    }
   });
 
   const claims = processed.map(({ claim }) => claim);
@@ -471,16 +682,22 @@ function resolveConcurrency(requested: number | undefined): number {
  * Run `worker` over `items` with at most `limit` calls in flight, returning the
  * results in input order. The first rejection rejects the returned promise, as
  * `Promise.all` did; every worker's rejection is observed, so none is unhandled.
+ *
+ * `signal` is checked before each item is handed out, so an abort stops the
+ * pool from starting work the caller no longer wants; the items already in
+ * flight are cancelled by the same signal inside the service.
  */
 async function mapWithConcurrency<T, R>(
   items: readonly T[],
   limit: number,
+  signal: AbortSignal | undefined,
   worker: (item: T) => Promise<R>,
 ): Promise<R[]> {
   const results = new Array<R>(items.length);
   let next = 0;
   const drain = async (): Promise<void> => {
     while (next < items.length) {
+      signal?.throwIfAborted();
       const index = next;
       next += 1;
       results[index] = await worker(items[index] as T);

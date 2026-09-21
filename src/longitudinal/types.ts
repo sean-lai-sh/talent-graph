@@ -100,8 +100,17 @@ export interface EvidenceClaim {
    */
   assessedEventKind: CareerEventKind | null;
   status: ClaimStatus;
-  identityDecision: IdentityDecision;
-  identityConfidence: number;
+  /**
+   * The identity judgment this claim was decided under, and how sure it was.
+   *
+   * Both are `null` exactly when no identity judgment was observed at all —
+   * the judgment service failed and the fan-out isolated the item, which the
+   * claim's `judgment_unavailable` review reason says in words. Absence is
+   * written down rather than filled in: a `0` confidence would read as a
+   * confident "different person", and a decision would be invented.
+   */
+  identityDecision: IdentityDecision | null;
+  identityConfidence: number | null;
   /**
    * Present only when a specific, machine-checkable reason forced review.
    * Absent (not empty) otherwise, so claims carry no vacuous field.

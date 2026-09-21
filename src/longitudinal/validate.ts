@@ -54,7 +54,14 @@ export function validateEvidenceClaim(claim: EvidenceClaim): LongitudinalValidat
   const errors: string[] = [];
   if (claim.personId.trim() === "") errors.push("personId must be non-empty");
   if (claim.statement.trim() === "") errors.push("statement must be non-empty");
-  if (
+  // An unobserved identity judgment is `null` on both fields together. Absence
+  // is valid; a number outside the unit interval, or one standing next to a
+  // missing decision, is not.
+  if (claim.identityConfidence === null || claim.identityDecision === null) {
+    if (claim.identityConfidence !== null || claim.identityDecision !== null) {
+      errors.push("identityDecision and identityConfidence are absent together or not at all");
+    }
+  } else if (
     !Number.isFinite(claim.identityConfidence) ||
     claim.identityConfidence < 0 ||
     claim.identityConfidence > 1

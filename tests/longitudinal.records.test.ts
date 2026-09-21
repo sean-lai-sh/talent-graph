@@ -729,3 +729,136 @@ describe("judgment records: projections reject what they cannot represent", () =
     expect(() => projectClaim({ ...record, answers }, spec)).toThrow(/probabilities/);
   });
 });
+
+describe("judgment records: a concurrent miss is paid for once (#54 T7)", () => {
+  const duplicated = (id: string) => [evidence(id, 40), { ...evidence(id, 40) }];
+
+  const runOver = (
+    judgments: ReturnType<typeof createJevJudgmentService>,
+    over: GrokEvidenceItem[],
+    store: JevJudgmentStore,
+  ) =>
+    processEvidence({
+      identity,
+      evidence: over,
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments,
+      spec,
+      runtime: { store, concurrency: 4 },
+    });
+
+  test("two identical items in one batch issue one identity and one claim call", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    const client = fakeClient();
+    const result = await runOver(
+      createJevJudgmentService(client.client, spec),
+      duplicated("work"),
+      store,
+    );
+    // One question asked once, not twice — and the append-only store is never
+    // handed a second write of the same observation.
+    expect(client.calls()).toBe(2);
+    expect(store.size).toBe(2);
+    expect(result.claims).toHaveLength(2);
+    expect(JSON.stringify(result.claims[0], isoDates)).toBe(
+      JSON.stringify(result.claims[1], isoDates),
+    );
+    expect(new Set(result.records.map((record) => record.id)).size).toBe(2);
+  });
+
+  test("two concurrent runs over one store pay for one judgment each", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    const client = fakeClient();
+    const service = createJevJudgmentService(client.client, spec);
+    const [left, right] = await Promise.all([
+      runOver(service, [evidence("work", 40)], store),
+      runOver(service, [evidence("work", 40)], store),
+    ]);
+    expect(client.calls()).toBe(2);
+    expect(store.size).toBe(2);
+    expect(JSON.stringify(left?.claims, isoDates)).toBe(JSON.stringify(right?.claims, isoDates));
+  });
+
+  test("a put that loses a race reads the recorded judgment back instead of failing", async () => {
+    const honest = new InMemoryJevJudgmentStore();
+    const client = fakeClient();
+    const service = createJevJudgmentService(client.client, spec);
+    // Pre-load the store with the records another worker already wrote, then
+    // hide them from the first `get` of this run: the run misses, judges, and
+    // its `put` collides with the record that was there all along.
+    const seeded = await runOver(service, [evidence("work", 40)], honest);
+    const recorded = new Map(seeded.records.map((record) => [record.id, record]));
+    const hidden = new Set(recorded.keys());
+    const racing: JevJudgmentStore = {
+      async get(recordId) {
+        if (hidden.delete(recordId)) return null;
+        return honest.get(recordId);
+      },
+      async put(record) {
+        // The append-only store refuses the second, different answer.
+        await honest.put({ ...record, respondedModel: `${record.respondedModel}-other` });
+      },
+    };
+    const raced = await runOver(service, [evidence("work", 40)], racing);
+    // The recorded observation wins, and the batch does not fail.
+    expect(raced.records.map((record) => record.id)).toEqual([...recorded.keys()]);
+    expect(raced.records).toEqual(seeded.records);
+    expect(JSON.stringify(raced.claims, isoDates)).toBe(JSON.stringify(seeded.claims, isoDates));
+  });
+});
+
+/** The fake client above, wrapped so the per-call options are observable. */
+function capturingClient(): {
+  client: Parameters<typeof createJevJudgmentService>[0];
+  signals: () => (AbortSignal | undefined)[];
+} {
+  const inner = fakeClient();
+  const seen: (AbortSignal | undefined)[] = [];
+  const delegate = inner.client as unknown as {
+    systemOne(request: { questions: Record<string, unknown> }): {
+      withResponse(): Promise<unknown>;
+    };
+  };
+  const client = {
+    systemOne(request: { questions: Record<string, unknown> }, options?: { signal?: AbortSignal }) {
+      seen.push(options?.signal);
+      return delegate.systemOne(request);
+    },
+  };
+  return {
+    client: client as unknown as Parameters<typeof createJevJudgmentService>[0],
+    signals: () => [...seen],
+  };
+}
+
+describe("judgment records: the caller's signal reaches the transport (#54 T7)", () => {
+  const runWithRuntime = (
+    client: Parameters<typeof createJevJudgmentService>[0],
+    signal?: AbortSignal,
+  ) =>
+    processEvidence({
+      identity,
+      evidence: [evidence("work", 40)],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments: createJevJudgmentService(client, spec),
+      spec,
+      ...(signal === undefined ? {} : { runtime: { signal } }),
+    });
+
+  test("the adapter forwards the pipeline's signal to every request it makes", async () => {
+    const capturing = capturingClient();
+    const controller = new AbortController();
+    await runWithRuntime(capturing.client, controller.signal);
+    expect(capturing.signals()).toEqual([controller.signal, controller.signal]);
+  });
+
+  test("no signal means no signal: the adapter sends none of its own", async () => {
+    const capturing = capturingClient();
+    await runWithRuntime(capturing.client);
+    expect(capturing.signals()).toEqual([undefined, undefined]);
+  });
+});

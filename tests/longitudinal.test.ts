@@ -3,7 +3,12 @@ import {
   buildGrokRoutineRequest,
   signGrokCallbackBody,
 } from "../apps/club/lib/longitudinal/grok.ts";
-import { createJevJudgmentService, LEVELS } from "../apps/club/lib/longitudinal/jev.ts";
+import {
+  createJevClient,
+  createJevJudgmentService,
+  JEV_CLIENT_DEFAULTS,
+  LEVELS,
+} from "../apps/club/lib/longitudinal/jev.ts";
 import {
   createInMemoryGrokIngestStore,
   fetchGitHubEvidence,
@@ -32,12 +37,14 @@ import {
   contentFingerprint,
   createMonitoringPlan,
   DEFAULT_EVIDENCE_CONCURRENCY,
+  DEFAULT_EVIDENCE_ITEM_ERROR,
   DEFAULT_MAX_MONITORING_ATTEMPTS,
   DEFAULT_MONITORING_LEASE_MS,
   evaluateLongitudinalCases,
   evidenceKeyFor,
   failMonitoringPlan,
   freezeRecord,
+  InMemoryJevJudgmentStore,
   MAX_MONITORING_ATTEMPTS_ERROR,
   processEvidence,
   progressVector,
@@ -49,6 +56,7 @@ import {
   validateGrokEvidencePacket,
 } from "../src/index.ts";
 import { CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL } from "../src/longitudinal/dimensions.ts";
+import type { EvidenceRuntime } from "../src/longitudinal/pipeline.ts";
 import type { ProgressDimension } from "../src/longitudinal/types.ts";
 import { JUDGE_RELIABILITY_V2_0_0 } from "../src/models/registry.ts";
 
@@ -137,13 +145,32 @@ function claimAnswers(assessment: ClaimAssessment): Record<string, JevAnswer> {
   return answers;
 }
 
+/**
+ * The fingerprints this fake service advertises.
+ *
+ * A production invariant the fake has to obey: a record is filed at
+ * `recordIdFor(<the fingerprint the service computes for this request>,
+ * evidenceKey)`, so the id written is the id a later lookup asks for. The
+ * claim fingerprint carries no person — the claim request is the evidence
+ * alone, as in the adapter — and the person enters through the evidence key.
+ */
+const fakeFingerprints = {
+  identity: (personId: string, evidence: GrokEvidenceItem) =>
+    contentFingerprint({ kind: "identity", personId, sourceId: evidence.sourceId }),
+  claim: (evidence: GrokEvidenceItem) =>
+    contentFingerprint({ kind: "claim", sourceId: evidence.sourceId }),
+};
+
 function fakeRecord(
   kind: JevJudgmentRecord["kind"],
   personId: string,
   evidence: GrokEvidenceItem,
   answers: Record<string, JevAnswer>,
 ): JevJudgmentRecord {
-  const fingerprint = contentFingerprint({ kind, personId, sourceId: evidence.sourceId });
+  const fingerprint =
+    kind === "identity"
+      ? fakeFingerprints.identity(personId, evidence)
+      : fakeFingerprints.claim(evidence);
   const evidenceKey = evidenceKeyFor(personId, evidence);
   return freezeRecord({
     id: recordIdFor(fingerprint, evidenceKey),
@@ -165,21 +192,18 @@ function fakeRecord(
 function serviceOf(fake: FakeJudgments): JevJudgmentService {
   return {
     identityFingerprint: (identity, evidence) =>
-      contentFingerprint({
-        kind: "identity",
-        personId: identity.personId,
-        sourceId: evidence.sourceId,
-      }),
-    claimFingerprint: (evidence) =>
-      contentFingerprint({ kind: "claim", sourceId: evidence.sourceId }),
-    async assessIdentity(identity, evidence) {
+      fakeFingerprints.identity(identity.personId, evidence),
+    claimFingerprint: (evidence) => fakeFingerprints.claim(evidence),
+    async assessIdentity(identity, evidence, options) {
+      options?.signal?.throwIfAborted();
       const assessment = await fake.assessIdentity(identity, evidence);
       return {
         assessment,
         record: fakeRecord("identity", identity.personId, evidence, identityAnswers(assessment)),
       };
     },
-    async assessClaim(evidence, personId) {
+    async assessClaim(evidence, personId, options) {
+      options?.signal?.throwIfAborted();
       const assessment = await fake.assessClaim(evidence);
       return {
         assessment,
@@ -863,7 +887,7 @@ describe("bounded judgment fan-out", () => {
     };
   }
 
-  const run = (judgments: JevJudgmentService, concurrency?: number) =>
+  const run = (judgments: JevJudgmentService, runtime?: EvidenceRuntime) =>
     processEvidence({
       identity,
       evidence: tenItems,
@@ -871,14 +895,14 @@ describe("bounded judgment fan-out", () => {
       retrievedAt: day(100),
       pipelineVersion: "1",
       judgments,
-      ...(concurrency === undefined ? {} : { runtime: { concurrency } }),
+      ...(runtime === undefined ? {} : { runtime }),
     });
 
   test("concurrency 2 keeps at most two judgment calls in flight and preserves order", async () => {
     const capped = instrumented();
     const unbounded = instrumented();
-    const bounded = await run(capped.service, 2);
-    const wide = await run(unbounded.service, tenItems.length);
+    const bounded = await run(capped.service, { concurrency: 2 });
+    const wide = await run(unbounded.service, { concurrency: tenItems.length });
     expect(capped.peak()).toBe(2);
     expect(unbounded.peak()).toBe(tenItems.length);
     expect(bounded.claims).toEqual(wide.claims);
@@ -899,30 +923,353 @@ describe("bounded judgment fan-out", () => {
 
   test("concurrency must be an integer of at least one", async () => {
     for (const bad of [0, -1, 1.5, Number.NaN]) {
-      await expect(run(serviceOf(acceptingJudgments), bad)).rejects.toThrow(/integer >= 1/);
+      await expect(run(serviceOf(acceptingJudgments), { concurrency: bad })).rejects.toThrow(
+        /integer >= 1/,
+      );
     }
   });
 
-  test("one failing identity call still rejects the whole call", async () => {
-    const failing: FakeJudgments = {
-      ...acceptingJudgments,
-      async assessIdentity(canonical, item) {
-        if (item.sourceId === "item-7") throw new Error("jev identity 500");
-        return acceptingJudgments.assessIdentity(canonical, item);
-      },
-    };
-    await expect(run(serviceOf(failing), 2)).rejects.toThrow("jev identity 500");
+  /** A service whose identity call throws for one item. */
+  const failingIdentity: FakeJudgments = {
+    ...acceptingJudgments,
+    async assessIdentity(canonical, item) {
+      if (item.sourceId === "item-7") throw new Error("jev identity 500");
+      return acceptingJudgments.assessIdentity(canonical, item);
+    },
+  };
+
+  /** A service whose claim call throws for one item, after identity settled. */
+  const failingClaim: FakeJudgments = {
+    ...acceptingJudgments,
+    async assessClaim(item) {
+      if (item.sourceId === "item-7") throw new Error("jev 500");
+      return acceptingJudgments.assessClaim(item);
+    },
+  };
+
+  test("one failing identity call rejects the batch only under onItemError: throw", async () => {
+    await expect(
+      run(serviceOf(failingIdentity), { concurrency: 2, onItemError: "throw" }),
+    ).rejects.toThrow("jev identity 500");
   });
 
-  test("one failing item still rejects the whole call", async () => {
-    const failing: FakeJudgments = {
-      ...acceptingJudgments,
+  test("one failing claim call rejects the batch only under onItemError: throw", async () => {
+    await expect(
+      run(serviceOf(failingClaim), { concurrency: 2, onItemError: "throw" }),
+    ).rejects.toThrow("jev 500");
+  });
+
+  test("a failing claim isolates the item: nine claims plus one judgment_unavailable", async () => {
+    const result = await run(serviceOf(failingClaim), { concurrency: 2 });
+    expect(DEFAULT_EVIDENCE_ITEM_ERROR).toBe("review");
+    expect(result.claims.map((claim) => claim.provenance.sourceId)).toEqual(
+      tenItems.map((item) => item.sourceId),
+    );
+    const isolated = result.claims[7];
+    expect(isolated?.provenance.sourceId).toBe("item-7");
+    expect(isolated?.status).toBe("review");
+    expect(isolated?.reviewReasons).toEqual(["judgment_unavailable"]);
+    // Missing is not low: no assessment ran, so no kind and no event — never a
+    // zero-score judgment standing in for one that was never made.
+    expect(isolated?.assessedEventKind).toBe(null);
+    // The identity judgment was paid for and is kept, exactly as observed.
+    expect(isolated?.identityDecision).toBe("same");
+    expect(isolated?.identityConfidence).toBe(0.98);
+    expect(result.events.map((event) => event.evidenceClaimIds[0])).not.toContain(isolated?.id);
+    expect(result.events).toHaveLength(tenItems.length - 1);
+    expect(result.needsReview).toBe(true);
+    // Nine items judged twice, the tenth's identity judgment kept.
+    expect(result.records).toHaveLength((tenItems.length - 1) * 2 + 1);
+    expect(result.claims.filter((claim) => claim.status === "accepted")).toHaveLength(
+      tenItems.length - 1,
+    );
+  });
+
+  test("a failing identity records the absence rather than a zero confidence", async () => {
+    const result = await run(serviceOf(failingIdentity), { concurrency: 2 });
+    const isolated = result.claims[7];
+    expect(isolated?.provenance.sourceId).toBe("item-7");
+    expect(isolated?.status).toBe("review");
+    expect(isolated?.reviewReasons).toEqual(["judgment_unavailable"]);
+    // No identity judgment was observed. `null` is that absence written down;
+    // a `0` here would read as "certainly a different person".
+    expect(isolated?.identityDecision).toBe(null);
+    expect(isolated?.identityConfidence).toBe(null);
+    expect(isolated?.assessedEventKind).toBe(null);
+    expect(result.claims).toHaveLength(tenItems.length);
+    expect(result.events).toHaveLength(tenItems.length - 1);
+    // Nothing was observed for item-7, so it contributes no record.
+    expect(result.records).toHaveLength((tenItems.length - 1) * 2);
+  });
+
+  /**
+   * A service that hands the test a resolver per call instead of a timer:
+   * nothing here races a clock, so the abort below lands at a known point.
+   */
+  function gated(): {
+    service: JevJudgmentService;
+    started: () => string[];
+    release: () => void;
+    signals: () => (AbortSignal | undefined)[];
+    whenStarted: (count: number) => Promise<void>;
+  } {
+    const started: string[] = [];
+    const signals: (AbortSignal | undefined)[] = [];
+    const held: Array<() => void> = [];
+    const waiters: Array<{ count: number; resolve: () => void }> = [];
+    const hold = async (sourceId: string, signal: AbortSignal | undefined) => {
+      started.push(sourceId);
+      signals.push(signal);
+      for (const waiter of waiters.splice(0)) {
+        if (waiter.count <= started.length) waiter.resolve();
+        else waiters.push(waiter);
+      }
+      await new Promise<void>((resolve) => held.push(resolve));
+      signal?.throwIfAborted();
+    };
+    const service: JevJudgmentService = {
+      ...serviceOf(acceptingJudgments),
+      async assessIdentity(canonical, item, options) {
+        await hold(item.sourceId, options?.signal);
+        return serviceOf(acceptingJudgments).assessIdentity(canonical, item);
+      },
+    };
+    return {
+      service,
+      started: () => [...started],
+      signals: () => [...signals],
+      release: () => {
+        for (const resolve of held.splice(0)) resolve();
+      },
+      whenStarted: (count) =>
+        started.length >= count
+          ? Promise.resolve()
+          : new Promise<void>((resolve) => waiters.push({ count, resolve })),
+    };
+  }
+
+  test("an aborted signal cancels in-flight work and leaves no partial claim", async () => {
+    const controller = new AbortController();
+    const fake = gated();
+    const pending = run(fake.service, { concurrency: 2, signal: controller.signal });
+    // Deterministic: the two in-flight calls are held open until released, so
+    // the abort below happens with exactly the cap in flight. Nothing waits on
+    // a clock.
+    await fake.whenStarted(2);
+    expect(fake.started()).toEqual(["item-0", "item-1"]);
+    expect(fake.signals().every((signal) => signal === controller.signal)).toBe(true);
+    controller.abort(new Error("caller went away"));
+    fake.release();
+    await expect(pending).rejects.toThrow("caller went away");
+    // No item past the cap was ever started: the pool stopped handing out work.
+    expect(fake.started()).toEqual(["item-0", "item-1"]);
+  });
+
+  test("a signal already aborted judges nothing at all", async () => {
+    const fake = gated();
+    await expect(
+      run(fake.service, { concurrency: 2, signal: AbortSignal.abort(new Error("gone")) }),
+    ).rejects.toThrow("gone");
+    expect(fake.started()).toEqual([]);
+  });
+
+  test("a retry after a partial failure re-judges only the failed item", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    let firstCalls = 0;
+    const counting = (fake: FakeJudgments): FakeJudgments => ({
+      async assessIdentity(canonical, item) {
+        firstCalls += 1;
+        return fake.assessIdentity(canonical, item);
+      },
       async assessClaim(item) {
-        if (item.sourceId === "item-7") throw new Error("jev 500");
+        firstCalls += 1;
+        return fake.assessClaim(item);
+      },
+    });
+    const partial = await run(serviceOf(counting(failingClaim)), { concurrency: 2, store });
+    expect(partial.claims[7]?.reviewReasons).toEqual(["judgment_unavailable"]);
+    // Ten identity calls and nine claim calls; the tenth claim threw.
+    expect(firstCalls).toBe(tenItems.length * 2);
+    expect(store.size).toBe(tenItems.length * 2 - 1);
+
+    firstCalls = 0;
+    const retry = await run(serviceOf(counting(acceptingJudgments)), { concurrency: 2, store });
+    // Exactly one judgment re-made: the claim that failed. Everything else is
+    // a store hit.
+    expect(firstCalls).toBe(1);
+    expect(retry.claims.map((claim) => claim.status)).toEqual(tenItems.map(() => "accepted"));
+    expect(retry.needsReview).toBe(false);
+    expect(store.size).toBe(tenItems.length * 2);
+  });
+
+  test("duplicate items in one batch are judged once and both claims derive from it", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    let calls = 0;
+    const counting: FakeJudgments = {
+      async assessIdentity(canonical, item) {
+        calls += 1;
+        return acceptingJudgments.assessIdentity(canonical, item);
+      },
+      async assessClaim(item) {
+        calls += 1;
         return acceptingJudgments.assessClaim(item);
       },
     };
-    await expect(run(serviceOf(failing), 2)).rejects.toThrow("jev 500");
+    const duplicated = evidence("dup", 40);
+    const result = await processEvidence({
+      identity,
+      evidence: [duplicated, { ...duplicated }],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments: serviceOf(counting),
+      runtime: { concurrency: 2, store },
+    });
+    // One identity call and one claim call for the two identical items, and
+    // one record each: the second `put` of an append-only store never runs.
+    expect(calls).toBe(2);
+    expect(store.size).toBe(2);
+    expect(result.claims).toHaveLength(2);
+    expect(result.claims[0]).toEqual(result.claims[1]);
+    const ids = result.records.map((record) => record.id);
+    expect(ids).toHaveLength(4);
+    expect(new Set(ids).size).toBe(2);
+    expect(ids.slice(0, 2)).toEqual(ids.slice(2));
+  });
+
+  test("two concurrent runs sharing a store pay for one judgment each", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    let calls = 0;
+    const counting: FakeJudgments = {
+      async assessIdentity(canonical, item) {
+        calls += 1;
+        return acceptingJudgments.assessIdentity(canonical, item);
+      },
+      async assessClaim(item) {
+        calls += 1;
+        return acceptingJudgments.assessClaim(item);
+      },
+    };
+    const service = serviceOf(counting);
+    const once = () =>
+      processEvidence({
+        identity,
+        evidence: [evidence("shared", 40)],
+        cutoffAt: day(90),
+        retrievedAt: day(100),
+        pipelineVersion: "1",
+        judgments: service,
+        runtime: { store },
+      });
+    const [left, right] = await Promise.all([once(), once()]);
+    expect(calls).toBe(2);
+    expect(store.size).toBe(2);
+    expect(left?.claims[0]).toEqual(right?.claims[0]);
+  });
+});
+
+describe("transport policy at the client", () => {
+  test("createJevClient applies the timeout and retry defaults it documents", () => {
+    // The key is explicit, never read from the environment by this test.
+    const client = createJevClient({ apiKey: "test-key" });
+    expect(client.timeout).toBe(JEV_CLIENT_DEFAULTS.timeout);
+    expect(client.retry.maxRetries).toBe(JEV_CLIENT_DEFAULTS.retry.maxRetries);
+    expect(client.retry.respectRetryAfter).toBe(true);
+    expect(client.retry.httpStatuses.has(429)).toBe(true);
+    expect(client.retry.httpStatuses.has(503)).toBe(true);
+  });
+
+  test("an explicit transport policy overrides the defaults", () => {
+    const client = createJevClient({
+      apiKey: "test-key",
+      timeout: 1234,
+      retry: { maxRetries: 0 },
+    });
+    expect(client.timeout).toBe(1234);
+    expect(client.retry.maxRetries).toBe(0);
+  });
+});
+
+describe("a sweep survives one bad item", () => {
+  test("an isolated item routes the plan to review, never to failed", async () => {
+    const failing: FakeJudgments = {
+      ...acceptingJudgments,
+      async assessClaim(item) {
+        if (item.sourceId === "bad") throw new Error("jev 500");
+        return acceptingJudgments.assessClaim(item);
+      },
+    };
+    const run = await runDueMonitoringPlans({
+      plans: [
+        createMonitoringPlan({
+          id: "sweep",
+          personId: "p-1",
+          caseId: "c-1",
+          caseOpenedAt: day(0),
+          horizonDays: 90,
+          pipelineVersion: "1",
+        }),
+      ],
+      identities: new Map([["p-1", identity]]),
+      now: day(200),
+      collector: {
+        async collect() {
+          return [evidence("good", 40), evidence("bad", 50)];
+        },
+      },
+      judgments: serviceOf(failing),
+    });
+    // One item could not be judged; the sweep is not a failure, and the plan
+    // keeps its single attempt rather than being retried into the cap.
+    expect(run.plans[0]?.status).toBe("review");
+    expect(run.plans[0]?.error).toBe(null);
+    expect(run.plans[0]?.attemptCount).toBe(1);
+    const claims = run.results[0]?.result.claims ?? [];
+    expect(claims.map((claim) => claim.status)).toEqual(["accepted", "review"]);
+    expect(claims[1]?.reviewReasons).toEqual(["judgment_unavailable"]);
+    expect(run.results[0]?.result.events).toHaveLength(1);
+  });
+
+  test("the runtime the sweep is given reaches the pipeline", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    let calls = 0;
+    const counted: FakeJudgments = {
+      async assessIdentity(canonical, item) {
+        calls += 1;
+        return acceptingJudgments.assessIdentity(canonical, item);
+      },
+      async assessClaim(item) {
+        calls += 1;
+        return acceptingJudgments.assessClaim(item);
+      },
+    };
+    const sweep = () =>
+      runDueMonitoringPlans({
+        plans: [
+          createMonitoringPlan({
+            id: "sweep",
+            personId: "p-1",
+            caseId: "c-1",
+            caseOpenedAt: day(0),
+            horizonDays: 90,
+            pipelineVersion: "1",
+          }),
+        ],
+        identities: new Map([["p-1", identity]]),
+        now: day(200),
+        collector: {
+          async collect() {
+            return [evidence("good", 40)];
+          },
+        },
+        judgments: serviceOf(counted),
+        runtime: { concurrency: 1, store },
+      });
+    await sweep();
+    expect(calls).toBe(2);
+    await sweep();
+    expect(calls).toBe(2);
+    expect(store.size).toBe(2);
   });
 });
 

@@ -103,12 +103,26 @@ export function gateIdentity(
  * `assessment` is `null` when no claim assessment ran: either the identity gate
  * stopped the item, or judging was unavailable. The first case keeps the gate's
  * own status and reasons; the second is a review we cannot explain by evidence.
+ *
+ * `identity` is `null` when even the identity judgment was unavailable — a
+ * failure the fan-out isolated. There is then nothing to gate on, so the item
+ * is a review for the same reason, and an assessment without one is not
+ * representable: a claim cannot have been judged for a person nothing linked
+ * it to.
  */
 export function decideStatus(
-  identity: IdentityAssessment,
+  identity: IdentityAssessment | null,
   assessment: ClaimAssessment | null,
   thresholds: EvidenceThresholds,
 ): { status: ClaimStatus; reasons: ReviewReason[] } {
+  if (identity === null) {
+    if (assessment !== null) {
+      throw new TypeError(
+        "decideStatus: a claim assessment without an identity judgment is not representable",
+      );
+    }
+    return { status: "review", reasons: ["judgment_unavailable"] };
+  }
   const gate = gateIdentity(identity, thresholds);
   if (assessment === null) {
     if (gate.kind === "stop") return { status: gate.status, reasons: gate.reasons };
@@ -144,7 +158,8 @@ export interface MaterializeInput {
   personId: string;
   evidence: GrokEvidenceItem;
   retrievedAt: Date;
-  identity: IdentityAssessment;
+  /** `null` when the identity judgment itself was unavailable. */
+  identity: IdentityAssessment | null;
   /** `null` when no claim assessment ran; the claim then carries no kind. */
   assessment: ClaimAssessment | null;
   decision: { status: ClaimStatus; reasons: ReviewReason[] };
@@ -179,13 +194,20 @@ export function materialize(input: MaterializeInput): {
     proposedEventKind: input.evidence.proposedEventKind,
     assessedEventKind: input.assessment?.eventKind ?? null,
     status: input.decision.status,
-    identityDecision: input.identity.decision,
-    identityConfidence: input.identity.confidence,
+    // `null`, not a low number: an identity judgment that was never made is a
+    // recorded absence, and a `0` here would read as "certainly someone else".
+    identityDecision: input.identity?.decision ?? null,
+    identityConfidence: input.identity?.confidence ?? null,
     // Absent, not empty: a claim with nothing to say carries no vacuous field.
     ...(input.decision.reasons.length > 0 ? { reviewReasons: [...input.decision.reasons] } : {}),
     createdAt: new Date(input.retrievedAt.getTime()),
   };
   const eventKind = input.assessment?.eventKind ?? null;
+  if (input.assessment !== null && input.identity === null) {
+    throw new TypeError(
+      "materialize: a claim assessment without an identity judgment is not representable",
+    );
+  }
   if (input.assessment === null || eventKind === null) return { claim, event: null };
   if (input.decision.status !== "accepted" && input.decision.status !== "review") {
     // An assessed event kind with a rejected or proposed status has no event:

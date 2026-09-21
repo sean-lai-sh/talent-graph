@@ -44,23 +44,29 @@ import {
   projectIdentity,
   recordIdFor,
 } from "../src/index.ts";
-import type { EvidencePipelinePolicy } from "../src/longitudinal/pipeline.ts";
+import type { CareerEvidenceSpec } from "../src/models/spec.ts";
 
 const FIXTURE = join(import.meta.dir, "fixtures", "longitudinal-golden.json");
 
 const day = (n: number) => new Date(Date.UTC(2026, 0, 1 + n));
 
 /**
- * Stated in full rather than read from `DEFAULT_EVIDENCE_POLICY` or any spec
- * loader: the numbers this golden pins must not move when a default does.
+ * The rubric this golden runs under, with every number that decides an outcome
+ * stated here rather than read from a default: the pipeline takes its gate
+ * thresholds from the spec it is given (#54 T7 removed the separate `policy`
+ * override), so pinning the spec is pinning the policy. If a shipped default
+ * moves, this fixture does not.
  */
-const policy: EvidencePipelinePolicy = {
-  identityConfidence: 0.75,
-  identityContradiction: 0.25,
-  eventConfidence: 0.65,
-  dimensionConfidence: 0.5,
-  questionVersion: "career-evidence@1.0.0",
+const spec: CareerEvidenceSpec = {
+  ...CAREER_EVIDENCE_V1_0_0,
+  version: "1.0.0",
   model: "jev",
+  thresholds: {
+    identityConfidence: 0.75,
+    identityContradiction: 0.25,
+    eventConfidence: 0.65,
+    dimensionConfidence: 0.5,
+  },
 };
 
 const identity: CanonicalIdentity = {
@@ -358,7 +364,7 @@ async function runAll(): Promise<string> {
       retrievedAt: day(100),
       pipelineVersion: "1",
       judgments: item.judgments,
-      policy,
+      spec,
     });
     output[item.name] = derived;
   }
