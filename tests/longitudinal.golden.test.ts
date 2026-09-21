@@ -170,13 +170,32 @@ function claimAnswers(assessment: ClaimAssessment): Record<string, JevAnswer> {
   return answers;
 }
 
+/**
+ * The fingerprints this fake service advertises.
+ *
+ * The pipeline files a record at `recordIdFor(<the fingerprint the service
+ * computes for this request>, evidenceKey)` and refuses one that arrives at
+ * any other address, so the fake has to address its records the same way it
+ * answers `identityFingerprint`/`claimFingerprint`. The claim fingerprint
+ * carries no person, exactly as the adapter's does.
+ */
+const fakeFingerprints = {
+  identity: (personId: string, evidence: GrokEvidenceItem) =>
+    contentFingerprint({ kind: "identity", personId, sourceId: evidence.sourceId }),
+  claim: (evidence: GrokEvidenceItem) =>
+    contentFingerprint({ kind: "claim", sourceId: evidence.sourceId }),
+};
+
 function fakeRecord(
   kind: JevJudgmentRecord["kind"],
   personId: string,
   evidence: GrokEvidenceItem,
   answers: Record<string, JevAnswer>,
 ): JevJudgmentRecord {
-  const fingerprint = contentFingerprint({ kind, personId, sourceId: evidence.sourceId });
+  const fingerprint =
+    kind === "identity"
+      ? fakeFingerprints.identity(personId, evidence)
+      : fakeFingerprints.claim(evidence);
   const evidenceKey = evidenceKeyFor(personId, evidence);
   return freezeRecord({
     id: recordIdFor(fingerprint, evidenceKey),
@@ -198,13 +217,8 @@ function fakeRecord(
 function serviceOf(fake: FakeJudgments): JevJudgmentService {
   return {
     identityFingerprint: (identity, evidence) =>
-      contentFingerprint({
-        kind: "identity",
-        personId: identity.personId,
-        sourceId: evidence.sourceId,
-      }),
-    claimFingerprint: (evidence) =>
-      contentFingerprint({ kind: "claim", sourceId: evidence.sourceId }),
+      fakeFingerprints.identity(identity.personId, evidence),
+    claimFingerprint: (evidence) => fakeFingerprints.claim(evidence),
     async assessIdentity(identity, evidence) {
       const assessment = await fake.assessIdentity(identity, evidence);
       return {

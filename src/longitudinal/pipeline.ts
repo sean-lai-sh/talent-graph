@@ -96,7 +96,10 @@ export interface EvidenceRuntime {
    *
    * `throw` restores the all-or-nothing behaviour: the first failure rejects
    * the whole call. For callers that would rather have no result than a
-   * partial one.
+   * partial one. It rejects early, it does not stop the pool: items already
+   * in flight, and items the pool had already handed out, may still be paid
+   * for and recorded after the call has rejected. `signal` is what stops the
+   * fan-out early.
    */
   onItemError?: EvidenceItemErrorMode;
   /**
@@ -383,6 +386,11 @@ async function recordedJudgment(
  * a request nobody can cancel stays uncancellable, which is the safe side of
  * this trade — a late joiner with a signal can still stop waiting, it just
  * cannot stop the request.
+ *
+ * The entry lives as long as an asker is waiting on it, not as long as the
+ * asker that started it: a judgment whose starter aborted is still owed to
+ * everyone who joined, and still the one a later asker should join rather
+ * than buy again.
  */
 export interface SharedJudgment {
   record: Promise<JevJudgmentRecord>;
@@ -391,6 +399,10 @@ export interface SharedJudgment {
   signalled: Set<AbortSignal>;
   /** Askers still waiting that gave no signal, and so never go away. */
   unsignalled: number;
+  /** Askers waiting, however they wait. The entry is dropped at zero. */
+  waiters: number;
+  /** Set when the judgment has settled; there is nothing left to cancel. */
+  done: boolean;
 }
 
 /**
@@ -399,13 +411,22 @@ export interface SharedJudgment {
  * of the others can cancel, the shared request is cancelled too.
  */
 function joinShared(shared: SharedJudgment, signal: AbortSignal | undefined): () => void {
+  shared.waiters += 1;
+  const depart = () => {
+    shared.waiters -= 1;
+    // Nobody is left to want an answer that has not arrived: stop paying for
+    // it. A judgment that already settled has nothing to cancel, and an
+    // already-aborted controller keeps the reason its abort carried.
+    if (shared.waiters === 0 && !shared.done) shared.controller?.abort();
+  };
   if (signal === undefined) {
     shared.unsignalled += 1;
     return () => {
       shared.unsignalled -= 1;
+      depart();
     };
   }
-  if (signal.aborted) return () => {};
+  if (signal.aborted) return depart;
   const onAbort = () => {
     shared.signalled.delete(signal);
     if (shared.signalled.size === 0 && shared.unsignalled === 0) {
@@ -417,6 +438,7 @@ function joinShared(shared: SharedJudgment, signal: AbortSignal | undefined): ()
   return () => {
     shared.signalled.delete(signal);
     signal.removeEventListener("abort", onAbort);
+    depart();
   };
 }
 
@@ -469,13 +491,22 @@ async function coalesce<TAssessment>(
       return { record: await untilAborted(inFlight.record, deps.signal) };
     } finally {
       leave();
+      evict(pending, id, inFlight);
     }
   }
+  // The caller may have gone away while the store was being read — the pool
+  // checked before handing this item out, and that was several awaits ago.
+  // Starting a request now would buy an answer nobody is waiting for.
+  deps.signal?.throwIfAborted();
   let judged: JevJudgment<TAssessment> | undefined;
   const controller = deps.signal === undefined ? undefined : new AbortController();
   const record = (async () => {
     judged = await judge(controller === undefined ? undefined : { signal: controller.signal });
-    return recordJudgment(deps.store, judged.record, expected);
+    // The service answers for the request it was given. A record about
+    // another person, another rubric or another question is refused here,
+    // before the write: filed at an address nothing computes, it would read
+    // back as a permanent miss and a re-billed judgment rather than an error.
+    return recordJudgment(deps.store, assertRecordedFor(judged.record, expected), expected);
   })();
   // Every asker observes this rejection through its own `await`; this only
   // keeps the shared copy from being reported as an unhandled one.
@@ -484,8 +515,14 @@ async function coalesce<TAssessment>(
     record,
     signalled: new Set(),
     unsignalled: 0,
+    waiters: 0,
+    done: false,
     ...(controller === undefined ? {} : { controller }),
   };
+  const settle = () => {
+    shared.done = true;
+  };
+  record.then(settle, settle);
   const leave = joinShared(shared, deps.signal);
   pending?.set(id, shared);
   try {
@@ -498,9 +535,24 @@ async function coalesce<TAssessment>(
       : { record: settled };
   } finally {
     leave();
-    // Only if it is still ours: a later asker may have taken the entry over.
-    if (pending?.get(id) === shared) pending.delete(id);
+    evict(pending, id, shared);
   }
+}
+
+/**
+ * Drop a shared judgment once the last asker has stopped waiting.
+ *
+ * Not when its starter stops: a judgment whose starter aborted is still owed
+ * to whoever joined it, and a later asker should join that one rather than
+ * pay for the same answer again. The identity check keeps one run from
+ * dropping an entry a later asker has already taken over.
+ */
+function evict(
+  pending: Map<string, SharedJudgment> | undefined,
+  id: string,
+  shared: SharedJudgment,
+): void {
+  if (shared.waiters === 0 && pending?.get(id) === shared) pending.delete(id);
 }
 
 /**
@@ -527,7 +579,10 @@ async function recordJudgment(
     await store.put(record);
     return record;
   } catch (error) {
-    const recorded = await store.get(record.id);
+    // `?? null` for the same reason the hit path has it: a store that answers
+    // an empty address with `undefined` is answering "nothing is recorded
+    // here", and the write failure is what the caller needs to hear about.
+    const recorded = (await store.get(record.id)) ?? null;
     if (recorded === null) throw error;
     return assertRecordedFor(recorded, expected);
   }

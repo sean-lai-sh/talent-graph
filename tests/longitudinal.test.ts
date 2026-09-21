@@ -1307,6 +1307,63 @@ describe("a coalesced judgment belongs to every asker", () => {
     expect(store.size).toBe(0);
   });
 
+  test("a judgment the aborted starter began is still there for a later asker", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    const gate = holding();
+    const controller = new AbortController();
+    const starter = runOne(gate.service, { store, signal: controller.signal });
+    await flush();
+    const waiting = runOne(gate.service, { store });
+    await flush();
+    controller.abort(new Error("starter gone"));
+    await flush();
+    // The starter has left, but the judgment it began is still owed to the
+    // run that joined it — so a third asker joins that one rather than
+    // buying the same answer again.
+    const latecomer = runOne(gate.service, { store });
+    await flush();
+    expect(gate.identityCalls()).toBe(1);
+    gate.release();
+    const [gone, kept, joined] = await Promise.allSettled([starter, waiting, latecomer]);
+    expect(gone.status).toBe("rejected");
+    expect(kept.status).toBe("fulfilled");
+    expect(joined.status).toBe("fulfilled");
+    expect(joined.status === "fulfilled" ? joined.value.claims[0]?.status : undefined).toBe(
+      "accepted",
+    );
+    expect(gate.identityCalls()).toBe(1);
+    expect(store.size).toBe(2);
+  });
+
+  test("an abort that lands during the store read buys nothing at all", async () => {
+    const inner = new InMemoryJevJudgmentStore();
+    let openGet!: () => void;
+    const held = new Promise<void>((resolve) => {
+      openGet = resolve;
+    });
+    const slow: JevJudgmentStore = {
+      async get(recordId) {
+        await held;
+        return inner.get(recordId);
+      },
+      async put(record) {
+        return inner.put(record);
+      },
+    };
+    const gate = holding();
+    const controller = new AbortController();
+    const pending = runOne(gate.service, { store: slow, signal: controller.signal });
+    await flush();
+    // The caller goes away while the store lookup is still in flight: the
+    // pool's own check has already passed, so the guard has to be here too.
+    controller.abort(new Error("caller gone"));
+    openGet();
+    await expect(pending).rejects.toThrow("caller gone");
+    await flush();
+    expect(gate.identityCalls()).toBe(0);
+    expect(inner.size).toBe(0);
+  });
+
   test("a judgment that fails for any other reason fails for every asker", async () => {
     // Deliberate and documented: askers share the observation, so they share
     // its absence too. Each one then isolates it under its own `onItemError`.
@@ -1330,6 +1387,59 @@ describe("a coalesced judgment belongs to every asker", () => {
       lenient.status === "fulfilled" ? lenient.value.claims[0]?.reviewReasons : undefined,
     ).toEqual(["judgment_unavailable"]);
     expect(strict.status).toBe("rejected");
+  });
+});
+
+describe("a judgment is addressed where it will be looked for", () => {
+  /** A service that answers with a record about somebody else entirely. */
+  const lying = (): JevJudgmentService => {
+    const honest = serviceOf(acceptingJudgments);
+    const other: CanonicalIdentity = { ...identity, personId: "p-999" };
+    return {
+      ...honest,
+      assessIdentity: (_canonical, item, options) => honest.assessIdentity(other, item, options),
+      assessClaim: (item, _personId, options) => honest.assessClaim(item, "p-999", options),
+    };
+  };
+
+  const runOver = (judgments: JevJudgmentService, runtime: EvidenceRuntime) =>
+    processEvidence({
+      identity,
+      evidence: [evidence("work", 40)],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments,
+      runtime,
+    });
+
+  test("a service's record for another person is refused, and nothing is written", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    await expect(runOver(lying(), { store })).rejects.toThrow(
+      /must return the record it was asked for/,
+    );
+    // Refused before the write: a record filed at an address nothing computes
+    // is a permanent cache miss, and a re-billed judgment, not an error.
+    expect(store.size).toBe(0);
+  });
+
+  test("a misaddressed record is a bug, not an unavailable judgment", async () => {
+    // Per-item isolation is for a judgment that could not be made. This one
+    // was made; it is about the wrong person.
+    await expect(runOver(lying(), { onItemError: "review" })).rejects.toThrow(TypeError);
+  });
+
+  test("a store whose re-read answers with nothing surfaces the write failure", async () => {
+    const sloppy = {
+      async get() {
+        return undefined;
+      },
+      async put() {
+        throw new Error("append-only");
+      },
+    } as unknown as JevJudgmentStore;
+    const result = await runOver(serviceOf(acceptingJudgments), { store: sloppy });
+    expect(result.claims[0]?.reviewReasons).toEqual(["judgment_unavailable"]);
   });
 });
 
