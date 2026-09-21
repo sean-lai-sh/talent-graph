@@ -19,14 +19,18 @@
  * depend on it, never the other way round.
  */
 
-import { createRun, type ModelRun, type ModelType, type UpstreamRun } from "./run.ts";
+import { createRun, type ModelRun, type UpstreamRun } from "./run.ts";
 import type { ModelSpecKind, SpecOfKind } from "./spec.ts";
 
 /** What `resolveOptions` hands back: the provenance record of one call. */
 export interface ResolvedOptions {
   /** Everything that can change the numbers, recorded verbatim. */
   parameters: Record<string, unknown>;
-  /** Options that were another run's output, by role. */
+  /**
+   * Options that were another run's output, by role. Empty when there is no
+   * upstream run; the key is always present so a definition can never forget
+   * to answer the question.
+   */
   upstream: readonly UpstreamRun[];
 }
 
@@ -34,20 +38,8 @@ export interface ModelDefinition<K extends ModelSpecKind, TIn, TOpts, TOut> {
   /** Unique key in the runtime registry. */
   name: string;
   kind: K;
-  /**
-   * The `modelType` segment of the emitted run id. Frozen per model so the
-   * id format survives this refactor unchanged; it goes away with the run-id
-   * format bump, which is the one change allowed to move ids.
-   */
-  legacyId: ModelType;
   /** The spec a call uses, given its options. The only default-spec seam. */
   specOf(opts: TOpts): SpecOfKind<K>;
-  /**
-   * The version stamped on the run. Defaults to `spec.version`; a model
-   * whose numbers change with an option (judge-weighted Referral Signals)
-   * tags the version so a weighted run is never mistaken for the plain one.
-   */
-  versionOf?(spec: SpecOfKind<K>, opts: TOpts): string;
   /** Raw observations only. Everything returned here is hashed into inputHash. */
   inputsOf(input: TIn): unknown;
   /** The single provenance seam; see the module comment. */
@@ -109,21 +101,34 @@ export function getModel(name: string): AnyModelDefinition {
 /**
  * Run a model and wrap the result in a `ModelRun`.
  *
- * The maths runs first, so an invalid spec throws before anything is
- * recorded; `parameters` and lineage are then read off the same options the
- * maths saw.
+ * The spec comes from `def.specOf(opts)` and nowhere else, so the version
+ * stamped on the record is always the version that produced the numbers. The
+ * maths runs first, so an invalid spec throws before anything is recorded;
+ * `parameters` and lineage are then read off the same options the maths saw.
  */
 export function runModel<K extends ModelSpecKind, TIn, TOpts, TOut>(
   def: ModelDefinition<K, TIn, TOpts, TOut>,
   input: TIn,
-  spec: SpecOfKind<K>,
   opts: TOpts,
   now: Date,
 ): ModelRun<TOut> {
+  // The spec is derived here, once, from the same options the maths sees.
+  // A caller cannot hand in a spec of its own, so there is no way to hash
+  // spec A onto a number computed with spec B.
+  const spec = def.specOf(opts);
   const outputs = def.compute(input, spec, opts);
   const { parameters, upstream } = def.resolveOptions(spec, opts);
-  const version = def.versionOf === undefined ? spec.version : def.versionOf(spec, opts);
-  return createRun(def.legacyId, version, parameters, def.inputsOf(input), outputs, now, {
-    upstream,
+  // `spec.version` and nothing else: the stamped version is always one
+  // `getSpec()` resolves (or a `+env` tag), never a composed tag. What made a
+  // run differ from the plain one is `upstreamRuns`, not a version suffix.
+  return createRun({
+    kind: def.kind,
+    model: def.name,
+    specVersion: spec.version,
+    parameters,
+    inputs: def.inputsOf(input),
+    outputs,
+    now,
+    upstreamRuns: upstream,
   });
 }

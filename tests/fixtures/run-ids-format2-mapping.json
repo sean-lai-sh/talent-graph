@@ -1,0 +1,54 @@
+{
+  "referral_signal": {
+    "oldId": "referral_signal_v0@0.1.0:6e29b052b7c2:b0b95269",
+    "newId": "referral_signal/referral_signal_v0@0.1.0:6e29b052b7c2:4d96fb08",
+    "kind": "referral_signal",
+    "specVersion": "0.1.0",
+    "upstreamRuns": [],
+    "oldOutputsHash": "4092d74d65fdecdae88308a0802cbbec21ae50e58f0f6024a9235b47e242080f"
+  },
+  "referral_signal_judge_weighted": {
+    "oldId": "referral_signal_v0@0.1.0+judge_reliability:6e29b052b7c2:31c808c4",
+    "newId": "referral_signal/referral_signal_v0@0.1.0:6e29b052b7c2:f9344be0",
+    "kind": "referral_signal",
+    "specVersion": "0.1.0",
+    "upstreamRuns": [
+      {
+        "role": "judge_weights",
+        "runId": "judge_reliability/judge_reliability_v2@2.0.0:3a98f0226b21:43498348",
+        "digest": "af17c2f935dad43fefe7aaafa6ec20cd5c11fce5c5073bdce18f4e158c055328"
+      }
+    ],
+    "oldOutputsHash": "bdd9cfd5094aa4e773e5662a61c2a409746b764baf5aaca53dae42be029498f7"
+  },
+  "judge_calibration": {
+    "oldId": "judge_reliability_v2@2.0.0:3a98f0226b21:9be09b94",
+    "newId": "judge_reliability/judge_reliability_v2@2.0.0:3a98f0226b21:43498348",
+    "kind": "judge_reliability",
+    "specVersion": "2.0.0",
+    "upstreamRuns": [],
+    "oldOutputsHash": "c65c50992b27692ba2bdb4979f7b83c4a4f452f25dfeab412e7e049095782387"
+  },
+  "capability": {
+    "oldId": "bradley_terry_v1@1.0.0:38fa7190826b:cdb1a3fd",
+    "newId": "bradley_terry/bradley_terry_v1@1.0.0:38fa7190826b:914167e2",
+    "kind": "bradley_terry",
+    "specVersion": "1.0.0",
+    "upstreamRuns": [],
+    "oldOutputsHash": "74cc6686b4f1fe62d0798cb69e37f8c8b830a576b949e929843f5cc6b9977b1c"
+  },
+  "capability_anchored": {
+    "oldId": "bradley_terry_v1@1.0.0:38fa7190826b:74239587",
+    "newId": "bradley_terry/bradley_terry_v1@1.0.0:38fa7190826b:82c91d54",
+    "kind": "bradley_terry",
+    "specVersion": "1.0.0",
+    "upstreamRuns": [
+      {
+        "role": "anchor",
+        "runId": "bradley_terry/bradley_terry_v1@1.0.0:38fa7190826b:914167e2",
+        "digest": "f487f9d0cab442448a852d76c1f1a9815794db0496e736c0da1aa7ebfdff1aea"
+      }
+    ],
+    "oldOutputsHash": "a7d48f8a607891cfb4551cf5aac772990d1b6ced472b918c2d3753b208892fa4"
+  }
+}

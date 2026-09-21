@@ -47,7 +47,6 @@ interface ProbeOptions {
 const inTestModel = defineModel<"referral_signal", ProbeInput, ProbeOptions, number>({
   name: "defined_in_test_v0",
   kind: "referral_signal",
-  legacyId: "referral_signal_v0",
   specOf: () => REFERRAL_SIGNAL_V0_1_0,
   inputsOf: (input) => ({ n: input.n }),
   resolveOptions: (spec, opts) => ({
@@ -56,6 +55,31 @@ const inTestModel = defineModel<"referral_signal", ProbeInput, ProbeOptions, num
   }),
   excludeFromProvenance: ["label"],
   compute: (input, _spec, opts) => input.n * opts.factor,
+});
+
+/**
+ * Two definitions of one kind differing only in `compute`: the run id must
+ * separate them, or a number computed one way could be reported under the id
+ * of a number computed another way.
+ */
+const twinA = defineModel<"referral_signal", ProbeInput, ProbeOptions, number>({
+  name: "twin_a_v0",
+  kind: "referral_signal",
+  specOf: () => REFERRAL_SIGNAL_V0_1_0,
+  inputsOf: (input) => ({ n: input.n }),
+  resolveOptions: (spec, opts) => ({ parameters: { spec, factor: opts.factor }, upstream: [] }),
+  excludeFromProvenance: ["label"],
+  compute: (input, _spec, opts) => input.n * opts.factor,
+});
+
+const twinB = defineModel<"referral_signal", ProbeInput, ProbeOptions, number>({
+  name: "twin_b_v0",
+  kind: "referral_signal",
+  specOf: () => REFERRAL_SIGNAL_V0_1_0,
+  inputsOf: (input) => ({ n: input.n }),
+  resolveOptions: (spec, opts) => ({ parameters: { spec, factor: opts.factor }, upstream: [] }),
+  excludeFromProvenance: ["label"],
+  compute: (input, _spec, opts) => input.n * opts.factor + 1,
 });
 
 /** One concrete call per model, plus how to perturb the awkward options. */
@@ -80,6 +104,7 @@ const PROBES: Record<string, Probe> = {
       topK: 5,
       judgeReliability: new Map([["p-001", 0.5]]),
       judgeBias: new Map([["p-001", 0.1]]),
+      judgeRunId: "judge_reliability/judge_reliability_v2@2.0.0:deadbeefcafe:01234567",
     },
     now: NOW,
     perturb: { spec: () => ({ ...REFERRAL_SIGNAL_V0_1_0, version: "0.1.1" }) },
@@ -123,6 +148,8 @@ const PROBES: Record<string, Probe> = {
     opts: { factor: 2, label: "display only" },
     now: NOW,
   },
+  twin_a_v0: { input: { n: 3 }, opts: { factor: 2, label: "display only" }, now: NOW },
+  twin_b_v0: { input: { n: 3 }, opts: { factor: 2, label: "display only" }, now: NOW },
 };
 
 /**
@@ -140,13 +167,18 @@ function perturbValue(key: string, value: unknown): unknown {
 }
 
 function idFor(def: AnyModelDefinition, probe: Probe, opts: Record<string, unknown>): string {
-  return runModel(def, probe.input, def.specOf(opts), opts, probe.now).id;
+  return runModel(def, probe.input, opts, probe.now).id;
 }
 
 describe("every option moves the id", () => {
+  // A coverage check, not an equality one: models register process-wide, so
+  // a second test file defining a model must not break this file depending
+  // on load order. What matters is that no registered model goes unprobed.
   test("every registered model has a probe", () => {
-    const registered = registeredModels().map((d) => d.name);
-    expect(registered.sort()).toEqual(Object.keys(PROBES).sort());
+    const unprobed = registeredModels()
+      .map((d) => d.name)
+      .filter((name) => !(name in PROBES));
+    expect(unprobed).toEqual([]);
   });
 
   for (const def of registeredModels()) {
@@ -175,19 +207,12 @@ describe("every option moves the id", () => {
 describe("a model defined outside src/models/", () => {
   test("registers and runs without editing any file under src/models/", () => {
     expect(MODELS.get("defined_in_test_v0")).toBe(inTestModel as unknown as AnyModelDefinition);
-    const run = runModel(
-      inTestModel,
-      { n: 3 },
-      REFERRAL_SIGNAL_V0_1_0,
-      {
-        factor: 2,
-        label: "display only",
-      },
-      NOW,
-    );
+    const run = runModel(inTestModel, { n: 3 }, { factor: 2, label: "display only" }, NOW);
     expect(run.outputs).toBe(6);
-    expect(run.modelVersion).toBe("0.1.0");
-    expect(run.id).toMatch(/^referral_signal_v0@0\.1\.0:[0-9a-f]{12}:[0-9a-f]{8}$/);
+    expect(run.specVersion).toBe("0.1.0");
+    expect(run.id).toMatch(
+      /^referral_signal\/defined_in_test_v0@0\.1\.0:[0-9a-f]{12}:[0-9a-f]{8}$/,
+    );
     expect(run.createdAt).toEqual(NOW);
     expect(Object.keys(run.parameters).sort()).toEqual(["factor", "spec"]);
   });
@@ -197,7 +222,6 @@ describe("a model defined outside src/models/", () => {
       defineModel({
         name: "defined_in_test_v0",
         kind: "referral_signal",
-        legacyId: "referral_signal_v0",
         specOf: () => REFERRAL_SIGNAL_V0_1_0,
         inputsOf: () => ({}),
         resolveOptions: (spec) => ({ parameters: { spec }, upstream: [] }),
@@ -208,9 +232,36 @@ describe("a model defined outside src/models/", () => {
 });
 
 describe("the three shipped models are registered", () => {
-  test("each keeps its legacy id segment", () => {
-    expect(referralSignalModel.legacyId).toBe("referral_signal_v0");
-    expect(bradleyTerryModel.legacyId).toBe("bradley_terry_v1");
-    expect(judgeReliabilityModel.legacyId).toBe("judge_reliability_v2");
+  test("each names its spec kind, and the kind resolves a spec", () => {
+    expect(referralSignalModel.kind).toBe("referral_signal");
+    expect(bradleyTerryModel.kind).toBe("bradley_terry");
+    expect(judgeReliabilityModel.kind).toBe("judge_reliability");
+  });
+});
+
+describe("the runner derives the spec it stamps", () => {
+  const opts = { factor: 2, label: "display only" };
+
+  test("two definitions of one kind never share a run id", () => {
+    const a = runModel(twinA, { n: 3 }, opts, NOW);
+    const b = runModel(twinB, { n: 3 }, opts, NOW);
+    expect(a.outputs).not.toBe(b.outputs);
+    expect(a.id).not.toBe(b.id);
+    expect(a.kind).toBe(b.kind);
+    expect(a.specVersion).toBe(b.specVersion);
+  });
+
+  test("the stamped spec is `specOf(opts)`; a caller cannot supply another", () => {
+    // `runModel` takes no spec argument, so hashing spec A onto a number
+    // computed with spec B is unrepresentable. An extra argument is ignored.
+    const wrong = { ...REFERRAL_SIGNAL_V0_1_0, version: "9.9.9" };
+    const run = (runModel as unknown as (...args: unknown[]) => { specVersion: string })(
+      twinA,
+      { n: 3 },
+      opts,
+      NOW,
+      wrong,
+    );
+    expect(run.specVersion).toBe("0.1.0");
   });
 });

@@ -1,74 +1,127 @@
 /**
  * ModelRun — the reproducibility record for every inference run.
  *
- * `parameters` carries the **full** ModelSpec (kind, version, every weight),
- * and `inputHash` fingerprints the raw observations, so spec version + hash
- * are sufficient to reproduce any historical number exactly.
+ * `parameters` carries the **full** ModelSpec plus every call-site option
+ * that can change a number, `inputHash` fingerprints the raw observations,
+ * and `upstreamRuns` names every other run whose *output* was consumed, so
+ * spec version + hashes + lineage are sufficient to reproduce any historical
+ * number exactly.
  *
  * This module knows nothing about scoring or inference: it is the record
  * shape plus the id formula, and nothing else.
  */
 
 import { hashInputs } from "../provenance/hash.ts";
+import type { ModelSpecKind } from "./spec.ts";
 
+/**
+ * Version of the run id formula. Bumped to 2 when the `+judge_reliability`
+ * version tag was replaced by explicit lineage: ids of format 1 are not
+ * comparable to ids of format 2 (see `docs/models/CHANGELOG.md` and
+ * `tests/fixtures/run-ids-format2-mapping.json`).
+ */
+export const RUN_ID_FORMAT = 2;
+
+/**
+ * @deprecated The `modelType` naming scheme of run id format 1. Runs now
+ * carry `kind: ModelSpecKind`, the same word the spec uses. Kept only so
+ * existing importers of `src/modelRun.ts` keep compiling.
+ */
 export type ModelType = "referral_signal_v0" | "bradley_terry_v1" | "judge_reliability_v2";
 
 /**
- * A run this run was computed from — e.g. the previous capability fit an
- * anchored refit was pulled toward, or the calibration whose weights a
- * Referral Signal run used. Recorded by role so lineage reads as a graph
- * rather than a bag of ids.
+ * How an upstream run's output entered this one.
+ *
+ * `anchor` — the previous capability fit an anchored refit was pulled toward.
+ * `judge_weights` — the calibration whose reliability/bias weights a Referral
+ * Signal run applied.
+ *
+ * Both are the same mechanism: values produced by another run, consumed here.
  */
-export interface UpstreamRun {
-  /** The option the upstream run arrived as, e.g. "previous". */
-  role: string;
-  /** The upstream `ModelRun.id`, or null when the caller did not supply one. */
-  runId: string | null;
-}
+export type UpstreamRole = "anchor" | "judge_weights";
 
-/** Every upstream run that fed one run. */
-export interface RunLineage {
-  upstream: readonly UpstreamRun[];
+/** A run this run was computed from. */
+export interface UpstreamRun {
+  role: UpstreamRole;
+  /**
+   * The producing run's id, or `null` when the caller consumed the values
+   * without naming the run they came from. Never a placeholder id: an
+   * unknown producer is recorded as unknown, and the `digest` still pins
+   * exactly which values were used.
+   */
+  runId: string | null;
+  /** Hash of the *values* consumed (θ map, weight maps), not of the whole run. */
+  digest: string;
 }
 
 export interface ModelRun<TOut = unknown> {
   id: string;
-  modelType: ModelType;
-  modelVersion: string;
+  /** Was `modelType: ModelType`. One naming scheme, shared with ModelSpec. */
+  kind: ModelSpecKind;
+  /** Always resolvable by `getSpec()`, or a `+env` tag. Never a composed tag. */
+  specVersion: string;
   /** Always includes `spec: ModelSpec` plus any call-site options. */
   parameters: Record<string, unknown>;
   inputHash: string;
+  /** Empty for a run with no upstream; the key is always present. */
+  upstreamRuns: readonly UpstreamRun[];
   createdAt: Date;
   outputs: TOut;
+}
+
+/** Everything `createRun` needs. An object, because order would not read. */
+export interface RunRecordInput<TOut> {
+  kind: ModelSpecKind;
+  /**
+   * The definition's registry name. Two definitions can share a spec kind
+   * and differ only in their maths, so the kind alone does not identify what
+   * produced a number.
+   */
+  model: string;
+  specVersion: string;
+  parameters: Record<string, unknown>;
+  /** Raw observations; hashed into `inputHash`. */
+  inputs: unknown;
+  outputs: TOut;
+  now: Date;
+  /** Defaults to none. */
+  upstreamRuns?: readonly UpstreamRun[];
 }
 
 /**
  * Build a run record and its id.
  *
- * The id formula is `type@version:inputHash[0..12]:paramHash[0..8]` and is
- * part of the stored record format: changing it invalidates every id ever
- * written, so it changes only with a deliberate run-id format bump.
+ * The id formula (RUN_ID_FORMAT 2) is
  *
- * `lineage` is recorded by the generic runner but does not yet reach the
- * emitted record or the id; that lands with the format bump.
+ *     `${kind}/${model}@${specVersion}:${inputHash.slice(0, 12)}:${paramHash.slice(0, 8)}`
+ *
+ *   * `kind` is the ModelSpec kind, so `getSpec(kind, specVersion)` resolves
+ *     the exact spec that produced the numbers;
+ *   * `model` is the definition name, so two definitions of the same kind
+ *     that differ only in their `compute` can never share an id;
+ *   * `inputHash` fingerprints the raw observations;
+ *   * `paramHash = hashInputs({ parameters, upstreamRuns })`, so a different
+ *     upstream *run id* moves the id even when the consumed values are
+ *     byte-identical.
+ *
+ * Every component is readable back off the id, so nothing the id depends on
+ * is lost. It is part of the stored record format: changing it invalidates
+ * every id ever written, so it changes only with a deliberate
+ * `RUN_ID_FORMAT` bump.
  */
-export function createRun<TOut>(
-  modelType: ModelType,
-  modelVersion: string,
-  parameters: Record<string, unknown>,
-  inputs: unknown,
-  outputs: TOut,
-  now: Date,
-  _lineage: RunLineage = { upstream: [] },
-): ModelRun<TOut> {
-  const inputHash = hashInputs(inputs);
-  const paramHash = hashInputs(parameters).slice(0, 8);
+export function createRun<TOut>(input: RunRecordInput<TOut>): ModelRun<TOut> {
+  const { kind, model, specVersion, parameters, outputs, now } = input;
+  const inputHash = hashInputs(input.inputs);
+  // Copied so a later mutation of the caller's array cannot contradict the id.
+  const upstream = Object.freeze([...(input.upstreamRuns ?? [])]);
+  const paramHash = hashInputs({ parameters, upstreamRuns: upstream }).slice(0, 8);
   return {
-    id: `${modelType}@${modelVersion}:${inputHash.slice(0, 12)}:${paramHash}`,
-    modelType,
-    modelVersion,
+    id: `${kind}/${model}@${specVersion}:${inputHash.slice(0, 12)}:${paramHash}`,
+    kind,
+    specVersion,
     parameters,
     inputHash,
+    upstreamRuns: upstream,
     // A Date is mutable even inside a frozen record; never retain the caller's.
     createdAt: new Date(now.getTime()),
     outputs,

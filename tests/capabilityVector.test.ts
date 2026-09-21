@@ -315,11 +315,11 @@ describe("runCapabilityVectors", () => {
   test("records the full spec and the resolved thresholds", () => {
     const data = generateSeed();
     const run = runCapabilityVectors(data.people, data.comparisons, T0);
-    expect(run.modelType).toBe("bradley_terry_v1");
-    expect(run.modelVersion).toBe("1.0.0");
+    expect(run.kind).toBe("bradley_terry");
+    expect(run.specVersion).toBe("1.0.0");
     expect(run.parameters.spec).toEqual(BRADLEY_TERRY_V1_0_0);
     expect(run.parameters.minComparisons).toBe(3);
-    expect(run.parameters.anchored).toBe(false);
+    expect(run.upstreamRuns).toEqual([]);
     expect(run.outputs.vectors.size).toBe(data.people.length);
     expect("previous" in run.parameters).toBe(false);
   });

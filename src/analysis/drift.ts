@@ -252,6 +252,20 @@ function buildReport(
   return report;
 }
 
+/**
+ * What produced a side of a Referral Signal comparison.
+ *
+ * The spec version alone is a label leak: a judge-weighted V2 run carries
+ * `spec.version` just like the unweighted V0 run it is being compared to, so
+ * a review-grade change would be reported as "0.1.0 → 0.1.0". Judge
+ * weighting is part of what produced the number, so it is part of the label.
+ */
+function referralSignalLabel(results: ReadonlyMap<string, ReferralSignalResult>): string {
+  const first = [...results.values()][0];
+  if (first === undefined) return "?";
+  return first.judgeWeighted ? `${first.specVersion} (judge-weighted)` : first.specVersion;
+}
+
 /** Drift between two Referral Signal runs on the same data (signal space, 0–100). */
 export function referralSignalDrift(
   before: ReadonlyMap<string, ReferralSignalResult>,
@@ -262,10 +276,7 @@ export function referralSignalDrift(
     new Map<string, number | null>(
       [...m.entries()].map(([id, r]) => [id, r.incomingCount >= 1 ? r.signal : null]),
     );
-  const labels = {
-    before: [...before.values()][0]?.specVersion ?? "?",
-    after: [...after.values()][0]?.specVersion ?? "?",
-  };
+  const labels = { before: referralSignalLabel(before), after: referralSignalLabel(after) };
   return buildReport("referral_signal", toValues(before), toValues(after), thresholds, labels);
 }
 
