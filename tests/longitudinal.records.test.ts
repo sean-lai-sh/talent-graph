@@ -22,12 +22,14 @@
 import { describe, expect, test } from "bun:test";
 import { createJevJudgmentService } from "../apps/club/lib/longitudinal/jev.ts";
 import { CAREER_EVIDENCE_DIMENSIONS } from "../src/longitudinal/dimensions.ts";
+import type { DeriveEvidenceInput } from "../src/longitudinal/pipeline.ts";
 import { processEvidence } from "../src/longitudinal/pipeline.ts";
 import { contentFingerprint } from "../src/longitudinal/provenance.ts";
 import {
   InMemoryJevJudgmentStore,
   type JevAnswer,
   type JevJudgmentRecord,
+  type JevRawScoreAnswer,
   projectClaim,
   projectIdentity,
 } from "../src/longitudinal/records.ts";
@@ -218,7 +220,7 @@ describe("judgment records: the store answers a repeated run", () => {
       "more",
     ]);
     for (const record of result.records) {
-      expect(await store.get(record.requestFingerprint)).toEqual(record);
+      expect(await store.get(record.id)).toEqual(record);
     }
   });
 });
@@ -304,6 +306,197 @@ describe("judgment records: a spec bump re-derives without re-billing", () => {
   });
 });
 
+describe("judgment records: a cache hit belongs to the evidence it was asked about", () => {
+  /** The same person, name and evidence bytes — only the person id differs. */
+  const other: CanonicalIdentity = { ...identity, personId: "p-2" };
+
+  const runFor = (
+    who: CanonicalIdentity,
+    judgments: ReturnType<typeof createJevJudgmentService>,
+    store: InMemoryJevJudgmentStore,
+  ) =>
+    processEvidence({
+      identity: who,
+      evidence: items,
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments,
+      spec,
+      runtime: { store },
+    });
+
+  test("two people with identical evidence never share a judgment record", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    const client = fakeClient();
+    const service = createJevJudgmentService(client.client, spec);
+
+    const first = await runFor(identity, service, store);
+    expect(client.calls()).toBe(4);
+    // The request is byte-identical for the second person — the person id is
+    // never sent — so only the record's evidence key keeps the two apart.
+    const second = await runFor(other, service, store);
+    expect(client.calls()).toBe(8);
+    const again = await runFor(identity, service, store);
+    expect(client.calls()).toBe(8);
+
+    for (const record of first.records) {
+      expect(record.personId).toBe("p-1");
+      expect(record.evidenceKey.startsWith("p-1|")).toBe(true);
+    }
+    for (const record of second.records) {
+      expect(record.personId).toBe("p-2");
+      expect(record.evidenceKey.startsWith("p-2|")).toBe(true);
+    }
+    expect(new Set(second.records.map((record) => record.id)).size).toBe(4);
+    expect(
+      first.records.some((record) => second.records.some((other) => other.id === record.id)),
+    ).toBe(false);
+    expect(again.records).toEqual(first.records);
+
+    // Each person's records derive on their own: a record addressed only by
+    // request fingerprint would have handed the second person the first
+    // person's observation, and this derivation would not find its own.
+    for (const result of [first, second]) {
+      const derived = runCareerEvidence(
+        {
+          identity: result === first ? identity : other,
+          evidence: items,
+          records: result.records,
+          cutoffAt: day(90),
+          retrievedAt: day(100),
+          pipelineVersion: "1",
+        },
+        { spec, now: day(100) },
+      );
+      expect(JSON.stringify(derived.outputs.claims, isoDates)).toBe(
+        JSON.stringify(result.claims, isoDates),
+      );
+    }
+  });
+
+  test("a stored record for other evidence is never served for this request", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    const client = fakeClient();
+    const service = createJevJudgmentService(client.client, spec);
+    const result = await runFor(identity, service, store);
+    const record = result.records[0] as JevJudgmentRecord;
+    // The address is the record's id, which carries both the request
+    // fingerprint and the evidence key; the fingerprint alone addresses
+    // nothing.
+    expect(await store.get(record.id)).toEqual(record);
+    expect(await store.get(record.requestFingerprint)).toBe(null);
+  });
+});
+
+describe("judgment records: the run hashes every input the derivation reads", () => {
+  const base = async () => {
+    const client = fakeClient();
+    const result = await run(createJevJudgmentService(client.client, spec));
+    return {
+      identity,
+      evidence: items,
+      records: result.records,
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+    };
+  };
+
+  test("perturbing any derivation input moves the run id", async () => {
+    const input = await base();
+    const baseline = runCareerEvidence(input, { spec, now: day(100) });
+    const records = input.records as JevJudgmentRecord[];
+    const claimRecord = records[1] as JevJudgmentRecord;
+    const answeredDifferently = {
+      ...claimRecord,
+      answers: {
+        ...claimRecord.answers,
+        difficulty: { ...(claimRecord.answers.difficulty as JevRawScoreAnswer), score: 1 },
+      },
+    };
+    const perturbations: Record<string, DeriveEvidenceInput> = {
+      "a record's answers": {
+        ...input,
+        records: [records[0] as JevJudgmentRecord, answeredDifferently, ...records.slice(2)],
+      },
+      identity: { ...input, identity: { ...identity, name: "Avery C." } },
+      evidence: {
+        ...input,
+        evidence: [
+          { ...(items[0] as GrokEvidenceItem), statement: "Avery shipped it." },
+          items[1] as GrokEvidenceItem,
+        ],
+      },
+      baselineAt: { ...input, baselineAt: day(10) },
+      cutoffAt: { ...input, cutoffAt: day(91) },
+      retrievedAt: { ...input, retrievedAt: day(101) },
+      pipelineVersion: { ...input, pipelineVersion: "2" },
+    };
+    for (const [what, perturbed] of Object.entries(perturbations)) {
+      const moved = runCareerEvidence(perturbed, { spec, now: day(100) });
+      expect(moved.inputHash, `${what} must move the input hash`).not.toBe(baseline.inputHash);
+      expect(moved.id, `${what} must move the run id`).not.toBe(baseline.id);
+    }
+  });
+
+  test("reordering the records does not move the run id", async () => {
+    const input = await base();
+    const baseline = runCareerEvidence(input, { spec, now: day(100) });
+    const reversed = runCareerEvidence(
+      { ...input, records: [...input.records].reverse() },
+      { spec, now: day(100) },
+    );
+    expect(reversed.inputHash).toBe(baseline.inputHash);
+    expect(reversed.id).toBe(baseline.id);
+  });
+});
+
+describe("judgment records: a derivation checks the rubric it is reading", () => {
+  test("a record stamped with a different rubric hash is rejected by name", async () => {
+    const client = fakeClient();
+    const result = await run(createJevJudgmentService(client.client, spec));
+    const restamped = result.records.map((record) => ({
+      ...record,
+      specId: "career_evidence@1.0.0:deadbeef",
+    }));
+    expect(() =>
+      runCareerEvidence(
+        {
+          identity,
+          evidence: items,
+          records: restamped,
+          cutoffAt: day(90),
+          retrievedAt: day(100),
+          pipelineVersion: "1",
+        },
+        { spec, now: day(100) },
+      ),
+    ).toThrow(/deadbeef/);
+  });
+
+  test("the same rubric under a new version still derives, so a bump stays free", async () => {
+    const client = fakeClient();
+    const result = await run(createJevJudgmentService(client.client, spec));
+    const derived = runCareerEvidence(
+      {
+        identity,
+        evidence: items,
+        records: result.records,
+        cutoffAt: day(90),
+        retrievedAt: day(100),
+        pipelineVersion: "1",
+      },
+      { spec: STRICTER, now: day(100) },
+    );
+    // Only the thresholds moved: the rubric hash is the one the records carry.
+    expect(careerEvidenceSpecId(STRICTER).split(":")[1]).toBe(
+      careerEvidenceSpecId(spec).split(":")[1],
+    );
+    expect(derived.outputs.claims).toHaveLength(2);
+  });
+});
+
 describe("judgment records: append-only and frozen", () => {
   test("a record is deeply frozen", async () => {
     const client = fakeClient();
@@ -350,12 +543,10 @@ describe("judgment records: append-only and frozen", () => {
     const record = result.records[0] as JevJudgmentRecord;
     // Identical content is a no-op, not an error: a retried write is not a rewrite.
     await store.put(record);
-    expect(await store.get(record.requestFingerprint)).toEqual(record);
+    expect(await store.get(record.id)).toEqual(record);
     const rewritten = { ...record, respondedModel: "jev-2026-02" };
     await expect(store.put(rewritten)).rejects.toThrow(/already recorded/);
-    expect((await store.get(record.requestFingerprint))?.respondedModel).toBe(
-      record.respondedModel,
-    );
+    expect((await store.get(record.id))?.respondedModel).toBe(record.respondedModel);
   });
 });
 

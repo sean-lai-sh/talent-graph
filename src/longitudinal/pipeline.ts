@@ -1,4 +1,4 @@
-import { CAREER_EVIDENCE_V1_0_0 } from "../models/careerEvidence.ts";
+import { CAREER_EVIDENCE_V1_0_0, careerEvidenceSpecId } from "../models/careerEvidence.ts";
 import { assertSpec, type CareerEvidenceSpec } from "../models/spec.ts";
 import { CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL } from "./dimensions.ts";
 import type {
@@ -9,7 +9,13 @@ import type {
 } from "./judgments.ts";
 import { contentFingerprint } from "./provenance.ts";
 import type { JevJudgmentRecord, JevJudgmentStore } from "./records.ts";
-import { evidenceKeyFor, projectClaim, projectIdentity } from "./records.ts";
+import {
+  evidenceKeyFor,
+  projectClaim,
+  projectIdentity,
+  recordIdFor,
+  rubricHashOf,
+} from "./records.ts";
 import type { EvidenceThresholds } from "./stages.ts";
 import { decideStatus, gateIdentity, materialize, selectEligible } from "./stages.ts";
 import type {
@@ -129,7 +135,13 @@ export async function judgeIdentity(
   deps: JudgmentDeps,
 ): Promise<JevJudgment<IdentityAssessment>> {
   const fingerprint = deps.service.identityFingerprint(identity, evidence);
-  const recorded = await recordedJudgment(fingerprint, "identity", deps.store);
+  const recorded = await recordedJudgment({
+    fingerprint,
+    kind: "identity",
+    personId: identity.personId,
+    evidence,
+    store: deps.store,
+  });
   if (recorded !== null) return { assessment: projectIdentity(recorded, spec), record: recorded };
   const judged = await deps.service.assessIdentity(identity, evidence);
   await deps.store?.put(judged.record);
@@ -144,25 +156,51 @@ export async function judgeClaim(
   deps: JudgmentDeps,
 ): Promise<JevJudgment<ClaimAssessment>> {
   const fingerprint = deps.service.claimFingerprint(evidence);
-  const recorded = await recordedJudgment(fingerprint, "claim", deps.store);
+  const recorded = await recordedJudgment({
+    fingerprint,
+    kind: "claim",
+    personId,
+    evidence,
+    store: deps.store,
+  });
   if (recorded !== null) return { assessment: projectClaim(recorded, spec), record: recorded };
   const judged = await deps.service.assessClaim(evidence, personId);
   await deps.store?.put(judged.record);
   return judged;
 }
 
-/** A stored record for this exact request, or `null`. Never a near miss. */
-async function recordedJudgment(
-  fingerprint: string,
-  kind: JevJudgmentRecord["kind"],
-  store: JevJudgmentStore | undefined,
-): Promise<JevJudgmentRecord | null> {
-  const record = (await store?.get(fingerprint)) ?? null;
+/**
+ * A stored record for this exact request *about this exact evidence*, or
+ * `null`. Never a near miss.
+ *
+ * The person is never part of a request — the claim state is the evidence
+ * alone, and the identity state is a name and its identities — so the
+ * fingerprint alone does not name an observation. The address is the record
+ * id, which carries the evidence key as well, and what comes back is checked
+ * against both: a store that answers with another person's record is a bug
+ * here, not a cheap judgment.
+ */
+async function recordedJudgment(input: {
+  fingerprint: string;
+  kind: JevJudgmentRecord["kind"];
+  personId: string;
+  evidence: GrokEvidenceItem;
+  store: JevJudgmentStore | undefined;
+}): Promise<JevJudgmentRecord | null> {
+  const evidenceKey = evidenceKeyFor(input.personId, input.evidence);
+  const id = recordIdFor(input.fingerprint, evidenceKey);
+  const record = (await input.store?.get(id)) ?? null;
   if (record === null) return null;
-  if (record.requestFingerprint !== fingerprint || record.kind !== kind) {
+  if (
+    record.id !== id ||
+    record.kind !== input.kind ||
+    record.requestFingerprint !== input.fingerprint ||
+    record.personId !== input.personId ||
+    record.evidenceKey !== evidenceKey
+  ) {
     throw new TypeError(
-      `judgment store: ${fingerprint} holds a ${record.kind} record fingerprinted ` +
-        `${record.requestFingerprint}; a store must return the record it was asked for`,
+      `judgment store: ${id} holds ${record.id}, a ${record.kind} record for ` +
+        `${record.evidenceKey}; a store must return the record it was asked for`,
     );
   }
   return record;
@@ -266,7 +304,8 @@ export function deriveEvidence(
   const used = assertSpec(spec);
   const policy = evidencePolicyFor(used);
   const stamp = { model: policy.model, questionVersion: policy.questionVersion };
-  const byKey = indexRecords(input.records);
+  const rubricHash = rubricHashOf(careerEvidenceSpecId(used));
+  const byKey = indexRecords(input.records, rubricHash);
   const eligible = selectEligible(input.evidence, input.baselineAt, input.cutoffAt);
   const processed = eligible.map((evidence) => {
     const key = evidenceKeyFor(input.identity.personId, evidence);
@@ -310,10 +349,30 @@ export function deriveEvidence(
   };
 }
 
-/** Records by `${kind}\u0000${evidenceKey}`; a duplicate is ambiguous, so it throws. */
-function indexRecords(records: readonly JevJudgmentRecord[]): Map<string, JevJudgmentRecord> {
+/**
+ * Records by `${kind}\u0000${evidenceKey}`; a duplicate is ambiguous, so it
+ * throws — and so does a record answering a *different* rubric.
+ *
+ * The spec id is `career_evidence@<version>:<rubricHash>`. The version may
+ * move without changing a question (a thresholds-only bump, which is exactly
+ * the free re-derivation this function serves), but a different rubric hash
+ * means the model was asked something else, and an answer to another question
+ * is not a judgment under this spec however well its shape fits.
+ */
+function indexRecords(
+  records: readonly JevJudgmentRecord[],
+  rubricHash: string,
+): Map<string, JevJudgmentRecord> {
   const byKey = new Map<string, JevJudgmentRecord>();
   for (const record of records) {
+    const recorded = rubricHashOf(record.specId);
+    if (recorded !== rubricHash) {
+      throw new TypeError(
+        `deriveEvidence: record ${record.id} was judged under rubric ${recorded} ` +
+          `(${record.specId}), not ${rubricHash}; a derivation cannot read an answer to a ` +
+          "different question",
+      );
+    }
     const key = `${record.kind}\u0000${record.evidenceKey}`;
     const existing = byKey.get(key);
     if (existing !== undefined && existing.id !== record.id) {

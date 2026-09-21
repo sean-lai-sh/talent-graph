@@ -30,6 +30,7 @@ import type { ModelRun } from "../models/run.ts";
 import type { CareerEvidenceSpec } from "../models/spec.ts";
 import type { DeriveEvidenceInput, ProcessEvidenceResult } from "./pipeline.ts";
 import { deriveEvidence } from "./pipeline.ts";
+import { recordContent } from "./records.ts";
 
 /** What one career-evidence derivation produces. */
 export type CareerEvidenceOutputs = Omit<ProcessEvidenceResult, "records">;
@@ -48,9 +49,26 @@ export const careerEvidenceModel = defineModel<
   name: "career_evidence_v1",
   kind: "career_evidence",
   specOf: (opts) => opts.spec,
-  // Raw observations only: the judgment record ids, sorted, so the same
-  // observations in a different order are the same input.
-  inputsOf: (input) => input.records.map((record) => record.id).sort(),
+  // Every raw input the derivation reads, and nothing else.
+  //
+  // The record *ids* are not enough: an id names a request, so two runs whose
+  // models answered the same question differently carry the same ids and would
+  // collide on one run id. The full content of each record is hashed instead,
+  // sorted by id so the same observations in a different order are the same
+  // input. The window, the person, the evidence and the pipeline version are
+  // read by `deriveEvidence` too, so they are inputs as much as the answers
+  // are; evidence is sorted by source id for the same order-independence.
+  inputsOf: (input) => ({
+    identity: input.identity,
+    evidence: [...input.evidence].sort((a, b) => a.sourceId.localeCompare(b.sourceId)),
+    baselineAt: input.baselineAt?.toISOString() ?? null,
+    cutoffAt: input.cutoffAt.toISOString(),
+    retrievedAt: input.retrievedAt.toISOString(),
+    pipelineVersion: input.pipelineVersion,
+    records: [...input.records]
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map((record) => recordContent(record)),
+  }),
   recordedOptionKeys: ["spec"],
   resolveOptions: (spec) => ({ parameters: { spec }, upstream: [] }),
   compute: (input, spec) => deriveEvidence(input, spec),

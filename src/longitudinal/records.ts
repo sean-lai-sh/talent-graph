@@ -67,7 +67,12 @@ export type JevAnswer = JevRawScoreAnswer | JevNoulAnswer | JevChoiceAnswer;
  * identical requests name the same observation.
  */
 export interface JevJudgmentRecord {
-  /** `jev-${requestFingerprint}`. */
+  /**
+   * `jev-${requestFingerprint}-${digest of evidenceKey}` — see `recordIdFor`.
+   * The request fingerprint alone does not name an observation: the person is
+   * never part of a request, so two people asking the same question of the
+   * same evidence share a fingerprint and must not share a record.
+   */
   id: string;
   kind: "identity" | "claim";
   personId: string;
@@ -99,9 +104,14 @@ export interface JevJudgmentRecord {
  * Where judgment records are kept. The in-memory implementation below is the
  * reference; a durable one has the same two methods and the same append-only
  * rule.
+ *
+ * A record is addressed by its **id**, which carries both the request
+ * fingerprint and the evidence key (`recordIdFor`). Addressing by fingerprint
+ * alone would serve one person's observation to another, because the person is
+ * not part of the request that was sent.
  */
 export interface JevJudgmentStore {
-  get(requestFingerprint: string): Promise<JevJudgmentRecord | null>;
+  get(recordId: string): Promise<JevJudgmentRecord | null>;
   put(record: JevJudgmentRecord): Promise<void>;
 }
 
@@ -151,8 +161,14 @@ export function freezeRecord(record: JevJudgmentRecord): JevJudgmentRecord {
   return deepFreeze({ ...record });
 }
 
-/** The exact content of a record, for the append-only comparison. */
-function recordContent(record: JevJudgmentRecord): string {
+/**
+ * The exact content of a record, as one string.
+ *
+ * Used for the append-only comparison, and as what a derivation hashes: a
+ * record id names a request, not an answer, so two different answers to the
+ * same request must not hash alike.
+ */
+export function recordContent(record: JevJudgmentRecord): string {
   return JSON.stringify({
     id: record.id,
     kind: record.kind,
@@ -179,21 +195,21 @@ function recordContent(record: JevJudgmentRecord): string {
 export class InMemoryJevJudgmentStore implements JevJudgmentStore {
   readonly #records = new Map<string, JevJudgmentRecord>();
 
-  async get(requestFingerprint: string): Promise<JevJudgmentRecord | null> {
-    return this.#records.get(requestFingerprint) ?? null;
+  async get(recordId: string): Promise<JevJudgmentRecord | null> {
+    return this.#records.get(recordId) ?? null;
   }
 
   async put(record: JevJudgmentRecord): Promise<void> {
     const frozen = freezeRecord(record);
-    const existing = this.#records.get(frozen.requestFingerprint);
+    const existing = this.#records.get(frozen.id);
     if (existing !== undefined) {
       if (recordContent(existing) === recordContent(frozen)) return;
       throw new Error(
-        `JevJudgmentStore: ${frozen.requestFingerprint} is already recorded with different ` +
-          "content; judgment records are append-only",
+        `JevJudgmentStore: ${frozen.id} is already recorded with different content; ` +
+          "judgment records are append-only",
       );
     }
-    this.#records.set(frozen.requestFingerprint, frozen);
+    this.#records.set(frozen.id, frozen);
   }
 
   /** Every record held, in insertion order. For inspection and tests. */
@@ -396,7 +412,29 @@ export function requestFingerprint(input: {
   });
 }
 
-/** `jev-${requestFingerprint}` — one observation, named by the request. */
-export function recordIdFor(fingerprint: string): string {
-  return `jev-${fingerprint}`;
+/**
+ * One observation, named by the request *and* the evidence it was about.
+ *
+ * The request carries no person: the identity state is the canonical person's
+ * name and identities, and the claim state is the evidence alone. Two people
+ * with the same name, or the same person's evidence fetched twice under
+ * different source ids, therefore produce the same request fingerprint, and a
+ * cache addressed by fingerprint alone would hand one person's judgment to the
+ * other. The evidence key — `personId | sourceId | publishedAt | contentHash`
+ * — is what separates them, so it is part of the id and of the store address.
+ */
+export function recordIdFor(fingerprint: string, evidenceKey: string): string {
+  return `jev-${fingerprint}-${contentFingerprint(evidenceKey).slice(0, 8)}`;
+}
+
+/**
+ * The rubric-hash half of a `career_evidence@<version>:<rubricHash>` spec id.
+ *
+ * The version may move without changing a single question — a thresholds-only
+ * bump — but a different rubric hash means the record answers *different*
+ * questions, and nothing may derive from it under this spec.
+ */
+export function rubricHashOf(specId: string): string {
+  const separator = specId.lastIndexOf(":");
+  return separator === -1 ? "" : specId.slice(separator + 1);
 }

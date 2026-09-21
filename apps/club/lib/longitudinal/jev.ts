@@ -235,11 +235,14 @@ interface RecordInput {
 /** Build the observation and freeze it. Nothing rewrites a record afterwards. */
 function writeRecord(input: RecordInput): JevJudgmentRecord {
   const usage = input.result.usage;
+  const evidenceKey = evidenceKeyFor(input.personId, input.evidence);
   return freezeRecord({
-    id: recordIdFor(input.fingerprint),
+    // The request fingerprint alone would name two people's judgments the
+    // same: the person is not part of what was sent.
+    id: recordIdFor(input.fingerprint, evidenceKey),
     kind: input.kind,
     personId: input.personId,
-    evidenceKey: evidenceKeyFor(input.personId, input.evidence),
+    evidenceKey,
     requestFingerprint: input.fingerprint,
     specId: input.specId,
     requestedModel: input.requestedModel,
