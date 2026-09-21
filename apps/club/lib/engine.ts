@@ -381,8 +381,12 @@ export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()):
     const entry = queue.get(p.id);
     const myEvaluations = evaluationsOf.get(p.id) ?? [];
     const myComparisons = comparisonsOf.get(p.id) ?? [];
-    // Already scored, already in input order — the same set the old
-    // `referralsNow.filter(...)` produced, without the per-person scan.
+    // Incoming edges from the shared index: already scored, already in input
+    // order, without the per-person scan. Self-referrals are NOT in here —
+    // `scoreReferralGraph` drops u → u under V0's incoming rule, the same rule
+    // `incomingCount` already applied — and `addReferral` cannot create one
+    // (`validateReferral` rejects referrer === candidate), so no reachable
+    // state loses a row. Pinned by a hand-built state in club-engine.test.ts.
     const myReferrals = scored.in.get(p.id) ?? [];
     const contributingIds = new Set((s2?.contributing ?? []).map((c) => c.referral.id));
     const rubric = summarizeEvaluations(myEvaluations);

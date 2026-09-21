@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describeActionError } from "../apps/club/lib/actionError.ts";
@@ -39,13 +39,32 @@ import {
   statusForReview,
 } from "../apps/club/lib/review.ts";
 import { sortRows } from "../apps/club/lib/tableModel.ts";
+import type { ClubState } from "../apps/club/lib/types.ts";
 import { loadSpecs } from "../src/config.ts";
 import { BANNED_LANGUAGE, PRODUCT_LANGUAGE, SCALE_LABELS } from "../src/domain/constants.ts";
 import { computeJudgeCalibration, judgeWeightOptions } from "../src/judges/reliability.ts";
 import { TRACK_RECORD_ORDER } from "../src/judges/trackRecord.ts";
 import { computeAllReferralSignals } from "../src/scoring/referralSignal.ts";
-import { referralStrength } from "../src/scoring/referralStrength.ts";
+import * as referralStrengthModule from "../src/scoring/referralStrength.ts";
 import { generateSeed } from "../src/seed/generate.ts";
+
+/**
+ * R_uv is computed in exactly one place — `referralStrengthBreakdown` — so
+ * counting its calls counts the work the seam was supposed to remove. The mock
+ * delegates to the real implementation captured before the swap, so no number
+ * moves; only `strengthCalls` changes.
+ */
+const realStrength = { ...referralStrengthModule };
+let strengthCalls = 0;
+mock.module("../src/scoring/referralStrength.ts", () => ({
+  ...realStrength,
+  referralStrengthBreakdown: (
+    ...args: Parameters<typeof realStrength.referralStrengthBreakdown>
+  ) => {
+    strengthCalls++;
+    return realStrength.referralStrengthBreakdown(...args);
+  },
+}));
 
 const root = join(import.meta.dir, "..");
 const read = (rel: string) => readFileSync(join(root, rel), "utf8");
@@ -627,56 +646,89 @@ describe("council page engine: the referral model seam", () => {
     for (const r of input.referrals) {
       const edge = model.scored.byReferralId.get(r.id);
       if (!edge) throw new Error(`referral ${r.id} missing from the index`);
-      expect(edge.strength).toBe(referralStrength(r, specs.referral_signal));
+      expect(edge.strength).toBe(realStrength.referralStrength(r, specs.referral_signal));
     }
   });
 
   /**
-   * Method: N warm-up runs, then N measured runs of `computeView(initialState())`;
-   * we compare its median against the median of the same call plus a replay of
-   * the three O(P·R) scans the seam removed (the per-person `referralsNow.filter`
-   * and the two per-neighbour `referralsNow.find`s) — a faithful stand-in for the
-   * pre-seam cost, since that work is the only thing that went away. The bound is
-   * a loose 2x guard so the test cannot go flaky on a noisy machine; the point is
-   * that the seam is not a regression, not a microbenchmark.
+   * The regression guard for the seam itself. Pre-seam, `computeView` derived
+   * R_uv five ways in one pass (228 calls on the seed); through the model each
+   * referral is scored exactly once, and the only other R_uv work left in the
+   * view is whatever `computeJudgeCalibration` does on its own — measured here
+   * against the same inputs rather than hard-coded.
    */
-  test("computeView is no slower than the pre-seam scan-per-person shape", () => {
-    const runs = 9;
-    const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0;
-    const seed = generateSeed();
-    const t = new Date(EXAMPLE_T_END).getTime();
-    const referralsNow = seed.referrals.filter((r) => r.createdAt.getTime() <= t);
-    const legacyScans = () => {
-      let sink = 0;
-      for (const p of seed.people) {
-        sink += referralsNow.filter((r) => r.candidateId === p.id).length;
-        for (const q of seed.people) {
-          sink += referralsNow.find((r) => r.referrerId === q.id && r.candidateId === p.id) ? 1 : 0;
-          sink += referralsNow.find((r) => r.referrerId === p.id && r.candidateId === q.id) ? 1 : 0;
-        }
+  test("computeView computes R_uv exactly once per referral, through the model", () => {
+    const input = seedModelInput();
+    strengthCalls = 0;
+    computeJudgeCalibration({
+      people: input.people,
+      referrals: input.referrals,
+      outcomes: input.outcomes,
+      opportunities: input.opportunities,
+      now: input.now,
+      spec: specs.judge_reliability,
+      referralSpec: specs.referral_signal,
+    });
+    const calibrationCalls = strengthCalls;
+
+    strengthCalls = 0;
+    computeView(initialState(), specs);
+    expect(strengthCalls).toBe(input.referrals.length + calibrationCalls);
+  });
+
+  /**
+   * Pins the self-referral exclusion documented at the `myReferrals` seam:
+   * `scoreReferralGraph` drops u → u under V0's incoming rule, so the view has
+   * no row for it and no NaN strength. `addReferral` cannot produce one
+   * (`validateReferral` rejects it), hence the hand-built state.
+   */
+  test("a hand-built self-referral produces no referral row and no NaN strength", () => {
+    const now = "2024-06-01T00:00:00.000Z";
+    const earlier = "2024-05-01T00:00:00.000Z";
+    const person = (id: string, name: string) => ({
+      id,
+      name,
+      status: "member" as const,
+      createdAt: earlier,
+      updatedAt: earlier,
+    });
+    const referral = (id: string, referrerId: string, candidateId: string) => ({
+      id,
+      referrerId,
+      candidateId,
+      conviction: 4 as const,
+      confidence: 4 as const,
+      relationshipDepth: 3 as const,
+      evidenceType: "firsthand_work" as const,
+      evidenceText: "worked together on the same team for two years",
+      createdAt: earlier,
+      updatedAt: earlier,
+    });
+    const state: ClubState = {
+      people: [person("p-self", "Ada"), person("p-other", "Bo")],
+      referrals: [referral("r-self", "p-self", "p-self"), referral("r-real", "p-other", "p-self")],
+      comparisons: [],
+      evaluations: [],
+      outcomes: [],
+      opportunities: [],
+      snapshots: [],
+      feedbackRequests: [],
+      config: { requiredDimensions: [...EXAMPLE_REQUIRED_DIMENSIONS] },
+      now,
+    };
+
+    const view = computeView(state, specs);
+    const ada = view.people.find((p) => p.id === "p-self");
+    if (!ada) throw new Error("hand-built person missing from the view");
+    expect(ada.referrals.map((r) => r.referralId)).toEqual(["r-real"]);
+    expect(ada.incomingCount).toBe(1);
+    for (const p of view.people) {
+      for (const r of p.referrals) {
+        expect(Number.isNaN(r.strength)).toBe(false);
       }
-      return sink;
-    };
-    const time = (fn: () => void) => {
-      const started = performance.now();
-      fn();
-      return performance.now() - started;
-    };
-    for (let i = 0; i < runs; i++) {
-      computeView(initialState(), specs);
-      legacyScans();
+      for (const n of [...p.neighbourhood.referrers, ...p.neighbourhood.referred]) {
+        expect(Number.isNaN(n.strength)).toBe(false);
+      }
     }
-    const after: number[] = [];
-    const before: number[] = [];
-    for (let i = 0; i < runs; i++) {
-      after.push(time(() => computeView(initialState(), specs)));
-      before.push(
-        time(() => {
-          computeView(initialState(), specs);
-          legacyScans();
-        }),
-      );
-    }
-    expect(median(after)).toBeLessThanOrEqual(2 * median(before));
   });
 });
