@@ -65,6 +65,7 @@ talent-graph/
       referralStrength.ts # R_uv = X_uv * m_e
       referralSignal.ts   # S_v = mean(Top5 R_uv), metadata, explanation
       referralPercentile.ts
+      scoredGraph.ts      # every R_uv once, indexed by endpoint; toEdgeList
     inference/            # V1 — Relative Capability
       logistic.ts         # stable sigmoid / logSigmoid
       components.ts       # connected components of comparison graph per dimension
@@ -75,8 +76,10 @@ talent-graph/
     analysis/
       underRecognition.ts # U_{i,k} = capPct − referralPct (exploratory)
       dashboard.ts        # aggregate summaries for a future UI
+      graphSelection.ts   # selectBySignal: score-based sub-graph selection
     graph/
-      referralGraph.ts    # adjacency, in/out neighbourhoods, filters
+      referralGraph.ts    # adjacency: who referred whom (buildReferralGraph,
+                          #   referrersOf, referredBy) — domain-only imports
     seed/
       generate.ts         # deterministic synthetic dataset (seeded PRNG)
       personas.ts         # Candidates A–F as specified
