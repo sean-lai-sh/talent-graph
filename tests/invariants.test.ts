@@ -315,11 +315,42 @@ describe("invariants: the pipeline takes its time step as a parameter", () => {
 // only "is this a kind a pass runs?", and answering it must not drag in
 // `advance()` and everything it evaluates.
 describe("invariants: the kind vocabulary is a leaf module (#55 T8)", () => {
-  test("scripts/drift-gate.ts and src/config.ts do not import src/pipeline/advance.ts", () => {
-    for (const path of ["scripts/drift-gate.ts", "src/config.ts"]) {
+  test("the leaf's callers do not import src/pipeline/advance.ts", () => {
+    // `src/analysis/drift.ts` is on this list for the same reason as the
+    // other two and one more: `advance.ts` imports *it*, so a drift module
+    // that reached back for `PipelineKind` would close a cycle.
+    for (const path of ["scripts/drift-gate.ts", "src/config.ts", "src/analysis/drift.ts"]) {
       const code = stripComments(read(join(ROOT, path)));
       const imports = /from\s+["'][^"']*\/pipeline\/advance\.ts["']/.test(code);
       expect(imports, `${path} imports the orchestrator`).toBe(false);
+    }
+  });
+
+  /**
+   * What makes `kinds.ts` a leaf is not which modules it names but *how*:
+   * `RunOutputs` has to name one scoring, one inference and one judges type,
+   * and every one of those is erased at compile time. The day one of them
+   * becomes a value import, importing the kind vocabulary starts pulling the
+   * evaluation graph in behind it again and the two assertions above go on
+   * passing while the thing they protect is gone.
+   */
+  test("src/pipeline/kinds.ts imports scoring/inference/judges/models as types only", () => {
+    const code = stripComments(read(join(ROOT, "src/pipeline/kinds.ts")));
+    const layered = /\/(scoring|inference|judges|models)\//;
+
+    const statements = [...code.matchAll(/import\s+(type\s+)?[^;]*?from\s+["']([^"']+)["']/g)];
+    const checked = statements.filter((m) => layered.test(m[2] as string));
+    // The interface names three output types; if this ever reads zero the
+    // regex has stopped matching and the test is vacuous.
+    expect(checked.length, "no layered import found in kinds.ts").toBeGreaterThan(0);
+    for (const m of checked) {
+      expect(m[1] !== undefined, `kinds.ts imports ${m[2]} as a value`).toBe(true);
+    }
+
+    // A side-effect import has no `from` clause and so is never a type-only
+    // import; it would run the module for its registrations.
+    for (const m of code.matchAll(/import\s+["']([^"']+)["']/g)) {
+      expect(layered.test(m[1] as string), `kinds.ts side-effect-imports ${m[1]}`).toBe(false);
     }
   });
 });
