@@ -4,7 +4,8 @@ import { clubLoginHref } from "@/lib/loginReturnPath.ts";
 import { MemberShell } from "./MemberShell";
 
 /**
- * Member home. Unauthenticated visitors redirect to `/login`.
+ * Member home for accounts that are not marked admin.
+ * Unauthenticated visitors redirect to `/login`.
  * The public seed stays on `/demo`.
  */
 export default async function MembersDoor() {

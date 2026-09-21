@@ -29,19 +29,21 @@ feedback inside a 48-hour window. It works over a screen share.
 - `/example` — redirects to `/demo` so old links still work.
 - `/login` — chips email/password sign-in. No create-account control.
   Unauthenticated `/club` and `/members` redirect here. Sign-out from `/club` returns to `/login`.
-- `/members` — signed-in member home. Sidebar is Forum, Submit Referral,
-  Evaluations, Upcoming Events. The main pane is a forum. Sign-out sits
-  in the top bar. Referral and inbox flows come later.
-- `/club` — signed-in admin council board. Domain
+- `/members` — signed-in home for accounts that are not marked admin.
+  Sidebar is Forum, Submit Referral, Evaluations, Upcoming Events. The
+  main pane is a forum. Sign-out sits in the top bar. Referral and inbox
+  flows come later.
+- `/club` — council board for marked admin accounts. Domain
   inputs (people with review status, referrals, comparisons, evaluations,
   feedback requests, round settings, snapshots) persist in Convex. Each write
   stamps the org clock with wall time and re-runs views via `lib/engine.ts` →
   `src/`. The session / org gate is on: unauthenticated visitors redirect to
-  `/login` (not the seed board, not PersistedClub).
-  Signed-in owners get the Convex-backed page when Convex env is configured.
-  `/demo` stays in-memory `generateSeed()` with no auth. `/example` redirects
-  there. Public signup is disabled; provision owners with
-  `bun run provision-user`.
+  `/login` (not the seed board, not PersistedClub). Accounts that are not
+  marked admin are sent to `/members`. Signed-in admins get the Convex-backed
+  page when Convex env is configured. `/demo` stays in-memory `generateSeed()`
+  with no auth. `/example` redirects there. Public signup is disabled;
+  provision owners with `bun run provision-user` (`ACCOUNT_ROLE=member`
+  for a non-admin account).
 
 ```sh
 bun --cwd apps/club install
@@ -91,11 +93,15 @@ npx convex env set SITE_URL http://127.0.0.1:3000
 npx convex env set ADMIN_PROVISION_SECRET=$(openssl rand -base64 32)
 ```
 
-Then provision the first owner (no public signup):
+Then provision the first owner (no public signup). Default role is admin
+(council board). `ACCOUNT_ROLE=member` marks a non-admin account — they
+land on the member forum instead of `/club`.
 
 ```sh
 OWNER_EMAIL=you@club.edu OWNER_NAME="You" OWNER_PASSWORD='…' \
   ADMIN_PROVISION_SECRET='…' bun run provision-user
+ACCOUNT_ROLE=member OWNER_EMAIL=member@club.edu OWNER_NAME="Member" \
+  OWNER_PASSWORD='…' ADMIN_PROVISION_SECRET='…' bun run provision-user
 ```
 
 Do not put any of these keys on the public example deploy.

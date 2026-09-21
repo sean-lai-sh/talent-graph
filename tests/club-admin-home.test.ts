@@ -32,8 +32,12 @@ describe("member home + admin board", () => {
     expect(shell).not.toContain("Signed in as");
     expect(schema).toContain("const clubPost");
     expect(schema).toContain("posts: v.optional");
+    expect(schema).toContain("clubAccounts");
+    expect(schema).toContain("clubPosts");
     expect(club).toContain("export const listPosts");
     expect(club).toContain("export const addPost");
+    expect(club).toContain("export const getMyRole");
+    expect(club).toContain('query("clubPosts")');
     expect(club).not.toContain("computeView(posts");
   });
 

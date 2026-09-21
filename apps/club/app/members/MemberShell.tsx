@@ -9,8 +9,9 @@ import { clubLoginHref, SIGN_OUT_HREF } from "@/lib/loginReturnPath.ts";
 import { MemberHome } from "./MemberHome";
 
 /**
- * Member door. Same Better Auth gate as /club. Unauthenticated visitors
- * go to `/login`. No identity card in the chrome.
+ * Member door for accounts that are not marked admin. Same Better Auth
+ * gate as /club. Unauthenticated visitors go to `/login`.
+ * No identity card in the chrome.
  */
 export function MemberShell() {
   const configured = convexConfigured();

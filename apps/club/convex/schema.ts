@@ -168,7 +168,22 @@ const clubPost = v.object({
   createdAt: v.string(),
 });
 
+export const clubRole = v.union(v.literal("admin"), v.literal("member"));
+
 export default defineSchema({
+  clubAccounts: defineTable({
+    userId: v.string(),
+    email: v.string(),
+    role: clubRole,
+  })
+    .index("by_user", ["userId"])
+    .index("by_email", ["email"]),
+  clubPosts: defineTable({
+    body: v.string(),
+    authorName: v.string(),
+    authorUserId: v.string(),
+    createdAt: v.string(),
+  }).index("by_created", ["createdAt"]),
   clubOrgs: defineTable({
     ownerUserId: v.string(),
     name: v.string(),
@@ -183,7 +198,7 @@ export default defineSchema({
     // Council layer, added after the first orgs: optional so old docs load.
     feedbackRequests: v.optional(v.array(clubFeedbackRequest)),
     config: v.optional(clubReviewConfig),
-    // Admin landing forum. Not engine input; views never read these.
+    // Legacy per-org notes. The live member feed is `clubPosts`.
     posts: v.optional(v.array(clubPost)),
   }).index("by_owner", ["ownerUserId"]),
 });

@@ -2,6 +2,7 @@ import { createClient, type GenericCtx } from "@convex-dev/better-auth";
 import { convex } from "@convex-dev/better-auth/plugins";
 import type { BetterAuthOptions } from "better-auth";
 import { betterAuth } from "better-auth/minimal";
+import type { GenericMutationCtx } from "convex/server";
 import { v } from "convex/values";
 import { components } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
@@ -57,12 +58,28 @@ function rowId(row: AuthRow | null | undefined): string | undefined {
   return row?.id ?? row?._id;
 }
 
+async function upsertClubAccount(
+  ctx: { db: GenericMutationCtx<DataModel>["db"] },
+  input: { userId: string; email: string; role: "admin" | "member" },
+) {
+  const existing = await ctx.db
+    .query("clubAccounts")
+    .withIndex("by_user", (q) => q.eq("userId", input.userId))
+    .first();
+  if (existing) {
+    await ctx.db.patch(existing._id, { email: input.email, role: input.role });
+    return;
+  }
+  await ctx.db.insert("clubAccounts", input);
+}
+
 export const provisionUser = mutation({
   args: {
     secret: v.string(),
     email: v.string(),
     name: v.string(),
     passwordHash: v.string(),
+    role: v.optional(v.union(v.literal("admin"), v.literal("member"))),
   },
   handler: async (ctx, args) => {
     const expected = process.env.ADMIN_PROVISION_SECRET;
@@ -75,6 +92,7 @@ export const provisionUser = mutation({
 
     const email = args.email.trim().toLowerCase();
     const name = args.name.trim();
+    const role = args.role === "member" ? "member" : "admin";
     if (!email || !name || !args.passwordHash) {
       throw new Error("email, name, and passwordHash are required");
     }
@@ -109,14 +127,16 @@ export const provisionUser = mutation({
             updatedAt: now,
           },
         });
-        return { email, created: false, rotated: true };
+        await upsertClubAccount(ctx, { userId, email, role });
+        return { email, created: false, rotated: true, role };
       }
       await adapter.update({
         model: "account",
         where: [{ field: "id", value: accountId }],
         update: { password: args.passwordHash, updatedAt: now },
       });
-      return { email, created: false, rotated: true };
+      await upsertClubAccount(ctx, { userId, email, role });
+      return { email, created: false, rotated: true, role };
     }
 
     const created = (await adapter.create({
@@ -142,6 +162,7 @@ export const provisionUser = mutation({
         updatedAt: now,
       },
     });
-    return { email, created: true, rotated: false };
+    await upsertClubAccount(ctx, { userId, email, role });
+    return { email, created: true, rotated: false, role };
   },
 });

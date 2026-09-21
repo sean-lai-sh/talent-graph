@@ -51,6 +51,7 @@ describe("SEA-26 /login door", () => {
     expect(page).not.toContain("Create account");
     expect(page).not.toContain("Club door");
     expect(form).toContain("signIn.email");
+    expect(form).toContain("destAfterLogin");
     expect(form).not.toContain("signUp");
     expect(form).not.toContain("Create account");
     expect(layout).toContain("ConvexClientProvider");

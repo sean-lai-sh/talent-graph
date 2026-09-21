@@ -6,8 +6,8 @@ import { MemberChrome } from "../../components/shell/MemberChrome.tsx";
 import { api } from "../../convex/_generated/api";
 
 /**
- * Member home: sidebar from the wireframe, forum in the main pane.
- * Sign-out sits in the top bar.
+ * Member home for non-admin accounts: sidebar from the wireframe,
+ * shared forum in the main pane. Sign-out sits in the top bar.
  */
 export function MemberHome({ onSignOut }: { onSignOut: () => void }) {
   const posts = useQuery(api.club.listPosts);
