@@ -105,12 +105,36 @@ function finite(value: unknown, what: string): number {
   return value;
 }
 
+/**
+ * A number inside the range its field is defined on, or a broken invariant.
+ *
+ * Never clamped and never coerced. A confidence of 1.4 is not a very confident
+ * answer to be pulled back to 1 — it is a number this pipeline cannot
+ * represent, and reading it as anything at all would put a value nothing
+ * produced into a claim. Finiteness is checked first, so `NaN` is reported as
+ * what it is rather than as an out-of-range value.
+ */
+function inRange(value: unknown, low: number, high: number, what: string): number {
+  const number = finite(value, what);
+  if (number < low || number > high) {
+    throw new JudgmentInvariantError(
+      `${what} must be in [${low}, ${high}] (got ${String(number)})`,
+    );
+  }
+  return number;
+}
+
+/** A probability or a confidence: the unit interval, both ends inclusive. */
+function unit(value: unknown, what: string): number {
+  return inRange(value, 0, 1, what);
+}
+
 function choiceAnswer(answer: JevAnswer | undefined, what: string): JevChoiceAnswer {
   if (answer === undefined || typeof (answer as JevChoiceAnswer).choice !== "string") {
     throw new JudgmentInvariantError(`${what} must be a choice answer`);
   }
   const choice = answer as JevChoiceAnswer;
-  finite(choice.confidence, `${what}.confidence`);
+  unit(choice.confidence, `${what}.confidence`);
   return choice;
 }
 
@@ -118,7 +142,7 @@ function noulAnswer(answer: JevAnswer | undefined, what: string): number {
   if (answer === undefined || typeof (answer as JevNoulAnswer).noul !== "number") {
     throw new JudgmentInvariantError(`${what} must be a noul answer`);
   }
-  return finite((answer as JevNoulAnswer).noul, `${what}.noul`);
+  return unit((answer as JevNoulAnswer).noul, `${what}.noul`);
 }
 
 function scoreAnswer(
@@ -130,8 +154,13 @@ function scoreAnswer(
   if (raw === undefined || typeof raw.score !== "number" || !Array.isArray(raw.probabilities)) {
     throw new JudgmentInvariantError(`${what} must be a score answer`);
   }
-  finite(raw.score, `${what}.score`);
-  finite(raw.confidence, `${what}.confidence`);
+  // The score is an expected value over the rubric's levels, so it lives in
+  // `[0, levels.length - 1]` and may fall between two of them. A score past
+  // the top level is not a very high level: it is a level this rubric does not
+  // have, and normalising it by `MAX_LEVEL` downstream would put a dimension
+  // above 1. Read off the rubric that was handed in, never a shipped default.
+  inRange(raw.score, 0, levels.length - 1, `${what}.score`);
+  unit(raw.confidence, `${what}.confidence`);
   if (raw.probabilities.length !== levels.length) {
     throw new JudgmentInvariantError(
       `${what}.probabilities has ${raw.probabilities.length} entries; this rubric has ` +
@@ -139,7 +168,7 @@ function scoreAnswer(
     );
   }
   for (const [index, value] of raw.probabilities.entries()) {
-    finite(value, `${what}.probabilities[${index}]`);
+    unit(value, `${what}.probabilities[${index}]`);
   }
   return raw;
 }

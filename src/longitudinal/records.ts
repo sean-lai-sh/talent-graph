@@ -133,6 +133,12 @@ export const CLAIM_ANSWER_KEYS = ["event_kind", ...CAREER_EVIDENCE_DIMENSIONS] a
 /** The choice label the taxonomy uses for "no event is established". */
 export const NO_SUPPORTED_EVENT = "no_supported_event";
 
+/** The separator `evidenceKeyFor` joins on; no component may contain it. */
+export const EVIDENCE_KEY_SEPARATOR = "|";
+
+/** The evidence key's components, in order, for naming the offending one. */
+const EVIDENCE_KEY_PARTS = ["personId", "sourceId", "publishedAt", "contentHash"] as const;
+
 /**
  * The evidence one record is about: person plus the source item's identity.
  *
@@ -142,7 +148,23 @@ export const NO_SUPPORTED_EVENT = "no_supported_event";
  * share this key and differ in `requestFingerprint`.
  */
 export function evidenceKeyFor(personId: string, evidence: GrokEvidenceItem): string {
-  return [personId, evidence.sourceId, evidence.publishedAt, evidence.contentHash].join("|");
+  const parts = [personId, evidence.sourceId, evidence.publishedAt, evidence.contentHash];
+  // `|` stays the separator, and the format stays pinned: changing it would
+  // change every record id, so every judgment already stored — the whole point
+  // of storing them — would read back as a permanent miss and be re-billed.
+  // What a delimited key needs instead is that the delimiter cannot appear in
+  // a part, or two different pieces of evidence could name the same key. A
+  // component carrying one is refused by name rather than escaped: an escape
+  // would also change the format, and nothing in this pipeline produces one.
+  const offending = parts.findIndex((part) => part.includes(EVIDENCE_KEY_SEPARATOR));
+  if (offending !== -1) {
+    throw new JudgmentInvariantError(
+      `evidenceKeyFor: ${EVIDENCE_KEY_PARTS[offending]} contains the evidence-key separator ` +
+        `"${EVIDENCE_KEY_SEPARATOR}" (${String(parts[offending])}); an evidence key must name ` +
+        "exactly one piece of evidence",
+    );
+  }
+  return parts.join(EVIDENCE_KEY_SEPARATOR);
 }
 
 /**

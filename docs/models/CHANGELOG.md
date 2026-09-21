@@ -250,3 +250,46 @@ Not a spec version either: how the runs of a pass are ordered and recorded.
   `src/pipeline/advance.ts`, and the "explicit meeting points" allow-list
   carries `src/pipeline/kinds.ts` (types only) instead of `src/modelRun.ts`.
 - **PR:** #55 T8.
+
+## Longitudinal
+
+### Career-evidence vocabulary; the evidence modules split (#54 T8)
+
+- **What:** the judgment types stop carrying a third word for the concept they
+  already name. `ProgressDimension` is `CareerEvidenceDimension`,
+  `ProgressVector` is `CareerEvidenceVector`, and `progressVector()` is
+  `careerEvidenceVector()`; no alias is left behind, and
+  `tests/careerEvidence.vocabulary.test.ts` greps `src/longitudinal/**` for the
+  word "progress", case-insensitively, with nothing excluded.
+- **Why:** two words, cleanly divided. `longitudinal` is the time concept —
+  monitoring plans, checkpoints, cutoffs, residual slope. `career-evidence` is
+  the judgment concept — claims, events, rubric, spec, dimensions. "Progress"
+  belonged to neither and read as a third one.
+- **Layout:** `src/longitudinal/pipeline.ts` (921 lines) and `records.ts` (494)
+  split along the seams they already had. New modules, all behaviour-preserving
+  moves: `policy.ts` (the policy and runtime a spec implies), `coalescing.ts`
+  (one judgment, however many askers), `expectations.ts` (what a store has to
+  hand back), `judge.ts` (the two judgments one item needs), `derive.ts` (the
+  pure re-derivation and the vector), `store.ts` (append-only, frozen) and
+  `projections.ts` (what a record states). `apps/club/lib/longitudinal/jev.ts`
+  splits into the adapter, `jevClient.ts` and `jevRecord.ts`.
+- **Public surface:** unchanged, name for name, apart from the rename itself.
+  The barrel re-exports the new modules with the same names `pipeline.ts` and
+  `records.ts` used to carry; `coalesce`, `pendingFor` and everything in
+  `expectations.ts` are internal to the fan-out and are deliberately not on it.
+- **Types:** the Club adapter's dependency is narrowed from the `TypeSafeClient`
+  class to `JevClient`, the `systemOne`/`withResponse()` surface it actually
+  calls. The class has private members, so a test double could only ever be one
+  through an `as unknown as` cast — and a cast through `unknown` type-checks
+  against anything, including an SDK whose response shape has moved. The
+  doubles now satisfy the port honestly and their bodies are checked against
+  `SystemOneResult<...>`, so an SDK shape change fails `bun run typecheck`.
+- **Numbers:** unchanged. No displayed score, run id, fingerprint or claim
+  status moved: `tests/fixtures/longitudinal-golden.json`,
+  `longitudinal-fingerprints.json`, `longitudinal-jev-request.json`,
+  `run-ids-golden.json` and `demo-golden.txt` all pass without regeneration.
+- **Projections:** `projectIdentity` and `projectClaim` now reject a confidence,
+  a probability or a field match outside `[0, 1]`, and a score outside the
+  rubric's `0..MAX_LEVEL`, with `JudgmentInvariantError`. A value outside its
+  range is unrepresentable, so it is raised — never clamped, never coerced.
+- **PR:** #54 T8.

@@ -42,6 +42,14 @@ export * from "./longitudinal/policy.ts";
 export * from "./longitudinal/projections.ts";
 export * from "./longitudinal/provenance.ts";
 export * from "./longitudinal/records.ts";
+// `records.ts`, `store.ts` and `projections.ts` are here; `./longitudinal/run.ts`
+// deliberately is not. `defineModel` registers process-wide, and the barrel's
+// registry is pinned to the three shipped models
+// (`tests/defineModelRegistry.test.ts`), so importing the barrel must not
+// register a fourth. The free re-derivation lives there: `runCareerEvidence`
+// re-derives claims and events from stored records under a new spec without
+// re-billing a judgment, and is imported from `src/longitudinal/run.ts`
+// directly by the pipeline's caller.
 export * from "./longitudinal/scout.ts";
 export * from "./longitudinal/store.ts";
 export * from "./longitudinal/types.ts";

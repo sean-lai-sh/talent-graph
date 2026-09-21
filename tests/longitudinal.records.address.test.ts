@@ -12,8 +12,13 @@ import { describe, expect, test } from "bun:test";
 import { createJevJudgmentService } from "../apps/club/lib/longitudinal/jev.ts";
 import { processEvidence } from "../src/longitudinal/pipeline.ts";
 import type { JevJudgmentRecord } from "../src/longitudinal/records.ts";
+import {
+  EVIDENCE_KEY_SEPARATOR,
+  evidenceKeyFor,
+  JudgmentInvariantError,
+} from "../src/longitudinal/records.ts";
 import { InMemoryJevJudgmentStore, type JevJudgmentStore } from "../src/longitudinal/store.ts";
-import type { CanonicalIdentity } from "../src/longitudinal/types.ts";
+import type { CanonicalIdentity, GrokEvidenceItem } from "../src/longitudinal/types.ts";
 import { careerEvidenceSpecId } from "../src/models/careerEvidence.ts";
 import { day, fakeClient, identity, isoDates, items, STRICTER, spec } from "./helpers/records.ts";
 
@@ -140,5 +145,39 @@ describe("judgment records: a cache hit must carry the rubric it is read under",
     const second = await runWith(bumped, service);
     expect(client.calls()).toBe(4);
     expect(JSON.stringify(second.claims, isoDates)).toBe(JSON.stringify(first.claims, isoDates));
+  });
+});
+
+/**
+ * The evidence key's format is pinned, and its separator cannot appear inside
+ * a part.
+ *
+ * `|` stays what `evidenceKeyFor` joins on. Changing it would change every
+ * record id, so every judgment already stored — the whole reason for storing
+ * them — would read back as a permanent miss and be paid for again. What a
+ * delimited key does need is that no component can carry the delimiter, or two
+ * different pieces of evidence could name the same key; a component that does
+ * is refused by name rather than escaped, since escaping would change the
+ * format too.
+ */
+describe("judgment records: the evidence key format", () => {
+  test("the key is the four components joined on the separator, in order", () => {
+    const item = items[0] as GrokEvidenceItem;
+    expect(evidenceKeyFor("p-1", item)).toBe(
+      ["p-1", item.sourceId, item.publishedAt, item.contentHash].join(EVIDENCE_KEY_SEPARATOR),
+    );
+    expect(EVIDENCE_KEY_SEPARATOR).toBe("|");
+  });
+
+  test("a component containing the separator is rejected by name", () => {
+    const item = items[0] as GrokEvidenceItem;
+    expect(() => evidenceKeyFor("p|1", item)).toThrow(JudgmentInvariantError);
+    expect(() => evidenceKeyFor("p|1", item)).toThrow(/personId contains the evidence-key/);
+    expect(() => evidenceKeyFor("p-1", { ...item, sourceId: "a|b" })).toThrow(
+      /sourceId contains the evidence-key/,
+    );
+    expect(() => evidenceKeyFor("p-1", { ...item, contentHash: "de|ad" })).toThrow(
+      /contentHash contains the evidence-key/,
+    );
   });
 });

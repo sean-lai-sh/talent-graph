@@ -11,8 +11,10 @@
 
 import { describe, expect, test } from "bun:test";
 import { createJevJudgmentService } from "../apps/club/lib/longitudinal/jev.ts";
+import { MAX_LEVEL } from "../src/longitudinal/dimensions.ts";
 import { projectClaim, projectIdentity } from "../src/longitudinal/projections.ts";
 import type { JevAnswer, JevJudgmentRecord } from "../src/longitudinal/records.ts";
+import { JudgmentInvariantError } from "../src/longitudinal/records.ts";
 import type { GrokEvidenceItem } from "../src/longitudinal/types.ts";
 import { careerEvidenceSpecId } from "../src/models/careerEvidence.ts";
 import { fakeClient, identity, items, spec } from "./helpers/records.ts";
@@ -118,5 +120,111 @@ describe("judgment records: projections reject what they cannot represent", () =
       difficulty: { ...difficulty, probabilities: [1, 0] } as unknown as JevAnswer,
     };
     expect(() => projectClaim({ ...record, answers }, spec)).toThrow(/probabilities/);
+  });
+});
+
+/**
+ * A number outside the range its field is defined on is unrepresentable.
+ *
+ * Every case below is raised as a `JudgmentInvariantError` and named, never
+ * clamped to the edge of the range and never coerced: a confidence of 1.4 read
+ * as 1 would put a number nothing produced into a claim, and a score of 4.5
+ * read as 4 would hide a rubric mismatch behind a plausible level. Both ends
+ * of every range are inclusive, which the last case pins so the check cannot
+ * drift into rejecting a perfectly ordinary 0 or 1.
+ */
+describe("judgment records: projections reject a value outside its range", () => {
+  async function claimRecord(): Promise<JevJudgmentRecord> {
+    const service = createJevJudgmentService(fakeClient().client, spec);
+    return (await service.assessClaim(items[0] as GrokEvidenceItem, identity.personId)).record;
+  }
+
+  async function identityRecord(): Promise<JevJudgmentRecord> {
+    const service = createJevJudgmentService(fakeClient().client, spec);
+    return (await service.assessIdentity(identity, items[0] as GrokEvidenceItem)).record;
+  }
+
+  /** The same record with one answer field replaced. */
+  const withAnswer = (
+    record: JevJudgmentRecord,
+    key: string,
+    patch: Record<string, unknown>,
+  ): JevJudgmentRecord =>
+    ({
+      ...record,
+      answers: {
+        ...record.answers,
+        [key]: { ...(record.answers[key] as object), ...patch },
+      },
+    }) as JevJudgmentRecord;
+
+  test("an identity decision confidence above one is rejected, not clamped", async () => {
+    const record = await identityRecord();
+    expect(() =>
+      projectIdentity(withAnswer(record, "decision", { confidence: 1.4 }), spec),
+    ).toThrow(JudgmentInvariantError);
+    expect(() =>
+      projectIdentity(withAnswer(record, "decision", { confidence: 1.4 }), spec),
+    ).toThrow(/decision\.confidence must be in \[0, 1\]/);
+  });
+
+  test("an identity field match below zero is rejected", async () => {
+    const record = await identityRecord();
+    expect(() => projectIdentity(withAnswer(record, "same_name", { noul: -0.1 }), spec)).toThrow(
+      /name\.noul must be in \[0, 1\]/,
+    );
+  });
+
+  test("an event confidence above one is rejected", async () => {
+    const record = await claimRecord();
+    expect(() => projectClaim(withAnswer(record, "event_kind", { confidence: 1.4 }), spec)).toThrow(
+      /event_kind\.confidence must be in \[0, 1\]/,
+    );
+  });
+
+  test("a dimension confidence above one is rejected", async () => {
+    const record = await claimRecord();
+    expect(() => projectClaim(withAnswer(record, "difficulty", { confidence: 2 }), spec)).toThrow(
+      /difficulty\.confidence must be in \[0, 1\]/,
+    );
+  });
+
+  test("a probability outside the unit interval is rejected", async () => {
+    const record = await claimRecord();
+    const broken = withAnswer(record, "ownership", { probabilities: [0, 0, 0, 1.2, 0] });
+    expect(() => projectClaim(broken, spec)).toThrow(
+      /ownership\.probabilities\[3\] must be in \[0, 1\]/,
+    );
+  });
+
+  test("a score past the rubric's top level is rejected, not capped", async () => {
+    const record = await claimRecord();
+    // The rubric is 0..MAX_LEVEL, so 4.5 is not a very high level: it is a
+    // level this rubric does not have, and `careerEvidenceVector` would
+    // normalise it past 1.
+    expect(() => projectClaim(withAnswer(record, "originality", { score: 4.5 }), spec)).toThrow(
+      /originality\.score must be in \[0, 4\]/,
+    );
+    expect(() => projectClaim(withAnswer(record, "originality", { score: -0.5 }), spec)).toThrow(
+      /originality\.score must be in \[0, 4\]/,
+    );
+  });
+
+  test("the ends of every range are still accepted", async () => {
+    const record = await claimRecord();
+    const edged = withAnswer(
+      withAnswer(record, "peer_validation", {
+        score: MAX_LEVEL,
+        confidence: 1,
+        probabilities: [0, 0, 0, 0, 1],
+      }),
+      "external_impact",
+      { score: 0, confidence: 0, probabilities: [1, 0, 0, 0, 0] },
+    );
+    const assessment = projectClaim(edged, spec);
+    expect(assessment.dimensions.find((d) => d.dimension === "peer_validation")?.score).toBe(
+      MAX_LEVEL,
+    );
+    expect(assessment.dimensions.find((d) => d.dimension === "external_impact")?.score).toBe(0);
   });
 });
