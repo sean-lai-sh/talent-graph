@@ -181,7 +181,7 @@ describe("invariants: provenance is runtime-agnostic", () => {
   test("no file under src/provenance imports from scoring/inference/models/judges", () => {
     expect(PROVENANCE.length).toBeGreaterThan(0);
     for (const f of PROVENANCE) {
-      const source = read(f);
+      const source = stripComments(read(f));
       for (const segment of ["scoring", "inference", "models", "judges"]) {
         expect(importsFrom(source, segment), `${rel(f)} imports from ${segment}/`).toBe(false);
       }

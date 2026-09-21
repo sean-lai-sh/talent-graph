@@ -21,98 +21,107 @@ const K = new Uint32Array([
 
 const word = (a: Uint32Array, i: number): number => a[i] as number;
 
-const byteAt = (a: Uint8Array, i: number): number => a[i] as number;
-
 const hex8 = (n: number): string => n.toString(16).padStart(8, "0");
 
-/** Scratch message schedule, reused across calls; this module is synchronous throughout. */
+/**
+ * Scratch state, reused across calls to keep hashing allocation-free on the hot
+ * path. Safe because every function here is synchronous and never yields: one
+ * `sha256HexBytes` call runs to completion before another can start, so no two
+ * hashes ever share these buffers.
+ */
 const w = new Uint32Array(64);
+const h = new Uint32Array(8);
+/** Room for the final partial block plus, when it does not fit, one more. */
+const tail = new Uint8Array(128);
+const tailView = new DataView(tail.buffer);
+const encoder = new TextEncoder();
+
+/** One 64-byte block into `h`. */
+function compress(view: DataView, offset: number): void {
+  for (let i = 0; i < 16; i++) w[i] = view.getUint32(offset + i * 4);
+  for (let i = 16; i < 64; i++) {
+    const x = word(w, i - 15);
+    const y = word(w, i - 2);
+    const s0 = ((x >>> 7) | (x << 25)) ^ ((x >>> 18) | (x << 14)) ^ (x >>> 3);
+    const s1 = ((y >>> 17) | (y << 15)) ^ ((y >>> 19) | (y << 13)) ^ (y >>> 10);
+    w[i] = (word(w, i - 16) + s0 + word(w, i - 7) + s1) >>> 0;
+  }
+
+  let a = word(h, 0);
+  let b = word(h, 1);
+  let c = word(h, 2);
+  let d = word(h, 3);
+  let e = word(h, 4);
+  let f = word(h, 5);
+  let g = word(h, 6);
+  let hh = word(h, 7);
+
+  for (let i = 0; i < 64; i++) {
+    const s1 = ((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7));
+    const t1 = (hh + s1 + ((e & f) ^ (~e & g)) + word(K, i) + word(w, i)) >>> 0;
+    const s0 = ((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10));
+    const t2 = (s0 + ((a & b) ^ (a & c) ^ (b & c))) >>> 0;
+    hh = g;
+    g = f;
+    f = e;
+    e = (d + t1) >>> 0;
+    d = c;
+    c = b;
+    b = a;
+    a = (t1 + t2) >>> 0;
+  }
+
+  h[0] = (word(h, 0) + a) >>> 0;
+  h[1] = (word(h, 1) + b) >>> 0;
+  h[2] = (word(h, 2) + c) >>> 0;
+  h[3] = (word(h, 3) + d) >>> 0;
+  h[4] = (word(h, 4) + e) >>> 0;
+  h[5] = (word(h, 5) + f) >>> 0;
+  h[6] = (word(h, 6) + g) >>> 0;
+  h[7] = (word(h, 7) + hh) >>> 0;
+}
 
 /** SHA-256 of raw bytes, lowercase hex. */
 export function sha256HexBytes(bytes: Uint8Array): string {
+  h[0] = 0x6a09e667;
+  h[1] = 0xbb67ae85;
+  h[2] = 0x3c6ef372;
+  h[3] = 0xa54ff53a;
+  h[4] = 0x510e527f;
+  h[5] = 0x9b05688c;
+  h[6] = 0x1f83d9ab;
+  h[7] = 0x5be0cd19;
+
   const byteLength = bytes.length;
-  // One 0x80 byte, then zeros until 56 mod 64, then the 64-bit big-endian bit length.
-  const zeros = (56 - ((byteLength + 1) % 64) + 64) % 64;
-  const total = byteLength + 1 + zeros + 8;
-  const message = new Uint8Array(total);
-  message.set(bytes);
-  message[byteLength] = 0x80;
+  const whole = byteLength - (byteLength % 64);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let offset = 0; offset < whole; offset += 64) compress(view, offset);
+
+  // The remainder, then one 0x80 byte, zeros, and the 64-bit big-endian bit
+  // length; that needs a second block when the remainder reaches 56 bytes.
+  const rest = byteLength - whole;
+  const total = rest < 56 ? 64 : 128;
+  tail.fill(0, 0, total);
+  tail.set(bytes.subarray(whole), 0);
+  tail[rest] = 0x80;
   const bitLength = byteLength * 8;
-  const high = Math.floor(bitLength / 0x100000000);
-  const low = bitLength >>> 0;
-  message[total - 8] = (high >>> 24) & 0xff;
-  message[total - 7] = (high >>> 16) & 0xff;
-  message[total - 6] = (high >>> 8) & 0xff;
-  message[total - 5] = high & 0xff;
-  message[total - 4] = (low >>> 24) & 0xff;
-  message[total - 3] = (low >>> 16) & 0xff;
-  message[total - 2] = (low >>> 8) & 0xff;
-  message[total - 1] = low & 0xff;
+  tailView.setUint32(total - 8, Math.floor(bitLength / 0x100000000));
+  tailView.setUint32(total - 4, bitLength >>> 0);
+  for (let offset = 0; offset < total; offset += 64) compress(tailView, offset);
 
-  let h0 = 0x6a09e667;
-  let h1 = 0xbb67ae85;
-  let h2 = 0x3c6ef372;
-  let h3 = 0xa54ff53a;
-  let h4 = 0x510e527f;
-  let h5 = 0x9b05688c;
-  let h6 = 0x1f83d9ab;
-  let h7 = 0x5be0cd19;
-
-  for (let offset = 0; offset < total; offset += 64) {
-    for (let i = 0; i < 16; i++) {
-      const o = offset + i * 4;
-      w[i] =
-        (byteAt(message, o) << 24) |
-        (byteAt(message, o + 1) << 16) |
-        (byteAt(message, o + 2) << 8) |
-        byteAt(message, o + 3);
-    }
-    for (let i = 16; i < 64; i++) {
-      const x = word(w, i - 15);
-      const y = word(w, i - 2);
-      const s0 = ((x >>> 7) | (x << 25)) ^ ((x >>> 18) | (x << 14)) ^ (x >>> 3);
-      const s1 = ((y >>> 17) | (y << 15)) ^ ((y >>> 19) | (y << 13)) ^ (y >>> 10);
-      w[i] = (word(w, i - 16) + s0 + word(w, i - 7) + s1) >>> 0;
-    }
-
-    let a = h0;
-    let b = h1;
-    let c = h2;
-    let d = h3;
-    let e = h4;
-    let f = h5;
-    let g = h6;
-    let hh = h7;
-
-    for (let i = 0; i < 64; i++) {
-      const s1 = ((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7));
-      const t1 = (hh + s1 + ((e & f) ^ (~e & g)) + word(K, i) + word(w, i)) >>> 0;
-      const s0 = ((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10));
-      const t2 = (s0 + ((a & b) ^ (a & c) ^ (b & c))) >>> 0;
-      hh = g;
-      g = f;
-      f = e;
-      e = (d + t1) >>> 0;
-      d = c;
-      c = b;
-      b = a;
-      a = (t1 + t2) >>> 0;
-    }
-
-    h0 = (h0 + a) >>> 0;
-    h1 = (h1 + b) >>> 0;
-    h2 = (h2 + c) >>> 0;
-    h3 = (h3 + d) >>> 0;
-    h4 = (h4 + e) >>> 0;
-    h5 = (h5 + f) >>> 0;
-    h6 = (h6 + g) >>> 0;
-    h7 = (h7 + hh) >>> 0;
-  }
-
-  return hex8(h0) + hex8(h1) + hex8(h2) + hex8(h3) + hex8(h4) + hex8(h5) + hex8(h6) + hex8(h7);
+  return (
+    hex8(word(h, 0)) +
+    hex8(word(h, 1)) +
+    hex8(word(h, 2)) +
+    hex8(word(h, 3)) +
+    hex8(word(h, 4)) +
+    hex8(word(h, 5)) +
+    hex8(word(h, 6)) +
+    hex8(word(h, 7))
+  );
 }
 
 /** SHA-256 of a string's UTF-8 bytes, lowercase hex. */
 export function sha256Hex(text: string): string {
-  return sha256HexBytes(new TextEncoder().encode(text));
+  return sha256HexBytes(encoder.encode(text));
 }

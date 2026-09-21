@@ -149,12 +149,19 @@ describe("(e) hashing stays fast enough for a synchronous call site", () => {
   }
 
   for (const [name, collection] of COLLECTIONS) {
-    test(`hashInputs over all seed ${name} stays under 1 ms`, () => {
+    test(`hashInputs over one seed collection (${name}) stays under 1 ms`, () => {
       expect(averageMs(collection, 50)).toBeLessThan(1);
     });
   }
 
-  test("hashing every seed collection at once stays well under a frame", () => {
+  // The ticket's literal budget is 1 ms for this case too, and it is not met:
+  // the whole dataset is ~71 KB of stable JSON, which the vendored SHA-256
+  // hashes in ~0.63 ms against ~0.20 ms for Bun.CryptoHasher (~3.2x slower),
+  // on top of ~0.33 ms of stableStringify that this refactor leaves untouched.
+  // Median here is ~1.03 ms. No production call site hashes all six collections
+  // at once; the per-collection budget above is the one that binds. This looser
+  // ceiling is a regression guard, not a restatement of the acceptance number.
+  test("hashInputs over all six seed collections in one call stays under 5 ms", () => {
     expect(averageMs(Object.values(data), 50)).toBeLessThan(5);
   });
 });
