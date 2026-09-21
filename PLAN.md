@@ -81,8 +81,9 @@ talent-graph/
       referralGraph.ts    # adjacency: who referred whom (buildReferralGraph,
                           #   referrersOf, referredBy) — domain-only imports
     pipeline/
-      advance.ts          # advance(): one pass — calibration → weights → signal;
-                          #   one run per kind, `now` is a parameter (#55 T4)
+      advance.ts          # advance(): one pass — V0 referral → capability →
+                          #   calibration → judge-weighted referral; one run
+                          #   per kind, `now` is a parameter (#55 T4)
     seed/
       generate.ts         # deterministic synthetic dataset (seeded PRNG)
       personas.ts         # Candidates A–F as specified
@@ -96,6 +97,7 @@ talent-graph/
     underRecognition.test.ts
     seed.test.ts
     invariants.test.ts    # import-boundary + language checks
+    specKinds.test.ts     # ModelSpecKind vs PipelineKind: compile-time fixtures (#55 T7)
   scripts/
     demo.ts               # bun run demo → prints "Alice" style report from seed
     drift.ts              # bun run drift → drift report; exit 1 above --max-verdict

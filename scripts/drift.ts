@@ -9,8 +9,11 @@
  * Referral Signal the calibration feeds). Paste the verdict line into
  * docs/models/CHANGELOG.md when shipping a new spec version.
  *
- * The kinds are the registered spec kinds, so a new kind is driftable the
- * day it is registered: nothing here enumerates them.
+ * The kinds are resolved, never enumerated here: `driftKinds()` reads them
+ * off the loaded specs, which are keyed on the kinds a pass runs. A kind the
+ * pipeline runs is therefore driftable the day it lands, and a registered
+ * spec kind the pipeline never evaluates is refused by name rather than
+ * failing somewhere inside the comparison.
  *
  * A version is either a registered semver (`0.1.0`) or the literal `env`,
  * meaning "the current registered spec with `TG_*` overrides applied" via

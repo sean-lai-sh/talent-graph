@@ -14,7 +14,8 @@
  */
 
 import { CURRENT_SPECS } from "./models/registry.ts";
-import type { BradleyTerrySpec, JudgeReliabilitySpec, ReferralSignalSpec } from "./models/spec.ts";
+import type { BradleyTerrySpec, ReferralSignalSpec, SpecOfKind } from "./models/spec.ts";
+import type { PipelineKind } from "./pipeline/advance.ts";
 
 export interface TalentGraphConfig {
   /** λ — see the note on BRADLEY_TERRY_V1_0_0 for why 0.1. */
@@ -127,13 +128,24 @@ export function referralSignalSpecFromConfig(
   return tagIfChanged(base, { ...base, topK: config.topKReferrals });
 }
 
-export interface LoadedSpecs {
-  config: TalentGraphConfig;
-  referral_signal: ReferralSignalSpec;
-  bradley_terry: BradleyTerrySpec;
-  /** No env overrides exist for V2 yet; always the registered current spec. */
-  judge_reliability: JudgeReliabilitySpec;
-}
+/**
+ * The specs a deployment runs, plus the config they were derived from.
+ *
+ * Keyed on `PipelineKind` (`keyof RunOutputs`, src/pipeline/advance.ts), not
+ * on `ModelSpecKind`: the env bridge exists to tune the numbers a pass
+ * produces, so its keys are exactly the kinds a pass runs. A registered spec
+ * kind the pipeline never evaluates — versioned rubric data, say — produces
+ * no number for a `TG_*` override to move, has no key here, and that is a
+ * fact of the mapped type rather than of a hand-kept list. One field per
+ * key, never a key with `undefined` behind it.
+ *
+ * `judge_reliability` has no env overrides yet, so it is always the
+ * registered current spec; it is a key here because a pass runs it, and the
+ * day an override exists nothing about this type has to change.
+ */
+export type LoadedSpecs = { config: TalentGraphConfig } & {
+  [K in PipelineKind]: SpecOfKind<K>;
+};
 
 /**
  * The bridge between the environment and the math. `compute*` / `fit*`

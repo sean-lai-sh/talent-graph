@@ -1,10 +1,14 @@
 /**
  * `advance()` — one pass of the engine over the observations.
  *
- * This is the only place the **calibration → weights → signal** order is
- * written. Everything else (the demo script, the drift script, an
- * application's engine) calls this and reads runs off the result, so the
- * order cannot drift apart between callers.
+ * This is the only place the evaluation order of a pass is written:
+ * **V0 referral signal → capability → calibration → judge-weighted referral
+ * signal**. The shorthand "calibration → weights → signal" names its last
+ * step — the calibration runs before the signal that consumes its weights —
+ * but a pass is four runs, not three, and the two Referral Signal runs are
+ * the first and the last of them. Everything else (the demo script, the
+ * drift script, an application's engine) calls this and reads runs off the
+ * result, so the order cannot drift apart between callers.
  *
  * Pure. `now` is a parameter — the evaluation time step T that the
  * calibration labels against and that every run is stamped with — and is
@@ -55,6 +59,12 @@ export interface Observations {
  * the pipeline never evaluates. Nothing in this module is keyed on the
  * `ModelSpecKind` union, so such a kind is simply not one of ours rather
  * than a hole to index into.
+ *
+ * This is the one hand-written list of the pipeline's kinds. `PipelineKind`,
+ * `LoadedSpecs` (src/config.ts), `DriftReport["kind"]`
+ * (src/analysis/drift.ts) and `PIPELINE_KINDS` below are all derived from it
+ * or checked against it, so adding a kind the pipeline runs is a change
+ * here, not a sweep through four parallel unions.
  */
 interface RunOutputs {
   referral_signal: Map<string, ReferralSignalResult>;
@@ -69,12 +79,14 @@ export type PipelineKind = keyof RunOutputs;
 export type RunOfKind<K extends PipelineKind> = ModelRun<RunOutputs[K]>;
 
 /**
- * The kinds a pass can drift-compare: the ones it runs *and* the loaded
- * specs carry. A kind the deployment cannot tune (no `LoadedSpecs` key) and a
- * kind the pipeline never evaluates (no `RunOutputs` key) are both excluded,
- * at compile time rather than by a runtime surprise.
+ * The kinds a pass can drift-compare. This used to be the intersection
+ * `PipelineKind & keyof LoadedSpecs`, guarding against the two lists
+ * disagreeing; since `LoadedSpecs` is itself keyed on `PipelineKind`
+ * (src/config.ts) they cannot, and the intersection collapsed to one union.
+ * Kept as the drift vocabulary's word for it — `DriftReport["kind"]` is the
+ * same union — not as a second list to maintain.
  */
-export type DriftKind = PipelineKind & keyof LoadedSpecs;
+export type DriftKind = PipelineKind;
 
 /**
  * Membership test for `PipelineKind`, written as a total record so that
@@ -113,7 +125,15 @@ export interface EngineState {
 }
 
 export interface AdvanceOptions {
-  /** Anchor the BT refit on the previous run. Default false. */
+  /**
+   * Anchor the capability refit on the previous run (the κ·Σ(θ_i − θ_i^prev)²
+   * prior). Default false.
+   *
+   * An anchored refit is pulled toward the previous fit by construction, so
+   * it understates how far a change moved the numbers: a drift comparison
+   * across spec versions would be measuring the anchor as much as the spec.
+   * Run drift comparisons unanchored — `scripts/drift.ts` does.
+   */
   anchor?: boolean;
   /** Drop referrals with `createdAt > now`. Default false. */
   asOf?: boolean;
