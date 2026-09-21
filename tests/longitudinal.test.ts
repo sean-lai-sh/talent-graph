@@ -20,12 +20,14 @@ import type {
   CanonicalIdentity,
   CareerEvent,
   ClaimAssessment,
+  EvidenceClaim,
   GrokEvidenceItem,
   GrokEvidencePacket,
   IdentityAssessment,
   JevAnswer,
   JevJudgmentRecord,
   JevJudgmentService,
+  JevJudgmentStore,
 } from "../src/index.ts";
 import {
   aggregateScoutInformationGain,
@@ -53,6 +55,7 @@ import {
   runDueMonitoringPlans,
   scoutHitGain,
   startMonitoringPlan,
+  validateEvidenceClaim,
   validateGrokEvidencePacket,
 } from "../src/index.ts";
 import { CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL } from "../src/longitudinal/dimensions.ts";
@@ -1057,8 +1060,16 @@ describe("bounded judgment fan-out", () => {
     // a clock.
     await fake.whenStarted(2);
     expect(fake.started()).toEqual(["item-0", "item-1"]);
-    expect(fake.signals().every((signal) => signal === controller.signal)).toBe(true);
+    // The requests run under the pipeline's own signal, not the caller's, so
+    // a judgment shared with another run is not cancelled by one asker
+    // leaving; with this run the only asker, the caller's abort reaches it.
+    const forwarded = fake.signals();
+    expect(forwarded.every((signal) => signal !== undefined && signal !== controller.signal)).toBe(
+      true,
+    );
+    expect(forwarded.every((signal) => signal?.aborted === false)).toBe(true);
     controller.abort(new Error("caller went away"));
+    expect(forwarded.every((signal) => signal?.aborted === true)).toBe(true);
     fake.release();
     await expect(pending).rejects.toThrow("caller went away");
     // No item past the cap was ever started: the pool stopped handing out work.
@@ -1165,6 +1176,271 @@ describe("bounded judgment fan-out", () => {
     expect(calls).toBe(2);
     expect(store.size).toBe(2);
     expect(left?.claims[0]).toEqual(right?.claims[0]);
+  });
+});
+
+describe("a coalesced judgment belongs to every asker", () => {
+  /**
+   * A service whose identity call is held open until the test releases it, so
+   * a second run can join the first one's in-flight judgment at a known point.
+   * No timers: the hold is a promise the test resolves.
+   */
+  function holding(): {
+    service: JevJudgmentService;
+    identityCalls: () => number;
+    claimCalls: () => number;
+    signals: () => (AbortSignal | undefined)[];
+    started: () => number;
+    release: () => void;
+  } {
+    let identityCalls = 0;
+    let claimCalls = 0;
+    const signals: (AbortSignal | undefined)[] = [];
+    const held: Array<() => void> = [];
+    const inner = serviceOf(acceptingJudgments);
+    return {
+      identityCalls: () => identityCalls,
+      claimCalls: () => claimCalls,
+      signals: () => [...signals],
+      started: () => signals.length,
+      release: () => {
+        for (const resolve of held.splice(0)) resolve();
+      },
+      service: {
+        ...inner,
+        async assessIdentity(canonical, item, options) {
+          identityCalls += 1;
+          signals.push(options?.signal);
+          await new Promise<void>((resolve) => held.push(resolve));
+          options?.signal?.throwIfAborted();
+          return inner.assessIdentity(canonical, item, options);
+        },
+        async assessClaim(item, personId, options) {
+          claimCalls += 1;
+          return inner.assessClaim(item, personId, options);
+        },
+      },
+    };
+  }
+
+  /** Drain the microtask queue. Deterministic: nothing here waits on a clock. */
+  const flush = async (turns = 50) => {
+    for (let turn = 0; turn < turns; turn++) await Promise.resolve();
+  };
+
+  const runOne = (judgments: JevJudgmentService, runtime: EvidenceRuntime) =>
+    processEvidence({
+      identity,
+      evidence: [evidence("shared", 40)],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments,
+      runtime,
+    });
+
+  test("one asker's abort leaves the other asker's claim intact", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    const gate = holding();
+    const controller = new AbortController();
+    const cancelled = runOne(gate.service, { store, signal: controller.signal });
+    await flush();
+    const bystander = runOne(gate.service, { store });
+    await flush();
+    expect(gate.identityCalls()).toBe(1);
+    controller.abort(new Error("A went away"));
+    gate.release();
+    const [aborted, kept] = await Promise.allSettled([cancelled, bystander]);
+
+    expect(aborted.status).toBe("rejected");
+    expect(String(aborted.status === "rejected" ? aborted.reason : "")).toContain("A went away");
+    // The judgment the aborted run started is still owed to the run that
+    // joined it: one call, a real claim, and nothing inherited from a
+    // cancellation that was never this run's.
+    expect(kept.status).toBe("fulfilled");
+    const claim = kept.status === "fulfilled" ? kept.value.claims[0] : undefined;
+    expect(claim?.status).toBe("accepted");
+    expect(claim?.identityDecision).toBe("same");
+    expect(claim?.reviewReasons).toBeUndefined();
+    expect(gate.identityCalls()).toBe(1);
+    expect(store.size).toBe(2);
+  });
+
+  test("an abort cannot reject an asker that never asked to be cancelled", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    const gate = holding();
+    const controller = new AbortController();
+    const cancelled = runOne(gate.service, { store, signal: controller.signal });
+    await flush();
+    const strict = runOne(gate.service, { store, onItemError: "throw" });
+    await flush();
+    controller.abort(new Error("A went away"));
+    gate.release();
+    const [, kept] = await Promise.allSettled([cancelled, strict]);
+    // Under `throw` an inherited abort would have rejected the whole batch.
+    expect(kept.status).toBe("fulfilled");
+    expect(kept.status === "fulfilled" ? kept.value.claims[0]?.status : undefined).toBe("accepted");
+  });
+
+  test("the shared judgment is cancelled once every asker has aborted", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    const gate = holding();
+    const first = new AbortController();
+    const second = new AbortController();
+    const one = runOne(gate.service, { store, signal: first.signal });
+    await flush();
+    const two = runOne(gate.service, { store, signal: second.signal });
+    await flush();
+    expect(gate.identityCalls()).toBe(1);
+    first.abort(new Error("one gone"));
+    await flush();
+    // One asker left: the request the other two share is still wanted.
+    expect(gate.signals()[0]?.aborted).toBe(false);
+    second.abort(new Error("two gone"));
+    await flush();
+    expect(gate.signals()[0]?.aborted).toBe(true);
+    gate.release();
+    const [a, b] = await Promise.allSettled([one, two]);
+    expect(a.status).toBe("rejected");
+    expect(b.status).toBe("rejected");
+    // Nothing was observed, so nothing was written.
+    expect(store.size).toBe(0);
+  });
+
+  test("a judgment that fails for any other reason fails for every asker", async () => {
+    // Deliberate and documented: askers share the observation, so they share
+    // its absence too. Each one then isolates it under its own `onItemError`.
+    const store = new InMemoryJevJudgmentStore();
+    let claimCalls = 0;
+    const failing: FakeJudgments = {
+      ...acceptingJudgments,
+      async assessClaim() {
+        claimCalls += 1;
+        throw new Error("jev 500");
+      },
+    };
+    const service = serviceOf(failing);
+    const [lenient, strict] = await Promise.allSettled([
+      runOne(service, { store }),
+      runOne(service, { store, onItemError: "throw" }),
+    ]);
+    expect(claimCalls).toBe(1);
+    expect(lenient.status).toBe("fulfilled");
+    expect(
+      lenient.status === "fulfilled" ? lenient.value.claims[0]?.reviewReasons : undefined,
+    ).toEqual(["judgment_unavailable"]);
+    expect(strict.status).toBe("rejected");
+  });
+});
+
+describe("a re-read after a losing put is checked like any other hit", () => {
+  const runOver = (judgments: JevJudgmentService, store: JevJudgmentStore) =>
+    processEvidence({
+      identity,
+      evidence: [evidence("work", 40)],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments,
+      runtime: { store },
+    });
+
+  /**
+   * A store that misses on the address `instead` is filed at, refuses the
+   * write, and then answers that address with `instead` — the shape of a race
+   * lost to another worker. Every other address stays empty.
+   */
+  const losingStore = (instead: JevJudgmentRecord): JevJudgmentStore => {
+    let missed = false;
+    return {
+      async get(recordId) {
+        if (recordId !== instead.id) return null;
+        if (!missed) {
+          missed = true;
+          return null;
+        }
+        return instead;
+      },
+      async put() {
+        throw new Error("append-only");
+      },
+    };
+  };
+
+  test("a re-read under a foreign rubric is refused by name, not turned into a review", async () => {
+    const service = serviceOf(acceptingJudgments);
+    const honest = new InMemoryJevJudgmentStore();
+    const seeded = await runOver(service, honest);
+    const record = seeded.records[0] as JevJudgmentRecord;
+    const foreign = { ...record, specId: "career_evidence@9.9.9:0123456789abcdef" };
+    await expect(runOver(service, losingStore(foreign))).rejects.toThrow(/different question/);
+  });
+
+  test("a re-read of another person's record is refused by name", async () => {
+    const service = serviceOf(acceptingJudgments);
+    const honest = new InMemoryJevJudgmentStore();
+    const seeded = await runOver(service, honest);
+    const record = seeded.records[0] as JevJudgmentRecord;
+    const someoneElse = {
+      ...record,
+      personId: "p-999",
+      evidenceKey: `p-999|${record.evidenceKey}`,
+    };
+    await expect(runOver(service, losingStore(someoneElse))).rejects.toThrow(
+      /must return the record it was asked for/,
+    );
+  });
+
+  test("a put that fails with nothing at the address is still the item's failure", async () => {
+    const service = serviceOf(acceptingJudgments);
+    const empty: JevJudgmentStore = {
+      async get() {
+        return null;
+      },
+      async put() {
+        throw new Error("store is down");
+      },
+    };
+    const result = await runOver(service, empty);
+    expect(result.claims[0]?.reviewReasons).toEqual(["judgment_unavailable"]);
+    expect(result.claims[0]?.identityDecision).toBe(null);
+  });
+});
+
+describe("claim validation: an absent identity judgment", () => {
+  const claimOf = async (): Promise<EvidenceClaim> => {
+    const result = await processEvidence({
+      identity,
+      evidence: [evidence("work", 40)],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments: serviceOf(acceptingJudgments),
+    });
+    return result.claims[0] as EvidenceClaim;
+  };
+
+  test("both fields absent together is valid; half-absent is not", async () => {
+    const claim = await claimOf();
+    expect(validateEvidenceClaim(claim).ok).toBe(true);
+    expect(
+      validateEvidenceClaim({ ...claim, identityDecision: null, identityConfidence: null }).ok,
+    ).toBe(true);
+    const halfAbsent = validateEvidenceClaim({ ...claim, identityConfidence: null });
+    expect(halfAbsent.ok).toBe(false);
+    expect(halfAbsent.ok ? [] : halfAbsent.errors).toEqual([
+      "identityDecision and identityConfidence are absent together or not at all",
+    ]);
+    expect(validateEvidenceClaim({ ...claim, identityDecision: null }).ok).toBe(false);
+  });
+
+  test("a present confidence outside the unit interval is still rejected", async () => {
+    const claim = await claimOf();
+    for (const bad of [-0.1, 1.1, Number.NaN]) {
+      const result = validateEvidenceClaim({ ...claim, identityConfidence: bad });
+      expect(result.ok).toBe(false);
+      expect(result.ok ? [] : result.errors).toEqual(["identityConfidence must be in [0, 1]"]);
+    }
   });
 });
 

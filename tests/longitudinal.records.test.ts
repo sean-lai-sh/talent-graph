@@ -849,11 +849,20 @@ describe("judgment records: the caller's signal reaches the transport (#54 T7)",
       ...(signal === undefined ? {} : { runtime: { signal } }),
     });
 
-  test("the adapter forwards the pipeline's signal to every request it makes", async () => {
+  test("a cancellable run puts every request under a signal of the pipeline's", async () => {
     const capturing = capturingClient();
     const controller = new AbortController();
     await runWithRuntime(capturing.client, controller.signal);
-    expect(capturing.signals()).toEqual([controller.signal, controller.signal]);
+    const forwarded = capturing.signals();
+    expect(forwarded).toHaveLength(2);
+    // Not the caller's own signal. The request runs under the pipeline's, so
+    // that a judgment several runs are waiting on is cancelled only when they
+    // have all gone away; this run's abort still reaches it (asserted in
+    // `tests/longitudinal.test.ts`).
+    expect(forwarded.every((signal) => signal !== undefined && signal !== controller.signal)).toBe(
+      true,
+    );
+    expect(forwarded.every((signal) => signal?.aborted === false)).toBe(true);
   });
 
   test("no signal means no signal: the adapter sends none of its own", async () => {

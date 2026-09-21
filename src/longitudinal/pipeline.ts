@@ -107,6 +107,16 @@ export interface EvidenceRuntime {
    * An abort rejects the whole call whatever `onItemError` says: a cancelled
    * batch has no partial result to report, and a claim built from work the
    * caller abandoned would be a claim nobody asked for.
+   *
+   * It cancels *claims*, not observations. A judgment that was already made
+   * — because the service ignored the signal, or answered in the same tick —
+   * is still written to the store: it was paid for, it is a true record of
+   * what the model said, and throwing it away would only mean buying it
+   * again. A retry after a cancelled run therefore starts from a store hit.
+   *
+   * A judgment several runs are waiting on is cancelled only when every one
+   * of them has aborted. One caller going away is not an answer about anyone
+   * else's batch, so the others keep the request and their claims.
    */
   signal?: AbortSignal;
   /**
@@ -178,7 +188,7 @@ export interface JudgmentDeps {
    * store, cost one judgment, and the append-only store is never handed the
    * same observation twice.
    */
-  pending?: Map<string, Promise<JevJudgmentRecord>>;
+  pending?: Map<string, SharedJudgment>;
   /** Cancellation, handed to the service with every request. */
   signal?: AbortSignal;
 }
@@ -193,13 +203,13 @@ export interface JudgmentDeps {
  * coalesces within itself only (see `processEvidence`), because there is
  * nowhere for a shared answer to have been recorded.
  */
-const IN_FLIGHT_BY_STORE = new WeakMap<JevJudgmentStore, Map<string, Promise<JevJudgmentRecord>>>();
+const IN_FLIGHT_BY_STORE = new WeakMap<JevJudgmentStore, Map<string, SharedJudgment>>();
 
 /** The pending-judgment map shared by every run over `store`. */
-function pendingFor(store: JevJudgmentStore): Map<string, Promise<JevJudgmentRecord>> {
+function pendingFor(store: JevJudgmentStore): Map<string, SharedJudgment> {
   const existing = IN_FLIGHT_BY_STORE.get(store);
   if (existing !== undefined) return existing;
-  const created = new Map<string, Promise<JevJudgmentRecord>>();
+  const created = new Map<string, SharedJudgment>();
   IN_FLIGHT_BY_STORE.set(store, created);
   return created;
 }
@@ -218,19 +228,17 @@ export async function judgeIdentity(
   spec: CareerEvidenceSpec,
   deps: JudgmentDeps,
 ): Promise<JevJudgment<IdentityAssessment>> {
-  const fingerprint = deps.service.identityFingerprint(identity, evidence);
-  const address = { fingerprint, evidenceKey: evidenceKeyFor(identity.personId, evidence) };
-  const recorded = await recordedJudgment({
-    fingerprint,
+  const expected = expectationFor({
+    fingerprint: deps.service.identityFingerprint(identity, evidence),
     kind: "identity",
     personId: identity.personId,
     evidence,
     spec,
-    store: deps.store,
   });
+  const recorded = await recordedJudgment(deps.store, expected);
   if (recorded !== null) return { assessment: projectIdentity(recorded, spec), record: recorded };
-  const coalesced = await coalesce(deps, address, () =>
-    deps.service.assessIdentity(identity, evidence, requestOptions(deps)),
+  const coalesced = await coalesce(deps, expected, (options) =>
+    deps.service.assessIdentity(identity, evidence, options),
   );
   return (
     coalesced.judged ?? {
@@ -247,19 +255,17 @@ export async function judgeClaim(
   spec: CareerEvidenceSpec,
   deps: JudgmentDeps,
 ): Promise<JevJudgment<ClaimAssessment>> {
-  const fingerprint = deps.service.claimFingerprint(evidence);
-  const address = { fingerprint, evidenceKey: evidenceKeyFor(personId, evidence) };
-  const recorded = await recordedJudgment({
-    fingerprint,
+  const expected = expectationFor({
+    fingerprint: deps.service.claimFingerprint(evidence),
     kind: "claim",
     personId,
     evidence,
     spec,
-    store: deps.store,
   });
+  const recorded = await recordedJudgment(deps.store, expected);
   if (recorded !== null) return { assessment: projectClaim(recorded, spec), record: recorded };
-  const coalesced = await coalesce(deps, address, () =>
-    deps.service.assessClaim(evidence, personId, requestOptions(deps)),
+  const coalesced = await coalesce(deps, expected, (options) =>
+    deps.service.assessClaim(evidence, personId, options),
   );
   return (
     coalesced.judged ?? {
@@ -269,9 +275,163 @@ export async function judgeClaim(
   );
 }
 
-/** The cancellation the service is given; absent when the caller gave none. */
-function requestOptions(deps: JudgmentDeps): JevRequestOptions | undefined {
-  return deps.signal === undefined ? undefined : { signal: deps.signal };
+/**
+ * What a record has to be, to be the observation this request is asking for.
+ *
+ * Every path that accepts a record from a store — a cache hit, and the
+ * re-read after a write that lost a race — checks it against this. A store
+ * that answers with something else is a bug to be shouted about, not a
+ * cheaper judgment and not an unavailable one.
+ */
+interface RecordExpectation {
+  /** `recordIdFor(fingerprint, evidenceKey)`: the address, and the id. */
+  id: string;
+  kind: JevJudgmentRecord["kind"];
+  fingerprint: string;
+  personId: string;
+  evidenceKey: string;
+  /** The rubric half of the spec id; the version is deliberately not compared. */
+  rubricHash: string;
+}
+
+function expectationFor(input: {
+  fingerprint: string;
+  kind: JevJudgmentRecord["kind"];
+  personId: string;
+  evidence: GrokEvidenceItem;
+  spec: CareerEvidenceSpec;
+}): RecordExpectation {
+  const evidenceKey = evidenceKeyFor(input.personId, input.evidence);
+  return {
+    id: recordIdFor(input.fingerprint, evidenceKey),
+    kind: input.kind,
+    fingerprint: input.fingerprint,
+    personId: input.personId,
+    evidenceKey,
+    rubricHash: rubricHashOf(careerEvidenceSpecId(input.spec)),
+  };
+}
+
+/**
+ * The record, if it is the one that was asked for; a `TypeError` otherwise.
+ *
+ * The person is never part of a request — the claim state is the evidence
+ * alone, and the identity state is a name and its identities — so the
+ * fingerprint alone does not name an observation. The address is the record
+ * id, which carries the evidence key as well, and what comes back is checked
+ * against both: a store that answers with another person's record is a bug
+ * here, not a cheap judgment.
+ *
+ * The rubric is checked for the same reason `deriveEvidence` checks it: the
+ * assessment is read out of the record under a spec, so a record answering
+ * different questions cannot be read here either, however well its shape
+ * fits. Only the rubric hash is compared, not the version — a thresholds-only
+ * bump asks the model exactly the same things — which neither widens nor
+ * narrows what hits: the fingerprint already carries the whole spec id, so a
+ * version bump misses before this is reached.
+ */
+function assertRecordedFor(
+  record: JevJudgmentRecord,
+  expected: RecordExpectation,
+): JevJudgmentRecord {
+  if (
+    record.id !== expected.id ||
+    record.kind !== expected.kind ||
+    record.requestFingerprint !== expected.fingerprint ||
+    record.personId !== expected.personId ||
+    record.evidenceKey !== expected.evidenceKey
+  ) {
+    throw new TypeError(
+      `judgment store: ${expected.id} holds ${record.id}, a ${record.kind} record for ` +
+        `${record.evidenceKey}; a store must return the record it was asked for`,
+    );
+  }
+  const recordedRubric = rubricHashOf(record.specId);
+  if (recordedRubric !== expected.rubricHash) {
+    throw new TypeError(
+      `judgment store: ${record.id} was judged under rubric ${recordedRubric} ` +
+        `(${record.specId}), not ${expected.rubricHash}; an answer to a different question is ` +
+        "not a cached judgment",
+    );
+  }
+  return record;
+}
+
+/**
+ * A stored record for this exact request *about this exact evidence*, or
+ * `null`. Never a near miss: what the store hands back is checked by
+ * `assertRecordedFor` before anything is read out of it.
+ */
+async function recordedJudgment(
+  store: JevJudgmentStore | undefined,
+  expected: RecordExpectation,
+): Promise<JevJudgmentRecord | null> {
+  const record = (await store?.get(expected.id)) ?? null;
+  return record === null ? null : assertRecordedFor(record, expected);
+}
+
+/**
+ * One in-flight judgment and the askers waiting on it.
+ *
+ * Askers share the request, not each other's cancellation. The call runs
+ * under `controller` — an internal signal, never a caller's — and that
+ * controller is aborted only once *every* asker has gone away. An asker that
+ * aborts while others are still waiting rejects on its own and leaves the
+ * call running for them.
+ *
+ * `controller` is absent when the asker that started the call had no signal:
+ * a request nobody can cancel stays uncancellable, which is the safe side of
+ * this trade — a late joiner with a signal can still stop waiting, it just
+ * cannot stop the request.
+ */
+export interface SharedJudgment {
+  record: Promise<JevJudgmentRecord>;
+  controller?: AbortController;
+  /** Signals of the askers still waiting that have not aborted. */
+  signalled: Set<AbortSignal>;
+  /** Askers still waiting that gave no signal, and so never go away. */
+  unsignalled: number;
+}
+
+/**
+ * Register one asker on a shared judgment; the returned function unregisters
+ * it. When the last asker that could still want the answer aborts, and none
+ * of the others can cancel, the shared request is cancelled too.
+ */
+function joinShared(shared: SharedJudgment, signal: AbortSignal | undefined): () => void {
+  if (signal === undefined) {
+    shared.unsignalled += 1;
+    return () => {
+      shared.unsignalled -= 1;
+    };
+  }
+  if (signal.aborted) return () => {};
+  const onAbort = () => {
+    shared.signalled.delete(signal);
+    if (shared.signalled.size === 0 && shared.unsignalled === 0) {
+      shared.controller?.abort(signal.reason);
+    }
+  };
+  shared.signalled.add(signal);
+  signal.addEventListener("abort", onAbort, { once: true });
+  return () => {
+    shared.signalled.delete(signal);
+    signal.removeEventListener("abort", onAbort);
+  };
+}
+
+/** `promise`, unless this asker's own signal aborts first. */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return promise;
+  return new Promise<T>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 /**
@@ -284,32 +444,62 @@ function requestOptions(deps: JudgmentDeps): JevRequestOptions | undefined {
  * point of the record being the observation: a second reader needs nothing
  * else.
  *
+ * What askers share is the observation and, deliberately, its absence: if the
+ * judgment fails for anything other than a cancellation, every asker sees
+ * that failure and each isolates it under its own `onItemError`. What they do
+ * *not* share is a cancellation — one caller going away is not an answer
+ * about anyone else's batch (see `SharedJudgment`).
+ *
  * `record` is what was finally recorded, which is not always what was judged:
  * see `recordJudgment`.
  */
 async function coalesce<TAssessment>(
   deps: JudgmentDeps,
-  address: { fingerprint: string; evidenceKey: string },
-  judge: () => Promise<JevJudgment<TAssessment>>,
+  expected: RecordExpectation,
+  judge: (options: JevRequestOptions | undefined) => Promise<JevJudgment<TAssessment>>,
 ): Promise<{ record: JevJudgmentRecord; judged?: JevJudgment<TAssessment> }> {
-  const id = recordIdFor(address.fingerprint, address.evidenceKey);
+  const id = expected.id;
   const pending = deps.pending;
   const inFlight = pending?.get(id);
-  if (inFlight !== undefined) return { record: await inFlight };
+  // A shared call whose controller has already been aborted is no use to a
+  // new asker: it starts its own instead, and takes over the entry.
+  if (inFlight !== undefined && inFlight.controller?.signal.aborted !== true) {
+    const leave = joinShared(inFlight, deps.signal);
+    try {
+      return { record: await untilAborted(inFlight.record, deps.signal) };
+    } finally {
+      leave();
+    }
+  }
   let judged: JevJudgment<TAssessment> | undefined;
-  const promise = (async () => {
-    judged = await judge();
-    return recordJudgment(deps.store, judged.record);
+  const controller = deps.signal === undefined ? undefined : new AbortController();
+  const record = (async () => {
+    judged = await judge(controller === undefined ? undefined : { signal: controller.signal });
+    return recordJudgment(deps.store, judged.record, expected);
   })();
-  pending?.set(id, promise);
+  // Every asker observes this rejection through its own `await`; this only
+  // keeps the shared copy from being reported as an unhandled one.
+  record.catch(() => {});
+  const shared: SharedJudgment = {
+    record,
+    signalled: new Set(),
+    unsignalled: 0,
+    ...(controller === undefined ? {} : { controller }),
+  };
+  const leave = joinShared(shared, deps.signal);
+  pending?.set(id, shared);
   try {
-    const record = await promise;
+    const settled = await untilAborted(record, deps.signal);
     // The assessment the service returned is authoritative only for the
     // record it returned: if the store already held a different observation
     // at this address, that one is what everyone reads.
-    return judged !== undefined && judged.record === record ? { record, judged } : { record };
+    return judged !== undefined && judged.record === settled
+      ? { record: settled, judged }
+      : { record: settled };
   } finally {
-    pending?.delete(id);
+    leave();
+    // Only if it is still ours: a later asker may have taken the entry over.
+    if (pending?.get(id) === shared) pending.delete(id);
   }
 }
 
@@ -320,13 +510,17 @@ async function coalesce<TAssessment>(
  * worker's write of the *same* address throws rather than overwriting. That
  * is not a reason to fail the batch: the judgment at that address is already
  * recorded, and the recorded one is the observation — this run's answer to
- * the same question arrived second. It is read back and used. A `put` that
- * fails for any other reason (a misfiled record, a store that is down) leaves
- * nothing at the address and is re-thrown.
+ * the same question arrived second. It is read back, checked exactly as a
+ * cache hit is, and used; a store that answers the re-read with someone
+ * else's record, or with an answer to another rubric, is as loud here as it
+ * is on the way in. A `put` that fails for any other reason (a misfiled
+ * record, a store that is down) leaves nothing at the address and is
+ * re-thrown.
  */
 async function recordJudgment(
   store: JevJudgmentStore | undefined,
   record: JevJudgmentRecord,
+  expected: RecordExpectation,
 ): Promise<JevJudgmentRecord> {
   if (store === undefined) return record;
   try {
@@ -335,63 +529,8 @@ async function recordJudgment(
   } catch (error) {
     const recorded = await store.get(record.id);
     if (recorded === null) throw error;
-    return recorded;
+    return assertRecordedFor(recorded, expected);
   }
-}
-
-/**
- * A stored record for this exact request *about this exact evidence*, or
- * `null`. Never a near miss.
- *
- * The person is never part of a request — the claim state is the evidence
- * alone, and the identity state is a name and its identities — so the
- * fingerprint alone does not name an observation. The address is the record
- * id, which carries the evidence key as well, and what comes back is checked
- * against both: a store that answers with another person's record is a bug
- * here, not a cheap judgment.
- *
- * The rubric is checked for the same reason `deriveEvidence` checks it: the
- * assessment is read out of the record under `spec`, so a record answering
- * different questions cannot be read here either, however well its shape
- * fits. Only the rubric hash is compared, not the version — a thresholds-only
- * bump asks the model exactly the same things — which neither widens nor
- * narrows what hits: the fingerprint already carries the whole spec id, so a
- * version bump misses before this is reached.
- */
-async function recordedJudgment(input: {
-  fingerprint: string;
-  kind: JevJudgmentRecord["kind"];
-  personId: string;
-  evidence: GrokEvidenceItem;
-  spec: CareerEvidenceSpec;
-  store: JevJudgmentStore | undefined;
-}): Promise<JevJudgmentRecord | null> {
-  const evidenceKey = evidenceKeyFor(input.personId, input.evidence);
-  const id = recordIdFor(input.fingerprint, evidenceKey);
-  const record = (await input.store?.get(id)) ?? null;
-  if (record === null) return null;
-  if (
-    record.id !== id ||
-    record.kind !== input.kind ||
-    record.requestFingerprint !== input.fingerprint ||
-    record.personId !== input.personId ||
-    record.evidenceKey !== evidenceKey
-  ) {
-    throw new TypeError(
-      `judgment store: ${id} holds ${record.id}, a ${record.kind} record for ` +
-        `${record.evidenceKey}; a store must return the record it was asked for`,
-    );
-  }
-  const rubricHash = rubricHashOf(careerEvidenceSpecId(input.spec));
-  const recordedRubric = rubricHashOf(record.specId);
-  if (recordedRubric !== rubricHash) {
-    throw new TypeError(
-      `judgment store: ${record.id} was judged under rubric ${recordedRubric} ` +
-        `(${record.specId}), not ${rubricHash}; an answer to a different question is not a ` +
-        "cached judgment",
-    );
-  }
-  return record;
 }
 
 /**
