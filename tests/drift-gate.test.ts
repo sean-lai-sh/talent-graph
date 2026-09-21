@@ -11,6 +11,7 @@ import {
 } from "../scripts/drift-gate.ts";
 import { CURRENT_SPECS } from "../src/models/registry.ts";
 import type { ModelSpec } from "../src/models/spec.ts";
+import { isPipelineKind } from "../src/pipeline/advance.ts";
 
 /** Two registry snapshots, as `kind → current version`. */
 const BASE = { referral_signal: "0.1.0", bradley_terry: "1.0.0", judge_reliability: "2.0.0" };
@@ -119,6 +120,14 @@ describe("drift gate: which moves can be measured", () => {
    * A kind nobody has ever registered is not a pipeline kind either, so it
    * lands in `skipped` rather than being handed to a CLI that would exit 2.
    */
+  test("a prototype name is not a pipeline kind", () => {
+    // `kind in PIPELINE_KINDS` would say yes to these; own keys only.
+    for (const name of ["toString", "constructor", "hasOwnProperty", "__proto__"]) {
+      expect(isPipelineKind(name)).toBe(false);
+    }
+    expect(driftableMoves([{ kind: "toString", before: "1", after: "2" }]).driftable).toEqual([]);
+  });
+
   test("an unknown kind is skipped rather than handed to the drift CLI", () => {
     expect(driftableMoves([move("not_a_kind", "1.0.0", "2.0.0")]).skipped).toHaveLength(1);
   });

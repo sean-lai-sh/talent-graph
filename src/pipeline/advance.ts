@@ -106,7 +106,9 @@ const PIPELINE_KINDS: Readonly<Record<PipelineKind, true>> = Object.freeze({
  * checks, then has to ask which of them a drift report could exist for.
  */
 export function isPipelineKind(kind: string): kind is PipelineKind {
-  return kind in PIPELINE_KINDS;
+  // Own keys only: `in` would also answer true for prototype names such as
+  // "toString", which is not a kind a pass runs.
+  return Object.hasOwn(PIPELINE_KINDS, kind);
 }
 
 /** The `DriftKind`s of a given `LoadedSpecs`, sorted. */
