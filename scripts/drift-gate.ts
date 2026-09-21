@@ -48,7 +48,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ModelSpec, specId } from "../src/models/spec.ts";
-import { isPipelineKind } from "../src/pipeline/advance.ts";
+import { isPipelineKind } from "../src/pipeline/kinds.ts";
 import { stableStringify } from "../src/provenance/hash.ts";
 
 const ROOT = join(import.meta.dir, "..");

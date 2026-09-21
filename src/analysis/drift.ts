@@ -16,7 +16,7 @@ import { rankPercentiles } from "../domain/rank.ts";
 import type { Dimension } from "../domain/types.ts";
 import type { CapabilityRun } from "../inference/capabilityVector.ts";
 import type { JudgeCalibrationRun } from "../judges/reliability.ts";
-import type { PipelineKind } from "../pipeline/advance.ts";
+import type { PipelineKind } from "../pipeline/kinds.ts";
 import type { ReferralSignalResult } from "../scoring/referralSignal.ts";
 
 export interface DriftThresholds {

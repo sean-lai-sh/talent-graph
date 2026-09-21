@@ -18,17 +18,13 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { judgeWeightOptions } from "../src/judges/reliability.ts";
-import {
-  hashInputs,
-  type ModelRun,
-  RUN_ID_FORMAT,
-  runCapabilityVectors,
-  runJudgeCalibration,
-  runReferralSignals,
-  type UpstreamRun,
-} from "../src/modelRun.ts";
+import { runCapabilityVectors } from "../src/models/definitions/bradleyTerry.ts";
+import { runJudgeCalibration } from "../src/models/definitions/judgeReliability.ts";
+import { runReferralSignals } from "../src/models/definitions/referralSignal.ts";
 import { getSpec } from "../src/models/registry.ts";
+import { type ModelRun, RUN_ID_FORMAT, type UpstreamRun } from "../src/models/run.ts";
 import { validateSpec } from "../src/models/spec.ts";
+import { hashInputs } from "../src/provenance/hash.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 
 const FIXTURE = join(import.meta.dir, "fixtures", "run-ids-golden.json");

@@ -58,12 +58,13 @@ describe("invariants: Referral Signal ≠ Relative Capability", () => {
       "src/analysis/dashboard.ts", // presentation of both, computes nothing
       "src/analysis/drift.ts", // compares runs of either kind (types only)
       "src/analysis/reviewQueue.ts", // categorical review buckets over both channels; no merged number
-      "src/modelRun.ts", // wraps either kind in a ModelRun
-      // The orchestrator: one pass over the observations, in the order
-      // calibration → weights → signal. It returns one run per kind, never a
-      // merged number — the two channels stay two runs, and the judge
-      // calibration is a third.
-      "src/pipeline/advance.ts",
+      // The pipeline's kind vocabulary: `RunOutputs` names each kind's
+      // output type, so it imports both — as types only, and it computes
+      // nothing. It is where `src/pipeline/advance.ts` used to be on this
+      // list: since #55 T8 the orchestrator imports the two channels'
+      // *runners*, not their result types, so it no longer meets the rule
+      // this allow-list is about.
+      "src/pipeline/kinds.ts",
       "src/index.ts", // public barrel
     ]);
     const both = SRC.filter((f) => {
@@ -304,6 +305,52 @@ describe("invariants: the pipeline takes its time step as a parameter", () => {
       const code = stripComments(read(f));
       expect(/Date\.now\(\)/.test(code), rel(f)).toBe(false);
       expect(/new Date\(\s*\)/.test(code), rel(f)).toBe(false);
+    }
+  });
+});
+
+// --- #55 T8: the kind vocabulary is a leaf, not the orchestrator. ---------
+// `PipelineKind` / `isPipelineKind` live in `src/pipeline/kinds.ts`, which
+// imports no value module at all. The CI gate script and the env bridge ask
+// only "is this a kind a pass runs?", and answering it must not drag in
+// `advance()` and everything it evaluates.
+describe("invariants: the kind vocabulary is a leaf module (#55 T8)", () => {
+  test("the leaf's callers do not import src/pipeline/advance.ts", () => {
+    // `src/analysis/drift.ts` is on this list for the same reason as the
+    // other two and one more: `advance.ts` imports *it*, so a drift module
+    // that reached back for `PipelineKind` would close a cycle.
+    for (const path of ["scripts/drift-gate.ts", "src/config.ts", "src/analysis/drift.ts"]) {
+      const code = stripComments(read(join(ROOT, path)));
+      const imports = /from\s+["'][^"']*\/pipeline\/advance\.ts["']/.test(code);
+      expect(imports, `${path} imports the orchestrator`).toBe(false);
+    }
+  });
+
+  /**
+   * What makes `kinds.ts` a leaf is not which modules it names but *how*:
+   * `RunOutputs` has to name one scoring, one inference and one judges type,
+   * and every one of those is erased at compile time. The day one of them
+   * becomes a value import, importing the kind vocabulary starts pulling the
+   * evaluation graph in behind it again and the two assertions above go on
+   * passing while the thing they protect is gone.
+   */
+  test("src/pipeline/kinds.ts imports scoring/inference/judges/models as types only", () => {
+    const code = stripComments(read(join(ROOT, "src/pipeline/kinds.ts")));
+    const layered = /\/(scoring|inference|judges|models)\//;
+
+    const statements = [...code.matchAll(/import\s+(type\s+)?[^;]*?from\s+["']([^"']+)["']/g)];
+    const checked = statements.filter((m) => layered.test(m[2] as string));
+    // The interface names three output types; if this ever reads zero the
+    // regex has stopped matching and the test is vacuous.
+    expect(checked.length, "no layered import found in kinds.ts").toBeGreaterThan(0);
+    for (const m of checked) {
+      expect(m[1] !== undefined, `kinds.ts imports ${m[2]} as a value`).toBe(true);
+    }
+
+    // A side-effect import has no `from` clause and so is never a type-only
+    // import; it would run the module for its registrations.
+    for (const m of code.matchAll(/import\s+["']([^"']+)["']/g)) {
+      expect(layered.test(m[1] as string), `kinds.ts side-effect-imports ${m[1]}`).toBe(false);
     }
   });
 });

@@ -9,8 +9,9 @@
  *
  *   - `ModelSpecKind` — every registered spec kind. `CURRENT_SPECS` is a
  *     total record over it, so registering a kind is not optional there.
- *   - `PipelineKind` = `keyof RunOutputs` (src/pipeline/advance.ts) — the
- *     kinds one pass actually runs, a subset. `LoadedSpecs` (src/config.ts),
+ *   - `PipelineKind` = `keyof RunOutputs` (src/pipeline/kinds.ts, re-exported
+ *     by src/pipeline/advance.ts) — the kinds one pass actually runs, a
+ *     subset. `LoadedSpecs` (src/config.ts),
  *     `DriftReport["kind"]` (src/analysis/drift.ts), `DriftKind` and the
  *     `PIPELINE_KINDS` membership record are all it, or derived from it.
  *
@@ -156,11 +157,13 @@ describe("PipelineKind is a subset of ModelSpecKind, and CURRENT_SPECS is total"
   /**
    * The other direction is deliberately false: `ModelSpecKind` does not
    * extend `PipelineKind`, which is what leaves room for a registered kind
-   * the pipeline never evaluates. Today the two sets happen to coincide, so
-   * this is asserted on the *types* being distinct declarations rather than
-   * on their current members: `CURRENT_SPECS` is keyed on `ModelSpecKind`,
-   * `LoadedSpecs` on `PipelineKind`, and the simulations below show they
-   * come apart the moment such a kind is registered.
+   * the pipeline never evaluates. The two sets do not coincide — #54 T5
+   * registered `career_evidence`, which `CURRENT_SPECS` carries and no pass
+   * runs, so `ModelSpecKind` is already the strictly larger of the two. The
+   * assertion is still written against the *types* rather than against a
+   * member list: `CURRENT_SPECS` is keyed on `ModelSpecKind`, `LoadedSpecs`
+   * on `PipelineKind`, and the simulations below show what a further kind
+   * costs on each side.
    */
   test("CURRENT_SPECS has an entry for every registered spec kind", () => {
     const total: Equal<keyof typeof CURRENT_SPECS, ModelSpecKind> = true;
@@ -185,12 +188,14 @@ describe("PipelineKind is a subset of ModelSpecKind, and CURRENT_SPECS is total"
  * Edit: the new interface, plus `| CohortBaselineSpec` on `ModelSpec`.
  * Nothing else. `bun run typecheck` reports exactly ONE error:
  *
- *   src/models/registry.ts(93,14): error TS2741: Property 'cohort_baseline'
+ *   src/models/registry.ts(86,14): error TS2741: Property 'cohort_baseline'
  *   is missing in type '{ referral_signal: ReferralSignalSpec; bradley_terry:
- *   BradleyTerrySpec; judge_reliability: JudgeReliabilitySpec; }' but
- *   required in type '{ readonly referral_signal: ReferralSignalSpec;
- *   readonly bradley_terry: BradleyTerrySpec; readonly judge_reliability:
- *   JudgeReliabilitySpec; readonly cohort_baseline: CohortBaselineSpec; }'.
+ *   BradleyTerrySpec; judge_reliability: JudgeReliabilitySpec;
+ *   career_evidence: CareerEvidenceSpec; }' but required in type '{ readonly
+ *   referral_signal: ReferralSignalSpec; readonly bradley_terry:
+ *   BradleyTerrySpec; readonly judge_reliability: JudgeReliabilitySpec;
+ *   readonly career_evidence: CareerEvidenceSpec; readonly cohort_baseline:
+ *   CohortBaselineSpec; }'.
  *
  * That is `CURRENT_SPECS`, and only `CURRENT_SPECS`. The env bridge, the
  * drift report, the drift CLI and the pipeline are all silent: a rubric-only
@@ -198,7 +203,7 @@ describe("PipelineKind is a subset of ModelSpecKind, and CURRENT_SPECS is total"
  *
  * ── Simulation 2: a 4th PIPELINE kind ────────────────────────────────────
  * Edit: the same, plus `cohort_baseline: Map<string, number>` in `RunOutputs`
- * (src/pipeline/advance.ts) — the one hand-written list of the pipeline's
+ * (src/pipeline/kinds.ts) — the one hand-written list of the pipeline's
  * kinds. `bun run typecheck` reports exactly THREE errors:
  *
  *   src/config.ts(162,3): error TS2322: Type '{ config: TalentGraphConfig;
@@ -211,9 +216,9 @@ describe("PipelineKind is a subset of ModelSpecKind, and CURRENT_SPECS is total"
  *     required in type '{ referral_signal: ReferralSignalSpec; bradley_terry:
  *     BradleyTerrySpec; judge_reliability: JudgeReliabilitySpec;
  *     cohort_baseline: CohortBaselineSpec; }'.
- *   src/models/registry.ts(93,14): error TS2741: Property 'cohort_baseline'
+ *   src/models/registry.ts(86,14): error TS2741: Property 'cohort_baseline'
  *   is missing in type … (as in simulation 1)
- *   src/pipeline/advance.ts(96,7): error TS2741: Property 'cohort_baseline'
+ *   src/pipeline/kinds.ts(57,14): error TS2741: Property 'cohort_baseline'
  *   is missing in type 'Readonly<{ bradley_terry: true; judge_reliability:
  *   true; referral_signal: true; }>' but required in type
  *   'Readonly<Record<keyof RunOutputs, true>>'.

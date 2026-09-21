@@ -31,9 +31,9 @@ Concretely, in code:
   `tests/invariants.test.ts`: `analysis/underRecognition.ts` (the diagnostic,
   explicitly labelled exploratory), `analysis/dashboard.ts` (presentation of
   both, computes nothing), `analysis/reviewQueue.ts` (categorical review
-  buckets, no merged number), `analysis/drift.ts` and `modelRun.ts`
-  (bookkeeping: comparing and recording runs of either kind), and `index.ts`
-  (the public barrel).
+  buckets, no merged number), `analysis/drift.ts` (bookkeeping: comparing
+  runs of either kind), `pipeline/kinds.ts` (the kind vocabulary; types
+  only), and `index.ts` (the public barrel).
 - `graph/` is structural only: it imports nothing outside `domain/`. The
   dependency direction is `domain → graph → scoring → judges/inference →
   analysis → apps`, so `scoring → graph` is allowed and `graph → scoring` is
@@ -84,10 +84,12 @@ talent-graph/
       advance.ts          # advance(): one pass — V0 referral → capability →
                           #   calibration → judge-weighted referral; one run
                           #   per kind, `now` is a parameter (#55 T4)
+      kinds.ts            # RunOutputs / PipelineKind / isPipelineKind: the kind
+                          #   vocabulary, type-only imports, re-exported by
+                          #   advance.ts (#55 T8)
     seed/
       generate.ts         # deterministic synthetic dataset (seeded PRNG)
       personas.ts         # Candidates A–F as specified
-    modelRun.ts           # ModelRun record: kind, specVersion, params, lineage, outputs (RUN_ID_FORMAT = 2)
   tests/
     scoring.test.ts
     bradleyTerry.test.ts

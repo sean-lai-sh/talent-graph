@@ -34,10 +34,17 @@ export * from "./longitudinal/records.ts";
 export * from "./longitudinal/scout.ts";
 export * from "./longitudinal/types.ts";
 export * from "./longitudinal/validate.ts";
-export * from "./modelRun.ts";
 export * from "./models/blend.ts";
 export * from "./models/careerEvidence.ts";
+// The three shipped model definitions and the `ModelRun` record, exported
+// from where they live. `./modelRun.ts` used to re-export them into the
+// barrel; the shim is gone (#55 T8). The surface is not quite identical:
+// `export *` additionally exposes the type `RunRecordInput`, which the shim
+// named no export for, and the only names it removes are the shim's own
+// deprecated `createModelRun` alias and the `ModelType` alias it forwarded.
+export * from "./models/definitions/index.ts";
 export * from "./models/registry.ts";
+export * from "./models/run.ts";
 export * from "./models/snapshot.ts";
 export * from "./models/spec.ts";
 // #55 T4 — the orchestrator. Named, not `export *`: the barrel adds
@@ -57,6 +64,10 @@ export {
   type RunOfKind,
   requireRun,
 } from "./pipeline/advance.ts";
+// Hashing lives in `src/provenance/` so that wanting a fingerprint does not
+// pull in the scoring/inference graph; in the barrel because `./modelRun.ts`
+// re-exported it there before #55 T8.
+export * from "./provenance/hash.ts";
 export * from "./scoring/referralPercentile.ts";
 export * from "./scoring/referralSignal.ts";
 export * from "./scoring/referralStrength.ts";

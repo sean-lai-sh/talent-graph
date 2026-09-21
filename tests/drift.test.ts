@@ -291,8 +291,9 @@ describe("scripts/drift.ts CLI", () => {
   /**
    * Compile-time half of the same rule: a registered spec kind that
    * `LoadedSpecs` does not carry is not a `DriftKind`, so the CLI cannot
-   * index the loaded specs with it. (`career_evidence` is not a
-   * `ModelSpecKind` today either — both reasons are the same error.)
+   * index the loaded specs with it. `career_evidence` is exactly that case
+   * — #54 T5 registered it as a `ModelSpecKind`, and no pass evaluates it,
+   * so it is not a `PipelineKind` and there is nothing to drift-compare.
    */
   test("DriftKind is exactly the kinds LoadedSpecs carries", () => {
     // @ts-expect-error a kind LoadedSpecs has no key for is not a DriftKind
