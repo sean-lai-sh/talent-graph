@@ -32,6 +32,15 @@ export async function runDueMonitoringPlans(input: {
   const start = (plan: MonitoringPlan) =>
     startMonitoringPlan(plan, input.now, DEFAULT_MONITORING_LEASE_MS, maxAttempts);
   const updates = new Map(input.plans.map((plan) => [plan.id, plan]));
+  // A worker that died after the last allowed start leaves a plan `running` at
+  // the cap, and the batch will never readmit it. `start` settles a stale lease
+  // as failed and returns a live one untouched, so this only terminalizes what
+  // is already abandoned, without a fetch.
+  for (const plan of input.plans) {
+    if (plan.status === "running" && plan.attemptCount >= maxAttempts) {
+      updates.set(plan.id, start(plan));
+    }
+  }
   const results: MonitoringRunResult["results"] = [];
   const batches = batchDueMonitoringPlans(
     input.plans,

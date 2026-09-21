@@ -867,6 +867,17 @@ describe("bounded judgment fan-out", () => {
     }
   });
 
+  test("one failing identity call still rejects the whole call", async () => {
+    const failing: JevJudgmentService = {
+      ...acceptingJudgments,
+      async assessIdentity(canonical, item) {
+        if (item.sourceId === "item-7") throw new Error("jev identity 500");
+        return acceptingJudgments.assessIdentity(canonical, item);
+      },
+    };
+    await expect(run(failing, 2)).rejects.toThrow("jev identity 500");
+  });
+
   test("one failing item still rejects the whole call", async () => {
     const failing: JevJudgmentService = {
       ...acceptingJudgments,
@@ -953,6 +964,43 @@ describe("monitoring attempt cap", () => {
     expect(settled.status).toBe("failed");
     expect(settled.error).toBe(MAX_MONITORING_ATTEMPTS_ERROR);
     expect(settled.attemptCount).toBe(DEFAULT_MAX_MONITORING_ATTEMPTS);
+  });
+
+  test("the sweep terminalizes a plan stranded running at the cap", async () => {
+    // A worker that died after the last allowed start leaves the plan
+    // `running` at the cap. The batch will never readmit it, so the sweep must
+    // settle it itself or it stays `running` forever.
+    let current = plan();
+    for (let attempt = 0; attempt < DEFAULT_MAX_MONITORING_ATTEMPTS - 1; attempt++) {
+      current = failMonitoringPlan(
+        startMonitoringPlan(current, day(100 + attempt)),
+        "github 503",
+        day(100 + attempt),
+      );
+    }
+    const stranded = startMonitoringPlan(current, day(150));
+    expect(stranded.status).toBe("running");
+    expect(stranded.attemptCount).toBe(DEFAULT_MAX_MONITORING_ATTEMPTS);
+
+    let fetches = 0;
+    const sweep = await runDueMonitoringPlans({
+      plans: [stranded],
+      identities: new Map([["p-1", identity]]),
+      now: new Date(day(150).getTime() + DEFAULT_MONITORING_LEASE_MS * 10),
+      collector: {
+        async collect() {
+          fetches++;
+          return [evidence("recovered", 40)];
+        },
+      },
+      judgments: acceptingJudgments,
+    });
+    expect(fetches).toBe(0);
+    expect(sweep.fetchCount).toBe(0);
+    expect(sweep.plans[0]?.status).toBe("failed");
+    expect(sweep.plans[0]?.error).toBe(MAX_MONITORING_ATTEMPTS_ERROR);
+    expect(sweep.plans[0]?.attemptCount).toBe(DEFAULT_MAX_MONITORING_ATTEMPTS);
+    expect(sweep.results).toEqual([]);
   });
 
   test("an explicit lower cap stops a plan sooner", () => {
