@@ -7,7 +7,14 @@ spec version with an entry here — never as an edit to an existing version.
 Each entry records what changed, why, the drift report summary, and the PR.
 
 Run `bun run drift -- --kind <kind> --before <version> --after <version>` on
-the seed dataset and paste the summary line into the entry.
+the seed dataset and paste the summary line into the entry. Every entry needs
+a `**Drift:**` line — `tests/invariants.test.ts` iterates `SPEC_HISTORY` and
+requires one per registered version.
+
+The script exits 1 when the worst verdict is above `--max-verdict` (default
+`review`, so only `breaking` fails), 2 on a usage error. CI runs it through
+`bun run drift:gate` for every `CURRENT_SPECS` version a pull request moves, so
+a `breaking` change has to ship as a deliberate one.
 
 ---
 

@@ -62,11 +62,21 @@ export interface DriftMover {
  */
 export type JudgeDriftMeasure = "reliability" | "bias";
 
+/**
+ * What a `judge_reliability` comparison reports on. The two per-judge maps,
+ * plus the thing the calibration exists to move: the judge-weighted Referral
+ * Signal. A spec can leave `reliability` and `bias` identical — flipping
+ * `applyBiasCorrection` does exactly that — and still change every weighted
+ * signal, because it changes whether the bias map is applied rather than what
+ * it contains. The per-judge arms cannot see that; the weighted arm can.
+ */
+export type JudgeDriftFacet = JudgeDriftMeasure | "weighted referral signals";
+
 export interface DriftReport {
   kind: "referral_signal" | "bradley_terry" | "judge_reliability";
   dimension?: Dimension;
   /** Set on `judge_reliability` reports only. */
-  measure?: JudgeDriftMeasure;
+  measure?: JudgeDriftFacet;
   /** People with a value on both sides. */
   n: number;
   spearman: number;
@@ -288,6 +298,32 @@ export function referralSignalDrift(
     );
   const labels = { before: referralSignalLabel(before), after: referralSignalLabel(after) };
   return buildReport("referral_signal", toValues(before), toValues(after), thresholds, labels);
+}
+
+/**
+ * The weighted-signal arm of a `judge_reliability` comparison: two
+ * judge-weighted Referral Signal runs, one per calibration spec, with the
+ * same referral spec on both sides.
+ *
+ * It is a Referral Signal comparison in every respect that matters to the
+ * statistics — same signal space, same thresholds, same verdict rules, all
+ * inherited unchanged from `referralSignalDrift` — so only the label changes:
+ * the two sides are labelled by the calibration versions being compared,
+ * because the referral versions are equal and would say nothing.
+ */
+export function judgeWeightedSignalDrift(
+  before: ReadonlyMap<string, ReferralSignalResult>,
+  after: ReadonlyMap<string, ReferralSignalResult>,
+  labels: { before: string; after: string },
+  thresholds: DriftThresholds = DEFAULT_DRIFT_THRESHOLDS,
+): DriftReport {
+  const report = referralSignalDrift(before, after, thresholds);
+  return {
+    ...report,
+    kind: "judge_reliability",
+    measure: "weighted referral signals",
+    labels,
+  };
 }
 
 /**
