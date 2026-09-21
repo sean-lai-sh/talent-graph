@@ -35,6 +35,7 @@ import {
   CAREER_EVIDENCE_V1_0_0,
   careerEventsToLongitudinalRecords,
   careerEvidenceSpecId,
+  careerEvidenceVector,
   checkpointJobKey,
   contentFingerprint,
   createMonitoringPlan,
@@ -50,7 +51,6 @@ import {
   JudgmentInvariantError,
   MAX_MONITORING_ATTEMPTS_ERROR,
   processEvidence,
-  progressVector,
   recordIdFor,
   residualSlope,
   runDueMonitoringPlans,
@@ -61,7 +61,7 @@ import {
 } from "../src/index.ts";
 import { CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL } from "../src/longitudinal/dimensions.ts";
 import type { EvidenceRuntime } from "../src/longitudinal/pipeline.ts";
-import type { ProgressDimension } from "../src/longitudinal/types.ts";
+import type { CareerEvidenceDimension } from "../src/longitudinal/types.ts";
 import { JUDGE_RELIABILITY_V2_0_0 } from "../src/models/registry.ts";
 
 const day = (n: number) => new Date(Date.UTC(2026, 0, 1 + n));
@@ -405,9 +405,9 @@ describe("longitudinal source ingestion", () => {
 });
 
 describe("Jev judgments and evidence policy", () => {
-  test("TypeSafe adapter maps Jev typed answers into identity and progress judgments", async () => {
+  test("TypeSafe adapter maps Jev typed answers into identity and career-evidence judgments", async () => {
     let requestCount = 0;
-    const legendFor = (dimension: ProgressDimension) =>
+    const legendFor = (dimension: CareerEvidenceDimension) =>
       Object.fromEntries(CAREER_EVIDENCE_V1_0_0.levels[dimension].map((t, i) => [i, t]));
     const client = {
       systemOne(request: { questions: Record<string, unknown> }) {
@@ -1929,7 +1929,7 @@ function event(id: string, personId: string, observedDay: number, score: number)
 }
 
 describe("outcome mapping and slope", () => {
-  test("maps only accepted events and keeps progress dimensions separate", () => {
+  test("maps only accepted events and keeps career-evidence dimensions separate", () => {
     const accepted = event("e1", "p-1", 50, 4);
     const review = { ...event("e2", "p-1", 60, 2), status: "review" as const };
     const role = {
@@ -1941,7 +1941,7 @@ describe("outcome mapping and slope", () => {
     expect(records.opportunities).toHaveLength(1);
     expect(records.opportunities[0]?.id).toBe("opportunity-role");
     expect(records.outcomes[0]?.value).toBe(1);
-    const vector = progressVector("p-1", day(0), day(90), [accepted, review]);
+    const vector = careerEvidenceVector("p-1", day(0), day(90), [accepted, review]);
     expect(vector.dimensions.difficulty).toBe(1);
     expect(vector.dimensions.external_impact).toBe(1);
   });
@@ -1951,7 +1951,7 @@ describe("outcome mapping and slope", () => {
       ...event("e1", "p-1", 50, 0),
       judgments: [{ dimension: "difficulty" as const, score: 0, probabilities: [], confidence: 1 }],
     };
-    const vector = progressVector("p-1", day(0), day(90), [onlyDifficulty]);
+    const vector = careerEvidenceVector("p-1", day(0), day(90), [onlyDifficulty]);
     expect(vector.dimensions.difficulty).toBe(0);
     expect(vector.dimensions.external_impact).toBeNull();
     expect(vector.dimensions.originality).toBeNull();
@@ -1964,7 +1964,7 @@ describe("outcome mapping and slope", () => {
       ...event("e-partial", "p-1", 60, 0),
       judgments: [{ dimension: "difficulty" as const, score: 0, probabilities: [], confidence: 1 }],
     };
-    const vector = progressVector("p-1", day(0), day(90), [both, partial]);
+    const vector = careerEvidenceVector("p-1", day(0), day(90), [both, partial]);
     expect(vector.dimensions.difficulty).toBe(0.5);
     // ownership is judged only on `both`, so the absent event must not drag it to zero.
     expect(vector.dimensions.ownership).toBe(1);
@@ -2103,14 +2103,14 @@ describe("offline signal evaluation", () => {
 describe("career-evidence dimension list", () => {
   test("CAREER_EVIDENCE_DIMENSIONS matches the LEVELS rubric keys", () => {
     expect([...CAREER_EVIDENCE_DIMENSIONS].sort()).toEqual(
-      [...Object.keys(LEVELS)].sort() as ProgressDimension[],
+      [...Object.keys(LEVELS)].sort() as CareerEvidenceDimension[],
     );
   });
 
-  test("CAREER_EVIDENCE_DIMENSIONS matches the ProgressDimension union", () => {
+  test("CAREER_EVIDENCE_DIMENSIONS matches the CareerEvidenceDimension union", () => {
     // This map is exhaustive by construction: adding a member to the union
     // without adding it here is a typecheck failure.
-    const union: Record<ProgressDimension, true> = {
+    const union: Record<CareerEvidenceDimension, true> = {
       difficulty: true,
       ownership: true,
       external_impact: true,
@@ -2118,7 +2118,7 @@ describe("career-evidence dimension list", () => {
       peer_validation: true,
     };
     expect([...CAREER_EVIDENCE_DIMENSIONS].sort()).toEqual(
-      [...Object.keys(union)].sort() as ProgressDimension[],
+      [...Object.keys(union)].sort() as CareerEvidenceDimension[],
     );
     expect(new Set(CAREER_EVIDENCE_DIMENSIONS).size).toBe(CAREER_EVIDENCE_DIMENSIONS.length);
   });

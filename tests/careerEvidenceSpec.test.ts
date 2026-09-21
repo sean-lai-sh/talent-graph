@@ -190,7 +190,7 @@ describe("CareerEvidenceSpec: validateSpec rejections", () => {
 
   test("a rubric that is not the shared 0..MAX_LEVEL scale is rejected, even when every dimension agrees", () => {
     // Six levels everywhere: the ">= 2" and "equal across dimensions" rules
-    // both pass, so only the exact-length rule can catch it. `progressVector`
+    // both pass, so only the exact-length rule can catch it. `careerEvidenceVector`
     // still divides by the fixed MAX_LEVEL, so a level 5 would normalise to
     // 1.25 — a value outside [0, 1] that no downstream reader expects.
     const broken = mutableSpec();

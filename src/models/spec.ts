@@ -13,7 +13,7 @@
 import { EVIDENCE_TYPES } from "../domain/constants.ts";
 import type { EvidenceType } from "../domain/types.ts";
 import { CAREER_EVIDENCE_DIMENSIONS, MAX_LEVEL } from "../longitudinal/dimensions.ts";
-import type { CareerEventKind, ProgressDimension } from "../longitudinal/types.ts";
+import type { CareerEventKind, CareerEvidenceDimension } from "../longitudinal/types.ts";
 import { CAREER_EVENT_KINDS } from "../longitudinal/types.ts";
 
 /** Parameters of the V0 Referral Signal. */
@@ -116,7 +116,7 @@ export interface CareerEvidenceSpec {
   /** Model requested. The model that ANSWERED is recorded per judgment, not here. */
   model: string;
   /** Ordered rubric levels per dimension. Length defines the scale; index = level. */
-  levels: Record<ProgressDimension, readonly [string, string, ...string[]]>;
+  levels: Record<CareerEvidenceDimension, readonly [string, string, ...string[]]>;
   questions: {
     /** Instruction for the identity-linking decision the three criteria below answer. */
     identityDecision: string;
@@ -124,7 +124,7 @@ export interface CareerEvidenceSpec {
     identity: readonly [string, string, string];
     identityFields: { name: string; affiliation: string; handle: string };
     eventKind: string;
-    dimensions: Record<ProgressDimension, string>;
+    dimensions: Record<CareerEvidenceDimension, string>;
   };
   /** Event taxonomy, including the mandatory no-event escape hatch. */
   eventCriteria: Record<CareerEventKind | "no_supported_event", string>;
@@ -299,9 +299,10 @@ function validateCareerEvidenceLevels(spec: CareerEvidenceSpec, errors: string[]
       errors.push(`levels.${dimension} must have at least 2 levels (got ${rubric.length})`);
     }
     // Temporary, until the vector normalises by `spec.levels[d].length - 1`
-    // (#54 T6/T8's `careerEvidenceVector(events, spec)`): `progressVector` and
-    // `outcomes.ts` still divide by the fixed `MAX_LEVEL`, so a 2- or 6-level
-    // rubric would silently cap normalised values at 0.25 or push them past 1.
+    // (a later `careerEvidenceVector(events, spec)`): `careerEvidenceVector`
+    // and `outcomes.ts` still divide by the fixed `MAX_LEVEL`, so a 2- or
+    // 6-level rubric would silently cap normalised values at 0.25 or push them
+    // past 1.
     if (rubric.length !== MAX_LEVEL + 1) {
       errors.push(
         `levels.${dimension} has ${rubric.length} levels; the shared scale is 0..${MAX_LEVEL}, so it must have ${MAX_LEVEL + 1}`,

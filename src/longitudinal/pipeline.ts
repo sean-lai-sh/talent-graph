@@ -23,11 +23,11 @@ import { decideStatus, gateIdentity, materialize, selectEligible } from "./stage
 import type {
   CanonicalIdentity,
   CareerEvent,
+  CareerEvidenceDimension,
+  CareerEvidenceVector,
   EvidenceClaim,
   GrokEvidenceItem,
   ProfileSnapshot,
-  ProgressDimension,
-  ProgressVector,
 } from "./types.ts";
 
 export interface EvidencePipelinePolicy extends EvidenceThresholds {
@@ -838,12 +838,12 @@ function requireRecord(
   return record;
 }
 
-export function progressVector(
+export function careerEvidenceVector(
   personId: string,
   from: Date,
   to: Date,
   events: readonly CareerEvent[],
-): ProgressVector {
+): CareerEvidenceVector {
   const accepted = events.filter(
     (event) =>
       event.personId === personId &&
@@ -863,7 +863,7 @@ export function progressVector(
         values.length === 0 ? null : values.reduce((sum, value) => sum + value, 0) / values.length,
       ];
     }),
-  ) as Record<ProgressDimension, number | null>;
+  ) as Record<CareerEvidenceDimension, number | null>;
   return {
     personId,
     from: new Date(from.getTime()),

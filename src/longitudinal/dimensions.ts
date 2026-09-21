@@ -1,7 +1,7 @@
-import type { ProgressDimension } from "./types.ts";
+import type { CareerEvidenceDimension } from "./types.ts";
 
 /**
- * The single source of truth for the career-evidence progress dimensions.
+ * The single source of truth for the career-evidence dimensions.
  *
  * Every consumer (evidence pipeline, outcome translation, validation, and the
  * Club-side Jev adapter) reads this list so a new dimension cannot be added to
@@ -13,15 +13,18 @@ export const CAREER_EVIDENCE_DIMENSIONS = [
   "external_impact",
   "originality",
   "peer_validation",
-] as const satisfies readonly ProgressDimension[];
+] as const satisfies readonly CareerEvidenceDimension[];
 
-type MissingDimension = Exclude<ProgressDimension, (typeof CAREER_EVIDENCE_DIMENSIONS)[number]>;
+type MissingDimension = Exclude<
+  CareerEvidenceDimension,
+  (typeof CAREER_EVIDENCE_DIMENSIONS)[number]
+>;
 
 /** Only satisfiable when `T` is `never`; anything else is a type error at the use site. */
 type AssertNever<T extends never> = T;
 
 /**
- * Compile-time guard: the list must cover the whole `ProgressDimension` union.
+ * Compile-time guard: the list must cover the whole `CareerEvidenceDimension` union.
  * Dropping a member from `CAREER_EVIDENCE_DIMENSIONS` (or adding one to the
  * union) makes `MissingDimension` non-empty and fails typecheck right here.
  */

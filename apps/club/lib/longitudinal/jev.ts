@@ -28,8 +28,8 @@ import {
 } from "../../../../src/longitudinal/records.ts";
 import type {
   CanonicalIdentity,
+  CareerEvidenceDimension,
   GrokEvidenceItem,
-  ProgressDimension,
 } from "../../../../src/longitudinal/types.ts";
 import {
   CAREER_EVIDENCE_V1_0_0,
@@ -44,7 +44,7 @@ type ScoreLevels = readonly [string, string, ...string[]];
  * 0..MAX_LEVEL scale. The text lives in the registered spec, not here — this
  * is the registered rubric, re-exported for the callers that read it.
  */
-export const LEVELS: Record<ProgressDimension, ScoreLevels> = CAREER_EVIDENCE_V1_0_0.levels;
+export const LEVELS: Record<CareerEvidenceDimension, ScoreLevels> = CAREER_EVIDENCE_V1_0_0.levels;
 
 /**
  * The transport policy every judgment client starts from.

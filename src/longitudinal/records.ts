@@ -25,10 +25,10 @@ import type { ClaimAssessment, IdentityAssessment } from "./judgments.ts";
 import { contentFingerprint } from "./provenance.ts";
 import type {
   CareerEventKind,
+  CareerEvidenceDimension,
   DimensionJudgment,
   GrokEvidenceItem,
   IdentityDecision,
-  ProgressDimension,
 } from "./types.ts";
 import { CAREER_EVENT_KINDS } from "./types.ts";
 
@@ -284,7 +284,7 @@ function assertAnswerKeys(
  * with no dimension answers at all is a service that judged no dimension, and
  * projects to no judgments (never to zero-score ones).
  */
-function assertClaimAnswerKeys(record: JevJudgmentRecord): ProgressDimension[] {
+function assertClaimAnswerKeys(record: JevJudgmentRecord): CareerEvidenceDimension[] {
   const present = new Set(Object.keys(record.answers));
   const judged = CAREER_EVIDENCE_DIMENSIONS.filter((dimension) => present.has(dimension));
   const unknown = [...present].filter((key) => !CLAIM_ANSWER_KEYS.includes(key as never));
@@ -415,7 +415,7 @@ export function projectClaim(record: JevJudgmentRecord, spec: CareerEvidenceSpec
   // Only the dimensions the record actually answers, in rubric order. A
   // record that carries no dimension answers projects to no judgments — the
   // pipeline's `no_dimensions` review — and never to five zero-score ones.
-  const dimensions: DimensionJudgment[] = judged.map((dimension: ProgressDimension) => {
+  const dimensions: DimensionJudgment[] = judged.map((dimension: CareerEvidenceDimension) => {
     const answer = scoreAnswer(
       record.answers[dimension],
       spec.levels[dimension],
