@@ -31,6 +31,7 @@ import {
   type JevJudgmentRecord,
   type JevJudgmentStore,
   type JevRawScoreAnswer,
+  JudgmentInvariantError,
   projectClaim,
   projectIdentity,
 } from "../src/longitudinal/records.ts";
@@ -869,5 +870,102 @@ describe("judgment records: the caller's signal reaches the transport (#54 T7)",
     const capturing = capturingClient();
     await runWithRuntime(capturing.client);
     expect(capturing.signals()).toEqual([undefined, undefined]);
+  });
+});
+
+describe("judgment records: a malformed live answer is a broken invariant (#54 T7)", () => {
+  /**
+   * A client whose response body is corrupt in one named way. The transport
+   * succeeded — this is an answer, it is just not one anything can read.
+   */
+  function corruptClient(corruption: "nan-probability" | "no-usage" | "transport"): {
+    client: Parameters<typeof createJevJudgmentService>[0];
+    calls: () => number;
+  } {
+    const inner = fakeClient();
+    const delegate = inner.client as unknown as {
+      systemOne(request: { questions: Record<string, unknown> }): {
+        withResponse(): Promise<{ data: Record<string, unknown>; requestId?: string }>;
+      };
+    };
+    const client = {
+      systemOne(request: { questions: Record<string, unknown> }) {
+        return {
+          async withResponse() {
+            if (corruption === "transport") throw new Error("connect ECONNREFUSED");
+            const answered = await delegate.systemOne(request).withResponse();
+            const data = answered.data as {
+              usage?: unknown;
+              answers: Record<string, Record<string, unknown>>;
+            };
+            if (corruption === "no-usage") {
+              return { ...answered, data: { ...data, usage: undefined } };
+            }
+            const dimension = data.answers.difficulty;
+            if (dimension === undefined) return answered;
+            return {
+              ...answered,
+              data: {
+                ...data,
+                answers: {
+                  ...data.answers,
+                  difficulty: {
+                    ...dimension,
+                    probabilities: { ...(dimension.probabilities as object), 2: Number.NaN },
+                  },
+                },
+              },
+            };
+          },
+        };
+      },
+    };
+    return {
+      client: client as unknown as Parameters<typeof createJevJudgmentService>[0],
+      calls: inner.calls,
+    };
+  }
+
+  const runOne = (
+    client: Parameters<typeof createJevJudgmentService>[0],
+    store: JevJudgmentStore,
+  ) =>
+    processEvidence({
+      identity,
+      evidence: [evidence("work", 40)],
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments: createJevJudgmentService(client, spec),
+      spec,
+      // The isolating mode: a corrupt answer must still be loud here.
+      runtime: { store, onItemError: "review" },
+    });
+
+  test("a probability that is not a number fails the batch by class", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    const rejection = runOne(corruptClient("nan-probability").client, store);
+    await expect(rejection).rejects.toThrow(JudgmentInvariantError);
+    await expect(rejection).rejects.toThrow(/probabilities\[2\] must be a finite number/);
+    // Nothing unreadable is recorded: the identity record of the same item is
+    // written, the claim that could not be read is not.
+    expect(store.values().map((record) => record.kind)).toEqual(["identity"]);
+  });
+
+  test("a response with no usage is unreadable, not unavailable", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    const rejection = runOne(corruptClient("no-usage").client, store);
+    await expect(rejection).rejects.toThrow(JudgmentInvariantError);
+    await expect(rejection).rejects.toThrow(/usage\.input_tokens must be a finite number/);
+    expect(store.size).toBe(0);
+  });
+
+  test("a transport failure from the same client still isolates the item", async () => {
+    const store = new InMemoryJevJudgmentStore();
+    const result = await runOne(corruptClient("transport").client, store);
+    expect(result.claims[0]?.status).toBe("review");
+    expect(result.claims[0]?.reviewReasons).toEqual(["judgment_unavailable"]);
+    expect(result.claims[0]?.identityDecision).toBe(null);
+    expect(store.size).toBe(0);
   });
 });

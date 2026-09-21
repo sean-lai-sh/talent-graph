@@ -20,6 +20,7 @@ import type { JevAnswer, JevJudgmentRecord } from "../../../../src/longitudinal/
 import {
   evidenceKeyFor,
   freezeRecord,
+  JudgmentInvariantError,
   projectClaim,
   projectIdentity,
   recordIdFor,
@@ -264,9 +265,20 @@ function rawScoreAnswer(
   };
 }
 
+/**
+ * The number this field has to be, or a broken invariant.
+ *
+ * Every shape check in this adapter comes through here: the expected score
+ * and its confidence, each entry of the probability vector, and the token
+ * usage. A transport failure is an *unavailable* judgment and the pipeline
+ * isolates it as one; a response that arrived and cannot be read is not — it
+ * is corruption, in the model's answer or in this parsing, and no retry fixes
+ * it. Raising the same class `records.ts` raises keeps the two sides
+ * symmetric: unreadable is loud wherever it is noticed, live or recorded.
+ */
 function finite(value: unknown, what: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new TypeError(`jev: ${what} must be a finite number (got ${String(value)})`);
+    throw new JudgmentInvariantError(`jev: ${what} must be a finite number (got ${String(value)})`);
   }
   return value;
 }
