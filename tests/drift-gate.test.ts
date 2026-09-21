@@ -57,6 +57,7 @@ describe("drift gate: which kinds moved", () => {
       referral_signal: "0.1.0",
       bradley_terry: "1.0.0",
       judge_reliability: "2.0.0",
+      career_evidence: "1.0.0",
     });
   });
 
