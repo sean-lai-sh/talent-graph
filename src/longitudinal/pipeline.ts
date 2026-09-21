@@ -141,6 +141,7 @@ export async function judgeIdentity(
     kind: "identity",
     personId: identity.personId,
     evidence,
+    spec,
     store: deps.store,
   });
   if (recorded !== null) return { assessment: projectIdentity(recorded, spec), record: recorded };
@@ -162,6 +163,7 @@ export async function judgeClaim(
     kind: "claim",
     personId,
     evidence,
+    spec,
     store: deps.store,
   });
   if (recorded !== null) return { assessment: projectClaim(recorded, spec), record: recorded };
@@ -180,12 +182,21 @@ export async function judgeClaim(
  * id, which carries the evidence key as well, and what comes back is checked
  * against both: a store that answers with another person's record is a bug
  * here, not a cheap judgment.
+ *
+ * The rubric is checked for the same reason `deriveEvidence` checks it: the
+ * assessment is read out of the record under `spec`, so a record answering
+ * different questions cannot be read here either, however well its shape
+ * fits. Only the rubric hash is compared, not the version — a thresholds-only
+ * bump asks the model exactly the same things — which neither widens nor
+ * narrows what hits: the fingerprint already carries the whole spec id, so a
+ * version bump misses before this is reached.
  */
 async function recordedJudgment(input: {
   fingerprint: string;
   kind: JevJudgmentRecord["kind"];
   personId: string;
   evidence: GrokEvidenceItem;
+  spec: CareerEvidenceSpec;
   store: JevJudgmentStore | undefined;
 }): Promise<JevJudgmentRecord | null> {
   const evidenceKey = evidenceKeyFor(input.personId, input.evidence);
@@ -202,6 +213,15 @@ async function recordedJudgment(input: {
     throw new TypeError(
       `judgment store: ${id} holds ${record.id}, a ${record.kind} record for ` +
         `${record.evidenceKey}; a store must return the record it was asked for`,
+    );
+  }
+  const rubricHash = rubricHashOf(careerEvidenceSpecId(input.spec));
+  const recordedRubric = rubricHashOf(record.specId);
+  if (recordedRubric !== rubricHash) {
+    throw new TypeError(
+      `judgment store: ${record.id} was judged under rubric ${recordedRubric} ` +
+        `(${record.specId}), not ${rubricHash}; an answer to a different question is not a ` +
+        "cached judgment",
     );
   }
   return record;

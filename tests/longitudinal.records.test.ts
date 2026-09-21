@@ -29,6 +29,7 @@ import {
   InMemoryJevJudgmentStore,
   type JevAnswer,
   type JevJudgmentRecord,
+  type JevJudgmentStore,
   type JevRawScoreAnswer,
   projectClaim,
   projectIdentity,
@@ -386,6 +387,64 @@ describe("judgment records: a cache hit belongs to the evidence it was asked abo
     // nothing.
     expect(await store.get(record.id)).toEqual(record);
     expect(await store.get(record.requestFingerprint)).toBe(null);
+  });
+});
+
+describe("judgment records: a cache hit must carry the rubric it is read under", () => {
+  /** A store that answers with a record stamped under someone else's rubric. */
+  function restampingStore(honest: InMemoryJevJudgmentStore, specId: string): JevJudgmentStore {
+    return {
+      async get(recordId) {
+        const record = await honest.get(recordId);
+        return record === null ? null : { ...record, specId };
+      },
+      async put(record) {
+        await honest.put(record);
+      },
+    };
+  }
+
+  const runWith = (
+    store: JevJudgmentStore,
+    judgments: ReturnType<typeof createJevJudgmentService>,
+  ) =>
+    processEvidence({
+      identity,
+      evidence: items,
+      cutoffAt: day(90),
+      retrievedAt: day(100),
+      pipelineVersion: "1",
+      judgments,
+      spec,
+      runtime: { store },
+    });
+
+  test("a record at the right address but under a foreign rubric is rejected by name", async () => {
+    const honest = new InMemoryJevJudgmentStore();
+    const client = fakeClient();
+    const service = createJevJudgmentService(client.client, spec);
+    await runWith(honest, service);
+    expect(client.calls()).toBe(4);
+
+    // Everything the address check looks at is right; only the rubric the
+    // record answers is another one. Reading it under this spec would be
+    // reading an answer to a different question.
+    const foreign = restampingStore(honest, "career_evidence@1.0.0:deadbeef");
+    await expect(runWith(foreign, service)).rejects.toThrow(/deadbeef/);
+  });
+
+  test("the honest record is still served, and a thresholds-only rubric match stays a hit", async () => {
+    const honest = new InMemoryJevJudgmentStore();
+    const client = fakeClient();
+    const service = createJevJudgmentService(client.client, spec);
+    const first = await runWith(honest, service);
+    expect(client.calls()).toBe(4);
+    // Same rubric hash, restamped with the version a thresholds-only bump
+    // carries: still the same questions, so still a hit and no new call.
+    const bumped = restampingStore(honest, careerEvidenceSpecId(STRICTER));
+    const second = await runWith(bumped, service);
+    expect(client.calls()).toBe(4);
+    expect(JSON.stringify(second.claims, isoDates)).toBe(JSON.stringify(first.claims, isoDates));
   });
 });
 
