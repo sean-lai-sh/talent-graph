@@ -13,7 +13,9 @@
  * second hand-written parameter list to forget, and `excludeFromProvenance`
  * must name any option key deliberately left out — a key named there is
  * asserted *not* to move the id, so the omission is a claim the test checks
- * rather than a silent hole.
+ * rather than a silent hole. `recordedOptionKeys` closes the other half:
+ * `runModel` refuses an option that is in neither list, for every model,
+ * before the maths runs.
  *
  * This module imports no scoring, inference or judge code: definitions
  * depend on it, never the other way round.
@@ -44,6 +46,12 @@ export interface ModelDefinition<K extends ModelSpecKind, TIn, TOpts, TOut> {
   inputsOf(input: TIn): unknown;
   /** The single provenance seam; see the module comment. */
   resolveOptions(spec: SpecOfKind<K>, opts: TOpts): ResolvedOptions;
+  /**
+   * Every option key this model accounts for — in `parameters`, or in
+   * `upstream`. Together with `excludeFromProvenance` it is the complete
+   * list of keys a call may carry: `runModel` refuses anything else.
+   */
+  recordedOptionKeys: readonly string[];
   /** Option keys deliberately absent from `parameters`. */
   excludeFromProvenance?: readonly string[];
   compute(input: TIn, spec: SpecOfKind<K>, opts: TOpts): TOut;
@@ -99,6 +107,32 @@ export function getModel(name: string): AnyModelDefinition {
 }
 
 /**
+ * Fail closed on an option no definition accounts for.
+ *
+ * A scoring option that reaches `compute` but neither `parameters` nor
+ * `upstream` is a silent id collision between two runs that computed
+ * different numbers. This used to be hand-rolled inside one definition,
+ * which is exactly the shape of hole it was meant to close: the other two
+ * models dropped an unknown key without a word. It lives here now, so a new
+ * option arrives as a loud error for every model at once.
+ */
+function assertEveryOptionRecorded(def: AnyModelDefinition, opts: unknown): void {
+  if (opts === null || typeof opts !== "object") return;
+  const recorded = new Set<string>([
+    ...def.recordedOptionKeys,
+    ...(def.excludeFromProvenance ?? []),
+  ]);
+  for (const key of Object.keys(opts as object)) {
+    if (!recorded.has(key)) {
+      throw new Error(
+        `unrecorded option "${key}" on a ${def.kind} run: record it in ` +
+          "resolveOptions (and in recordedOptionKeys) before it can move a number",
+      );
+    }
+  }
+}
+
+/**
  * Run a model and wrap the result in a `ModelRun`.
  *
  * The spec comes from `def.specOf(opts)` and nowhere else, so the version
@@ -112,6 +146,9 @@ export function runModel<K extends ModelSpecKind, TIn, TOpts, TOut>(
   opts: TOpts,
   now: Date,
 ): ModelRun<TOut> {
+  // Before anything is computed: an option the record cannot carry must not
+  // reach the maths at all, or the numbers exist with no id that names them.
+  assertEveryOptionRecorded(def as unknown as AnyModelDefinition, opts);
   // The spec is derived here, once, from the same options the maths sees.
   // A caller cannot hand in a spec of its own, so there is no way to hash
   // spec A onto a number computed with spec B.

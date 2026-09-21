@@ -49,6 +49,8 @@ export const judgeReliabilityModel = defineModel<
     outcomes: input.outcomes,
     opportunities: input.opportunities ?? [],
   }),
+  // Every option this model accounts for. `runModel` refuses anything else.
+  recordedOptionKeys: ["now", "spec", "referralSpec"],
   resolveOptions: (spec, opts) => ({
     parameters: {
       spec,

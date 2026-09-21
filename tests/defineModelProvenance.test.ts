@@ -49,6 +49,7 @@ const inTestModel = defineModel<"referral_signal", ProbeInput, ProbeOptions, num
   kind: "referral_signal",
   specOf: () => REFERRAL_SIGNAL_V0_1_0,
   inputsOf: (input) => ({ n: input.n }),
+  recordedOptionKeys: ["factor"],
   resolveOptions: (spec, opts) => ({
     parameters: { spec, factor: opts.factor },
     upstream: [],
@@ -67,6 +68,7 @@ const twinA = defineModel<"referral_signal", ProbeInput, ProbeOptions, number>({
   kind: "referral_signal",
   specOf: () => REFERRAL_SIGNAL_V0_1_0,
   inputsOf: (input) => ({ n: input.n }),
+  recordedOptionKeys: ["factor"],
   resolveOptions: (spec, opts) => ({ parameters: { spec, factor: opts.factor }, upstream: [] }),
   excludeFromProvenance: ["label"],
   compute: (input, _spec, opts) => input.n * opts.factor,
@@ -77,6 +79,7 @@ const twinB = defineModel<"referral_signal", ProbeInput, ProbeOptions, number>({
   kind: "referral_signal",
   specOf: () => REFERRAL_SIGNAL_V0_1_0,
   inputsOf: (input) => ({ n: input.n }),
+  recordedOptionKeys: ["factor"],
   resolveOptions: (spec, opts) => ({ parameters: { spec, factor: opts.factor }, upstream: [] }),
   excludeFromProvenance: ["label"],
   compute: (input, _spec, opts) => input.n * opts.factor + 1,
@@ -224,6 +227,7 @@ describe("a model defined outside src/models/", () => {
         kind: "referral_signal",
         specOf: () => REFERRAL_SIGNAL_V0_1_0,
         inputsOf: () => ({}),
+        recordedOptionKeys: [],
         resolveOptions: (spec) => ({ parameters: { spec }, upstream: [] }),
         compute: () => 0,
       }),
@@ -264,4 +268,39 @@ describe("the runner derives the spec it stamps", () => {
     );
     expect(run.specVersion).toBe("0.1.0");
   });
+});
+
+/**
+ * Fail-closed option checking, for every model rather than for one.
+ *
+ * Under review it turned out only `referral_signal` refused an option it did
+ * not record: a `weighting` key handed to the capability or calibration
+ * runner was silently dropped and the run kept the id of a call that never
+ * saw it. The mechanism now lives in `runModel`, so there is exactly one
+ * place for it to be right and no definition can forget it.
+ */
+describe("an option no definition records is refused", () => {
+  for (const def of registeredModels()) {
+    test(`${def.name}: an unknown option key throws before anything is computed`, () => {
+      const probe = PROBES[def.name] as Probe;
+      expect(() =>
+        runModel(def, probe.input, { ...probe.opts, weighting: { kind: "uniform" } }, probe.now),
+      ).toThrow(/unrecorded option "weighting"/);
+    });
+
+    /**
+     * `recordedOptionKeys` is a claim that each key moves the id; the
+     * property test above is what checks the claim. A key declared but never
+     * put in the probe is an unchecked claim, so it fails here by name.
+     */
+    test(`${def.name}: every recorded option key is probed`, () => {
+      const probe = PROBES[def.name] as Probe;
+      const probed = new Set(Object.keys(probe.opts));
+      const unprobed = def.recordedOptionKeys.filter((key) => !probed.has(key));
+      expect(
+        unprobed,
+        `${def.name}: recordedOptionKeys names ${unprobed.join(", ")}, which the probe never sets`,
+      ).toEqual([]);
+    });
+  }
 });

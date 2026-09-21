@@ -128,6 +128,28 @@ describe("createModelRun", () => {
     expect(linked.upstreamRuns).toHaveLength(1);
   });
 
+  test("copies each upstream entry, so mutating the caller's cannot contradict the id", () => {
+    // Freezing the array alone left the *entries* the caller's: setting
+    // `runId` afterwards rewrote `run.upstreamRuns` while `run.id`, hashed
+    // from the old value, stayed put — a record that disagrees with itself.
+    const entry = { role: "anchor" as const, runId: "run-a", digest: "d" };
+    const run = createModelRun({
+      ...base,
+      parameters: { spec: REFERRAL_SIGNAL_V0_1_0 },
+      outputs: 1,
+      upstreamRuns: [entry],
+    });
+    const recorded = run.upstreamRuns[0];
+    expect(recorded).not.toBe(entry);
+    expect(Object.isFrozen(recorded)).toBe(true);
+    expect(recorded).toEqual({ role: "anchor", runId: "run-a", digest: "d" });
+    // Only the three recorded fields; no stray key of the caller's rides along.
+    expect(Object.keys(recorded as object).sort()).toEqual(["digest", "role", "runId"]);
+
+    entry.runId = "run-b";
+    expect(run.upstreamRuns[0]?.runId).toBe("run-a");
+  });
+
   test("copies `now` so mutating the caller's Date does not move createdAt", () => {
     const now = new Date("2026-06-01T00:00:00.000Z");
     const run = createModelRun({ ...base, parameters: {}, outputs: 1, now });

@@ -59,6 +59,19 @@ export const bradleyTerryModel = defineModel<
   kind: "bradley_terry",
   specOf: (opts) => opts.spec ?? CURRENT_SPECS.bradley_terry,
   inputsOf: ({ people, comparisons }) => ({ people: people.map((p) => p.id), comparisons }),
+  // Every option this model accounts for: the first six in `parameters`,
+  // `previous`/`previousRunId` as lineage. `runModel` refuses anything else,
+  // so a solver option added without a provenance answer fails loudly.
+  recordedOptionKeys: [
+    "spec",
+    "minComparisons",
+    "minOpponents",
+    "tieHandling",
+    "bt",
+    "anchorStrength",
+    "previous",
+    "previousRunId",
+  ],
   resolveOptions: (spec, opts) => {
     const { previous } = opts;
     return {

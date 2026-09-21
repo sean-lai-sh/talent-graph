@@ -112,8 +112,16 @@ export interface RunRecordInput<TOut> {
 export function createRun<TOut>(input: RunRecordInput<TOut>): ModelRun<TOut> {
   const { kind, model, specVersion, parameters, outputs, now } = input;
   const inputHash = hashInputs(input.inputs);
-  // Copied so a later mutation of the caller's array cannot contradict the id.
-  const upstream = Object.freeze([...(input.upstreamRuns ?? [])]);
+  // Copied entry by entry, not just the array: freezing the array alone left
+  // each `{ role, runId, digest }` the caller's, so setting `runId` after the
+  // fact rewrote `run.upstreamRuns` while `run.id` — hashed from the old
+  // value — stayed put. Only the three recorded fields are carried over, so
+  // nothing outside the record shape can ride along into the hash.
+  const upstream: readonly UpstreamRun[] = Object.freeze(
+    (input.upstreamRuns ?? []).map((u) =>
+      Object.freeze({ role: u.role, runId: u.runId, digest: u.digest }),
+    ),
+  );
   const paramHash = hashInputs({ parameters, upstreamRuns: upstream }).slice(0, 8);
   return {
     id: `${kind}/${model}@${specVersion}:${inputHash.slice(0, 12)}:${paramHash}`,

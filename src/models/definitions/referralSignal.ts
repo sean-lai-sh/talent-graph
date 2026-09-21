@@ -37,33 +37,6 @@ function isJudgeWeighted(opts: ReferralSignalOptions): boolean {
 }
 
 /**
- * Every option key this model accounts for. `resolveOptions` fails closed on
- * anything else: a scoring option that reaches `computeAllReferralSignals`
- * but not the provenance record is a silent id collision between two runs
- * that computed different numbers. A new option (a future `weighting`, which
- * must be recorded by its stable `kind`, never by its closures) therefore
- * arrives as a loud error rather than as a hole.
- */
-const RECORDED_OPTION_KEYS: ReadonlySet<string> = new Set([
-  "spec",
-  "topK",
-  "judgeReliability",
-  "judgeBias",
-  "judgeRunId",
-]);
-
-function assertEveryOptionRecorded(opts: ReferralSignalRunOptions): void {
-  for (const key of Object.keys(opts)) {
-    if (!RECORDED_OPTION_KEYS.has(key)) {
-      throw new Error(
-        `unrecorded option "${key}" on a referral_signal run: record it in ` +
-          "resolveOptions (and in RECORDED_OPTION_KEYS) before it can move a number",
-      );
-    }
-  }
-}
-
-/**
  * Fingerprint of the weight *values* a run consumed. Both maps together, so
  * bias-only and reliability-only runs never collide; `hashInputs` sorts map
  * keys, so insertion order cannot move it.
@@ -85,28 +58,30 @@ export const referralSignalModel = defineModel<
   kind: "referral_signal",
   specOf: (opts) => opts.spec ?? CURRENT_SPECS.referral_signal,
   inputsOf: ({ people, referrals }) => ({ people: people.map((p) => p.id), referrals }),
-  resolveOptions: (spec, opts) => {
-    assertEveryOptionRecorded(opts);
-    return {
-      parameters: {
-        spec,
-        topK: opts.topK ?? spec.topK,
-      },
-      // The weight maps are a calibration run's output, not a call-site
-      // option, so they are recorded once — as a digest of the values
-      // consumed, beside the id of the run that produced them. A digest is a
-      // string, so no later mutation of the caller's maps can rewrite it.
-      upstream: isJudgeWeighted(opts)
-        ? [
-            {
-              role: "judge_weights",
-              runId: opts.judgeRunId ?? null,
-              digest: judgeWeightsDigest(opts),
-            },
-          ]
-        : [],
-    };
-  },
+  // Every option this model accounts for. `runModel` refuses anything else,
+  // so a future scoring option (a `weighting`, which would have to be
+  // recorded by its stable `kind`, never by its closures) arrives as a loud
+  // error rather than as a silent collision between two different numbers.
+  recordedOptionKeys: ["spec", "topK", "judgeReliability", "judgeBias", "judgeRunId"],
+  resolveOptions: (spec, opts) => ({
+    parameters: {
+      spec,
+      topK: opts.topK ?? spec.topK,
+    },
+    // The weight maps are a calibration run's output, not a call-site
+    // option, so they are recorded once — as a digest of the values
+    // consumed, beside the id of the run that produced them. A digest is a
+    // string, so no later mutation of the caller's maps can rewrite it.
+    upstream: isJudgeWeighted(opts)
+      ? [
+          {
+            role: "judge_weights",
+            runId: opts.judgeRunId ?? null,
+            digest: judgeWeightsDigest(opts),
+          },
+        ]
+      : [],
+  }),
   compute: ({ people, referrals }, spec, opts) =>
     computeAllReferralSignals(people, referrals, { ...opts, spec }),
 });
