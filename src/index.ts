@@ -35,6 +35,7 @@ export * from "./longitudinal/types.ts";
 export * from "./longitudinal/validate.ts";
 export * from "./modelRun.ts";
 export * from "./models/blend.ts";
+export * from "./models/careerEvidence.ts";
 export * from "./models/registry.ts";
 export * from "./models/snapshot.ts";
 export * from "./models/spec.ts";

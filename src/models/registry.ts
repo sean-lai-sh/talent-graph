@@ -9,6 +9,8 @@
  */
 
 import { EVIDENCE_MULTIPLIER, REFERRAL_WEIGHTS } from "../domain/constants.ts";
+import { CAREER_EVIDENCE_V1_0_0 } from "./careerEvidence.ts";
+import { deepFreeze } from "./freeze.ts";
 import {
   type BradleyTerrySpec,
   type JudgeReliabilitySpec,
@@ -19,20 +21,10 @@ import {
   specId,
 } from "./spec.ts";
 
-/**
- * Recursively freeze a plain object/array graph. `Object.freeze` is shallow,
- * so a registered spec's nested `weights` would otherwise stay mutable and
- * `isRegisteredSpec` (which compares a spec to its registry entry) could not
- * catch the drift. Functions, Dates, Maps and other exotic objects are left
- * alone; specs contain none.
- */
-export function deepFreeze<T>(value: T): T {
-  if (value === null || typeof value !== "object" || Object.isFrozen(value)) return value;
-  for (const key of Reflect.ownKeys(value as object)) {
-    deepFreeze((value as Record<PropertyKey, unknown>)[key]);
-  }
-  return Object.freeze(value);
-}
+// `deepFreeze` used to be defined here and is imported from `registry.ts` by
+// name across the codebase; it now lives in a leaf so the career-evidence spec
+// can freeze itself without pulling the registry in.
+export { deepFreeze } from "./freeze.ts";
 
 /** V0 Referral Signal as specified in the MVP prompt (PLAN.md §4). */
 export const REFERRAL_SIGNAL_V0_1_0: ReferralSignalSpec = deepFreeze({
@@ -87,6 +79,7 @@ export const SPEC_HISTORY: readonly ModelSpec[] = deepFreeze([
   REFERRAL_SIGNAL_V0_1_0,
   BRADLEY_TERRY_V1_0_0,
   JUDGE_RELIABILITY_V2_0_0,
+  CAREER_EVIDENCE_V1_0_0,
 ]);
 
 /** The version used when a caller does not pass a spec explicitly. */
@@ -94,6 +87,7 @@ export const CURRENT_SPECS: { readonly [K in ModelSpecKind]: SpecOfKind<K> } = d
   referral_signal: REFERRAL_SIGNAL_V0_1_0,
   bradley_terry: BRADLEY_TERRY_V1_0_0,
   judge_reliability: JUDGE_RELIABILITY_V2_0_0,
+  career_evidence: CAREER_EVIDENCE_V1_0_0,
 });
 
 /** All known versions of one kind, in registration order. */
