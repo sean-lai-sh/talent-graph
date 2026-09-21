@@ -15,10 +15,17 @@ export const CAREER_EVIDENCE_DIMENSIONS = [
   "peer_validation",
 ] as const satisfies readonly ProgressDimension[];
 
-/** Compile-time guard: the list must cover the whole `ProgressDimension` union. */
 type MissingDimension = Exclude<ProgressDimension, (typeof CAREER_EVIDENCE_DIMENSIONS)[number]>;
-const _exhaustive: MissingDimension[] = [];
-void _exhaustive;
+
+/** Only satisfiable when `T` is `never`; anything else is a type error at the use site. */
+type AssertNever<T extends never> = T;
+
+/**
+ * Compile-time guard: the list must cover the whole `ProgressDimension` union.
+ * Dropping a member from `CAREER_EVIDENCE_DIMENSIONS` (or adding one to the
+ * union) makes `MissingDimension` non-empty and fails typecheck right here.
+ */
+export type CareerEvidenceDimensionsAreExhaustive = AssertNever<MissingDimension>;
 
 /**
  * Highest value on the shared 0..MAX_LEVEL dimension scale. Judgment scores are
