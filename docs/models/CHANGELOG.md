@@ -206,4 +206,11 @@ Not a spec version either: how the runs of a pass are ordered and recorded.
   compile error (`CURRENT_SPECS`), and registering one it does run is three
   (`CURRENT_SPECS`, the `loadSpecs()` return, `PIPELINE_KINDS`) plus the
   kind's own `defineModel` file, which is new code rather than a break.
+- **Gate:** `scripts/drift-gate.ts` partitions the moved versions with
+  `driftableMoves`. The append-only and in-place-edit checks still apply to
+  every registered kind; only a kind a pass runs reaches `scripts/drift.ts`.
+  A bump of a rubric-only kind prints
+  `skipped <kind> <before> → <after>: not a pipeline kind, nothing to measure`
+  and passes, where it used to be handed to a CLI that exits 2 and be read as
+  a failed drift report.
 - **PR:** #55 T7.

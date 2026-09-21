@@ -49,6 +49,7 @@ export {
   type DriftKind,
   driftKinds,
   type EngineState,
+  isPipelineKind,
   judgeWeightedReferralRun,
   type Observations,
   type PipelineKind,

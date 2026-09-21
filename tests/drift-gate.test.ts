@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   currentSpecVersions,
+  driftableMoves,
   movedSpecs,
   mutatedSpecs,
   removedSpecs,
@@ -71,6 +72,55 @@ describe("drift gate: which kinds moved", () => {
   test("the live registry compared against itself moves nothing", () => {
     const live = currentSpecVersions(CURRENT_SPECS as unknown as Record<string, ModelSpec>);
     expect(movedSpecs(live, live)).toEqual([]);
+  });
+});
+
+/**
+ * A `CURRENT_SPECS` bump is measurable only for a kind the pipeline runs.
+ * `movedSpecs` walks every registered kind, because append-only and
+ * `CURRENT_SPECS` are registry rules and apply to all of them; `scripts/drift.ts`
+ * takes `driftKinds` only, because a drift report is a comparison of two runs.
+ * The partition is where those two facts meet.
+ */
+describe("drift gate: which moves can be measured", () => {
+  const move = (kind: string, before: string, after: string) => ({ kind, before, after });
+
+  test("a pipeline kind's move is driftable", () => {
+    expect(driftableMoves([move("referral_signal", "0.1.0", "0.2.0")])).toEqual({
+      driftable: [move("referral_signal", "0.1.0", "0.2.0")],
+      skipped: [],
+    });
+  });
+
+  test("a registered kind the pipeline never runs is skipped, not failed", () => {
+    expect(driftableMoves([move("career_evidence", "1.0.0", "1.0.1")])).toEqual({
+      driftable: [],
+      skipped: [move("career_evidence", "1.0.0", "1.0.1")],
+    });
+  });
+
+  test("a mixed batch splits, each side keeping the input order", () => {
+    const moves = [
+      move("bradley_terry", "1.0.0", "1.1.0"),
+      move("career_evidence", "1.0.0", "1.0.1"),
+      move("referral_signal", "0.1.0", "0.2.0"),
+    ];
+    expect(driftableMoves(moves)).toEqual({
+      driftable: [moves[0], moves[2]] as typeof moves,
+      skipped: [moves[1]] as typeof moves,
+    });
+  });
+
+  test("nothing in, nothing out", () => {
+    expect(driftableMoves([])).toEqual({ driftable: [], skipped: [] });
+  });
+
+  /**
+   * A kind nobody has ever registered is not a pipeline kind either, so it
+   * lands in `skipped` rather than being handed to a CLI that would exit 2.
+   */
+  test("an unknown kind is skipped rather than handed to the drift CLI", () => {
+    expect(driftableMoves([move("not_a_kind", "1.0.0", "2.0.0")]).skipped).toHaveLength(1);
   });
 });
 
@@ -259,6 +309,85 @@ describe("drift gate: end to end", () => {
     );
     expect(exitCode).toBe(1);
   }, 60_000);
+
+  /**
+   * The finding: `movedSpecs` walks every `CURRENT_SPECS` key, but
+   * `scripts/drift.ts` accepts only the kinds a pass runs. Bumping a
+   * rubric-only kind used to spawn `drift --kind career_evidence`, which
+   * exits 2 ("unknown kind"), and the gate read that as a failed drift report
+   * — a registry change the pipeline cannot measure failing as if it had
+   * measured badly.
+   */
+  test("bumping a kind the pipeline never runs is skipped, and passes", () => {
+    const { exitCode, output } = gateAfter((dir) => {
+      edit(
+        dir,
+        "src/models/registry.ts",
+        "/** Every spec version ever shipped. Append only. */",
+        "/** Same rubric, new version: a bump no pass can measure. */\n" +
+          "const CAREER_EVIDENCE_V1_0_1 = deepFreeze({\n" +
+          "  ...CAREER_EVIDENCE_V1_0_0,\n" +
+          '  version: "1.0.1",\n' +
+          "});\n\n" +
+          "/** Every spec version ever shipped. Append only. */",
+      );
+      edit(
+        dir,
+        "src/models/registry.ts",
+        "  CAREER_EVIDENCE_V1_0_0,\n]);",
+        "  CAREER_EVIDENCE_V1_0_0,\n  CAREER_EVIDENCE_V1_0_1,\n]);",
+      );
+      edit(
+        dir,
+        "src/models/registry.ts",
+        "career_evidence: CAREER_EVIDENCE_V1_0_0,",
+        "career_evidence: CAREER_EVIDENCE_V1_0_1,",
+      );
+    });
+    expect(output).toContain(
+      "skipped career_evidence 1.0.0 → 1.0.1: not a pipeline kind, nothing to measure",
+    );
+    // No drift report was attempted for it, and nothing failed.
+    expect(output).not.toContain("unknown kind career_evidence");
+    expect(exitCode).toBe(0);
+  }, 60_000);
+
+  /**
+   * The control: the same shape of bump on a kind a pass *does* run still
+   * reaches the drift CLI. Same numbers under a new version, so the report is
+   * `stable` and the gate passes — what is under test is that it ran at all.
+   */
+  test("bumping a pipeline kind still runs the drift report", () => {
+    const { exitCode, output } = gateAfter((dir) => {
+      edit(
+        dir,
+        "src/models/registry.ts",
+        "/** Every spec version ever shipped. Append only. */",
+        "/** Same numbers, new version. */\n" +
+          "const REFERRAL_SIGNAL_V0_2_0 = deepFreeze({\n" +
+          "  ...REFERRAL_SIGNAL_V0_1_0,\n" +
+          '  version: "0.2.0",\n' +
+          "});\n\n" +
+          "/** Every spec version ever shipped. Append only. */",
+      );
+      edit(
+        dir,
+        "src/models/registry.ts",
+        "  REFERRAL_SIGNAL_V0_1_0,\n  BRADLEY",
+        "  REFERRAL_SIGNAL_V0_1_0,\n  REFERRAL_SIGNAL_V0_2_0,\n  BRADLEY",
+      );
+      edit(
+        dir,
+        "src/models/registry.ts",
+        "referral_signal: REFERRAL_SIGNAL_V0_1_0,",
+        "referral_signal: REFERRAL_SIGNAL_V0_2_0,",
+      );
+    });
+    expect(output).toContain("=== referral_signal 0.1.0 → 0.2.0");
+    expect(output).toContain("Drift report — referral_signal (0.1.0 → 0.2.0)");
+    expect(output).not.toContain("skipped referral_signal");
+    expect(exitCode).toBe(0);
+  }, 120_000);
 
   test("a change that moves no spec passes", () => {
     const { exitCode, output } = gateAfter((dir) =>

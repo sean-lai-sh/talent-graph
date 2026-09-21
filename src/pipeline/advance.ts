@@ -99,11 +99,19 @@ const PIPELINE_KINDS: Readonly<Record<PipelineKind, true>> = Object.freeze({
   referral_signal: true,
 });
 
+/**
+ * Is `kind` one a pass runs? The membership test behind `driftKinds`, exposed
+ * because the registry's rules and the pipeline's are not the same rules:
+ * `scripts/drift-gate.ts` walks every registered kind for the append-only
+ * checks, then has to ask which of them a drift report could exist for.
+ */
+export function isPipelineKind(kind: string): kind is PipelineKind {
+  return kind in PIPELINE_KINDS;
+}
+
 /** The `DriftKind`s of a given `LoadedSpecs`, sorted. */
 export function driftKinds(specs: LoadedSpecs): DriftKind[] {
-  return Object.keys(specs)
-    .filter((k): k is DriftKind => k in PIPELINE_KINDS)
-    .sort();
+  return Object.keys(specs).filter(isPipelineKind).sort();
 }
 
 /**
@@ -120,7 +128,11 @@ export function driftKinds(specs: LoadedSpecs): DriftKind[] {
  */
 export interface EngineState {
   runs: Partial<{ [K in PipelineKind]: RunOfKind<K> }>;
-  /** The judge-weighted Referral Signal run of the pass, if it produced one. */
+  /**
+   * The judge-weighted Referral Signal run of the pass, if it produced one.
+   * Optional on purpose: a hand-built previous state that omits it gets no
+   * weighted arm in the next pass's drift, rather than a fabricated one.
+   */
   judgeWeighted?: RunOfKind<"referral_signal">;
 }
 

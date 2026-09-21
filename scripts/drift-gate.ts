@@ -12,12 +12,19 @@
  *     means what it meant. A content difference under an unchanged version is
  *     a rule violation, not a drift verdict, and fails the job outright — no
  *     threshold can make it acceptable.
- *  2. Did a `CURRENT_SPECS` version *move*? Then
+ *  2. Did a `CURRENT_SPECS` version *move*? Then, **for a kind a pass runs**,
  *     `bun run drift -- --kind <k> --before <base> --after <head>` reports what
  *     the move does to the numbers. A `breaking` verdict fails the job;
  *     `review` prints and passes, and owes a `**Drift:**` line in
  *     `docs/models/CHANGELOG.md`, which `tests/invariants.test.ts` requires of
  *     every registered version.
+ *
+ * Question 1 is a registry rule and applies to every registered kind. Question
+ * 2 cannot: a drift report is a comparison of two runs, so a kind the pipeline
+ * never evaluates — versioned rubric data, say — has no numbers to move.
+ * Bumping such a kind is reported as skipped and passes. It used to be handed
+ * to `scripts/drift.ts`, which takes pipeline kinds only, exit 2 — a registry
+ * change the gate could not measure failing as though it had measured badly.
  *
  * Both sides are *resolved*, never parsed, and never short-circuited on a file
  * path. `registry.ts` spreads `REFERRAL_WEIGHTS` and `EVIDENCE_MULTIPLIER` from
@@ -41,6 +48,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ModelSpec, specId } from "../src/models/spec.ts";
+import { isPipelineKind } from "../src/pipeline/advance.ts";
 import { stableStringify } from "../src/provenance/hash.ts";
 
 const ROOT = join(import.meta.dir, "..");
@@ -85,6 +93,33 @@ export function movedSpecs(before: SpecVersions, after: SpecVersions): SpecMove[
     if (from !== undefined && from !== to) moves.push({ kind, before: from, after: to });
   }
   return moves;
+}
+
+/** `movedSpecs` split by whether a drift report could exist for the kind. */
+export interface PartitionedMoves {
+  /** Moves of kinds a pass runs: measurable, so they are measured. */
+  driftable: SpecMove[];
+  /** Moves of kinds no pass runs: reported, never measured, never failed. */
+  skipped: SpecMove[];
+}
+
+/**
+ * Split moves into the ones the drift CLI can take and the ones it cannot.
+ *
+ * `movedSpecs` walks every `CURRENT_SPECS` key because append-only is a
+ * registry rule, but `scripts/drift.ts` accepts `driftKinds` only, because a
+ * drift report compares two *runs*. An unknown kind is skipped for the same
+ * reason a rubric-only kind is: the CLI has nothing to run for it, and the
+ * gate should say so rather than exit on a usage error.
+ *
+ * Input order is preserved on both sides, so `movedSpecs`' kind ordering
+ * survives the split.
+ */
+export function driftableMoves(moves: readonly SpecMove[]): PartitionedMoves {
+  const driftable: SpecMove[] = [];
+  const skipped: SpecMove[] = [];
+  for (const move of moves) (isPipelineKind(move.kind) ? driftable : skipped).push(move);
+  return { driftable, skipped };
 }
 
 /**
@@ -218,7 +253,8 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  // A current version that moved: measurable, so it is measured.
+  // A current version that moved. Measured when a pass runs the kind; named
+  // and passed over when it does not — see `driftableMoves`.
   const moves = movedSpecs(before.current, after.current);
   if (moves.length === 0) {
     console.log(
@@ -227,17 +263,28 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const failed = moves.filter((move) => !driftPasses(move));
+  const { driftable, skipped } = driftableMoves(moves);
+  for (const move of skipped) {
+    console.log(
+      `skipped ${move.kind} ${move.before} → ${move.after}: not a pipeline kind, nothing to measure`,
+    );
+  }
+  if (driftable.length === 0) {
+    console.log(`\nno moved spec(s) are pipeline kinds; there is nothing to measure.`);
+    return 0;
+  }
+
+  const failed = driftable.filter((move) => !driftPasses(move));
   for (const move of failed) {
     console.error(`drift gate: ${move.kind} ${move.before} → ${move.after} did not pass.`);
   }
   if (failed.length > 0) {
     console.error(
-      `\n${failed.length} of ${moves.length} moved spec(s) need a smaller change or a plan.`,
+      `\n${failed.length} of ${driftable.length} moved spec(s) need a smaller change or a plan.`,
     );
     return 1;
   }
-  console.log(`\n${moves.length} moved spec(s) are at or below the review threshold.`);
+  console.log(`\n${driftable.length} moved spec(s) are at or below the review threshold.`);
   return 0;
 }
 
