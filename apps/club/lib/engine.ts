@@ -5,7 +5,8 @@
  * The engine is split into modules under `lib/engine/`, all of them reachable
  * from here so callers keep importing `lib/engine.ts` and nothing else:
  *
- *   - `engine/referralModel.ts` — the one scored referral index per view.
+ *   - `engine/pass.ts`         — one `advance()` per view, plus the scored
+ *                                referral index the view reads R_uv from.
  *   - `engine/computeView.ts`   — the orchestrator that assembles a `ClubView`.
  *   - `engine/personView.ts`    — the per-person dossier builder.
  *   - `engine/transitions.ts`   — the pure (state, input) → result mutations.

@@ -2,8 +2,18 @@
  * Mutations — pure (state, input) → { state, view, error? }.
  *
  * Moved here verbatim from `engine.ts`. Every transition revives the stored
- * inputs, validates with the domain validators, and re-runs `computeView` so
- * the caller never sees a state and a view that disagree.
+ * inputs, validates with the domain validators, and re-runs the view so the
+ * caller never sees a state and a view that disagree.
+ *
+ * A transition runs **one** pass of the engine. The two that record a
+ * decision snapshot used to run two — one to read the dossier the snapshot
+ * freezes, one to return — which is a whole `advance()` over every
+ * observation, twice, per council click. They now compute the world once and
+ * hand that view back; see `recordSnapshot` for why that is the same view.
+ *
+ * The pass is reached through `EngineDeps` rather than by calling
+ * `computeWorld` directly, so a test can count the passes a mutation makes
+ * without a counter living in production code.
  */
 
 import type { ReviewBucket } from "../../../../src/analysis/reviewQueue.ts";
@@ -20,6 +30,7 @@ import {
   validateEvaluation,
   validateReferral,
 } from "../../../../src/domain/validate.ts";
+import { createPredictionSnapshot } from "../../../../src/models/snapshot.ts";
 import {
   defaultReviewStatus,
   dueAtFor,
@@ -51,40 +62,85 @@ import type {
   RequestFeedbackInput,
   SetReviewConfigInput,
 } from "../types.ts";
-import { computeView } from "./computeView.ts";
+import { type ClubWorld, computeWorld } from "./computeView.ts";
 import { nameOf, OWNER_EVALUATOR_ID } from "./shared.ts";
+
+/**
+ * The view side, as a transition sees it. One entry, because a transition
+ * needs exactly one thing from it: a pass over a state.
+ */
+export interface EngineDeps {
+  computeWorld: (state: ClubState) => ClubWorld;
+}
+
+const DEFAULT_DEPS: EngineDeps = { computeWorld: (state) => computeWorld(state) };
 
 function nextId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function fail(next: ClubState, error: string): EngineResult {
-  return { state: next, view: computeView(next), error };
+function fail(next: ClubState, error: string, deps: EngineDeps = DEFAULT_DEPS): EngineResult {
+  return { state: next, view: deps.computeWorld(next).view, error };
 }
 
-function ok(next: ClubState): EngineResult {
-  return { state: next, view: computeView(next) };
+function ok(next: ClubState, deps: EngineDeps = DEFAULT_DEPS): EngineResult {
+  return { state: next, view: deps.computeWorld(next).view };
 }
 
 function knownPerson(state: ClubState, id: string): ClubPerson | undefined {
   return state.people.find((p) => p.id === id);
 }
 
-function recordSnapshot(next: ClubState, person: ClubPerson, decision: string): void {
-  const view = computeView(next);
+/**
+ * Freeze the decision, and return the view it was decided on.
+ *
+ * The one pass happens here. The caller has already written the status change
+ * onto `next`, so every field of that view is final except the snapshot list
+ * this function is about to extend — a second pass would return this same
+ * view with that one list replaced, which is exactly what is returned.
+ *
+ * `createPredictionSnapshot` is the core's snapshot constructor: it refuses a
+ * snapshot with no run behind it, so a decision recorded without provenance
+ * is an error rather than a `ClubSnapshot` that quietly has none. The club's
+ * own id is unchanged — decision-addressed, as every stored snapshot already
+ * is — so ids written before this keep matching.
+ *
+ * Nothing is truncated. The `.slice(0, 20)` that used to sit here dropped a
+ * council's twenty-first decision on the floor, which is not a thing a
+ * provenance record may do; snapshots are small (two numbers, four run ids)
+ * beside the observations the same document already carries unbounded.
+ */
+function recordSnapshot(
+  next: ClubState,
+  person: ClubPerson,
+  decision: string,
+  deps: EngineDeps,
+): ClubView {
+  const { view, provenance } = deps.computeWorld(next);
   const dossier = view.people.find((p) => p.id === person.id);
+  const values = {
+    referralSignal: dossier?.v2Signal ?? null,
+    incomingCount: dossier?.incomingCount ?? 0,
+  };
+  const prediction = createPredictionSnapshot({
+    personId: person.id,
+    modelRunIds: provenance.modelRunIds,
+    values,
+    decision,
+    now: new Date(next.now),
+  });
   const snapshot: ClubSnapshot = {
     id: `snap:${person.id}:${decision}:${next.now}`,
-    personId: person.id,
+    personId: prediction.personId,
     personName: person.name,
     decision,
-    values: {
-      referralSignal: dossier?.v2Signal ?? null,
-      incomingCount: dossier?.incomingCount ?? 0,
-    },
+    values,
     createdAt: next.now,
+    modelRunIds: [...prediction.modelRunIds],
+    specVersions: { ...provenance.specVersions },
   };
-  next.snapshots = [snapshot, ...next.snapshots].slice(0, 20);
+  next.snapshots = [snapshot, ...next.snapshots];
+  return { ...view, snapshots: next.snapshots.map((s) => ({ ...s, values: { ...s.values } })) };
 }
 
 export function addPerson(state: ClubState, input: AddPersonInput): EngineResult {
@@ -120,33 +176,43 @@ export function addPerson(state: ClubState, input: AddPersonInput): EngineResult
  * Engine-status change with provenance. Kept for callers that think in
  * candidate / member / archived; the council page uses `decide`.
  */
-export function setStatus(state: ClubState, personId: string, status: PersonStatus): EngineResult {
+export function setStatus(
+  state: ClubState,
+  personId: string,
+  status: PersonStatus,
+  deps: EngineDeps = DEFAULT_DEPS,
+): EngineResult {
   const next = reviveState(state);
   const person = knownPerson(next, personId);
-  if (!person) return fail(next, "unknown person");
+  if (!person) return fail(next, "unknown person", deps);
   person.status = status;
   const current = person.reviewStatus ?? defaultReviewStatus(status);
   person.reviewStatus =
     status === "candidate" && underConsideration(current) ? current : defaultReviewStatus(status);
   if (status === "candidate" && !underConsideration(current)) person.reviewStatus = "under_review";
   person.updatedAt = next.now;
-  recordSnapshot(next, person, status);
-  return ok(next);
+  return { state: next, view: recordSnapshot(next, person, status, deps) };
 }
 
 /** Council decision. Review status drives the engine status, never the reverse. */
-export function decide(state: ClubState, personId: string, decision: Decision): EngineResult {
+export function decide(
+  state: ClubState,
+  personId: string,
+  decision: Decision,
+  deps: EngineDeps = DEFAULT_DEPS,
+): EngineResult {
   const next = reviveState(state);
   const person = knownPerson(next, personId);
-  if (!person) return fail(next, "unknown person");
+  if (!person) return fail(next, "unknown person", deps);
   const current = person.reviewStatus ?? defaultReviewStatus(person.status);
   const target = nextReviewStatus(current, decision);
-  if (target === null) return fail(next, `cannot ${decision.replace("_", " ")} from ${current}`);
+  if (target === null) {
+    return fail(next, `cannot ${decision.replace("_", " ")} from ${current}`, deps);
+  }
   person.reviewStatus = target;
   person.status = statusForReview(target);
   person.updatedAt = next.now;
-  recordSnapshot(next, person, target);
-  return ok(next);
+  return { state: next, view: recordSnapshot(next, person, target, deps) };
 }
 
 export function addReferral(state: ClubState, input: AddReferralInput): EngineResult {
