@@ -4,8 +4,14 @@
  *
  * Moved here verbatim from `engine.ts`'s `state.people.map(...)`: same order,
  * same sorts, same absence rules (a missing signal stays `null`, never 0).
- * Nothing is scored here — every strength is read off the index `computeView`
- * built once in `engine/referralModel.ts`.
+ * Nothing is scored here — every strength is read off the index
+ * `engine/pass.ts` builds once for the view.
+ *
+ * That index is the view's own. The pass beside it scores the referral graph
+ * once per Referral Signal run (the V0 baseline and the judge-weighted one),
+ * because `advance` owns its inputs; this module never sees those graphs. Its
+ * per-edge R_uv — a referral row's strength, a neighbourhood edge — comes
+ * from the one index, not from a re-derivation per person.
  */
 
 import type { ReviewBucket, ReviewEntry } from "../../../../src/analysis/reviewQueue.ts";

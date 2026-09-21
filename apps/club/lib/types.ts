@@ -97,9 +97,15 @@ export interface ClubOpportunity {
 
 /**
  * The spec version each kind of the pass ran under, one entry per kind
- * `advance()` runs. Every value resolves through `getSpec(kind, version)`,
- * so a stored decision can be recomputed under the exact spec it was taken
- * on rather than under whatever is current.
+ * `advance()` runs, so a stored decision names the exact specs it was taken
+ * on rather than whatever is current.
+ *
+ * Each value is a `ModelRun.specVersion` and carries that field's contract: a
+ * registered version, which `getSpec(kind, version)` resolves — or one
+ * tagged `+env`, which it does not, because a `TG_*` override moved a number
+ * away from every registered spec. The tag is the point: a run may not claim
+ * a registered version while carrying different numbers, and neither may a
+ * decision taken on it.
  */
 export interface ClubSpecVersions {
   referral_signal: string;

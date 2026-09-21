@@ -688,15 +688,37 @@ describe("council page engine: the pipeline seam", () => {
   });
 
   /**
-   * The regression guard for the seam itself. Pre-seam, `computeView` derived
+   * The regression guard for the seam itself, in two halves so that neither
+   * side can hide the other.
+   *
+   * The pass is pinned absolutely: `advance` scores the referral graph once
+   * per Referral Signal run — the V0 baseline and the judge-weighted one —
+   * plus whatever `computeJudgeCalibration` does on its own, which is
+   * measured against the same inputs rather than hard-coded. Using the pass
+   * as its own baseline would let a third scoring appear inside it silently.
+   *
+   * The view is then pinned relative to that: pre-seam, `computeView` derived
    * R_uv five ways in one pass (228 calls on the seed), two of them with an
-   * O(P·R) scan per person. The view now adds exactly one scoring of each
-   * referral — the index every displayed strength is read from — on top of
-   * whatever the pipeline pass costs on the same inputs, measured here rather
-   * than hard-coded, so neither number can creep.
+   * O(P·R) scan per person. It now adds exactly one scoring of each referral
+   * — the index every displayed strength is read from — on top of the pass.
    */
-  test("computeView adds exactly one R_uv per referral on top of the pass", () => {
+  test("the pass scores each referral once per signal run, the view once more", () => {
     const input = seedModelInput();
+    const calibration = () =>
+      computeJudgeCalibration({
+        people: input.people,
+        referrals: input.referrals,
+        outcomes: input.outcomes,
+        opportunities: input.opportunities,
+        now: input.now,
+        spec: specs.judge_reliability,
+        referralSpec: specs.referral_signal,
+      });
+
+    strengthCalls = 0;
+    calibration();
+    const calibrationCalls = strengthCalls;
+
     strengthCalls = 0;
     advance(
       null,
@@ -712,6 +734,7 @@ describe("council page engine: the pipeline seam", () => {
       { asOf: true, drift: false },
     );
     const passCalls = strengthCalls;
+    expect(passCalls).toBe(2 * input.referrals.length + calibrationCalls);
 
     strengthCalls = 0;
     computeView(initialState(), specs);

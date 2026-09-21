@@ -6,9 +6,10 @@
  * referral with its R_uv under one spec, so callers read a strength instead of
  * recomputing it. Three consume it today: `computeSignalsFromGraph` (and
  * `computeAllReferralSignals`, which is `scoreReferralGraph` followed by it),
- * `toEdgeList` below, and the Club view's `buildReferralModel`, which scores
- * once and feeds V0, V2 and every strength the view renders from this one
- * index. None of them changed a displayed number by moving here.
+ * `toEdgeList` below, and the Club view's `engine/pass.ts`, which scores once
+ * per view and feeds every strength the view renders from that one index
+ * (V0 and V2 now come off `advance`'s runs instead). None of them changed a
+ * displayed number by moving here.
  *
  * Layering (owner decision D2): `scoring → graph` is the allowed direction, so
  * this module imports `buildReferralGraph`. Since #56 T3 that direction is the

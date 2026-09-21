@@ -106,9 +106,16 @@ function knownPerson(state: ClubState, id: string): ClubPerson | undefined {
  * is — so ids written before this keep matching.
  *
  * Nothing is truncated. The `.slice(0, 20)` that used to sit here dropped a
- * council's twenty-first decision on the floor, which is not a thing a
- * provenance record may do; snapshots are small (two numbers, four run ids)
- * beside the observations the same document already carries unbounded.
+ * council's twenty-first decision on the floor, and decision provenance is
+ * not a thing that may be evicted to save room — an undecidable gap in the
+ * record is worse than a large record.
+ *
+ * It is not free: a snapshot is ~580 bytes once it carries four run ids and
+ * three spec versions, so roughly 1,800 of them reach Convex's 1 MiB document
+ * limit — a limit shared with every observation the same `clubOrgs` document
+ * holds, which is why the ceiling is nearer than the number suggests. The
+ * follow-up when an org approaches it is a dedicated snapshots table, not a
+ * smaller window.
  */
 function recordSnapshot(
   next: ClubState,

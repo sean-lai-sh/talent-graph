@@ -2,12 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { computeWorld } from "../apps/club/lib/engine/computeView.ts";
+import type { EngineDeps } from "../apps/club/lib/engine/transitions.ts";
 import {
   computeView,
   decide,
   EXAMPLE_T_START,
   initialState,
-  loadClub,
   setStatus,
 } from "../apps/club/lib/engine.ts";
 import type { ClubSnapshot, ClubState } from "../apps/club/lib/types.ts";
@@ -20,12 +21,18 @@ import type { ModelSpecKind } from "../src/models/spec.ts";
  * #55 T5 — the Club runs `advance()` and its decision snapshots carry the
  * provenance of the pass they were taken on.
  *
- * Specs are passed explicitly everywhere a number is pinned; nothing here
- * reads `process.env`.
+ * Specs are passed explicitly everywhere, including through the transitions:
+ * `decide` and `setStatus` reach the view through `EngineDeps`, whose default
+ * falls back to `loadSpecs()` and therefore to the environment. `PINNED`
+ * closes that hole, so `TG_TOP_K_REFERRALS=2 bun test` pins the same numbers
+ * and the same spec versions as a bare run.
  */
 
 const root = join(import.meta.dir, "..");
+/** The registered specs, read from an empty environment on purpose. */
 const specs = loadSpecs({}, { warn: () => {} });
+/** The transitions' view side, pinned to those specs. */
+const PINNED: EngineDeps = { computeWorld: (state: ClubState) => computeWorld(state, specs) };
 const sha = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
 /**
@@ -60,19 +67,24 @@ function assertProvenance(snapshot: ClubSnapshot): void {
   for (const kind of PASS_KINDS) {
     const version = versions[kind as keyof typeof versions];
     expect(typeof version).toBe("string");
-    // `getSpec` throws on an unknown version: resolvable is the assertion.
+    // A stored version is `ModelRun.specVersion`: a registered version, or one
+    // carrying the `+env` build tag when a `TG_*` override moved a number.
+    // Every pass under test runs on explicit registered specs, so no `+env`
+    // tag is reachable here and `getSpec` — which throws on an unknown
+    // version — must resolve each one.
+    expect(version).not.toContain("+env");
     expect(getSpec(kind, version).version).toBe(version);
   }
 }
 
 describe("#55 T5 club snapshots carry provenance", () => {
   test("(a) every newly written snapshot carries a run id and a resolvable spec version", () => {
-    const start = loadClub();
-    const admitted = decide(start.state, "p-cleo", "admit");
+    const start = initialState();
+    const admitted = decide(start, "p-cleo", "admit", PINNED);
     expect(admitted.error).toBeUndefined();
-    const denied = decide(admitted.state, "p-bram", "deny");
+    const denied = decide(admitted.state, "p-bram", "deny", PINNED);
     expect(denied.error).toBeUndefined();
-    const archived = setStatus(denied.state, "p-alice", "archived");
+    const archived = setStatus(denied.state, "p-alice", "archived", PINNED);
     expect(archived.error).toBeUndefined();
 
     expect(archived.state.snapshots).toHaveLength(3);
@@ -81,13 +93,13 @@ describe("#55 T5 club snapshots carry provenance", () => {
     // The id formula is untouched: decision-addressed, as every stored
     // snapshot already is.
     const cleo = archived.state.snapshots.find((s) => s.personId === "p-cleo");
-    expect(cleo?.id).toBe(`snap:p-cleo:admitted:${start.state.now}`);
+    expect(cleo?.id).toBe(`snap:p-cleo:admitted:${start.now}`);
     expect(cleo?.values.referralSignal).toBe(7);
     expect(cleo?.values.incomingCount).toBe(1);
   });
 
   test("(b) a document written before the new fields still loads, and keeps its shape", () => {
-    const start = loadClub();
+    const start = initialState();
     const legacy = {
       id: "snap:p-cleo:admitted:2026-01-01T00:00:00.000Z",
       personId: "p-cleo",
@@ -96,7 +108,7 @@ describe("#55 T5 club snapshots carry provenance", () => {
       values: { referralSignal: 7, incomingCount: 1 },
       createdAt: "2026-01-01T00:00:00.000Z",
     } as ClubSnapshot;
-    const stored: ClubState = { ...start.state, snapshots: [legacy] };
+    const stored: ClubState = { ...start, snapshots: [legacy] };
 
     const view = computeView(stored, specs);
     expect(view.snapshots).toHaveLength(1);
@@ -105,7 +117,7 @@ describe("#55 T5 club snapshots carry provenance", () => {
     expect("modelRunIds" in loaded).toBe(false);
     expect("specVersions" in loaded).toBe(false);
 
-    const after = decide(stored, "p-dev", "start_review");
+    const after = decide(stored, "p-dev", "start_review", PINNED);
     expect(after.error).toBeUndefined();
     expect(after.state.snapshots).toHaveLength(2);
     assertProvenance(after.state.snapshots[0] as ClubSnapshot);
@@ -127,15 +139,13 @@ describe("#55 T5 club snapshots carry provenance", () => {
     );
   });
 
-  test("(d) a decide computes the world once, not twice", async () => {
-    const { computeWorld } = await import("../apps/club/lib/engine/computeView.ts");
-    const { decide: decideWith } = await import("../apps/club/lib/engine/transitions.ts");
-    const start = loadClub();
+  test("(d) a decide computes the world once, not twice", () => {
+    const start = initialState();
     let passes = 0;
-    const result = decideWith(start.state, "p-cleo", "admit", {
+    const result = decide(start, "p-cleo", "admit", {
       computeWorld: (state: ClubState) => {
         passes++;
-        return computeWorld(state);
+        return PINNED.computeWorld(state);
       },
     });
     expect(result.error).toBeUndefined();
@@ -143,14 +153,19 @@ describe("#55 T5 club snapshots carry provenance", () => {
     expect(result.state.snapshots).toHaveLength(1);
     // The one pass is memoised, not skipped: the view handed back is exactly
     // the view a second pass over the written state would have produced.
-    expect(JSON.stringify(result.view)).toBe(JSON.stringify(computeView(result.state)));
+    expect(JSON.stringify(result.view)).toBe(JSON.stringify(computeView(result.state, specs)));
   });
 
   test("decision snapshots are no longer truncated at twenty", () => {
-    let state = loadClub().state;
+    let state = initialState();
     for (let i = 0; i < 25; i++) {
       const at = new Date(Date.parse(state.now) + 3_600_000).toISOString();
-      const step = decide({ ...state, now: at }, "p-cleo", i % 2 === 0 ? "admit" : "reopen");
+      const step = decide(
+        { ...state, now: at },
+        "p-cleo",
+        i % 2 === 0 ? "admit" : "reopen",
+        PINNED,
+      );
       expect(step.error).toBeUndefined();
       state = step.state;
     }
@@ -159,15 +174,14 @@ describe("#55 T5 club snapshots carry provenance", () => {
     for (const snapshot of state.snapshots) assertProvenance(snapshot);
   });
 
-  test("perf: a decision's provenance costs microseconds, not a second pass (risk 6)", async () => {
-    const { computeWorld } = await import("../apps/club/lib/engine/computeView.ts");
-    const start = loadClub();
-    const { provenance } = computeWorld(start.state, specs);
+  test("perf: a decision's provenance costs microseconds, not a second pass (risk 6)", () => {
+    const start = initialState();
+    const { provenance } = computeWorld(start, specs);
     expect(provenance.modelRunIds.length).toBeGreaterThan(0);
     expect(new Set(provenance.modelRunIds).size).toBe(provenance.modelRunIds.length);
 
     const values = { referralSignal: 7, incomingCount: 1 };
-    const now = new Date(start.state.now);
+    const now = new Date(start.now);
     const runs = 500;
     // Warm up, then measure: `createPredictionSnapshot` hashes a payload of a
     // handful of run ids and two numbers, not the observations.
