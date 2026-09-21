@@ -2,6 +2,10 @@ import type { MonitoringPlan } from "./types.ts";
 
 const DAY_MS = 86_400_000;
 export const DEFAULT_MONITORING_LEASE_MS = 15 * 60 * 1000;
+/** Attempts a single monitoring plan may consume before it stops being retried. */
+export const DEFAULT_MAX_MONITORING_ATTEMPTS = 3;
+/** Error recorded on a plan whose attempts are spent. */
+export const MAX_MONITORING_ATTEMPTS_ERROR = "max attempts reached";
 
 export interface CreateMonitoringPlanInput {
   id: string;
@@ -49,11 +53,12 @@ export function batchDueMonitoringPlans(
   plans: readonly MonitoringPlan[],
   now: Date,
   runningLeaseMs = DEFAULT_MONITORING_LEASE_MS,
+  maxAttempts = DEFAULT_MAX_MONITORING_ATTEMPTS,
 ): DuePersonBatch[] {
   const groups = new Map<string, DuePersonBatch>();
   for (const plan of plans) {
     if (
-      !monitoringPlanIsRetryable(plan, now, runningLeaseMs) ||
+      !monitoringPlanIsRetryable(plan, now, runningLeaseMs, maxAttempts) ||
       plan.dueAt.getTime() > now.getTime()
     ) {
       continue;
@@ -87,8 +92,17 @@ export function startMonitoringPlan(
   plan: MonitoringPlan,
   attemptedAt: Date,
   runningLeaseMs = DEFAULT_MONITORING_LEASE_MS,
+  maxAttempts = DEFAULT_MAX_MONITORING_ATTEMPTS,
 ): MonitoringPlan {
-  if (!monitoringPlanIsRetryable(plan, attemptedAt, runningLeaseMs)) return plan;
+  if (!leaseIsFree(plan, attemptedAt, runningLeaseMs)) return plan;
+  // Attempts are spent: the plan settles as `failed` and never runs again. A
+  // plan that is already `failed` keeps the error that got it there; only a
+  // stale `running` lease is converted, so nothing can loop back to `running`.
+  if (plan.attemptCount >= maxAttempts) {
+    return plan.status === "failed"
+      ? plan
+      : { ...plan, status: "failed", error: MAX_MONITORING_ATTEMPTS_ERROR };
+  }
   return {
     ...plan,
     status: "running",
@@ -102,7 +116,12 @@ function monitoringPlanIsRetryable(
   plan: MonitoringPlan,
   now: Date,
   runningLeaseMs: number,
+  maxAttempts: number,
 ): boolean {
+  return plan.attemptCount < maxAttempts && leaseIsFree(plan, now, runningLeaseMs);
+}
+
+function leaseIsFree(plan: MonitoringPlan, now: Date, runningLeaseMs: number): boolean {
   if (plan.status === "pending" || plan.status === "failed") return true;
   if (plan.status !== "running") return false;
   if (plan.lastAttemptAt === null) return true;

@@ -30,6 +30,19 @@ export const DEFAULT_EVIDENCE_POLICY: EvidencePipelinePolicy = Object.freeze({
   model: "jev",
 });
 
+/** Default number of evidence items assessed concurrently. */
+export const DEFAULT_EVIDENCE_CONCURRENCY = 4;
+
+/**
+ * Fan-out shape for one `processEvidence` call. Grouped like `policy` so the
+ * remaining runtime knobs (per-item isolation, cancellation, caching) have a
+ * home without widening the flat input again.
+ */
+export interface EvidenceRuntime {
+  /** Maximum evidence items assessed at once. Integer >= 1. */
+  concurrency?: number;
+}
+
 export interface ProcessEvidenceInput {
   identity: CanonicalIdentity;
   evidence: readonly GrokEvidenceItem[];
@@ -39,6 +52,7 @@ export interface ProcessEvidenceInput {
   pipelineVersion: string;
   judgments: JevJudgmentService;
   policy?: EvidencePipelinePolicy;
+  runtime?: EvidenceRuntime;
 }
 
 export interface ProcessEvidenceResult {
@@ -50,6 +64,7 @@ export interface ProcessEvidenceResult {
 
 export async function processEvidence(input: ProcessEvidenceInput): Promise<ProcessEvidenceResult> {
   const policy = input.policy ?? DEFAULT_EVIDENCE_POLICY;
+  const concurrency = resolveConcurrency(input.runtime?.concurrency);
   const baselineMs = input.baselineAt?.getTime() ?? Number.NEGATIVE_INFINITY;
   const eligible = input.evidence
     .filter((evidence) => {
@@ -62,115 +77,114 @@ export async function processEvidence(input: ProcessEvidenceInput): Promise<Proc
         a.sourceId.localeCompare(b.sourceId),
     );
 
-  const processed = await Promise.all(
-    eligible.map(async (evidence) => {
-      const identity = await input.judgments.assessIdentity(input.identity, evidence);
-      const claimId = `claim-${contentFingerprint({
-        personId: input.identity.personId,
-        sourceId: evidence.sourceId,
-        publishedAt: evidence.publishedAt,
-        contentHash: evidence.contentHash,
-      })}`;
-      const provenance = {
-        source: evidence.source,
-        sourceId: evidence.sourceId,
-        url: evidence.url,
-        publisher: evidence.publisher,
-        publishedAt: new Date(evidence.publishedAt),
-        retrievedAt: new Date(input.retrievedAt.getTime()),
-        quotedText: evidence.quotedText,
-        contentHash: evidence.contentHash,
-      };
+  // A bounded worker pool, not `Promise.all` over every item: the judgment
+  // service is a paid, rate-limited API. Results are written back by index, so
+  // the output order is the eligible order regardless of completion order, and
+  // the first rejection still rejects the whole call.
+  const processed = await mapWithConcurrency(eligible, concurrency, async (evidence) => {
+    const identity = await input.judgments.assessIdentity(input.identity, evidence);
+    const claimId = `claim-${contentFingerprint({
+      personId: input.identity.personId,
+      sourceId: evidence.sourceId,
+      publishedAt: evidence.publishedAt,
+      contentHash: evidence.contentHash,
+    })}`;
+    const provenance = {
+      source: evidence.source,
+      sourceId: evidence.sourceId,
+      url: evidence.url,
+      publisher: evidence.publisher,
+      publishedAt: new Date(evidence.publishedAt),
+      retrievedAt: new Date(input.retrievedAt.getTime()),
+      quotedText: evidence.quotedText,
+      contentHash: evidence.contentHash,
+    };
 
-      // Identity is settled before any claim assessment. An ambiguous or
-      // contradicted identity stops here, so no paid assessment is spent on an
-      // item we cannot attribute, and no event is produced for one.
-      // `contradictoryFieldMatches` stays scoped to `same`: a `review` decision
-      // already stops, so consulting the field matches could not change the
-      // outcome, only the reason we record.
-      const identityReviewReasons: ReviewReason[] = [];
-      if (identity.decision === "review") {
-        identityReviewReasons.push("identity_ambiguous");
-      }
-      if (identity.decision === "same" && identity.confidence < policy.identityConfidence) {
-        identityReviewReasons.push("identity_low_confidence");
-      }
-      if (
-        identity.decision === "same" &&
-        contradictoryFieldMatches(identity.fieldMatches, policy.identityContradiction)
-      ) {
-        identityReviewReasons.push("identity_contradictory_fields");
-      }
-      if (identity.decision === "different" || identityReviewReasons.length > 0) {
-        const status = identity.decision === "different" ? "rejected" : "review";
-        const claim: EvidenceClaim = {
-          id: claimId,
-          personId: input.identity.personId,
-          provenance,
-          statement: evidence.statement,
-          proposedEventKind: evidence.proposedEventKind,
-          assessedEventKind: null,
-          status,
-          identityDecision: identity.decision,
-          identityConfidence: identity.confidence,
-          ...(status === "review" ? { reviewReasons: identityReviewReasons } : {}),
-          createdAt: new Date(input.retrievedAt.getTime()),
-        };
-        return { claim, event: null };
-      }
-
-      const assessment = await input.judgments.assessClaim(evidence);
-      const completeDimensions = hasCompleteDimensionJudgments(assessment.dimensions);
-      const lowDimensionConfidence = assessment.dimensions.some(
-        (judgment) => judgment.confidence < policy.dimensionConfidence,
-      );
-      // No judgments is not agreement: `.some()` is false for an empty array.
-      // `!completeDimensions` already routes an unjudged event to review; this
-      // only records *why*, so the empty case is distinguishable from a
-      // partial or out-of-range judgment set.
-      const noDimensions = assessment.dimensions.length === 0;
-      // Identity is already settled above: anything reaching here is `same` at
-      // or above the confidence threshold, so only event grounds remain.
-      const needsReview =
-        assessment.eventConfidence < policy.eventConfidence ||
-        !completeDimensions ||
-        lowDimensionConfidence;
-      const status =
-        assessment.eventKind === null ? "rejected" : needsReview ? "review" : "accepted";
+    // Identity is settled before any claim assessment. An ambiguous or
+    // contradicted identity stops here, so no paid assessment is spent on an
+    // item we cannot attribute, and no event is produced for one.
+    // `contradictoryFieldMatches` stays scoped to `same`: a `review` decision
+    // already stops, so consulting the field matches could not change the
+    // outcome, only the reason we record.
+    const identityReviewReasons: ReviewReason[] = [];
+    if (identity.decision === "review") {
+      identityReviewReasons.push("identity_ambiguous");
+    }
+    if (identity.decision === "same" && identity.confidence < policy.identityConfidence) {
+      identityReviewReasons.push("identity_low_confidence");
+    }
+    if (
+      identity.decision === "same" &&
+      contradictoryFieldMatches(identity.fieldMatches, policy.identityContradiction)
+    ) {
+      identityReviewReasons.push("identity_contradictory_fields");
+    }
+    if (identity.decision === "different" || identityReviewReasons.length > 0) {
+      const status = identity.decision === "different" ? "rejected" : "review";
       const claim: EvidenceClaim = {
         id: claimId,
         personId: input.identity.personId,
         provenance,
         statement: evidence.statement,
         proposedEventKind: evidence.proposedEventKind,
-        assessedEventKind: assessment.eventKind,
+        assessedEventKind: null,
         status,
         identityDecision: identity.decision,
         identityConfidence: identity.confidence,
-        ...(noDimensions && status === "review"
-          ? { reviewReasons: ["no_dimensions" as const] }
-          : {}),
+        ...(status === "review" ? { reviewReasons: identityReviewReasons } : {}),
         createdAt: new Date(input.retrievedAt.getTime()),
       };
-      if (assessment.eventKind === null) return { claim, event: null };
+      return { claim, event: null };
+    }
 
-      const event: CareerEvent = {
-        id: `event-${contentFingerprint({ claimId, kind: assessment.eventKind })}`,
-        personId: input.identity.personId,
-        kind: assessment.eventKind,
-        title: evidence.statement,
-        description: evidence.quotedText,
-        observedAt: new Date(evidence.publishedAt),
-        evidenceClaimIds: [claimId],
-        judgments: assessment.dimensions,
-        status: needsReview ? "review" : "accepted",
-        model: policy.model,
-        questionVersion: policy.questionVersion,
-        createdAt: new Date(input.retrievedAt.getTime()),
-      };
-      return { claim, event };
-    }),
-  );
+    const assessment = await input.judgments.assessClaim(evidence);
+    const completeDimensions = hasCompleteDimensionJudgments(assessment.dimensions);
+    const lowDimensionConfidence = assessment.dimensions.some(
+      (judgment) => judgment.confidence < policy.dimensionConfidence,
+    );
+    // No judgments is not agreement: `.some()` is false for an empty array.
+    // `!completeDimensions` already routes an unjudged event to review; this
+    // only records *why*, so the empty case is distinguishable from a
+    // partial or out-of-range judgment set.
+    const noDimensions = assessment.dimensions.length === 0;
+    // Identity is already settled above: anything reaching here is `same` at
+    // or above the confidence threshold, so only event grounds remain.
+    const needsReview =
+      assessment.eventConfidence < policy.eventConfidence ||
+      !completeDimensions ||
+      lowDimensionConfidence;
+    const status = assessment.eventKind === null ? "rejected" : needsReview ? "review" : "accepted";
+    const claim: EvidenceClaim = {
+      id: claimId,
+      personId: input.identity.personId,
+      provenance,
+      statement: evidence.statement,
+      proposedEventKind: evidence.proposedEventKind,
+      assessedEventKind: assessment.eventKind,
+      status,
+      identityDecision: identity.decision,
+      identityConfidence: identity.confidence,
+      ...(noDimensions && status === "review" ? { reviewReasons: ["no_dimensions" as const] } : {}),
+      createdAt: new Date(input.retrievedAt.getTime()),
+    };
+    if (assessment.eventKind === null) return { claim, event: null };
+
+    const event: CareerEvent = {
+      id: `event-${contentFingerprint({ claimId, kind: assessment.eventKind })}`,
+      personId: input.identity.personId,
+      kind: assessment.eventKind,
+      title: evidence.statement,
+      description: evidence.quotedText,
+      observedAt: new Date(evidence.publishedAt),
+      evidenceClaimIds: [claimId],
+      judgments: assessment.dimensions,
+      status: needsReview ? "review" : "accepted",
+      model: policy.model,
+      questionVersion: policy.questionVersion,
+      createdAt: new Date(input.retrievedAt.getTime()),
+    };
+    return { claim, event };
+  });
 
   const claims = processed.map(({ claim }) => claim);
   const events = processed.flatMap(({ event }) => (event === null ? [] : [event]));
@@ -258,4 +272,37 @@ export function progressVector(
     dimensions,
     acceptedEventIds: accepted.map((event) => event.id).sort(),
   };
+}
+
+function resolveConcurrency(requested: number | undefined): number {
+  const concurrency = requested ?? DEFAULT_EVIDENCE_CONCURRENCY;
+  if (!Number.isInteger(concurrency) || concurrency < 1) {
+    throw new RangeError(
+      `processEvidence: runtime.concurrency must be an integer >= 1, received ${String(requested)}`,
+    );
+  }
+  return concurrency;
+}
+
+/**
+ * Run `worker` over `items` with at most `limit` calls in flight, returning the
+ * results in input order. The first rejection rejects the returned promise, as
+ * `Promise.all` did; every worker's rejection is observed, so none is unhandled.
+ */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const drain = async (): Promise<void> => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await worker(items[index] as T);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, drain));
+  return results;
 }
