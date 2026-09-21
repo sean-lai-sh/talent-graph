@@ -10,6 +10,7 @@ import {
   topKJaccard,
 } from "../src/analysis/drift.ts";
 import { computeCapabilityVectors } from "../src/inference/capabilityVector.ts";
+import { computeJudgeCalibration, judgeWeightOptions } from "../src/judges/reliability.ts";
 import { BRADLEY_TERRY_V1_0_0, REFERRAL_SIGNAL_V0_1_0 } from "../src/models/registry.ts";
 import type { ReferralSignalSpec } from "../src/models/spec.ts";
 import { computeAllReferralSignals } from "../src/scoring/referralSignal.ts";
@@ -102,6 +103,37 @@ describe("referralSignalDrift", () => {
     expect(r.largestMovers.length).toBeLessThanOrEqual(10);
     expect(Math.abs(r.largestMovers[0]?.delta ?? 0)).toBe(r.maxAbsShift);
     expect(r.labels.after).toBe("0.2.0");
+  });
+
+  test("a judge-weighted side is labelled as such, not as the plain spec", () => {
+    // The label leak: `specVersion` is `spec.version` on both sides, so a V0
+    // vs V2 comparison used to report "0.1.0 → 0.1.0" for a review-grade
+    // change. Judge weighting is part of what produced the number.
+    const calibration = computeJudgeCalibration({
+      people: data.people,
+      referrals: data.referrals,
+      outcomes: data.outcomes,
+      opportunities: data.opportunities,
+      now: new Date("2026-12-31T00:00:00.000Z"),
+    });
+    const weighted = computeAllReferralSignals(
+      data.people,
+      data.referrals,
+      judgeWeightOptions(calibration),
+    );
+    const r = referralSignalDrift(baseline, weighted);
+    expect(r.labels.before).toBe("0.1.0");
+    expect(r.labels.after).toBe("0.1.0 (judge-weighted)");
+    expect(r.labels.before).not.toBe(r.labels.after);
+    // The same comparison the other way round, and a plain-vs-plain one.
+    expect(referralSignalDrift(weighted, baseline).labels).toEqual({
+      before: "0.1.0 (judge-weighted)",
+      after: "0.1.0",
+    });
+    expect(referralSignalDrift(baseline, baseline).labels).toEqual({
+      before: "0.1.0",
+      after: "0.1.0",
+    });
   });
 
   test("people with zero referrals are excluded from n on both sides", () => {

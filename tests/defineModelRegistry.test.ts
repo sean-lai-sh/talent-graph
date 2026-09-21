@@ -34,9 +34,9 @@ describe("importing the registry loads the shipped models", () => {
 
   test("getModel resolves a shipped model in a fresh process", () => {
     const out = inFreshProcess(
-      "const r = await import('./src/models/registry.ts'); console.log(r.getModel('referral_signal_v0').legacyId);",
+      "const r = await import('./src/models/registry.ts'); const d = r.getModel('referral_signal_v0'); console.log(d.name + '@' + d.kind);",
     );
-    expect(out).toBe("referral_signal_v0");
+    expect(out).toBe("referral_signal_v0@referral_signal");
   });
 
   test("the public barrel exposes a populated registry too", () => {

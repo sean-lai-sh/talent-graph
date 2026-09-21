@@ -1,9 +1,11 @@
 /**
  * V1 Relative Capability (Bradley–Terry) as a model definition.
  *
- * `parameters` lists every input that can change the numbers, explicitly: an
- * anchored refit records the effective κ and a hash of the previous θ
- * values, so two refits against different priors never share an id.
+ * `parameters` lists every input that can change the numbers, explicitly.
+ * The prior of an anchored refit is another run's output, so it is recorded
+ * as lineage rather than as a parameter: `upstreamRuns` carries
+ * `{ role: "anchor", runId, digest }`, where the digest hashes the previous θ
+ * values. Two refits against different priors therefore never share an id.
  */
 
 import { DIMENSIONS } from "../../domain/constants.ts";
@@ -55,28 +57,55 @@ export const bradleyTerryModel = defineModel<
 >({
   name: "bradley_terry_v1",
   kind: "bradley_terry",
-  legacyId: "bradley_terry_v1",
   specOf: (opts) => opts.spec ?? CURRENT_SPECS.bradley_terry,
   inputsOf: ({ people, comparisons }) => ({ people: people.map((p) => p.id), comparisons }),
+  // Every option this model accounts for: the first six in `parameters`,
+  // `previous`/`previousRunId` as lineage. `runModel` refuses anything else,
+  // so a solver option added without a provenance answer fails loudly.
+  recordedOptionKeys: [
+    "spec",
+    "minComparisons",
+    "minOpponents",
+    "tieHandling",
+    "bt",
+    "anchorStrength",
+    "previous",
+    "previousRunId",
+  ],
   resolveOptions: (spec, opts) => {
     const { previous } = opts;
+    // Naming a prior run without handing over its θ values leaves nothing to
+    // digest: the refit is unanchored, and the claimed link would sit outside
+    // the hash entirely. Refused rather than dropped.
+    if (opts.previousRunId !== undefined && previous === undefined) {
+      throw new Error(
+        "previousRunId without `previous` on a bradley_terry run: " +
+          "the named run supplied no prior, so it cannot be recorded as lineage",
+      );
+    }
     return {
       parameters: {
         spec,
         minComparisons: opts.minComparisons ?? spec.minComparisons,
         minOpponents: opts.minOpponents ?? spec.minOpponents,
         tieHandling: opts.tieHandling ?? spec.tieHandling,
-        anchored: previous !== undefined,
-        // κ only bites when there is a prior to be pulled toward.
+        // κ only bites when there is a prior to be pulled toward. Whether
+        // there is one is `upstreamRuns`, not a second boolean here.
         anchorStrength: previous === undefined ? 0 : (opts.anchorStrength ?? spec.anchorStrength),
         bt: opts.bt ?? null,
-        previousRunId: opts.previousRunId ?? null,
-        // The prior is another run's output; its id alone would not say
-        // which θ values it carried, so the θ map is hashed as well.
-        previousThetaHash: previous === undefined ? null : hashInputs(previousThetas(previous)),
       },
+      // The prior is another run's output; its id alone would not say which θ
+      // values it carried, so the θ map is hashed into the digest as well.
       upstream:
-        previous === undefined ? [] : [{ role: "previous", runId: opts.previousRunId ?? null }],
+        previous === undefined
+          ? []
+          : [
+              {
+                role: "anchor",
+                runId: opts.previousRunId ?? null,
+                digest: hashInputs(previousThetas(previous)),
+              },
+            ],
     };
   },
   compute: ({ people, comparisons }, spec, opts) =>
@@ -90,11 +119,5 @@ export function runCapabilityVectors(
   now: Date,
   opts: CapabilityRunOptions = {},
 ): ModelRun<CapabilityRun> {
-  return runModel(
-    bradleyTerryModel,
-    { people, comparisons },
-    bradleyTerryModel.specOf(opts),
-    opts,
-    now,
-  );
+  return runModel(bradleyTerryModel, { people, comparisons }, opts, now);
 }

@@ -3,6 +3,7 @@ import { judgeWeightOptions } from "../src/judges/reliability.ts";
 import {
   createModelRun,
   hashInputs,
+  RUN_ID_FORMAT,
   runCapabilityVectors,
   runJudgeCalibration,
   runReferralSignals,
@@ -10,6 +11,7 @@ import {
 } from "../src/modelRun.ts";
 import {
   BRADLEY_TERRY_V1_0_0,
+  getSpec,
   JUDGE_RELIABILITY_V2_0_0,
   REFERRAL_SIGNAL_V0_1_0,
 } from "../src/models/registry.ts";
@@ -50,29 +52,107 @@ describe("hashInputs", () => {
 });
 
 describe("createModelRun", () => {
+  const base = {
+    kind: "referral_signal",
+    model: "referral_signal_v0",
+    specVersion: "0.1.0",
+    inputs: data.referrals,
+    now: NOW,
+  } as const;
+
   test("records spec, hash and outputs; same inputs + params ⇒ same id", () => {
     const params = { spec: REFERRAL_SIGNAL_V0_1_0 };
-    const run1 = createModelRun("referral_signal_v0", "0.1.0", params, data.referrals, 1, NOW);
-    const run2 = createModelRun("referral_signal_v0", "0.1.0", params, data.referrals, 2, NOW);
+    const run1 = createModelRun({ ...base, parameters: params, outputs: 1 });
+    const run2 = createModelRun({ ...base, parameters: params, outputs: 2 });
     expect(run1.id).toBe(run2.id);
     expect(run1.inputHash).toBe(run2.inputHash);
     expect(run1.parameters.spec).toEqual(REFERRAL_SIGNAL_V0_1_0);
     expect(run1.createdAt).toEqual(NOW);
+    // Absence of lineage is the empty list, always present — never undefined.
+    expect(run1.upstreamRuns).toEqual([]);
 
-    const other = createModelRun(
-      "referral_signal_v0",
-      "0.1.0",
-      { spec: { ...REFERRAL_SIGNAL_V0_1_0, topK: 3 } },
-      data.referrals,
-      1,
-      NOW,
-    );
+    const other = createModelRun({
+      ...base,
+      parameters: { spec: { ...REFERRAL_SIGNAL_V0_1_0, topK: 3 } },
+      outputs: 1,
+    });
     expect(other.id).not.toBe(run1.id);
+  });
+
+  test("the id names kind, definition, version, inputs and parameters", () => {
+    const run = createModelRun({
+      ...base,
+      parameters: { spec: REFERRAL_SIGNAL_V0_1_0 },
+      outputs: 1,
+    });
+    expect(RUN_ID_FORMAT).toBe(2);
+    expect(run.id).toMatch(
+      /^referral_signal\/referral_signal_v0@0\.1\.0:[0-9a-f]{12}:[0-9a-f]{8}$/,
+    );
+    expect(run.id.startsWith(`${run.kind}/`)).toBe(true);
+    expect(run.id.includes(`@${run.specVersion}:`)).toBe(true);
+    expect(run.id.includes(run.inputHash.slice(0, 12))).toBe(true);
+  });
+
+  test("two definitions of one kind that differ only in compute get different ids", () => {
+    const shared = { ...base, parameters: { spec: REFERRAL_SIGNAL_V0_1_0 }, outputs: 1 };
+    const a = createModelRun({ ...shared, model: "referral_signal_v0" });
+    const b = createModelRun({ ...shared, model: "referral_signal_variant" });
+    expect(a.id).not.toBe(b.id);
+  });
+
+  test("upstream lineage moves the id and is copied out of the caller's array", () => {
+    const upstream = [{ role: "anchor" as const, runId: "run-a", digest: "d" }];
+    const params = { spec: REFERRAL_SIGNAL_V0_1_0 };
+    const plain = createModelRun({ ...base, parameters: params, outputs: 1 });
+    const linked = createModelRun({
+      ...base,
+      parameters: params,
+      outputs: 1,
+      upstreamRuns: upstream,
+    });
+    // Same parameters, same inputs: only the lineage differs.
+    expect(linked.inputHash).toBe(plain.inputHash);
+    expect(linked.id).not.toBe(plain.id);
+
+    const other = createModelRun({
+      ...base,
+      parameters: params,
+      outputs: 1,
+      upstreamRuns: [{ role: "anchor", runId: "run-b", digest: "d" }],
+    });
+    // Identical consumed values, different producing run ⇒ different id.
+    expect(other.id).not.toBe(linked.id);
+
+    upstream.push({ role: "anchor", runId: "run-c", digest: "d" });
+    expect(linked.upstreamRuns).toHaveLength(1);
+  });
+
+  test("copies each upstream entry, so mutating the caller's cannot contradict the id", () => {
+    // Freezing the array alone left the *entries* the caller's: setting
+    // `runId` afterwards rewrote `run.upstreamRuns` while `run.id`, hashed
+    // from the old value, stayed put — a record that disagrees with itself.
+    const entry = { role: "anchor" as const, runId: "run-a", digest: "d" };
+    const run = createModelRun({
+      ...base,
+      parameters: { spec: REFERRAL_SIGNAL_V0_1_0 },
+      outputs: 1,
+      upstreamRuns: [entry],
+    });
+    const recorded = run.upstreamRuns[0];
+    expect(recorded).not.toBe(entry);
+    expect(Object.isFrozen(recorded)).toBe(true);
+    expect(recorded).toEqual({ role: "anchor", runId: "run-a", digest: "d" });
+    // Only the three recorded fields; no stray key of the caller's rides along.
+    expect(Object.keys(recorded as object).sort()).toEqual(["digest", "role", "runId"]);
+
+    entry.runId = "run-b";
+    expect(run.upstreamRuns[0]?.runId).toBe("run-a");
   });
 
   test("copies `now` so mutating the caller's Date does not move createdAt", () => {
     const now = new Date("2026-06-01T00:00:00.000Z");
-    const run = createModelRun("referral_signal_v0", "0.1.0", {}, data.referrals, 1, now);
+    const run = createModelRun({ ...base, parameters: {}, outputs: 1, now });
     const id = run.id;
     now.setFullYear(1999);
     expect(run.createdAt.toISOString()).toBe("2026-06-01T00:00:00.000Z");
@@ -82,30 +162,20 @@ describe("createModelRun", () => {
 });
 
 describe("runCapabilityVectors provenance", () => {
-  test("a run without `previous` records null anchor provenance", () => {
+  test("a run without `previous` records no lineage at all", () => {
     const run = runCapabilityVectors(data.people, data.comparisons, NOW);
     expect(run.parameters.spec).toEqual(BRADLEY_TERRY_V1_0_0);
-    expect(run.parameters.previousThetaHash).toBeNull();
-    expect(run.parameters.previousRunId).toBeNull();
+    // The anchor is lineage now, not two parameter keys.
+    expect(run.upstreamRuns).toEqual([]);
     expect(run.parameters.anchorStrength).toBe(0);
     expect(run.parameters.bt).toBeNull();
     expect("previous" in run.parameters).toBe(false);
     expect(Object.keys(run.parameters).sort()).toEqual(
-      [
-        "spec",
-        "minComparisons",
-        "minOpponents",
-        "tieHandling",
-        "anchored",
-        "anchorStrength",
-        "bt",
-        "previousRunId",
-        "previousThetaHash",
-      ].sort(),
+      ["spec", "minComparisons", "minOpponents", "tieHandling", "anchorStrength", "bt"].sort(),
     );
   });
 
-  test("two different previous runs ⇒ same inputHash, different id and previousThetaHash", () => {
+  test("two different previous runs ⇒ same inputHash, different id and anchor digest", () => {
     const priorA = runCapabilityVectors(data.people, data.comparisons, NOW);
     const priorB = runCapabilityVectors(data.people, data.comparisons, NOW, {
       bt: { regularization: 5 },
@@ -125,11 +195,17 @@ describe("runCapabilityVectors provenance", () => {
 
     expect(fromA.inputHash).toBe(fromB.inputHash);
     expect(fromA.id).not.toBe(fromB.id);
-    expect(fromA.parameters.previousThetaHash).toMatch(/^[0-9a-f]{64}$/);
-    expect(fromB.parameters.previousThetaHash).toMatch(/^[0-9a-f]{64}$/);
-    expect(fromA.parameters.previousThetaHash).not.toBe(fromB.parameters.previousThetaHash);
-    expect(fromA.parameters.previousRunId).toBe(priorA.id);
-    expect(fromB.parameters.previousRunId).toBe(priorB.id);
+    const anchorA = fromA.upstreamRuns[0];
+    const anchorB = fromB.upstreamRuns[0];
+    expect(anchorA?.role).toBe("anchor");
+    expect(anchorB?.role).toBe("anchor");
+    expect(anchorA?.digest).toMatch(/^[0-9a-f]{64}$/);
+    expect(anchorB?.digest).toMatch(/^[0-9a-f]{64}$/);
+    expect(anchorA?.digest).not.toBe(anchorB?.digest);
+    expect(anchorA?.runId).toBe(priorA.id);
+    expect(anchorB?.runId).toBe(priorB.id);
+    expect("previousRunId" in fromA.parameters).toBe(false);
+    expect("previousThetaHash" in fromA.parameters).toBe(false);
     expect(fromA.parameters.anchorStrength).toBe(1);
     expect("previous" in fromA.parameters).toBe(false);
     expect(fromA.outputs.options.anchored).toBe(true);
@@ -151,6 +227,10 @@ describe("runCapabilityVectors provenance", () => {
       previous: prior.outputs,
     });
     expect(run.parameters.anchorStrength).toBe(2);
+    // Anchored without naming the producing run: recorded as unknown, never
+    // as a made-up id, and the digest still pins the θ values consumed.
+    expect(run.upstreamRuns[0]?.runId).toBeNull();
+    expect(run.upstreamRuns[0]?.digest).toMatch(/^[0-9a-f]{64}$/);
     const noPrevious = runCapabilityVectors(data.people, data.comparisons, NOW, { spec });
     expect(noPrevious.parameters.anchorStrength).toBe(0);
   });
@@ -159,8 +239,8 @@ describe("runCapabilityVectors provenance", () => {
 describe("runReferralSignals", () => {
   test("wraps computeAllReferralSignals with the full spec in parameters", () => {
     const run = runReferralSignals(data.people, data.referrals, NOW);
-    expect(run.modelType).toBe("referral_signal_v0");
-    expect(run.modelVersion).toBe("0.1.0");
+    expect(run.kind).toBe("referral_signal");
+    expect(run.specVersion).toBe("0.1.0");
     expect(run.parameters.spec).toEqual(REFERRAL_SIGNAL_V0_1_0);
     expect(run.outputs.size).toBe(data.people.length);
     expect(run.outputs.get("p-alice")?.signal).toBeGreaterThan(70);
@@ -179,8 +259,9 @@ describe("runJudgeCalibration", () => {
 
   test("records the spec, referral spec and time step; outcomes are in the input hash", () => {
     const run = runJudgeCalibration(input);
-    expect(run.modelType).toBe("judge_reliability_v2");
-    expect(run.modelVersion).toBe("2.0.0");
+    expect(run.kind).toBe("judge_reliability");
+    expect(run.specVersion).toBe("2.0.0");
+    expect(run.upstreamRuns).toEqual([]);
     expect(run.parameters.spec).toEqual(JUDGE_RELIABILITY_V2_0_0);
     expect(run.parameters.referralSpec).toEqual(REFERRAL_SIGNAL_V0_1_0);
     expect(run.parameters.now).toEqual(T);
@@ -189,31 +270,128 @@ describe("runJudgeCalibration", () => {
     expect(without.outputs.options.evaluatedReferrals).toBe(0);
   });
 
-  test("a weighted Referral Signal run records the weights it used", () => {
+  test("a weighted Referral Signal run records the calibration it consumed", () => {
     const calibration = runJudgeCalibration(input);
-    const weighted = runReferralSignals(
-      data.people,
-      data.referrals,
-      T,
-      judgeWeightOptions(calibration.outputs),
-    );
+    const weighted = runReferralSignals(data.people, data.referrals, T, {
+      ...judgeWeightOptions(calibration.outputs),
+      judgeRunId: calibration.id,
+    });
     const plain = runReferralSignals(data.people, data.referrals, T);
     expect(weighted.inputHash).toBe(plain.inputHash);
     expect(weighted.id).not.toBe(plain.id);
-    expect(weighted.parameters.judgeReliability).toBeInstanceOf(Map);
-    expect(weighted.parameters.judgeWeighted).toBe(true);
-    expect(weighted.modelVersion).toBe("0.1.0+judge_reliability");
-    expect(plain.modelVersion).toBe("0.1.0");
-    expect(plain.parameters.judgeReliability).toBeNull();
-    expect(plain.parameters.judgeWeighted).toBe(false);
+    // The weights are a run's output, so they are lineage, not parameters.
+    expect(weighted.upstreamRuns).toHaveLength(1);
+    expect(weighted.upstreamRuns[0]?.role).toBe("judge_weights");
+    expect(weighted.upstreamRuns[0]?.runId).toBe(calibration.id);
+    expect(weighted.upstreamRuns[0]?.digest).toMatch(/^[0-9a-f]{64}$/);
+    expect(plain.upstreamRuns).toEqual([]);
+    // No composed version tag: both versions resolve through getSpec.
+    expect(weighted.specVersion).toBe("0.1.0");
+    expect(plain.specVersion).toBe("0.1.0");
+    expect(getSpec(weighted.kind, weighted.specVersion).version).toBe("0.1.0");
   });
 
-  test("recorded judge weights are a copy: mutating the caller's map does not rewrite provenance", () => {
+  test("the recorded weight digest is a snapshot: mutating the caller's map does not rewrite it", () => {
     const weights = new Map<string, number>([["p-001", 0.5]]);
     const run = runReferralSignals(data.people, data.referrals, T, { judgeReliability: weights });
-    const recorded = run.parameters.judgeReliability as Map<string, number>;
+    const digest = run.upstreamRuns[0]?.digest;
     weights.set("p-001", 1);
-    expect(recorded.get("p-001")).toBe(0.5);
-    expect(recorded).not.toBe(weights);
+    expect(run.upstreamRuns[0]?.digest).toBe(digest);
+    const other = runReferralSignals(data.people, data.referrals, T, { judgeReliability: weights });
+    // Different weight values ⇒ different digest ⇒ different run id.
+    expect(other.upstreamRuns[0]?.digest).not.toBe(digest);
+    expect(other.id).not.toBe(run.id);
+  });
+
+  test("two calibrations at different T ⇒ different signal ids and different lineage", () => {
+    const early = runJudgeCalibration({ ...input, now: new Date("2026-09-30T00:00:00.000Z") });
+    const late = runJudgeCalibration({ ...input, now: T });
+    expect(early.id).not.toBe(late.id);
+
+    const fromEarly = runReferralSignals(data.people, data.referrals, T, {
+      ...judgeWeightOptions(early.outputs),
+      judgeRunId: early.id,
+    });
+    const fromLate = runReferralSignals(data.people, data.referrals, T, {
+      ...judgeWeightOptions(late.outputs),
+      judgeRunId: late.id,
+    });
+
+    // Format 1 gave both the byte-identical tag `0.1.0+judge_reliability`,
+    // so which calibration a signal came from was unrecoverable.
+    expect(fromEarly.id).not.toBe(fromLate.id);
+    expect(fromEarly.upstreamRuns[0]?.runId).toBe(early.id);
+    expect(fromLate.upstreamRuns[0]?.runId).toBe(late.id);
+    expect(fromEarly.upstreamRuns[0]?.runId).not.toBe(fromLate.upstreamRuns[0]?.runId);
+  });
+
+  test("an option the model does not record is refused, not silently dropped", () => {
+    expect(() =>
+      runReferralSignals(data.people, data.referrals, T, {
+        // A future scoring option (Lane C's `weighting`) that provenance does
+        // not know about must fail loudly rather than collide on one id.
+        weighting: { kind: "uniform" },
+      } as never),
+    ).toThrow(/unrecorded option "weighting"/);
+  });
+});
+
+/**
+ * An orphan lineage key is a claim about an upstream run that nothing checks.
+ *
+ * `judgeRunId` only becomes lineage when there are weight maps to fingerprint,
+ * and `previousRunId` only when there is a prior to anchor against. Accepting
+ * the id on its own let a caller name an upstream run that never entered the
+ * hash: two calls claiming different calibrations produced one id. Under the
+ * fail-closed rule the orphan is refused rather than dropped.
+ */
+describe("a lineage id without the run output it names is refused", () => {
+  const T = new Date("2026-12-31T00:00:00.000Z");
+
+  test("judgeRunId without either judge weight map throws", () => {
+    expect(() =>
+      runReferralSignals(data.people, data.referrals, T, { judgeRunId: "fake-a" }),
+    ).toThrow(/judgeRunId.*without/s);
+    // The bug this closes: two different claimed calibrations, one id.
+    expect(() =>
+      runReferralSignals(data.people, data.referrals, T, { judgeRunId: "fake-b" }),
+    ).toThrow(/judgeRunId.*without/s);
+  });
+
+  test("judgeRunId with either map alone is still accepted", () => {
+    const reliabilityOnly = runReferralSignals(data.people, data.referrals, T, {
+      judgeReliability: new Map([["p-001", 0.5]]),
+      judgeRunId: "judge-run-1",
+    });
+    expect(reliabilityOnly.upstreamRuns[0]?.runId).toBe("judge-run-1");
+    const biasOnly = runReferralSignals(data.people, data.referrals, T, {
+      judgeBias: new Map([["p-001", 0.1]]),
+      judgeRunId: "judge-run-1",
+    });
+    expect(biasOnly.upstreamRuns[0]?.runId).toBe("judge-run-1");
+  });
+
+  test("weight maps without a judgeRunId still record lineage with runId null", () => {
+    const run = runReferralSignals(data.people, data.referrals, T, {
+      judgeReliability: new Map([["p-001", 0.5]]),
+    });
+    expect(run.upstreamRuns).toHaveLength(1);
+    expect(run.upstreamRuns[0]?.runId).toBeNull();
+  });
+
+  test("previousRunId without `previous` throws", () => {
+    expect(() =>
+      runCapabilityVectors(data.people, data.comparisons, NOW, { previousRunId: "fake-prior" }),
+    ).toThrow(/previousRunId.*without/s);
+  });
+
+  test("`previous` without previousRunId still anchors, with runId null", () => {
+    const prior = runCapabilityVectors(data.people, data.comparisons, NOW);
+    const run = runCapabilityVectors(data.people, data.comparisons, NOW, {
+      previous: prior.outputs,
+      anchorStrength: 1,
+    });
+    expect(run.upstreamRuns[0]?.role).toBe("anchor");
+    expect(run.upstreamRuns[0]?.runId).toBeNull();
   });
 });

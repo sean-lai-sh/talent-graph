@@ -20,10 +20,18 @@ export {
 } from "./models/definitions/judgeReliability.ts";
 export {
   type ReferralSignalInput,
+  type ReferralSignalRunOptions,
   referralSignalModel,
   runReferralSignals,
 } from "./models/definitions/referralSignal.ts";
-export { createRun, type ModelRun, type ModelType } from "./models/run.ts";
+export {
+  createRun,
+  type ModelRun,
+  type ModelType,
+  RUN_ID_FORMAT,
+  type UpstreamRole,
+  type UpstreamRun,
+} from "./models/run.ts";
 /**
  * Hashing lives in `src/provenance/` so that wanting a fingerprint does not
  * pull in the scoring/inference graph; re-exported here for existing callers.

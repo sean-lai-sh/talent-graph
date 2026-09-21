@@ -13,20 +13,26 @@
  * second hand-written parameter list to forget, and `excludeFromProvenance`
  * must name any option key deliberately left out — a key named there is
  * asserted *not* to move the id, so the omission is a claim the test checks
- * rather than a silent hole.
+ * rather than a silent hole. `recordedOptionKeys` closes the other half:
+ * `runModel` refuses an option that is in neither list, for every model,
+ * before the maths runs.
  *
  * This module imports no scoring, inference or judge code: definitions
  * depend on it, never the other way round.
  */
 
-import { createRun, type ModelRun, type ModelType, type UpstreamRun } from "./run.ts";
+import { createRun, type ModelRun, type UpstreamRun } from "./run.ts";
 import type { ModelSpecKind, SpecOfKind } from "./spec.ts";
 
 /** What `resolveOptions` hands back: the provenance record of one call. */
 export interface ResolvedOptions {
   /** Everything that can change the numbers, recorded verbatim. */
   parameters: Record<string, unknown>;
-  /** Options that were another run's output, by role. */
+  /**
+   * Options that were another run's output, by role. Empty when there is no
+   * upstream run; the key is always present so a definition can never forget
+   * to answer the question.
+   */
   upstream: readonly UpstreamRun[];
 }
 
@@ -34,24 +40,18 @@ export interface ModelDefinition<K extends ModelSpecKind, TIn, TOpts, TOut> {
   /** Unique key in the runtime registry. */
   name: string;
   kind: K;
-  /**
-   * The `modelType` segment of the emitted run id. Frozen per model so the
-   * id format survives this refactor unchanged; it goes away with the run-id
-   * format bump, which is the one change allowed to move ids.
-   */
-  legacyId: ModelType;
   /** The spec a call uses, given its options. The only default-spec seam. */
   specOf(opts: TOpts): SpecOfKind<K>;
-  /**
-   * The version stamped on the run. Defaults to `spec.version`; a model
-   * whose numbers change with an option (judge-weighted Referral Signals)
-   * tags the version so a weighted run is never mistaken for the plain one.
-   */
-  versionOf?(spec: SpecOfKind<K>, opts: TOpts): string;
   /** Raw observations only. Everything returned here is hashed into inputHash. */
   inputsOf(input: TIn): unknown;
   /** The single provenance seam; see the module comment. */
   resolveOptions(spec: SpecOfKind<K>, opts: TOpts): ResolvedOptions;
+  /**
+   * Every option key this model accounts for — in `parameters`, or in
+   * `upstream`. Together with `excludeFromProvenance` it is the complete
+   * list of keys a call may carry: `runModel` refuses anything else.
+   */
+  recordedOptionKeys: readonly string[];
   /** Option keys deliberately absent from `parameters`. */
   excludeFromProvenance?: readonly string[];
   compute(input: TIn, spec: SpecOfKind<K>, opts: TOpts): TOut;
@@ -107,23 +107,65 @@ export function getModel(name: string): AnyModelDefinition {
 }
 
 /**
+ * Fail closed on an option no definition accounts for.
+ *
+ * A scoring option that reaches `compute` but neither `parameters` nor
+ * `upstream` is a silent id collision between two runs that computed
+ * different numbers. This used to be hand-rolled inside one definition,
+ * which is exactly the shape of hole it was meant to close: the other two
+ * models dropped an unknown key without a word. It lives here now, so a new
+ * option arrives as a loud error for every model at once.
+ */
+function assertEveryOptionRecorded(def: AnyModelDefinition, opts: unknown): void {
+  if (opts === null || typeof opts !== "object") return;
+  const recorded = new Set<string>([
+    ...def.recordedOptionKeys,
+    ...(def.excludeFromProvenance ?? []),
+  ]);
+  for (const key of Object.keys(opts as object)) {
+    if (!recorded.has(key)) {
+      throw new Error(
+        `unrecorded option "${key}" on a ${def.kind} run: record it in ` +
+          "resolveOptions (and in recordedOptionKeys) before it can move a number",
+      );
+    }
+  }
+}
+
+/**
  * Run a model and wrap the result in a `ModelRun`.
  *
- * The maths runs first, so an invalid spec throws before anything is
- * recorded; `parameters` and lineage are then read off the same options the
- * maths saw.
+ * The spec comes from `def.specOf(opts)` and nowhere else, so the version
+ * stamped on the record is always the version that produced the numbers. The
+ * maths runs first, so an invalid spec throws before anything is recorded;
+ * `parameters` and lineage are then read off the same options the maths saw.
  */
 export function runModel<K extends ModelSpecKind, TIn, TOpts, TOut>(
   def: ModelDefinition<K, TIn, TOpts, TOut>,
   input: TIn,
-  spec: SpecOfKind<K>,
   opts: TOpts,
   now: Date,
 ): ModelRun<TOut> {
+  // Before anything is computed: an option the record cannot carry must not
+  // reach the maths at all, or the numbers exist with no id that names them.
+  assertEveryOptionRecorded(def as unknown as AnyModelDefinition, opts);
+  // The spec is derived here, once, from the same options the maths sees.
+  // A caller cannot hand in a spec of its own, so there is no way to hash
+  // spec A onto a number computed with spec B.
+  const spec = def.specOf(opts);
   const outputs = def.compute(input, spec, opts);
   const { parameters, upstream } = def.resolveOptions(spec, opts);
-  const version = def.versionOf === undefined ? spec.version : def.versionOf(spec, opts);
-  return createRun(def.legacyId, version, parameters, def.inputsOf(input), outputs, now, {
-    upstream,
+  // `spec.version` and nothing else: the stamped version is always one
+  // `getSpec()` resolves (or a `+env` tag), never a composed tag. What made a
+  // run differ from the plain one is `upstreamRuns`, not a version suffix.
+  return createRun({
+    kind: def.kind,
+    model: def.name,
+    specVersion: spec.version,
+    parameters,
+    inputs: def.inputsOf(input),
+    outputs,
+    now,
+    upstreamRuns: upstream,
   });
 }

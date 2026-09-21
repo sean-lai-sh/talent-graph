@@ -83,7 +83,7 @@ talent-graph/
     seed/
       generate.ts         # deterministic synthetic dataset (seeded PRNG)
       personas.ts         # Candidates A–F as specified
-    modelRun.ts           # ModelRun record: modelType, version, params, outputs
+    modelRun.ts           # ModelRun record: kind, specVersion, params, lineage, outputs (RUN_ID_FORMAT = 2)
   tests/
     scoring.test.ts
     bradleyTerry.test.ts
@@ -124,7 +124,8 @@ Evaluation  { id, evaluatorId, candidateId, dimension, score: RubricScore | null
               confidence: Scale5 | null, evidenceText, createdAt, updatedAt }
 Comparison  { id, evaluatorId, personAId, personBId, dimension, outcome,
               winnerId: string | null, confidence: Scale5 | null, evidenceText?, createdAt }
-ModelRun    { id, modelType, modelVersion, parameters, inputHash, createdAt, outputs }
+ModelRun    { id, kind, specVersion, parameters, inputHash, upstreamRuns, createdAt, outputs }
+            (run id format 2; see RUN_ID_FORMAT in src/models/run.ts)
 ```
 
 Future-compat placeholders (types only, no logic): `Outcome`, `Opportunity`,

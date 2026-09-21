@@ -63,3 +63,42 @@ the seed dataset and paste the summary line into the entry.
 - **Drift:** n/a (first version; with the seed's synthetic outcomes,
   `bun run demo` shows the weighted vs unweighted Referral Signal side by side).
 - **PR:** #17.
+
+## Run id format
+
+Run ids are not spec versions: this section records changes to the format of
+`ModelRun.id`, which is append-only in the same way.
+
+### RUN_ID_FORMAT 2 — explicit lineage (#55 T3)
+
+- **Format:** `${kind}/${model}@${specVersion}:${inputHash[0..12]}:${paramHash[0..8]}`,
+  where `paramHash = hashInputs({ parameters, upstreamRuns })`. Format 1 was
+  `${modelType}@${modelVersion}:${inputHash[0..12]}:${paramHash[0..8]}` over
+  `parameters` alone.
+- **What changed:** `modelType` became `kind` (the `ModelSpec` kind) plus the
+  definition's `model` name; the composed version tag `0.1.0+judge_reliability`
+  is gone; a judge-weighted Referral Signal run and an anchored Bradley–Terry
+  refit both record `upstreamRuns: [{ role, runId, digest }]` instead of a tag
+  or of `previousRunId` / `previousThetaHash` in `parameters`.
+- **Why:** `0.1.0+judge_reliability` was not resolvable — `getSpec` threw on it
+  — so a weighted run could not be reproduced from its own record, and the tag
+  named a *kind* rather than a run, so two calibrations at different `T` gave
+  byte-identical ids. `getSpec(run.kind, run.specVersion)` now succeeds for
+  every run the pipeline can produce.
+- **Numbers:** unchanged. No spec version moved; the golden fixture's
+  `outputsHash` per run is identical under both formats, and
+  `tests/fixtures/run-ids-format2-mapping.json` maps every seed run's old id to
+  its new one beside that hash.
+- **Persistence:** no run id was stored anywhere (no run-id column in
+  `apps/club/convex/schema.ts`; `ClubSnapshot` has no `modelRunIds`), so
+  nothing written was invalidated.
+- **Orphan lineage ids (review round 2):** a lineage id is only accepted
+  together with the run output it names. `judgeRunId` without
+  `judgeReliability` or `judgeBias`, and `previousRunId` without `previous`,
+  used to be accepted and left out of `upstreamRuns` — two calls claiming
+  different upstream runs produced one id. Both now throw in `resolveOptions`,
+  before anything is hashed. Well-formed combinations are unchanged: an id with
+  its output is recorded as `{ role, runId, digest }`, and an output passed
+  without an id is still recorded, with `runId: null`, so an unnamed prior is
+  reported as unknown rather than invented. No id moved; both fixtures pass
+  without regeneration.

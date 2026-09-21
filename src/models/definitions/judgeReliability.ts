@@ -42,7 +42,6 @@ export const judgeReliabilityModel = defineModel<
 >({
   name: "judge_reliability_v2",
   kind: "judge_reliability",
-  legacyId: "judge_reliability_v2",
   specOf: (opts) => opts.spec ?? CURRENT_SPECS.judge_reliability,
   inputsOf: (input) => ({
     people: input.people.map((p) => p.id),
@@ -50,6 +49,8 @@ export const judgeReliabilityModel = defineModel<
     outcomes: input.outcomes,
     opportunities: input.opportunities ?? [],
   }),
+  // Every option this model accounts for. `runModel` refuses anything else.
+  recordedOptionKeys: ["now", "spec", "referralSpec"],
   resolveOptions: (spec, opts) => ({
     parameters: {
       spec,
@@ -57,6 +58,7 @@ export const judgeReliabilityModel = defineModel<
       // A Date is mutable; never retain the caller's.
       now: new Date(opts.now.getTime()),
     },
+    // A calibration reads raw observations only: no run feeds it.
     upstream: [],
   }),
   compute: (input, spec, opts) =>
@@ -75,11 +77,5 @@ export function runJudgeCalibration(input: JudgeCalibrationInput): ModelRun<Judg
     ...(input.spec === undefined ? {} : { spec: input.spec }),
     ...(input.referralSpec === undefined ? {} : { referralSpec: input.referralSpec }),
   };
-  return runModel(
-    judgeReliabilityModel,
-    input,
-    judgeReliabilityModel.specOf(opts),
-    opts,
-    input.now,
-  );
+  return runModel(judgeReliabilityModel, input, opts, input.now);
 }
