@@ -13,6 +13,7 @@ import {
   setStatus as setStatusEngine,
 } from "../lib/engine.ts";
 import { toDirectoryMembers } from "../lib/memberDirectory.ts";
+import { listOwnFeedbackRequests, prepareMemberResponse } from "../lib/memberFeedback.ts";
 import { reviveState } from "../lib/serialize.ts";
 import type { ClubState, EngineResult } from "../lib/types.ts";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
@@ -375,6 +376,56 @@ export const listMembers = query({
         return true;
       });
     return toDirectoryMembers(people);
+  },
+});
+
+const ORG_TAKE = 20;
+
+function sessionEmail(user: { email?: string }): string {
+  return typeof user.email === "string" ? user.email : "";
+}
+
+/** Open feedback asks for the signed-in member. Other people's requests stay out. */
+export const listMyFeedback = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) return null;
+    const orgs = await ctx.db.query("clubOrgs").take(ORG_TAKE);
+    return listOwnFeedbackRequests({
+      orgs: orgs.map((org) => ({ key: org._id, state: orgToState(org) })),
+      email: sessionEmail(user),
+      clock: new Date().toISOString(),
+    });
+  },
+});
+
+/**
+ * Member answer. Same `recordFeedback` evaluation the council records.
+ * Ownership, a closed request, and an empty observation are rejected here.
+ */
+export const respondToFeedback = mutation({
+  args: {
+    requestId: v.string(),
+    dimension,
+    score: rubricScore,
+    confidence: nullableScale5,
+    evidenceText: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await authComponent.getAuthUser(ctx);
+    const orgs = await ctx.db.query("clubOrgs").take(ORG_TAKE);
+    const plan = prepareMemberResponse({
+      orgs: orgs.map((org) => ({ key: org._id, state: orgToState(org) })),
+      email: sessionEmail(user),
+      response: args,
+      now: new Date().toISOString(),
+    });
+    if (plan.key === null) return { error: plan.error };
+    const org = orgs.find((row) => row._id === plan.key);
+    if (!org) return { error: "That request is not yours." };
+    await ctx.db.patch(org._id, stateFields(plan.state));
+    return { ok: true as const };
   },
 });
 
