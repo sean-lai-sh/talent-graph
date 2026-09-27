@@ -49,6 +49,26 @@ function classBlock(choice: "selection" | "output" | "both", confidence = 0.92) 
   };
 }
 
+function bothEverywhere() {
+  return {
+    claim_class: classBlock("both"),
+    selectivity: level(4),
+    pool_strength: level(3),
+    difficulty: level(2),
+    scale: level(1),
+    role: {
+      choice: "major_contributor" as const,
+      confidence: 0.9,
+      probabilities: {
+        original_author: 0,
+        major_contributor: 1,
+        maintainer: 0,
+        minor_part: 0,
+      },
+    },
+  };
+}
+
 function answer(
   request: ClaimRubricV12Request,
   options: { poolScore?: number; poolConfidence?: number; scaleConfidence?: number } = {},
@@ -337,6 +357,33 @@ describe("request and parse", () => {
         }),
       }),
     ).toThrow(JudgmentInvariantError);
+  });
+
+  test("a both answer on an already-split free line scores each fragment once", () => {
+    const statement = "Built a router; selected as 1 of 400 applicants.";
+    const claims = scoreClaimRubricV12({
+      lines: [{ id: "router", statement, publishedAt: null }],
+      source: "resume",
+      respond: () => bothEverywhere(),
+    });
+    expect(claims).toHaveLength(2);
+    expect(claims.map((claim) => claim.text)).toEqual([
+      "Built a router",
+      "selected as 1 of 400 applicants.",
+    ]);
+    expect(claims.map((claim) => claim.claimClass)).toEqual(["output", "selection"]);
+  });
+
+  test("an unsplit both line still yields a selection and an output", () => {
+    const statement = "Won 1 of 400 for building the Northwind routing service.";
+    const claims = scoreClaimRubricV12({
+      lines: [{ id: "win", statement, publishedAt: null }],
+      source: "resume",
+      respond: () => bothEverywhere(),
+    });
+    expect(claims).toHaveLength(2);
+    expect(claims.map((claim) => claim.claimClass)).toEqual(["selection", "output"]);
+    expect(claims.every((claim) => claim.text === statement)).toBe(true);
   });
 
   test("a header with no bullets scores the hire and skips the empty output", () => {

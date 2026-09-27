@@ -238,16 +238,44 @@ export function scoreClaimRubricV12(
   spec: CareerEvidenceV12Spec = CAREER_EVIDENCE_V1_2_0,
 ): ScoredClaimV12[] {
   assertSpec(spec);
+  const prepared = preprocessJobClaims(input.lines, { version: "1.2.0" });
+  const splitParents = parentsAlreadySplit(prepared);
   const scored: ScoredClaimV12[] = [];
-  for (const claim of preprocessJobClaims(input.lines, { version: "1.2.0" })) {
+  for (const claim of prepared) {
     if (isDated(claim) && claim.noWorkDescribed === true) continue;
     if (isDated(claim)) {
       scored.push(scoreKnown(spec, input, claim, claim.claimClass));
       continue;
     }
-    scored.push(...scoreOpen(spec, input, claim));
+    scored.push(...scoreOpen(spec, input, claim, splitParents.has(claim.parentId)));
   }
   return scored;
+}
+
+function parentsAlreadySplit(claims: readonly SplitClaim[]): Set<string> {
+  const counts = new Map<string, number>();
+  for (const claim of claims) {
+    if (isDated(claim)) continue;
+    counts.set(claim.parentId, (counts.get(claim.parentId) ?? 0) + 1);
+  }
+  const split = new Set<string>();
+  for (const [parentId, count] of counts) {
+    if (count > 1) split.add(parentId);
+  }
+  return split;
+}
+
+function resolveOpenClass(
+  probed: ClassDistribution,
+  claim: AtomicClaim,
+  splitterSplit: boolean,
+): "selection" | "output" | "both" {
+  if (probed.choice === "both" && !splitterSplit) return "both";
+  if (probed.choice === "selection" || probed.choice === "output") return probed.choice;
+  const { selection, output } = probed.probabilities;
+  if (selection > output) return "selection";
+  if (output > selection) return "output";
+  return claim.facts.selections.length > 0 ? "selection" : "output";
 }
 
 function scoreOpen(
@@ -257,6 +285,7 @@ function scoreOpen(
     respond: (request: ClaimRubricV12Request) => unknown;
   },
   claim: AtomicClaim,
+  splitterSplit: boolean,
 ): ScoredClaimV12[] {
   const probed = classDistribution(
     asRecord(
@@ -264,7 +293,7 @@ function scoreOpen(
       "claim response",
     ).claim_class,
   );
-  const resolved = probed.choice === "both" ? "both" : probed.choice;
+  const resolved = resolveOpenClass(probed, claim, splitterSplit);
   if (resolved === "both") {
     if (probed.confidence < spec.thresholds.classConfidence) {
       const halves = selectionOutputHalves(claim.text);
