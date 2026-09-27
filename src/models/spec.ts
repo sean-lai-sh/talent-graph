@@ -173,7 +173,7 @@ export type CareerEvidenceRoleChoice =
 
 export interface CareerEvidenceV12Spec {
   kind: "career_evidence";
-  version: "1.2.0";
+  version: "1.2.0" | "1.2.1";
   model: string;
   claimClass: {
     question: string;
@@ -564,10 +564,12 @@ function validateSelectivityCuts(cuts: unknown, errors: string[]): void {
 
 function validateCareerEvidenceV12Spec(spec: CareerEvidenceV12Spec, errors: string[]): void {
   const raw = spec as unknown as Record<string, unknown>;
-  if (spec.version !== "1.2.0") errors.push('version must be "1.2.0"');
+  if (spec.version !== "1.2.0" && spec.version !== "1.2.1") {
+    errors.push('version must be "1.2.0" or "1.2.1"');
+  }
   if (!isNonEmptyString(spec.model)) errors.push("model must be a non-empty string");
   for (const key of V12_BANNED_KEYS) {
-    if (key in raw) errors.push(`${key} is not part of career_evidence@1.2.0`);
+    if (key in raw) errors.push(`${key} is not part of career_evidence@${spec.version}`);
   }
 
   const claimClass = raw.claimClass as Record<string, unknown> | null | undefined;
@@ -633,7 +635,13 @@ function validateCareerEvidenceV12Spec(spec: CareerEvidenceV12Spec, errors: stri
 function isCareerEvidenceV12(
   spec: CareerEvidenceSpec | CareerEvidenceV11Spec | CareerEvidenceV12Spec,
 ): spec is CareerEvidenceV12Spec {
-  return spec.version === "1.2.0" || "pool_strength" in spec || "scale" in spec || "role" in spec;
+  return (
+    spec.version === "1.2.0" ||
+    spec.version === "1.2.1" ||
+    "pool_strength" in spec ||
+    "scale" in spec ||
+    "role" in spec
+  );
 }
 
 function isCareerEvidenceV11(

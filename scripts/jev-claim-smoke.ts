@@ -25,7 +25,7 @@ import { decideStatus } from "../src/longitudinal/stages.ts";
 import type { ClaimStatus, GrokEvidenceItem, ReviewReason } from "../src/longitudinal/types.ts";
 import { CAREER_EVIDENCE_V1_0_0, careerEvidenceRubricHash } from "../src/models/careerEvidence.ts";
 import { CAREER_EVIDENCE_V1_1_0 } from "../src/models/careerEvidenceV11.ts";
-import { CAREER_EVIDENCE_V1_2_0 } from "../src/models/careerEvidenceV12.ts";
+import { CAREER_EVIDENCE_V1_2_0, CAREER_EVIDENCE_V1_2_1 } from "../src/models/careerEvidenceV12.ts";
 import { type CareerEvidenceSpec, specId } from "../src/models/spec.ts";
 import {
   liveV11Client,
@@ -43,6 +43,7 @@ import {
   renderV12Summary,
   runV12ClaimSmoke,
   type V12JevClient,
+  v12SpecFor,
 } from "./jev-claim-smoke-v12.ts";
 
 export const SOURCE_URL_PLACEHOLDER = "https://example.invalid/resume-source-placeholder";
@@ -560,7 +561,7 @@ function rubricFor(name: string | undefined): CareerEvidenceSpec {
 }
 
 const USAGE =
-  "usage: bun run scripts/jev-claim-smoke.ts --items <path> (--jsonl <path> --summary <path> | --out <dir>) [--spec career_evidence@1.0.0] [--rubric career_evidence@1.0.0|career_evidence@1.1.0|career_evidence@1.2.0]";
+  "usage: bun run scripts/jev-claim-smoke.ts --items <path> (--jsonl <path> --summary <path> | --out <dir>) [--spec career_evidence@1.0.0] [--rubric career_evidence@1.0.0|career_evidence@1.1.0|career_evidence@1.2.0|career_evidence@1.2.1]";
 
 const FLAGS = new Set<string>(["--items", "--jsonl", "--summary", "--spec", "--rubric", "--out"]);
 
@@ -625,7 +626,10 @@ function rubricMode(
     return "v10";
   }
   const v12 =
-    rubricFlag === specId(CAREER_EVIDENCE_V1_2_0) || rubricFlag === "CAREER_EVIDENCE_V1_2_0";
+    rubricFlag === specId(CAREER_EVIDENCE_V1_2_0) ||
+    rubricFlag === "CAREER_EVIDENCE_V1_2_0" ||
+    rubricFlag === specId(CAREER_EVIDENCE_V1_2_1) ||
+    rubricFlag === "CAREER_EVIDENCE_V1_2_1";
   const v11 =
     rubricFlag === specId(CAREER_EVIDENCE_V1_1_0) || rubricFlag === "CAREER_EVIDENCE_V1_1_0";
   const v10 =
@@ -635,8 +639,12 @@ function rubricMode(
     rubricFor(specFlag);
     return "v10";
   }
-  const selected = v12 ? CAREER_EVIDENCE_V1_2_0 : CAREER_EVIDENCE_V1_1_0;
-  const constantName = v12 ? "CAREER_EVIDENCE_V1_2_0" : "CAREER_EVIDENCE_V1_1_0";
+  const selected = v12 ? v12SpecFor(rubricFlag) : CAREER_EVIDENCE_V1_1_0;
+  const constantName = v12
+    ? selected.version === "1.2.1"
+      ? "CAREER_EVIDENCE_V1_2_1"
+      : "CAREER_EVIDENCE_V1_2_0"
+    : "CAREER_EVIDENCE_V1_1_0";
   if (specFlag !== undefined && specFlag !== specId(selected) && specFlag !== constantName) {
     throw new Error(`rubric flags disagree: --spec ${specFlag} and --rubric ${rubricFlag}`);
   }
@@ -665,7 +673,8 @@ export async function main(
     await mkdir(dirname(args.jsonl), { recursive: true });
     await mkdir(dirname(args.summary), { recursive: true });
     if (mode === "v12") {
-      const report = await runV12ClaimSmoke(items, v12Client ?? liveV12Client());
+      const spec = v12SpecFor(args.rubric);
+      const report = await runV12ClaimSmoke(items, v12Client ?? liveV12Client(spec), spec);
       await writeFile(args.jsonl, renderV12Jsonl(report));
       await writeFile(args.summary, renderV12Summary(report));
       return report.invariant > 0 ? 1 : 0;

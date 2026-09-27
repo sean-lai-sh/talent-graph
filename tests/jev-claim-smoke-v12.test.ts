@@ -137,6 +137,65 @@ test("career_evidence@1.2.0 scores claims offline and rolls people up", async ()
   expect(rows.every((row) => row.rubricId === "career_evidence@1.2.0")).toBe(true);
 });
 
+test("career_evidence@1.2.1 omits class on dated claims and keeps the fixture scores", async () => {
+  const seen: string[][] = [];
+  const client: V12JevClient = {
+    systemOne(request) {
+      seen.push(Object.keys(request.questions));
+      return fixtureV12Client().systemOne(request);
+    },
+  };
+  const dir = await mkdtemp(join(tmpdir(), "jev-v121-"));
+  const code = await main(
+    ["--items", fixturePath, "--rubric", "career_evidence@1.2.1", "--out", dir],
+    throwingV10(),
+    throwingV11(),
+    client,
+  );
+  expect(code).toBe(0);
+  const summary = await readFile(join(dir, "summary.md"), "utf8");
+  expect(summary).toContain("Rubric career_evidence@1.2.1.");
+  expect(summary).toContain(`Rubric hash ${RUBRIC_HASH}.`);
+  expect(summary).toContain(`Claim value hash ${CONFIG_HASH}.`);
+  expect(summary).toContain(`Person rollup hash ${ROLLUP_HASH}.`);
+  expect(summary).toContain("Claims accepted 13. Review 1. Rejected 0.");
+  expect(summary).toContain("Calls 16. Answered 16. judgment_unavailable 0. Invariant failures 0.");
+
+  expect(seen.some((keys) => keys.includes("pool_strength") && !keys.includes("claim_class"))).toBe(
+    true,
+  );
+  expect(seen.some((keys) => keys.includes("difficulty") && !keys.includes("claim_class"))).toBe(
+    true,
+  );
+  expect(seen.some((keys) => keys.includes("selectivity") && keys.includes("claim_class"))).toBe(
+    true,
+  );
+  expect(seen.some((keys) => keys.length === 1 && keys[0] === "claim_class")).toBe(true);
+
+  const rows = (await readFile(join(dir, "claims.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+  expect(rows.find((row) => row.claimId === "a-harbor#hire")).toMatchObject({
+    claimClass: "selection",
+    status: "accepted",
+    selectivity: 4,
+    poolStrength: 2,
+    rubricId: "career_evidence@1.2.1",
+  });
+  expect(rows.find((row) => row.claimId === "a-harbor#1")).toMatchObject({
+    claimClass: "output",
+    status: "accepted",
+    difficulty: 2,
+    scale: 1,
+    role: "major_contributor",
+  });
+  expect(rows.find((row) => row.claimId === "a-harbor#2")).toMatchObject({
+    status: "review",
+    reviewReasons: ["dimension_low_confidence"],
+  });
+});
+
 test("a transport failure stays on its claim and an invariant exits 1", async () => {
   const down = "Helped the example crew file notes.";
   const kept = "Engineer at Harborline (Jan 2020 - Mar 2021)\n- Built the kiosk";

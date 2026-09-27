@@ -124,6 +124,17 @@ interface OutputQuestions extends ClassQuestions {
   };
 }
 
+interface FixedSelectionQuestions {
+  selectivity: SelectionQuestions["selectivity"];
+  pool_strength: SelectionQuestions["pool_strength"];
+}
+
+interface FixedOutputQuestions {
+  difficulty: OutputQuestions["difficulty"];
+  scale: OutputQuestions["scale"];
+  role: OutputQuestions["role"];
+}
+
 interface StateBase {
   source: SourceKind;
   text: string;
@@ -135,8 +146,11 @@ interface StateBase {
 
 export type ClaimRubricV12Request =
   | { state: StateBase; questions: ClassQuestions }
-  | { state: StateBase; questions: SelectionQuestions }
-  | { state: StateBase & { role_seed: RoleChoice | null }; questions: OutputQuestions };
+  | { state: StateBase; questions: SelectionQuestions | FixedSelectionQuestions }
+  | {
+      state: StateBase & { role_seed: RoleChoice | null };
+      questions: OutputQuestions | FixedOutputQuestions;
+    };
 
 export interface ClaimRubricCatalog {
   claim_class: ClassQuestions["claim_class"];
@@ -206,6 +220,7 @@ export function claimRubricRequestV12(
   source: SourceKind,
   ask: Ask,
   seed: CompanySeed = COMPANY_SEED,
+  omitClass = false,
 ): ClaimRubricV12Request {
   const catalog = claimRubricCatalog(spec);
   const signal = selectionSignal(claim.facts);
@@ -221,23 +236,23 @@ export function claimRubricRequestV12(
   };
   if (ask === "class") return { state, questions: { claim_class: catalog.claim_class } };
   if (ask === "selection") {
+    const dimensions: FixedSelectionQuestions = {
+      selectivity: catalog.selectivity,
+      pool_strength: catalog.pool_strength,
+    };
     return {
       state,
-      questions: {
-        claim_class: catalog.claim_class,
-        selectivity: catalog.selectivity,
-        pool_strength: catalog.pool_strength,
-      },
+      questions: omitClass ? dimensions : { claim_class: catalog.claim_class, ...dimensions },
     };
   }
+  const dimensions: FixedOutputQuestions = {
+    difficulty: catalog.difficulty,
+    scale: catalog.scale,
+    role: catalog.role,
+  };
   return {
     state: { ...state, role_seed: roleSeedFor(claim.text) },
-    questions: {
-      claim_class: catalog.claim_class,
-      difficulty: catalog.difficulty,
-      scale: catalog.scale,
-      role: catalog.role,
-    },
+    questions: omitClass ? dimensions : { claim_class: catalog.claim_class, ...dimensions },
   };
 }
 
@@ -258,7 +273,7 @@ export function scoreClaimRubricV12(
   for (const claim of prepared) {
     if (isDated(claim) && claim.noWorkDescribed === true) continue;
     if (isDated(claim)) {
-      scored.push(scoreKnown(spec, input, claim, claim.claimClass, seed));
+      scored.push(scoreKnown(spec, input, claim, claim.claimClass, seed, spec.version === "1.2.1"));
       continue;
     }
     scored.push(...scoreOpen(spec, input, claim, splitParents.has(claim.parentId), seed));
@@ -346,33 +361,68 @@ function scoreKnown(
   claim: SplitClaim,
   claimClass: "selection" | "output",
   seed: CompanySeed,
+  omitClass = false,
 ): ScoredClaimV12 {
-  const raw = input.respond(claimRubricRequestV12(spec, claim, input.source, claimClass, seed));
+  const raw = input.respond(
+    claimRubricRequestV12(spec, claim, input.source, claimClass, seed, omitClass),
+  );
   if (claimClass === "selection") {
-    return materialize(spec, claim, parseResponse(raw, "selection"), "selection", claim.id, seed);
+    return materialize(
+      spec,
+      claim,
+      parseResponse(raw, "selection", omitClass),
+      "selection",
+      claim.id,
+      seed,
+    );
   }
-  return materialize(spec, claim, parseResponse(raw, "output"), "output", claim.id, seed);
+  return materialize(
+    spec,
+    claim,
+    parseResponse(raw, "output", omitClass),
+    "output",
+    claim.id,
+    seed,
+  );
 }
 
-function parseResponse(value: unknown, claimClass: "selection"): ParsedSelection;
-function parseResponse(value: unknown, claimClass: "output"): ParsedOutput;
+function parseResponse(
+  value: unknown,
+  claimClass: "selection",
+  omitClass?: boolean,
+): ParsedSelection;
+function parseResponse(value: unknown, claimClass: "output", omitClass?: boolean): ParsedOutput;
 function parseResponse(
   value: unknown,
   claimClass: "selection" | "output",
+  omitClass = false,
 ): ParsedSelection | ParsedOutput {
   const record = asRecord(value, "claim response");
+  const claim_class = omitClass ? fixedClass(claimClass) : classDistribution(record.claim_class);
   if (claimClass === "selection") {
     return {
-      claim_class: classDistribution(record.claim_class),
+      claim_class,
       selectivity: levelDistribution(record.selectivity, "selectivity"),
       pool_strength: levelDistribution(record.pool_strength, "pool_strength"),
     };
   }
   return {
-    claim_class: classDistribution(record.claim_class),
+    claim_class,
     difficulty: levelDistribution(record.difficulty, "difficulty"),
     scale: levelDistribution(record.scale, "scale"),
     role: roleDistribution(record.role),
+  };
+}
+
+function fixedClass(claimClass: "selection" | "output"): ClassDistribution {
+  return {
+    choice: claimClass,
+    confidence: 1,
+    probabilities: {
+      selection: claimClass === "selection" ? 1 : 0,
+      output: claimClass === "output" ? 1 : 0,
+      both: 0,
+    },
   };
 }
 

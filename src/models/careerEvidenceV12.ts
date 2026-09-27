@@ -108,6 +108,11 @@ export const CAREER_EVIDENCE_V1_2_0: CareerEvidenceV12Spec = deepFreeze({
   },
 });
 
+export const CAREER_EVIDENCE_V1_2_1: CareerEvidenceV12Spec = deepFreeze({
+  ...CAREER_EVIDENCE_V1_2_0,
+  version: "1.2.1",
+});
+
 export function selectivityLevelForRate(
   rate: number,
   spec: CareerEvidenceV12Spec = CAREER_EVIDENCE_V1_2_0,
