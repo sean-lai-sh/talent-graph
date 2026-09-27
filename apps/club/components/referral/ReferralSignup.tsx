@@ -2,7 +2,7 @@
 
 import { useConvex, useMutation } from "convex/react";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import {
@@ -13,6 +13,7 @@ import {
   type ProfileDraft,
   parseContact,
   planSignup,
+  resumeFileError,
 } from "../../lib/referralSignup.ts";
 import { Button, buttonClass, EmptyState, Field, Input } from "../ui/index.ts";
 
@@ -177,7 +178,19 @@ export function ReferralSignup({
           <Input value={github} onChange={(event) => setGithub(event.target.value)} />
         </Field>
         <Field label="Resume" hint="PDF up to 5 MB. Required if you do not add LinkedIn or X.">
-          <ResumePicker file={file} onChange={setFile} />
+          <ResumePicker
+            file={file}
+            onChange={(picked) => {
+              const problem = picked
+                ? resumeFileError({
+                    contentType: picked.type || "application/pdf",
+                    size: picked.size,
+                  })
+                : null;
+              setError(problem);
+              setFile(problem ? null : picked);
+            }}
+          />
         </Field>
         {alert}
         <div className="flex justify-end gap-2">
@@ -263,6 +276,8 @@ function fileSize(bytes: number): string {
 /**
  * Renders inside `Field`'s `<label>`, which opens the hidden file input on
  * click. The input stays focusable, so the visible button takes its focus ring.
+ * The picked file lives in state; the input is cleared after each pick so
+ * choosing the same file again still fires `change`.
  */
 function ResumePicker({
   file,
@@ -271,15 +286,17 @@ function ResumePicker({
   file: File | null;
   onChange: (file: File | null) => void;
 }) {
-  const input = useRef<HTMLInputElement>(null);
   return (
     <span className="flex min-h-8 items-center gap-3">
       <input
-        ref={input}
         type="file"
         accept="application/pdf"
         className="peer sr-only"
-        onChange={(event) => onChange(event.target.files?.[0] ?? null)}
+        onChange={(event) => {
+          const picked = event.target.files?.[0] ?? null;
+          event.target.value = "";
+          if (picked) onChange(picked);
+        }}
       />
       <span
         className={`${buttonClass("secondary")} cursor-pointer peer-focus-visible:shadow-[var(--focus-ring)]`}
@@ -292,15 +309,7 @@ function ResumePicker({
             {file.name}
           </span>
           <span className="shrink-0 text-xs text-muted tabular-nums">{fileSize(file.size)}</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-auto"
-            onClick={() => {
-              if (input.current) input.current.value = "";
-              onChange(null);
-            }}
-          >
+          <Button variant="ghost" size="sm" className="ml-auto" onClick={() => onChange(null)}>
             Remove
           </Button>
         </>
