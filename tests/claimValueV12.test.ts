@@ -27,9 +27,9 @@ import {
 import { companySeedHash } from "../src/longitudinal/companySeed.ts";
 import { SYNTHETIC_COMPANY_SEED } from "./fixtures/companySeed.synthetic.ts";
 
-// Changes when COMPANY_SEED changes. The stamp stores companySeedHash()
-// from companySeed.ts, so a fund-tier edit invalidates this fingerprint
-// and scores from two lists are not compared.
+// The pin changes when the company_seed section of config.yml changes.
+// companySeedHash() fingerprints that section, so a fund-tier edit moves this
+// stamp and scores from two lists are not compared.
 const PINNED_V12_CONFIG_HASH = "6aaa508fff88d6f3dedabf803f3b21ea9b20b6a1dec25911fff495ffe6e697f8";
 const PINNED_V11_CONFIG_HASH = "8f66391ae3488a303bc8135936840cd739d0b808642b27293a1a906e1ae76adf";
 
