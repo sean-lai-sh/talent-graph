@@ -318,6 +318,165 @@ describe("class scoring", () => {
     expect(claims.map((claim) => claim.classConfidence)).toEqual([0.55, 0.55]);
     expect(claims[1]?.claimClass === "selection" && claims[1].selectivity.score).toBe(4);
   });
+
+  test("a role title before the colon scores two halves when both is below the cutoff", () => {
+    const statement =
+      "Undergraduate Research Fellow at Northwind: Built the lab's parsing models to cut processing time by 25%";
+    const selection = "Undergraduate Research Fellow at Northwind";
+    const output = "Built the lab's parsing models to cut processing time by 25%";
+    const seen: string[] = [];
+    const claims = score(
+      statement,
+      (request) => {
+        seen.push(request.state.text);
+        if (request.state.text === statement) {
+          return answer({
+            choice: "both",
+            classConfidence: 0.35,
+            probabilities: { selection: 0.3, output: 0.35, both: 0.35 },
+          });
+        }
+        if (request.state.text === selection) {
+          return answer({ choice: "selection", classConfidence: 0.91 });
+        }
+        if (request.state.text === output) {
+          return answer({
+            choice: "output",
+            classConfidence: 0.9,
+            ownershipChoice: "core_contributor",
+          });
+        }
+        throw new Error(`unexpected text ${request.state.text}`);
+      },
+      "resume",
+      "fellow",
+    );
+    expect(seen).toEqual([statement, selection, output]);
+    expect(claims.map((claim) => [claim.id, claim.claimClass, claim.text, claim.status])).toEqual([
+      ["fellow#selection", "selection", selection, "accepted"],
+      ["fellow#output", "output", output, "accepted"],
+    ]);
+    expect(claims.map((claim) => claim.reviewReasons)).toEqual([[], []]);
+  });
+
+  test("a win in the body keeps its rate on the win clause", () => {
+    const title = "Project builder at Northwind project (widget)";
+    const winStatement = `${title}: Won 1st place (1 of 400+) in the Northwind Design Competition for best product pitch and MVP execution`;
+    const workStatement = `${title}: Led market research, pitch deck creation, and speaking prep to win Northwind design competition (1 out of 400)`;
+    const winClause = "win Northwind design competition (1 out of 400)";
+    const workClause = `${title}: Led market research, pitch deck creation, and speaking prep`;
+    const reviewed = score(winStatement, () =>
+      answer({
+        choice: "both",
+        classConfidence: 0.35,
+        probabilities: { selection: 0.3, output: 0.35, both: 0.35 },
+      }),
+    );
+    expect(reviewed.map((claim) => claim.text)).toEqual([winStatement, winStatement]);
+    expect(reviewed.map((claim) => claim.reviewReasons)).toEqual([
+      ["class_low_confidence"],
+      ["class_low_confidence"],
+    ]);
+    const rates: { text: string; rate: number | null }[] = [];
+    const scored = score(workStatement, (request) => {
+      rates.push({ text: request.state.text, rate: request.state.selection_rate });
+      if (request.state.text === workStatement) {
+        return answer({
+          choice: "both",
+          classConfidence: 0.35,
+          probabilities: { selection: 0.3, output: 0.35, both: 0.35 },
+        });
+      }
+      if (request.state.text === winClause) {
+        return answer({ choice: "selection", classConfidence: 0.91 });
+      }
+      if (request.state.text === workClause) {
+        return answer({ choice: "output", classConfidence: 0.9, ownershipChoice: "led" });
+      }
+      throw new Error(`unexpected text ${request.state.text}`);
+    });
+    expect(rates).toEqual([
+      { text: workStatement, rate: 1 / 400 },
+      { text: winClause, rate: 1 / 400 },
+      { text: workClause, rate: null },
+    ]);
+    expect(scored.map((claim) => [claim.claimClass, claim.text, claim.status])).toEqual([
+      ["selection", winClause, "accepted"],
+      ["output", workClause, "accepted"],
+    ]);
+  });
+
+  test("both below the class cutoff splits into halves and scores each half", () => {
+    const statement = "Admitted to the Northwind fellowship and kept the lab notes.";
+    const seen: string[] = [];
+    const claims = score(
+      statement,
+      (request) => {
+        seen.push(request.state.text);
+        if (request.state.text === statement) {
+          return answer({
+            choice: "both",
+            classConfidence: 0.32,
+            probabilities: { selection: 0.4, output: 0.28, both: 0.32 },
+          });
+        }
+        if (request.state.text === "Admitted to the Northwind fellowship") {
+          return answer({ choice: "selection", classConfidence: 0.91 });
+        }
+        if (request.state.text === "kept the lab notes.") {
+          return answer({ choice: "output", classConfidence: 0.87, ownershipChoice: "supporting" });
+        }
+        throw new Error(`unexpected text ${request.state.text}`);
+      },
+      "resume",
+      "fellow",
+    );
+    expect(seen).toEqual([
+      statement,
+      "Admitted to the Northwind fellowship",
+      "kept the lab notes.",
+    ]);
+    expect(claims.map((claim) => [claim.id, claim.claimClass, claim.text, claim.status])).toEqual([
+      ["fellow#selection", "selection", "Admitted to the Northwind fellowship", "accepted"],
+      ["fellow#output", "output", "kept the lab notes.", "accepted"],
+    ]);
+    expect(claims.map((claim) => claim.classConfidence)).toEqual([0.91, 0.87]);
+    expect(claims.map((claim) => claim.reviewReasons)).toEqual([[], []]);
+    expect(claims.every((claim) => claim.statement === statement)).toBe(true);
+    expect(claims.every((claim) => claim.parentId === "fellow")).toBe(true);
+  });
+
+  test("both at the class cutoff keeps one response and the original text", () => {
+    const statement = "Admitted to the Northwind fellowship and kept the lab notes.";
+    let calls = 0;
+    const claims = score(statement, () => {
+      calls += 1;
+      return answer({
+        choice: "both",
+        classConfidence: 0.65,
+        probabilities: { selection: 0.2, output: 0.1, both: 0.7 },
+      });
+    });
+    expect(calls).toBe(1);
+    expect(claims.map((claim) => claim.text)).toEqual([statement, statement]);
+    expect(claims.map((claim) => claim.status)).toEqual(["accepted", "accepted"]);
+  });
+
+  test("both below the cutoff with no separable half still reviews", () => {
+    const statement = "Admitted to the Northwind fellowship.";
+    const claims = score(statement, () =>
+      answer({
+        choice: "both",
+        classConfidence: 0.32,
+        probabilities: { selection: 0.4, output: 0.28, both: 0.32 },
+      }),
+    );
+    expect(claims.map((claim) => claim.text)).toEqual([statement, statement]);
+    expect(claims.map((claim) => claim.reviewReasons)).toEqual([
+      ["class_low_confidence"],
+      ["class_low_confidence"],
+    ]);
+  });
 });
 
 describe("class-aware review", () => {

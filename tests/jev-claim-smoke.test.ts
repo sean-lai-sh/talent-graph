@@ -760,6 +760,85 @@ test("career_evidence@1.1.0 preprocesses, scores, and diffs pairs without a live
   expect(summary).toContain("respondedModel smoke-v11.");
 });
 
+test("a low-confidence both asks the model for each half", async () => {
+  const statement = "Admitted to the example fellowship and kept the lab notes.";
+  const seen: string[] = [];
+  const client: V11JevClient = {
+    systemOne(request) {
+      seen.push(request.state.text);
+      return {
+        async withResponse() {
+          if (request.state.text === statement) {
+            return {
+              data: {
+                model: "smoke-v11",
+                answers: body(
+                  "both",
+                  0.32,
+                  level(3, 0.9, 3),
+                  level(2, 0.9, 2),
+                  level(2, 0.9, 2),
+                  owned("core_contributor"),
+                ),
+              },
+            };
+          }
+          if (request.state.text === "Admitted to the example fellowship") {
+            return {
+              data: {
+                model: "smoke-v11",
+                answers: body(
+                  "selection",
+                  0.91,
+                  level(4, 0.9, 4),
+                  level(0, 1, 0),
+                  level(0, 1, 0),
+                  owned("core_contributor"),
+                ),
+              },
+            };
+          }
+          if (request.state.text === "kept the lab notes.") {
+            return {
+              data: {
+                model: "smoke-v11",
+                answers: body(
+                  "output",
+                  0.87,
+                  level(0, 1, 0),
+                  level(2, 0.9, 2),
+                  level(2, 0.9, 2),
+                  owned("core_contributor"),
+                ),
+              },
+            };
+          }
+          throw new Error(`unexpected claim text ${request.state.text}`);
+        },
+      };
+    },
+  };
+  const report = await runV11ClaimSmoke([item("fellow", "A", statement, null)], client);
+  expect(seen).toEqual([statement, "Admitted to the example fellowship", "kept the lab notes."]);
+  expect(report.calls).toBe(3);
+  expect(report.answered).toBe(3);
+  expect(report.rows.map((row) => [row.childId, row.outcome])).toEqual([
+    ["fellow#selection", "answered"],
+    ["fellow#output", "answered"],
+  ]);
+  const selection = report.rows[0];
+  const output = report.rows[1];
+  if (selection?.outcome !== "answered" || output?.outcome !== "answered") {
+    throw new Error("halves were not answered");
+  }
+  expect(selection.status).toBe("accepted");
+  expect(output.status).toBe("accepted");
+  expect(selection.classConfidence).toBe(0.91);
+  expect(output.classConfidence).toBe(0.87);
+  expect(selection.claimClass).toBe("selection");
+  expect(output.claimClass).toBe("output");
+});
+
 test("a failed clause stays unavailable and its sibling still scores", async () => {
   const statement = "Built the example routing service; selected as 1 of 400 applicants.";
   const client: V11JevClient = {

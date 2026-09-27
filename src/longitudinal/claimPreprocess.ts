@@ -51,11 +51,14 @@ const SCALE_WORD = String.raw`\s?(?:thousand|million|billion)\b`;
 const USD = String.raw`\$${DIGITS}(?:\s?[kKmMbB]\b|${SCALE_WORD})?`;
 const NUM = String.raw`(?:${USD}|${DIGITS}(?:[kKmMbB]\b|${SCALE_WORD})?)\+?`;
 const NUMBER = String.raw`(?<![\w.])(${NUM})(?![\w])`;
+const BETWEEN = String.raw`(?:\s+[A-Za-z][A-Za-z'-]*){0,2}`;
 const TIME_UNIT = "milliseconds?|seconds?|minutes?|hours?|days?|secs?|mins?|hrs?|ms|sec|min|hr|s";
 const QTY = String.raw`(?<![\w.])([+-])?\s*(${NUM})\s*(%|${TIME_UNIT})(?![A-Za-z])`;
 
 const OUTPUT_VERB =
   /\b(?:led|owned|founded|built|developed|designed|contributed|assisted|helped|shipped|launched|created|worked\s+under)\b/i;
+
+const CLAUSE_VERB = /\b(?:kept|cut|made|ran|wrote|did|spoke|[A-Za-z]+(?:ed|ing))\b/i;
 
 const SCALE: Readonly<Record<string, number>> = {
   k: 1e3,
@@ -226,8 +229,18 @@ function hasSelectionWording(text: string): boolean {
   );
 }
 
+function hasAwardCue(text: string): boolean {
+  return (
+    /\bwinners?\b/i.test(text) ||
+    /\bfinalists?\b/i.test(text) ||
+    /\bcompetitions?\b/i.test(text) ||
+    /\bawards?\b(?!-)/i.test(text) ||
+    /\bplaced\b(?!\s+(?:the|a|an)\b)/i.test(text)
+  );
+}
+
 function hasSelectionContext(text: string, end: number): boolean {
-  return POOL_NOUN.test(text.slice(end)) || hasSelectionWording(text);
+  return POOL_NOUN.test(text.slice(end)) || hasSelectionWording(text) || hasAwardCue(text);
 }
 
 function isYearToken(raw: string): boolean {
@@ -255,11 +268,11 @@ function extractSelections(text: string): { values: SelectionRatio[]; consumed: 
 
   const paired: { pattern: RegExp; slash: boolean }[] = [
     {
-      pattern: new RegExp(String.raw`${NUMBER}\s+out\s+of\s+(?:the\s+)?${NUMBER}`, "gi"),
+      pattern: new RegExp(String.raw`${NUMBER}${BETWEEN}\s+out\s+of\s+(?:the\s+)?${NUMBER}`, "gi"),
       slash: false,
     },
     {
-      pattern: new RegExp(String.raw`${NUMBER}\s+of\s+(?:the\s+)?${NUMBER}`, "gi"),
+      pattern: new RegExp(String.raw`${NUMBER}${BETWEEN}\s+of\s+(?:the\s+)?${NUMBER}`, "gi"),
       slash: false,
     },
     {
@@ -484,7 +497,7 @@ function extractOwnership(text: string): OwnershipTier | null {
   return best?.tier ?? null;
 }
 
-function extractFacts(text: string): ClaimFacts {
+export function extractFacts(text: string): ClaimFacts {
   const selections = extractSelections(text);
   const changes = extractChanges(text, selections.consumed);
   const team = extractTeamSize(text, changes.consumed);
@@ -503,6 +516,27 @@ function extractFacts(text: string): ClaimFacts {
 function isSelectionClause(clause: string): boolean {
   if (extractFacts(clause).selections.length > 0) return true;
   return hasSelectionWording(clause);
+}
+
+function hasClauseVerb(clause: string): boolean {
+  return OUTPUT_VERB.test(clause) || hasSelectionWording(clause) || CLAUSE_VERB.test(clause);
+}
+
+function isRoleAtColon(statement: string): boolean {
+  return /^.+?\sat\s+[^:]+:\s+\S/.test(statement);
+}
+
+function carriesSelectionFact(text: string): boolean {
+  return extractFacts(text).selections.length > 0 || hasAwardCue(text);
+}
+
+function roleColonHalves(statement: string): readonly [string, string] | null {
+  const match = /^(.+?\sat\s+[^:]+):\s+(\S[\s\S]*)$/.exec(statement);
+  const title = match?.[1]?.trim() ?? "";
+  const body = match?.[2]?.trim() ?? "";
+  if (title.length === 0 || body.length === 0 || !hasClauseVerb(body)) return null;
+  if (carriesSelectionFact(body) && !carriesSelectionFact(title)) return null;
+  return [title, body];
 }
 
 function clauseClass(clause: string): ClauseKind {
@@ -613,6 +647,26 @@ function glueOthers(statement: string, parts: readonly string[]): string[] | nul
 
 function conjunctionParts(statement: string): string[] | null {
   const pattern = /\s+and\s+|\s+to\s+(?=win\b|place\b|earn\b)/gi;
+  const roleColon = isRoleAtColon(statement);
+  const matches = [...statement.matchAll(pattern)];
+  for (let index = matches.length - 1; index >= 0; index--) {
+    const match = matches[index];
+    if (match?.index === undefined) continue;
+    const boundary = match[0];
+    if (roleColon && /^\s+to\s+/i.test(boundary)) continue;
+    const left = statement.slice(0, match.index).trim();
+    const right = statement.slice(match.index + boundary.length).trim();
+    if (left.length === 0 || right.length === 0) continue;
+    if (roleColon && /\sto\s+(?:win|place|earn)\b/i.test(right)) continue;
+    if (canSplit([left, right])) return [left, right];
+  }
+  return null;
+}
+
+export function selectionOutputHalves(statement: string): readonly [string, string] | null {
+  const colon = roleColonHalves(statement);
+  if (colon) return colon;
+  const pattern = /\s+and\s+|\s+to\s+(?=win\b|place\b|earn\b)|\s+(?:for|by|after)\s+/gi;
   const matches = [...statement.matchAll(pattern)];
   for (let index = matches.length - 1; index >= 0; index--) {
     const match = matches[index];
@@ -620,7 +674,14 @@ function conjunctionParts(statement: string): string[] | null {
     const left = statement.slice(0, match.index).trim();
     const right = statement.slice(match.index + match[0].length).trim();
     if (left.length === 0 || right.length === 0) continue;
-    if (canSplit([left, right])) return [left, right];
+    if (splitStatement(left).length > 1 || splitStatement(right).length > 1) continue;
+    const leftSelection = clauseClass(left) === "selection" || clauseClass(left) === "both";
+    const rightSelection = clauseClass(right) === "selection" || clauseClass(right) === "both";
+    if (leftSelection === rightSelection) continue;
+    const selection = leftSelection ? left : right;
+    const output = leftSelection ? right : left;
+    if (!hasClauseVerb(output)) continue;
+    return [selection, output];
   }
   return null;
 }

@@ -11,8 +11,10 @@ import {
 import {
   type AtomicClaim,
   type ClaimFacts,
+  extractFacts,
   type OwnershipTier,
   preprocessClaims,
+  selectionOutputHalves,
 } from "./claimPreprocess.ts";
 import { inRange, unit } from "./ranges.ts";
 import { JudgmentInvariantError } from "./records.ts";
@@ -190,6 +192,16 @@ export function scoreClaimRubric(
     const resolved = resolveClass(parsed, claim, splitterSplit);
     if (resolved === "both") {
       const classConfidence = confidenceFor(parsed, "both");
+      if (classConfidence < spec.thresholds.classConfidence) {
+        const halves = selectionOutputHalves(claim.text);
+        if (halves) {
+          scored.push(
+            scoreHalf(spec, input, claim, halves[0], "selection"),
+            scoreHalf(spec, input, claim, halves[1], "output"),
+          );
+          continue;
+        }
+      }
       scored.push(
         materialize(
           spec,
@@ -210,6 +222,51 @@ export function scoreClaimRubric(
     );
   }
   return scored;
+}
+
+export function halfClaim(
+  parent: AtomicClaim,
+  text: string,
+  role: "selection" | "output",
+): AtomicClaim {
+  if (text.trim().length === 0) {
+    throw new JudgmentInvariantError("claim half was empty");
+  }
+  return {
+    id: `${parent.parentId}#${role}`,
+    parentId: parent.parentId,
+    text,
+    statement: parent.statement,
+    facts: extractFacts(text),
+  };
+}
+
+function scoreHalf(
+  spec: CareerEvidenceV11Spec,
+  input: {
+    source: SourceKind;
+    respond: (request: ClaimRubricRequest) => unknown;
+  },
+  parent: AtomicClaim,
+  text: string,
+  role: "selection" | "output",
+): ScoredClaimV11 {
+  const claim = halfClaim(parent, text, role);
+  const parsed = parseClaimRubricResponse(
+    input.respond(claimRubricRequest(spec, claim, input.source)),
+  );
+  const resolved = resolveClass(parsed, claim, true);
+  if (resolved === "both") {
+    throw new JudgmentInvariantError("a split half resolved to both");
+  }
+  return materialize(
+    spec,
+    claim,
+    parsed,
+    resolved,
+    `${parent.parentId}#${resolved}`,
+    confidenceFor(parsed, resolved),
+  );
 }
 
 function selectionSignal(facts: ClaimFacts): { rate: number; upperBound: boolean } | null {

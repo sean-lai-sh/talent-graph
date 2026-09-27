@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { type ClaimFacts, preprocessClaims } from "../src/longitudinal/claimPreprocess.ts";
+import {
+  type ClaimFacts,
+  preprocessClaims,
+  selectionOutputHalves,
+} from "../src/longitudinal/claimPreprocess.ts";
 
 function factsOf(statement: string): ClaimFacts {
   const claims = preprocessClaims(statement, "parent");
@@ -55,6 +59,63 @@ describe("selection ratios", () => {
     expect(factsOf("Completed 4 out of 12 modules.").selections).toEqual([]);
     expect(factsOf("Taught 3 of 90 students.").selections).toEqual([]);
     expect(factsOf("Taught 3 of 90 students.").counts).toEqual([]);
+  });
+
+  test("up to two words may sit between the ratio numbers", () => {
+    expect(factsOf("Named 42 selected of 10,000 Lumen applicants.").selections).toEqual([
+      { kind: "ratio", selected: 42, pool: 10000, rate: 42 / 10000, poolLowerBound: false },
+    ]);
+    expect(factsOf("Named 3 chosen out of 200 Harborline applicants.").selections).toEqual([
+      { kind: "ratio", selected: 3, pool: 200, rate: 3 / 200, poolLowerBound: false },
+    ]);
+    expect(factsOf("Named 42 were selected of 10,000 Lumen applicants.").selections).toEqual([
+      { kind: "ratio", selected: 42, pool: 10000, rate: 42 / 10000, poolLowerBound: false },
+    ]);
+    expect(factsOf("Named 42 people were selected of 10,000 Lumen applicants.").selections).toEqual(
+      [],
+    );
+  });
+
+  test("an award or competition line keeps a ratio that has no pool noun", () => {
+    const ratio = [
+      { kind: "ratio" as const, selected: 1, pool: 400, rate: 1 / 400, poolLowerBound: false },
+    ];
+    expect(factsOf("Award recipient, 1 of 400.").selections).toEqual(ratio);
+    expect(factsOf("Innovation Award, 1 of 400.").selections).toEqual(ratio);
+    expect(factsOf("Winner, 1 of 400.").selections).toEqual(ratio);
+    expect(factsOf("Finalist, 1 of 400.").selections).toEqual(ratio);
+    expect(factsOf("Placed, 1 of 400.").selections).toEqual(ratio);
+    expect(factsOf("Northwind competition, 1 of 400.").selections).toEqual(ratio);
+  });
+
+  test("the same non-selection lines still produce no ratio", () => {
+    const statements = [
+      "Worked in a team of 4 at Pylon Hall.",
+      "Joined Q3/2024 planning at Northwind.",
+      "Read 3/4 of the Lumen brief.",
+      "Shipped v3.2.1 of the Northwind catalog.",
+      "Read 3/4 of 90 Lumen pages.",
+      "See 3/2024 of 9000 Pylon seats.",
+      "Built 3 of 90 landing pages.",
+      "Finished 8/40 Harborline pages.",
+      "Completed 4 out of 12 modules.",
+      "Taught 3 of 90 students.",
+      "Built the portal and award-winning libraries.",
+      "Built the booth and placed the posters along the hall.",
+      "Led the desk. Awarded vendors sent the crates.",
+      "Designed the poster and the prize table.",
+      "Built the booth and earned revenue for the club.",
+    ];
+    for (const statement of statements) {
+      expect(factsOf(statement).selections).toEqual([]);
+    }
+    expect(preprocessClaims("Built the portal. The competition was hard.", "only")).toHaveLength(1);
+    expect(
+      preprocessClaims("Built the booth and placed the posters along the hall.", "only"),
+    ).toHaveLength(1);
+    expect(preprocessClaims("Built the portal and award-winning libraries.", "only")).toHaveLength(
+      1,
+    );
   });
 });
 
@@ -406,6 +467,60 @@ describe("splitting", () => {
       "Built the API",
       "won 1 of 10; placed 2nd.",
     ]);
+  });
+
+  test("a role before the colon is the selection half and the work after it is the output half", () => {
+    expect(
+      selectionOutputHalves(
+        "Undergraduate Research Fellow at Northwind: Built the lab's parsing models to cut processing time by 25%",
+      ),
+    ).toEqual([
+      "Undergraduate Research Fellow at Northwind",
+      "Built the lab's parsing models to cut processing time by 25%",
+    ]);
+  });
+
+  test("a role-at-org win and the work-first wording stay one claim and use the same colon split", () => {
+    const title = "Project builder at Northwind project (widget)";
+    const winFirst = `${title}: Won 1st place (1 of 400+) in the Northwind Design Competition for best product pitch and MVP execution`;
+    const workFirst = `${title}: Led market research, pitch deck creation, and speaking prep to win Northwind design competition (1 out of 400)`;
+    expect(preprocessClaims(winFirst, "autogo-a").map((claim) => claim.text)).toEqual([winFirst]);
+    expect(preprocessClaims(workFirst, "autogo-b").map((claim) => claim.text)).toEqual([workFirst]);
+    expect(selectionOutputHalves(winFirst)).toBeNull();
+    expect(selectionOutputHalves(workFirst)).toEqual([
+      "win Northwind design competition (1 out of 400)",
+      `${title}: Led market research, pitch deck creation, and speaking prep`,
+    ]);
+  });
+
+  test("a role prefix still splits a built clause from a selection clause", () => {
+    const statement =
+      "Engineer at Northwind: Built the routing service; selected as 1 of 400 applicants.";
+    const claims = preprocessClaims(statement, "engineer");
+    expect(claims.map((claim) => claim.text)).toEqual([
+      "Engineer at Northwind: Built the routing service",
+      "selected as 1 of 400 applicants.",
+    ]);
+    expect(claims[0]?.facts.ownership).toBe("built");
+    expect(claims[1]?.facts.selections).toEqual([
+      { kind: "ratio", selected: 1, pool: 400, rate: 1 / 400, poolLowerBound: false },
+    ]);
+  });
+
+  test("a win in the body is not labeled as the role title", () => {
+    expect(
+      selectionOutputHalves(
+        "Builder at Pylon: Won 1st place (1 of 400+) in the Lumen Design Competition for best pitch and demo",
+      ),
+    ).toBeNull();
+  });
+
+  test("a bare noun phrase is not an output half", () => {
+    expect(
+      selectionOutputHalves(
+        "Won 1st place (1 of 400+) in the Northwind Design Competition for best product pitch and MVP execution",
+      ),
+    ).toBeNull();
   });
 
   test("a single claim is never split", () => {
