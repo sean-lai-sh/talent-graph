@@ -111,7 +111,7 @@ describe("SEA-12 Better Auth gate on /club", () => {
     expect(info).toMatch(/>\s*login\s*</);
     expect(info).not.toContain("Create account");
     expect(robots).toContain(
-      'disallow: ["/demo", "/example", "/club", "/members", "/login", "/api/"]',
+      'disallow: ["/demo", "/example", "/club", "/members", "/login", "/api/", "/status"]',
     );
   });
 });
