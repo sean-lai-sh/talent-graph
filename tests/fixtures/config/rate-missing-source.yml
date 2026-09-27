@@ -1,0 +1,10 @@
+company_seed:
+  investors:
+    - name: Lamp Fund
+      aliases: []
+      tier: 1
+      source: https://example.invalid/lamp
+      publishedRates:
+        - rate: 0.01
+          upperBound: true
+  companies: []
