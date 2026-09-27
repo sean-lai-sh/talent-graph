@@ -170,7 +170,7 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   removes the strongest resume evidence from the slope.
 - **Drift:** n/a (`CURRENT_SPECS` did not move; 1.0.0 pipeline numbers are
   unchanged)
-- **PR:** stacked on #85.
+- **PR:** #86, stacked on #85.
 
 ## Run id format
 
