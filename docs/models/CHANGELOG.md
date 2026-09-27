@@ -271,7 +271,7 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
 - **Drift:** n/a (`CURRENT_SPECS` did not move. Demo and 1.0.0 pipeline numbers
   are unchanged, and `claim_value@1.1.0` outputs are unchanged. `claim_value@1.2.0`
   is not called by `bun run demo` or `bun run drift`.)
-- **PR:** stacked on #92.
+- **PR:** #93, stacked on #92.
 
 ## Run id format
 
