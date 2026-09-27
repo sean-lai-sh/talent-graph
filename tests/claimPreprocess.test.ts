@@ -56,6 +56,61 @@ describe("selection ratios", () => {
     expect(factsOf("Taught 3 of 90 students.").selections).toEqual([]);
     expect(factsOf("Taught 3 of 90 students.").counts).toEqual([]);
   });
+
+  test("up to two words may sit between the ratio numbers", () => {
+    expect(factsOf("Named 42 selected of 10,000 Lumen applicants.").selections).toEqual([
+      { kind: "ratio", selected: 42, pool: 10000, rate: 42 / 10000, poolLowerBound: false },
+    ]);
+    expect(factsOf("Named 3 chosen out of 200 Harborline applicants.").selections).toEqual([
+      { kind: "ratio", selected: 3, pool: 200, rate: 3 / 200, poolLowerBound: false },
+    ]);
+    expect(factsOf("Named 42 were selected of 10,000 Lumen applicants.").selections).toEqual([
+      { kind: "ratio", selected: 42, pool: 10000, rate: 42 / 10000, poolLowerBound: false },
+    ]);
+    expect(factsOf("Named 42 people were selected of 10,000 Lumen applicants.").selections).toEqual(
+      [],
+    );
+  });
+
+  test("an award or competition line keeps a ratio that has no pool noun", () => {
+    const ratio = [{ kind: "ratio", selected: 1, pool: 400, rate: 1 / 400, poolLowerBound: false }];
+    expect(factsOf("Award recipient, 1 of 400.").selections).toEqual(ratio);
+    expect(factsOf("Innovation Award, 1 of 400.").selections).toEqual(ratio);
+    expect(factsOf("Winner, 1 of 400.").selections).toEqual(ratio);
+    expect(factsOf("Finalist, 1 of 400.").selections).toEqual(ratio);
+    expect(factsOf("Placed, 1 of 400.").selections).toEqual(ratio);
+    expect(factsOf("Northwind competition, 1 of 400.").selections).toEqual(ratio);
+  });
+
+  test("the same non-selection lines still produce no ratio", () => {
+    const statements = [
+      "Worked in a team of 4 at Pylon Hall.",
+      "Joined Q3/2024 planning at Northwind.",
+      "Read 3/4 of the Lumen brief.",
+      "Shipped v3.2.1 of the Northwind catalog.",
+      "Read 3/4 of 90 Lumen pages.",
+      "See 3/2024 of 9000 Pylon seats.",
+      "Built 3 of 90 landing pages.",
+      "Finished 8/40 Harborline pages.",
+      "Completed 4 out of 12 modules.",
+      "Taught 3 of 90 students.",
+      "Built the portal and award-winning libraries.",
+      "Built the booth and placed the posters along the hall.",
+      "Led the desk. Awarded vendors sent the crates.",
+      "Designed the poster and the prize table.",
+      "Built the booth and earned revenue for the club.",
+    ];
+    for (const statement of statements) {
+      expect(factsOf(statement).selections).toEqual([]);
+    }
+    expect(preprocessClaims("Built the portal. The competition was hard.", "only")).toHaveLength(1);
+    expect(
+      preprocessClaims("Built the booth and placed the posters along the hall.", "only"),
+    ).toHaveLength(1);
+    expect(preprocessClaims("Built the portal and award-winning libraries.", "only")).toHaveLength(
+      1,
+    );
+  });
 });
 
 describe("before/after metrics", () => {
@@ -374,6 +429,27 @@ describe("splitting", () => {
       "Built the API",
       "won 1 of 10; placed 2nd.",
     ]);
+  });
+
+  test("a competition win and the work behind it split the same way in either wording", () => {
+    const winFirst = preprocessClaims(
+      "Won the Northwind pitch competition for building the market-research deck.",
+      "autogo-a",
+    );
+    const workFirst = preprocessClaims(
+      "Built the market-research deck and won the Northwind pitch competition.",
+      "autogo-b",
+    );
+    expect(winFirst.map((claim) => claim.text)).toEqual([
+      "Won the Northwind pitch competition",
+      "building the market-research deck.",
+    ]);
+    expect(workFirst.map((claim) => claim.text)).toEqual([
+      "Built the market-research deck",
+      "won the Northwind pitch competition.",
+    ]);
+    expect(winFirst.map((claim) => claim.facts.ownership)).toEqual([null, null]);
+    expect(workFirst.map((claim) => claim.facts.ownership)).toEqual(["built", null]);
   });
 
   test("a single claim is never split", () => {

@@ -318,6 +318,46 @@ describe("class scoring", () => {
     expect(claims.map((claim) => claim.classConfidence)).toEqual([0.55, 0.55]);
     expect(claims[1]?.claimClass === "selection" && claims[1].selectivity.score).toBe(4);
   });
+
+  test("both below the class cutoff splits into halves and scores each half", () => {
+    const statement = "Admitted to the Northwind fellowship and kept the lab notes.";
+    const seen: string[] = [];
+    const claims = score(
+      statement,
+      (request) => {
+        seen.push(request.state.text);
+        if (request.state.text === statement) {
+          return answer({
+            choice: "both",
+            classConfidence: 0.32,
+            probabilities: { selection: 0.4, output: 0.28, both: 0.32 },
+          });
+        }
+        if (request.state.text === "Admitted to the Northwind fellowship") {
+          return answer({ choice: "selection", classConfidence: 0.91 });
+        }
+        if (request.state.text === "kept the lab notes.") {
+          return answer({ choice: "output", classConfidence: 0.87, ownershipChoice: "supporting" });
+        }
+        throw new Error(`unexpected text ${request.state.text}`);
+      },
+      "resume",
+      "fellow",
+    );
+    expect(seen).toEqual([
+      statement,
+      "Admitted to the Northwind fellowship",
+      "kept the lab notes.",
+    ]);
+    expect(claims.map((claim) => [claim.id, claim.claimClass, claim.text, claim.status])).toEqual([
+      ["fellow#selection", "selection", "Admitted to the Northwind fellowship", "accepted"],
+      ["fellow#output", "output", "kept the lab notes.", "accepted"],
+    ]);
+    expect(claims.map((claim) => claim.classConfidence)).toEqual([0.91, 0.87]);
+    expect(claims.map((claim) => claim.reviewReasons)).toEqual([[], []]);
+    expect(claims.every((claim) => claim.statement === statement)).toBe(true);
+    expect(claims.every((claim) => claim.parentId === "fellow")).toBe(true);
+  });
 });
 
 describe("class-aware review", () => {
