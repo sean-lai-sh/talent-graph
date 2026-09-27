@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   ADMIN_HOME,
   BOOTSTRAP_ADMIN_EMAIL,
+  decideClubPage,
   destAfterLogin,
   extraAdminEmailsFromEnv,
   isAdminEmail,
@@ -47,6 +48,61 @@ describe("admin vs member role", () => {
     expect(destAfterLogin("/members", "member")).toBe("/members");
     expect(destAfterLogin("/demo", "member")).toBe("/members");
     expect(destAfterLogin("/demo", "admin")).toBe("/club");
+  });
+
+  test("synthetic emails follow the same role rules", () => {
+    expect(resolveRole({ email: "member@example.test" })).toBe("member");
+    expect(resolveRole({ email: "admin@example.test" })).toBe("member");
+    expect(
+      resolveRole({
+        email: "admin@example.test",
+        extraAdminEmails: ["admin@example.test"],
+      }),
+    ).toBe("admin");
+    expect(resolveRole({ email: "admin@example.test", stored: "admin" })).toBe("admin");
+    expect(resolveRole({ email: "admin@example.test", stored: "member" })).toBe("member");
+    expect(destAfterLogin("/club", resolveRole({ email: "member@example.test" }))).toBe(
+      MEMBER_HOME,
+    );
+    expect(
+      destAfterLogin("/club", resolveRole({ email: "admin@example.test", stored: "admin" })),
+    ).toBe(ADMIN_HOME);
+    expect(
+      destAfterLogin("/members", resolveRole({ email: "admin@example.test", stored: "admin" })),
+    ).toBe(MEMBER_HOME);
+  });
+
+  test("server /club gate sends a known member away before the council shell", () => {
+    expect(decideClubPage({ signedIn: false })).toBe("login");
+    expect(decideClubPage({ signedIn: false, role: "admin" })).toBe("login");
+    expect(decideClubPage({ signedIn: true, role: "member" })).toBe("members");
+    expect(decideClubPage({ signedIn: true, role: "admin" })).toBe("council");
+    expect(decideClubPage({ signedIn: true, role: null })).toBe("login");
+    expect(decideClubPage({ signedIn: true })).toBe("defer");
+
+    const page = read("apps/club/app/club/page.tsx");
+    const session = read("apps/club/lib/clubSession.ts");
+    expect(page).toContain("hasClubSession");
+    expect(page).toContain("decideClubPage");
+    expect(page).toContain("readSessionRole");
+    expect(page).toContain("redirect(MEMBER_HOME)");
+    expect(page).toContain("<ClubShell />");
+    expect(page.indexOf("redirect(MEMBER_HOME)")).toBeLessThan(
+      page.indexOf("return <ClubShell />"),
+    );
+    expect(session).toContain("fetchAuthQuery");
+    expect(session).toContain("api.club.getMyRole");
+  });
+
+  test("first admin bootstrap is documented for this deployment's club", () => {
+    const readme = read("apps/club/README.md");
+    expect(readme).toContain("## First admin");
+    expect(readme).toContain("ACCOUNT_ROLE");
+    expect(readme).toContain("ADMIN_PROVISION_SECRET");
+    expect(readme).toContain("BOOTSTRAP_ADMIN_EMAIL");
+    expect(readme).toContain("CLUB_ADMIN_EMAILS");
+    expect(readme).toContain("A stored row wins");
+    expect(readme).toContain("not keyed by `orgId`");
   });
 
   test("/club bounces unmarked accounts to the member forum", () => {

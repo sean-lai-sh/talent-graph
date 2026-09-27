@@ -43,3 +43,21 @@ export function destAfterLogin(next: string, role: ClubRole): string {
   }
   return safe;
 }
+
+export type ClubPageDecision = "login" | "members" | "council" | "defer";
+
+/**
+ * Server gate for `/club`. `defer` means the role could not be read, so the
+ * page still renders ClubShell and its client redirect. A known non-admin
+ * never reaches that shell.
+ */
+export function decideClubPage(input: {
+  signedIn: boolean;
+  role?: ClubRole | null;
+}): ClubPageDecision {
+  if (!input.signedIn) return "login";
+  if (input.role === "admin") return "council";
+  if (input.role === "member") return "members";
+  if (input.role === null) return "login";
+  return "defer";
+}

@@ -15,7 +15,8 @@ import { PersistedClub } from "./PersistedClub";
  * Unauthenticated visitors go to `/login` — never the seed board
  * and never PersistedClub. `/demo` is the hidden public seed.
  * Only marked admin accounts stay on the council board.
- * Everyone else is sent to the member forum at `/members`.
+ * The server page redirects a known non-admin before this renders.
+ * This check still runs when that role read fails.
  */
 export function ClubShell() {
   const configured = convexConfigured();
