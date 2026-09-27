@@ -778,7 +778,7 @@ test("a low-confidence both asks the model for each half", async () => {
                   level(3, 0.9, 3),
                   level(2, 0.9, 2),
                   level(2, 0.9, 2),
-                  owned("supporting"),
+                  owned("core_contributor"),
                 ),
               },
             };
@@ -793,7 +793,7 @@ test("a low-confidence both asks the model for each half", async () => {
                   level(4, 0.9, 4),
                   level(0, 1, 0),
                   level(0, 1, 0),
-                  owned("supporting"),
+                  owned("core_contributor"),
                 ),
               },
             };
@@ -808,7 +808,7 @@ test("a low-confidence both asks the model for each half", async () => {
                   level(0, 1, 0),
                   level(2, 0.9, 2),
                   level(2, 0.9, 2),
-                  owned("supporting"),
+                  owned("core_contributor"),
                 ),
               },
             };
