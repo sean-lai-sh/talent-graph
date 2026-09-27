@@ -103,18 +103,20 @@ describe("CareerEvidenceSpec: the spec module is a leaf", () => {
     }
   });
 
-  test("the career-evidence spec module pulls in no model, scoring or inference code", () => {
-    const source = readFileSync(join(ROOT, "src/models/careerEvidence.ts"), "utf8");
-    for (const needle of [
-      "scoring/",
-      "inference/",
-      "judges/",
-      "models/registry",
-      "./registry.ts",
-      "models/definitions",
-      "./definitions",
-    ]) {
-      expect(importsPath(source, needle), `careerEvidence.ts imports ${needle}`).toBe(false);
+  test("the career-evidence spec modules pull in no model, scoring or inference code", () => {
+    for (const file of ["src/models/careerEvidence.ts", "src/models/careerEvidenceV11.ts"]) {
+      const source = readFileSync(join(ROOT, file), "utf8");
+      for (const needle of [
+        "scoring/",
+        "inference/",
+        "judges/",
+        "models/registry",
+        "./registry.ts",
+        "models/definitions",
+        "./definitions",
+      ]) {
+        expect(importsPath(source, needle), `${file} imports ${needle}`).toBe(false);
+      }
     }
   });
 

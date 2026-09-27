@@ -13,7 +13,8 @@
  */
 
 import { choice, noul, score, TypeSafeClient, type TypeSafeClientConfig } from "@typesafe-ai/sdk";
-import type { CareerEvidenceSpec } from "../../../../src/models/spec.ts";
+import { claimRubricQuestions } from "../../../../src/longitudinal/claimRubricV11.ts";
+import type { CareerEvidenceSpec, CareerEvidenceV11Spec } from "../../../../src/models/spec.ts";
 
 /** One rubric's level text: at least two entries, index = level. */
 export type ScoreLevels = readonly [string, string, ...string[]];
@@ -79,6 +80,21 @@ export function claimQuestionsFor(spec: CareerEvidenceSpec) {
   };
 }
 
-/** The two question sets this adapter ever sends, as types a caller can name. */
+export function claimQuestionsV11(spec: CareerEvidenceV11Spec) {
+  const questions = claimRubricQuestions(spec);
+  return {
+    claim_class: choice(questions.claim_class.instructions, questions.claim_class.criteria),
+    selectivity: score(questions.selectivity.instructions, questions.selectivity.criteria),
+    difficulty: score(questions.difficulty.instructions, questions.difficulty.criteria),
+    generalized_impact: score(
+      questions.generalized_impact.instructions,
+      questions.generalized_impact.criteria,
+    ),
+    ownership: choice(questions.ownership.instructions, questions.ownership.criteria),
+  };
+}
+
+/** The question sets this adapter sends, as types a caller can name. */
 export type JevIdentityQuestions = ReturnType<typeof identityQuestionsFor>;
 export type JevClaimQuestions = ReturnType<typeof claimQuestionsFor>;
+export type JevClaimQuestionsV11 = ReturnType<typeof claimQuestionsV11>;

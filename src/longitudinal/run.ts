@@ -72,7 +72,12 @@ export const careerEvidenceModel = defineModel<
   }),
   recordedOptionKeys: ["spec"],
   resolveOptions: (spec) => ({ parameters: { spec }, upstream: [] }),
-  compute: (input, spec) => deriveEvidence(input, spec),
+  compute: (input, spec) => {
+    if ("selectivityCuts" in spec) {
+      throw new Error("career_evidence@1.1.0 is not an input to the 1.0.0 derivation");
+    }
+    return deriveEvidence(input, spec);
+  },
 });
 
 /**
