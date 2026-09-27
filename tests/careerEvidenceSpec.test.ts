@@ -104,7 +104,11 @@ describe("CareerEvidenceSpec: the spec module is a leaf", () => {
   });
 
   test("the career-evidence spec modules pull in no model, scoring or inference code", () => {
-    for (const file of ["src/models/careerEvidence.ts", "src/models/careerEvidenceV11.ts"]) {
+    for (const file of [
+      "src/models/careerEvidence.ts",
+      "src/models/careerEvidenceV11.ts",
+      "src/models/careerEvidenceV12.ts",
+    ]) {
       const source = readFileSync(join(ROOT, file), "utf8");
       for (const needle of [
         "scoring/",
