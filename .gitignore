@@ -20,3 +20,5 @@ docs/theory/*.synctex.gz
 
 # Agent worktrees
 .claude/worktrees/
+
+/sea-35-private/
