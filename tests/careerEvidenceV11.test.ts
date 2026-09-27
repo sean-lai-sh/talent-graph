@@ -319,6 +319,46 @@ describe("class scoring", () => {
     expect(claims[1]?.claimClass === "selection" && claims[1].selectivity.score).toBe(4);
   });
 
+  test("a role title before the colon scores two halves when both is below the cutoff", () => {
+    const statement =
+      "Undergraduate Research Fellow at Northwind: Built the lab's parsing models to cut processing time by 25%";
+    const selection = "Undergraduate Research Fellow at Northwind";
+    const output = "Built the lab's parsing models to cut processing time by 25%";
+    const seen: string[] = [];
+    const claims = score(
+      statement,
+      (request) => {
+        seen.push(request.state.text);
+        if (request.state.text === statement) {
+          return answer({
+            choice: "both",
+            classConfidence: 0.35,
+            probabilities: { selection: 0.3, output: 0.35, both: 0.35 },
+          });
+        }
+        if (request.state.text === selection) {
+          return answer({ choice: "selection", classConfidence: 0.91 });
+        }
+        if (request.state.text === output) {
+          return answer({
+            choice: "output",
+            classConfidence: 0.9,
+            ownershipChoice: "core_contributor",
+          });
+        }
+        throw new Error(`unexpected text ${request.state.text}`);
+      },
+      "resume",
+      "fellow",
+    );
+    expect(seen).toEqual([statement, selection, output]);
+    expect(claims.map((claim) => [claim.id, claim.claimClass, claim.text, claim.status])).toEqual([
+      ["fellow#selection", "selection", selection, "accepted"],
+      ["fellow#output", "output", output, "accepted"],
+    ]);
+    expect(claims.map((claim) => claim.reviewReasons)).toEqual([[], []]);
+  });
+
   test("both below the class cutoff splits into halves and scores each half", () => {
     const statement = "Admitted to the Northwind fellowship and kept the lab notes.";
     const seen: string[] = [];

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { type ClaimFacts, preprocessClaims } from "../src/longitudinal/claimPreprocess.ts";
+import {
+  type ClaimFacts,
+  preprocessClaims,
+  selectionOutputHalves,
+} from "../src/longitudinal/claimPreprocess.ts";
 
 function factsOf(statement: string): ClaimFacts {
   const claims = preprocessClaims(statement, "parent");
@@ -433,25 +437,41 @@ describe("splitting", () => {
     ]);
   });
 
-  test("a competition win and the work behind it split the same way in either wording", () => {
-    const winFirst = preprocessClaims(
-      "Won the Northwind pitch competition for building the market-research deck.",
-      "autogo-a",
-    );
-    const workFirst = preprocessClaims(
-      "Built the market-research deck and won the Northwind pitch competition.",
-      "autogo-b",
-    );
-    expect(winFirst.map((claim) => claim.text)).toEqual([
-      "Won the Northwind pitch competition",
-      "building the market-research deck.",
+  test("a role before the colon is the selection half and the work after it is the output half", () => {
+    expect(
+      selectionOutputHalves(
+        "Undergraduate Research Fellow at Northwind: Built the lab's parsing models to cut processing time by 25%",
+      ),
+    ).toEqual([
+      "Undergraduate Research Fellow at Northwind",
+      "Built the lab's parsing models to cut processing time by 25%",
     ]);
-    expect(workFirst.map((claim) => claim.text)).toEqual([
-      "Built the market-research deck",
-      "won the Northwind pitch competition.",
+  });
+
+  test("a role-at-org win and the work-first wording stay one claim and use the same colon split", () => {
+    const title = "Project builder at Northwind project (widget)";
+    const winFirst = `${title}: Won 1st place (1 of 400+) in the Northwind Design Competition for best product pitch and MVP execution`;
+    const workFirst = `${title}: Led market research, pitch deck creation, and speaking prep to win Northwind design competition (1 out of 400)`;
+    expect(preprocessClaims(winFirst, "autogo-a").map((claim) => claim.text)).toEqual([winFirst]);
+    expect(preprocessClaims(workFirst, "autogo-b").map((claim) => claim.text)).toEqual([
+      workFirst,
     ]);
-    expect(winFirst.map((claim) => claim.facts.ownership)).toEqual([null, null]);
-    expect(workFirst.map((claim) => claim.facts.ownership)).toEqual(["built", null]);
+    expect(selectionOutputHalves(winFirst)).toEqual([
+      title,
+      "Won 1st place (1 of 400+) in the Northwind Design Competition for best product pitch and MVP execution",
+    ]);
+    expect(selectionOutputHalves(workFirst)).toEqual([
+      title,
+      "Led market research, pitch deck creation, and speaking prep to win Northwind design competition (1 out of 400)",
+    ]);
+  });
+
+  test("a bare noun phrase is not an output half", () => {
+    expect(
+      selectionOutputHalves(
+        "Won 1st place (1 of 400+) in the Northwind Design Competition for best product pitch and MVP execution",
+      ),
+    ).toBeNull();
   });
 
   test("a single claim is never split", () => {
