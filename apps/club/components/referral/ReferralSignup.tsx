@@ -105,6 +105,11 @@ export function ReferralSignup({
           void (async () => {
             let resumeStorageId: string | undefined;
             if (file) {
+              if (file.type && file.type !== "application/pdf") {
+                setError("Resume must be a PDF.");
+                setBusy(false);
+                return;
+              }
               const uploaded = await uploadResume(file);
               if ("error" in uploaded) {
                 setError(uploaded.error);
@@ -136,7 +141,10 @@ export function ReferralSignup({
               setError("You already submitted this referral.");
               return;
             }
-            setStep({ kind: "done", href: `/status/${result.token}` });
+            setStep({
+              kind: "done",
+              href: new URL(`/status/${result.token}`, window.location.origin).toString(),
+            });
           })().catch((caught: unknown) => {
             setBusy(false);
             setError(caught instanceof Error ? caught.message : "Could not submit this referral.");
@@ -260,12 +268,8 @@ export function ReferralSignupConnected() {
   return (
     <ReferralSignup
       onExists={() => router.push("/members/referral/add")}
-      lookup={async (raw) => {
-        const result = await convex.query(api.referral.lookupReferralContact, { contact: raw });
-        return result;
-      }}
+      lookup={(raw) => convex.query(api.referral.lookupReferralContact, { contact: raw })}
       uploadResume={async (file) => {
-        if (file.type && file.type !== "application/pdf") return { error: "Resume must be a PDF." };
         const postUrl = await generateUrl({});
         const response = await fetch(postUrl, {
           method: "POST",
@@ -277,8 +281,8 @@ export function ReferralSignupConnected() {
         if (!body.storageId) return { error: "Resume upload failed." };
         return { storageId: body.storageId };
       }}
-      submit={async (input) => {
-        const result = await submitSignup({
+      submit={(input) =>
+        submitSignup({
           contact: input.contact,
           name: input.name,
           affiliation: input.affiliation,
@@ -289,9 +293,8 @@ export function ReferralSignupConnected() {
           ...(input.resumeStorageId
             ? { resumeStorageId: input.resumeStorageId as Id<"_storage"> }
             : {}),
-        });
-        return result;
-      }}
+        })
+      }
     />
   );
 }
@@ -313,10 +316,7 @@ export function ReferralSignupPreview() {
           profileExists,
         });
       }}
-      uploadResume={async (file) => {
-        if (file.type && file.type !== "application/pdf") return { error: "Resume must be a PDF." };
-        return { storageId: "preview-resume" };
-      }}
+      uploadResume={async () => ({ storageId: "preview-resume" })}
       submit={async (input) => {
         const issued = await newStatusToken();
         const plan = planSignup({
