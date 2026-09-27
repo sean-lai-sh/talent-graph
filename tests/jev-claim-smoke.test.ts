@@ -2,12 +2,17 @@ import { expect, test } from "bun:test";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { JevClient } from "../apps/club/lib/longitudinal/jev.ts";
 import {
+  liveJudgmentService,
   main,
   parseSmokeItems,
+  renderJsonl,
+  renderSummary,
   runClaimSmoke,
   type SmokeItem,
   SOURCE_URL_PLACEHOLDER,
+  toEvidence,
   UNLINKED_PERSON_ID,
 } from "../scripts/jev-claim-smoke.ts";
 import type {
@@ -24,7 +29,8 @@ import type {
   DimensionJudgment,
   GrokEvidenceItem,
 } from "../src/longitudinal/types.ts";
-import { CAREER_EVIDENCE_V1_0_0, careerEvidenceSpecId } from "../src/models/careerEvidence.ts";
+import { CAREER_EVIDENCE_V1_0_0, careerEvidenceRubricHash } from "../src/models/careerEvidence.ts";
+import { specId } from "../src/models/spec.ts";
 import { claimAnswers, fakeRecord } from "./helpers/longitudinal.ts";
 
 const fixturePath = join(import.meta.dir, "fixtures/jev-claim-smoke.items.json");
@@ -170,7 +176,8 @@ test("the claim smoke reads the fixture, skips identity, and writes the cutoff t
   });
 
   const summary = await readFile(summaryPath, "utf8");
-  expect(summary).toContain(`Spec ${careerEvidenceSpecId(CAREER_EVIDENCE_V1_0_0)}.`);
+  expect(summary).toContain(`Rubric ${specId(CAREER_EVIDENCE_V1_0_0)}.`);
+  expect(summary).toContain(`Rubric hash ${careerEvidenceRubricHash(CAREER_EVIDENCE_V1_0_0)}.`);
   expect(summary).toContain(
     "Identity was not judged. Status is decideStatus after a passed identity gate, for reference only.",
   );
@@ -242,6 +249,8 @@ test("the claim smoke reads the fixture, skips identity, and writes the cutoff t
   const jsonl = (await readFile(jsonlPath, "utf8")).trim().split("\n");
   expect(jsonl).toHaveLength(3);
   const first = JSON.parse(jsonl[0] ?? "") as {
+    rubricId: string;
+    rubricHash: string;
     id: string;
     outcome: string;
     respondedModel: string;
@@ -249,6 +258,8 @@ test("the claim smoke reads the fixture, skips identity, and writes the cutoff t
       record: { kind: string; respondedModel: string; answers: { event_kind: { choice: string } } };
     };
   };
+  expect(first.rubricId).toBe(specId(CAREER_EVIDENCE_V1_0_0));
+  expect(first.rubricHash).toBe(careerEvidenceRubricHash(CAREER_EVIDENCE_V1_0_0));
   expect(first.id).toBe("a-alpha");
   expect(first.outcome).toBe("answered");
   expect(first.respondedModel).toBe("jev-test");
@@ -412,8 +423,59 @@ test("a pair with one resume is reported missing", async () => {
   expect(summary).toContain("resume B is missing");
 });
 
-test("main rejects a missing flag", async () => {
+test("main rejects a missing flag and an unknown rubric", async () => {
   await expect(main(["--items", "only.json"])).rejects.toThrow(
-    "usage: bun run scripts/jev-claim-smoke.ts --items <path> --jsonl <path> --summary <path>",
+    "usage: bun run scripts/jev-claim-smoke.ts --items <path> --jsonl <path> --summary <path> [--spec career_evidence@1.0.0]",
   );
+  await expect(
+    main([
+      "--items",
+      "only.json",
+      "--jsonl",
+      "out.jsonl",
+      "--summary",
+      "out.md",
+      "--spec",
+      "career_evidence@9.9.9",
+    ]),
+  ).rejects.toThrow("unknown rubric career_evidence@9.9.9");
+});
+
+test("a passed spec stamps its id and hash and supplies the cutoff", async () => {
+  const shifted = {
+    ...CAREER_EVIDENCE_V1_0_0,
+    version: "9.9.9",
+    thresholds: { ...CAREER_EVIDENCE_V1_0_0.thresholds, eventConfidence: 0.99 },
+  };
+  const items = parseSmokeItems(JSON.parse(await readFile(fixturePath, "utf8")));
+  const { service } = stubService(() => {
+    throw new Error("identity was called");
+  });
+  const report = await runClaimSmoke(items, service, shifted);
+  const summary = renderSummary(report);
+  expect(summary).toContain("Rubric career_evidence@9.9.9.");
+  expect(summary).toContain(`Rubric hash ${careerEvidenceRubricHash(shifted)}.`);
+  expect(careerEvidenceRubricHash(shifted)).toBe(careerEvidenceRubricHash(CAREER_EVIDENCE_V1_0_0));
+  const line = summary.split("\n").find((entry) => entry.startsWith("| a-alpha |"));
+  const decision = decideStatus(PASSED_GATE, alphaA, shifted.thresholds);
+  expect(decision).toEqual({ status: "review", reasons: ["event_low_confidence"] });
+  expect(line).toContain("| review | event_low_confidence |");
+  const recorded = JSON.parse(renderJsonl(report).trim().split("\n")[0] ?? "") as {
+    rubricId: string;
+    rubricHash: string;
+  };
+  expect(recorded.rubricId).toBe("career_evidence@9.9.9");
+  expect(recorded.rubricHash).toBe(careerEvidenceRubricHash(shifted));
+
+  const client: JevClient = {
+    systemOne() {
+      throw new Error("no request");
+    },
+  };
+  const baseline = liveJudgmentService(CAREER_EVIDENCE_V1_0_0, client);
+  const later = liveJudgmentService(shifted, client);
+  const firstItem = items[0];
+  if (firstItem === undefined) throw new Error("fixture is empty");
+  const evidence = toEvidence(firstItem);
+  expect(baseline.claimFingerprint(evidence)).not.toBe(later.claimFingerprint(evidence));
 });

@@ -2,7 +2,11 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { createJevClient, createJevJudgmentService } from "../apps/club/lib/longitudinal/jev.ts";
+import {
+  createJevClient,
+  createJevJudgmentService,
+  type JevClient,
+} from "../apps/club/lib/longitudinal/jev.ts";
 import type {
   ClaimAssessment,
   IdentityAssessment,
@@ -19,7 +23,8 @@ import type {
 import { JudgmentInvariantError } from "../src/longitudinal/records.ts";
 import { decideStatus } from "../src/longitudinal/stages.ts";
 import type { ClaimStatus, GrokEvidenceItem, ReviewReason } from "../src/longitudinal/types.ts";
-import { CAREER_EVIDENCE_V1_0_0, careerEvidenceSpecId } from "../src/models/careerEvidence.ts";
+import { CAREER_EVIDENCE_V1_0_0, careerEvidenceRubricHash } from "../src/models/careerEvidence.ts";
+import { type CareerEvidenceSpec, specId } from "../src/models/spec.ts";
 
 export const SOURCE_URL_PLACEHOLDER = "https://example.invalid/resume-source-placeholder";
 
@@ -71,7 +76,8 @@ interface FailedRow {
 type ItemRow = AnsweredRow | FailedRow;
 
 export interface SmokeReport {
-  specId: string;
+  rubricId: string;
+  rubricHash: string;
   rows: ItemRow[];
   calls: number;
   answered: number;
@@ -86,11 +92,14 @@ const PASSED_IDENTITY_GATE: IdentityAssessment = {
   fieldMatches: { name: 1, affiliation: 1, handle: 1 },
 };
 
-function claimCutoff(assessment: ClaimAssessment | null): {
+function claimCutoff(
+  assessment: ClaimAssessment | null,
+  spec: CareerEvidenceSpec,
+): {
   status: ClaimStatus;
   reasons: ReviewReason[];
 } {
-  return decideStatus(PASSED_IDENTITY_GATE, assessment, CAREER_EVIDENCE_V1_0_0.thresholds);
+  return decideStatus(PASSED_IDENTITY_GATE, assessment, spec.thresholds);
 }
 
 export function parseSmokeItems(raw: unknown): SmokeItem[] {
@@ -218,12 +227,16 @@ function dimensionCell(record: JevJudgmentRecord, dimension: CalibrationDimensio
   };
 }
 
-function answeredRow(item: SmokeItem, judgment: JevJudgment<ClaimAssessment>): AnsweredRow {
+function answeredRow(
+  item: SmokeItem,
+  judgment: JevJudgment<ClaimAssessment>,
+  spec: CareerEvidenceSpec,
+): AnsweredRow {
   const event = judgment.record.answers.event_kind;
   if (!isChoiceAnswer(event)) {
     throw new JudgmentInvariantError(`claim record ${judgment.record.id} has no event_kind choice`);
   }
-  const decision = claimCutoff(judgment.assessment);
+  const decision = claimCutoff(judgment.assessment, spec);
   const dimensions = {} as Record<CalibrationDimension, DimensionCell>;
   for (const dimension of CALIBRATION_DIMENSIONS) {
     dimensions[dimension] = dimensionCell(judgment.record, dimension);
@@ -242,19 +255,28 @@ function answeredRow(item: SmokeItem, judgment: JevJudgment<ClaimAssessment>): A
   };
 }
 
-function failedRow(item: SmokeItem, kind: FailedRow["kind"], error: string): FailedRow {
-  const decision = claimCutoff(null);
+function failedRow(
+  item: SmokeItem,
+  kind: FailedRow["kind"],
+  error: string,
+  spec: CareerEvidenceSpec,
+): FailedRow {
+  const decision = claimCutoff(null, spec);
   return { kind, item, error, status: decision.status, reasons: decision.reasons };
 }
 
-async function judgeOne(service: JevJudgmentService, item: SmokeItem): Promise<ItemRow> {
+async function judgeOne(
+  service: JevJudgmentService,
+  item: SmokeItem,
+  spec: CareerEvidenceSpec,
+): Promise<ItemRow> {
   try {
     const judgment = await service.assessClaim(toEvidence(item), UNLINKED_PERSON_ID);
-    return answeredRow(item, judgment);
+    return answeredRow(item, judgment, spec);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (error instanceof JudgmentInvariantError) return failedRow(item, "invariant", message);
-    return failedRow(item, "unavailable", message);
+    if (error instanceof JudgmentInvariantError) return failedRow(item, "invariant", message, spec);
+    return failedRow(item, "unavailable", message, spec);
   }
 }
 
@@ -282,9 +304,10 @@ async function mapWithConcurrency<T, R>(
 export async function runClaimSmoke(
   items: readonly SmokeItem[],
   service: JevJudgmentService,
+  spec: CareerEvidenceSpec = CAREER_EVIDENCE_V1_0_0,
 ): Promise<SmokeReport> {
   const rows = await mapWithConcurrency(items, DEFAULT_EVIDENCE_CONCURRENCY, (item) =>
-    judgeOne(service, item),
+    judgeOne(service, item, spec),
   );
   const respondedModels: string[] = [];
   let answered = 0;
@@ -301,7 +324,8 @@ export async function runClaimSmoke(
     }
   }
   return {
-    specId: careerEvidenceSpecId(CAREER_EVIDENCE_V1_0_0),
+    rubricId: specId(spec),
+    rubricHash: careerEvidenceRubricHash(spec),
     rows,
     calls: rows.length,
     answered,
@@ -421,7 +445,8 @@ export function renderSummary(report: SmokeReport): string {
   const header = [
     "# Jev claim smoke",
     "",
-    `Spec ${report.specId}.`,
+    `Rubric ${report.rubricId}.`,
+    `Rubric hash ${report.rubricHash}.`,
     "Identity was not judged. Status is decideStatus after a passed identity gate, for reference only.",
     `The source_url on every item is ${SOURCE_URL_PLACEHOLDER}. That URL is a placeholder.`,
     `Calls ${report.calls}. Answered ${report.answered}. judgment_unavailable ${report.unavailable}. Invariant failures ${report.invariant}.`,
@@ -451,8 +476,10 @@ export function renderSummary(report: SmokeReport): string {
 
 export function renderJsonl(report: SmokeReport): string {
   const lines = report.rows.map((row) => {
+    const rubric = { rubricId: report.rubricId, rubricHash: report.rubricHash };
     if (row.kind === "answered") {
       return JSON.stringify({
+        ...rubric,
         id: row.item.id,
         resume: row.item.resume,
         pair: row.item.pair,
@@ -462,6 +489,7 @@ export function renderJsonl(report: SmokeReport): string {
       });
     }
     return JSON.stringify({
+      ...rubric,
       id: row.item.id,
       resume: row.item.resume,
       pair: row.item.pair,
@@ -477,11 +505,16 @@ export async function runClaimSmokeFiles(options: {
   jsonlPath: string;
   summaryPath: string;
   service: JevJudgmentService;
+  spec?: CareerEvidenceSpec;
 }): Promise<SmokeReport> {
   const raw: unknown = JSON.parse(await readFile(options.itemsPath, "utf8"));
   const items = parseSmokeItems(raw);
   if (items.length === 0) throw new Error("items file is empty");
-  const report = await runClaimSmoke(items, options.service);
+  const report = await runClaimSmoke(
+    items,
+    options.service,
+    options.spec ?? CAREER_EVIDENCE_V1_0_0,
+  );
   await mkdir(dirname(options.jsonlPath), { recursive: true });
   await mkdir(dirname(options.summaryPath), { recursive: true });
   await writeFile(options.jsonlPath, renderJsonl(report));
@@ -489,15 +522,37 @@ export async function runClaimSmokeFiles(options: {
   return report;
 }
 
-export function liveJudgmentService(): JevJudgmentService {
-  return createJevJudgmentService(createJevClient());
+export function liveJudgmentService(
+  spec: CareerEvidenceSpec = CAREER_EVIDENCE_V1_0_0,
+  client: JevClient = createJevClient(),
+): JevJudgmentService {
+  return createJevJudgmentService(client, spec);
 }
 
-function parseArgs(argv: readonly string[]): { items: string; jsonl: string; summary: string } {
+function rubricFor(name: string | undefined): CareerEvidenceSpec {
+  if (
+    name === undefined ||
+    name === specId(CAREER_EVIDENCE_V1_0_0) ||
+    name === "CAREER_EVIDENCE_V1_0_0"
+  ) {
+    return CAREER_EVIDENCE_V1_0_0;
+  }
+  throw new Error(`unknown rubric ${name}`);
+}
+
+const USAGE =
+  "usage: bun run scripts/jev-claim-smoke.ts --items <path> --jsonl <path> --summary <path> [--spec career_evidence@1.0.0]";
+
+function parseArgs(argv: readonly string[]): {
+  items: string;
+  jsonl: string;
+  summary: string;
+  spec: string | undefined;
+} {
   const values = new Map<string, string>();
   for (let index = 0; index < argv.length; index++) {
     const flag = argv[index];
-    if (flag !== "--items" && flag !== "--jsonl" && flag !== "--summary") {
+    if (flag !== "--items" && flag !== "--jsonl" && flag !== "--summary" && flag !== "--spec") {
       throw new Error(`unknown argument ${flag ?? ""}`);
     }
     const value = argv[index + 1];
@@ -509,20 +564,20 @@ function parseArgs(argv: readonly string[]): { items: string; jsonl: string; sum
   const jsonl = values.get("--jsonl");
   const summary = values.get("--summary");
   if (items === undefined || jsonl === undefined || summary === undefined) {
-    throw new Error(
-      "usage: bun run scripts/jev-claim-smoke.ts --items <path> --jsonl <path> --summary <path>",
-    );
+    throw new Error(USAGE);
   }
-  return { items, jsonl, summary };
+  return { items, jsonl, summary, spec: values.get("--spec") };
 }
 
 export async function main(argv: readonly string[], service?: JevJudgmentService): Promise<number> {
   const args = parseArgs(argv);
+  const spec = rubricFor(args.spec);
   const report = await runClaimSmokeFiles({
     itemsPath: args.items,
     jsonlPath: args.jsonl,
     summaryPath: args.summary,
-    service: service ?? liveJudgmentService(),
+    service: service ?? liveJudgmentService(spec),
+    spec,
   });
   return report.invariant > 0 ? 1 : 0;
 }
