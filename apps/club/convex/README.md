@@ -18,6 +18,12 @@ writer of those tables: `loadState` rebuilds the engine's `ClubState`, and
 by Convex's per-transaction limits (16 MiB, 32,000 documents). Snapshot
 `values.referralSignal` is accept/archive provenance only.
 
+Anything that grows with the club gets its own table, one row per record,
+never a list inside a document. `tests/club-schema-bounds.test.ts` fails on
+any new list field. When Jev judgments are persisted, they follow the same
+rule: a `JevJudgmentStore` (`src/longitudinal/store.ts`) backed by its own
+table, read by record id, and not part of `ClubState`.
+
 **Auth (SEA-12):** board reads and all mutations require a Better Auth
 session via `authComponent.safeGetAuthUser` / `getAuthUser` and a marked
 admin role (`clubAccounts.role`, else `chips@techatnyu.org` /
