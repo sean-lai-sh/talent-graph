@@ -14,7 +14,9 @@ A council admits or denies a person under consideration. The person leaves `Need
 - Open a person in `Needs review` and choose `Admit` or `Deny` on the case.
 - Open a person in `Decided` and choose `Reopen`.
 
-## Driving it with cursor-ide-browser
+## Driving it with agent-browser
+
+Commands are `agent-browser --session verify-club` from the skill Drive section. Snapshot before every click or fill, and use the `@eN` ref from that snapshot.
 
 Preconditions:
 

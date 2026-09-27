@@ -14,7 +14,9 @@ Search filters the Applicants list by person name. It does not change stored cas
 - Type in the `Search applicants` field at the top of `Applicants`.
 - On a narrow viewport, choose `Open applicant list` first, then use the same field.
 
-## Driving it with cursor-ide-browser
+## Driving it with agent-browser
+
+Commands are `agent-browser --session verify-club` from the skill Drive section. Snapshot before every click or fill, and use the `@eN` ref from that snapshot.
 
 Preconditions:
 

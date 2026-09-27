@@ -1,0 +1,4 @@
+{
+  "name": "talent-graph",
+  "install": "bun install && DEBIAN_FRONTEND=noninteractive node_modules/.bin/agent-browser install --with-deps && sudo ln -sfn \"$PWD/node_modules/.bin/agent-browser\" /usr/local/bin/agent-browser"
+}

@@ -96,6 +96,22 @@ kill_ours() {
   kill_tree "$pid"
 }
 
+# Close the verify-club browser session and the default session.
+# A background walk must not keep a browser open after cleanup.
+close_browser() {
+  local ab=""
+  if command -v agent-browser >/dev/null 2>&1; then
+    ab="agent-browser"
+  elif [[ -x "$REPO_ROOT/node_modules/.bin/agent-browser" ]]; then
+    ab="$REPO_ROOT/node_modules/.bin/agent-browser"
+  else
+    echo "verify-club: agent-browser not installed; skipping browser close" >&2
+    return 0
+  fi
+  "$ab" --session verify-club close >/dev/null 2>&1 || true
+  "$ab" close >/dev/null 2>&1 || true
+}
+
 kill_tree() {
   local pid="$1"
   local child

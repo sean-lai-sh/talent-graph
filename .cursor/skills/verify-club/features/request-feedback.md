@@ -14,7 +14,9 @@ A council asks a club member for a response inside a 48-hour window. The ask ope
 - On a case, choose the `+` control named `Ask someone` in the `Referrals` card.
 - Close the sheet with `Close`, the backdrop (`Close` on the overlay), or `Escape`.
 
-## Driving it with cursor-ide-browser
+## Driving it with agent-browser
+
+Commands are `agent-browser --session verify-club` from the skill Drive section. Snapshot before every click or fill, and use the `@eN` ref from that snapshot.
 
 Preconditions:
 

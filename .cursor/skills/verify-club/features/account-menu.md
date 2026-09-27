@@ -14,7 +14,9 @@ The Account control opens a menu for the signed-example council member `Admin`. 
 - Choose the `Account` button in the top bar (the Admin avatar).
 - Choose `Add a person`, `Round settings`, or `Reset to seed`.
 
-## Driving it with cursor-ide-browser
+## Driving it with agent-browser
+
+Commands are `agent-browser --session verify-club` from the skill Drive section. Snapshot before every click or fill, and use the `@eN` ref from that snapshot.
 
 Preconditions:
 

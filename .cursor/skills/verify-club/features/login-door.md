@@ -17,7 +17,9 @@
 - Open `/info` to confirm login lives there, then `/` to confirm the chips landing has `info` only.
 - Open `/demo` to confirm the public board is still there.
 
-## Driving it with cursor-ide-browser
+## Driving it with agent-browser
+
+Commands are `agent-browser --session verify-club` from the skill Drive section. Snapshot before every click or fill, and use the `@eN` ref from that snapshot.
 
 Preconditions:
 
@@ -34,8 +36,8 @@ Preconditions:
 
 ## Gotchas
 
-- Do not submit the form. This recipe proves the door and the gate, not a live Convex session.
-- `/club` persist shares the developer deployment. A redirect is the only `/club` proof here.
+- Do not submit the form. This recipe proves the door and the gate. Submitting is `signed-in.md`, and only for the synthetic users on the anonymous backend.
+- `/club` against a shared Convex deployment is out of scope. A redirect is the only `/club` proof here.
 - There is no Create account tab. Public signup is disabled; owners are provisioned out of band.
 - Centering is a screenshot claim. HTML that contains the form is not enough.
 - `/` is the chips landing, not a redirect to `/demo` or `/login`.

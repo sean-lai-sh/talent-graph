@@ -14,12 +14,8 @@ PID_MARK="bun run dev"
 if [[ -f "$RUNS_DIR/$RUN_ID/pid_mark" ]]; then
   PID_MARK="$(cat "$RUNS_DIR/$RUN_ID/pid_mark")"
 fi
-if [[ -f "$RUNS_DIR/$RUN_ID/chrome.json" ]]; then
-  chrome_pid="$(bun -e 'const m=JSON.parse(await Bun.file(process.argv[1]).text()); process.stdout.write(String(m.pid??""))' "$RUNS_DIR/$RUN_ID/chrome.json" 2>/dev/null || true)"
-  if [[ "$chrome_pid" =~ ^[1-9][0-9]*$ ]]; then
-    kill_ours "$chrome_pid" "remote-debugging-port"
-  fi
-fi
+close_browser
+"$SKILL_DIR/helpers/local-convex.sh" stop || true
 DIST_DIR=""
 if [[ -f "$RUNS_DIR/$RUN_ID/dist" ]]; then
   DIST_DIR="$(cat "$RUNS_DIR/$RUN_ID/dist")"
@@ -88,6 +84,10 @@ rm -f "$RUNS_DIR/$RUN_ID/pid" "$RUNS_DIR/$RUN_ID/port" "$RUNS_DIR/$RUN_ID/url" "
 if [[ -f "$RUNS_DIR/$RUN_ID/log" ]]; then
   mkdir -p "$EVIDENCE_DIR"
   cp "$RUNS_DIR/$RUN_ID/log" "$EVIDENCE_DIR/server.log" 2>/dev/null || true
+fi
+if [[ -f "$RUNS_DIR/$RUN_ID/convex.log" ]]; then
+  mkdir -p "$EVIDENCE_DIR"
+  cp "$RUNS_DIR/$RUN_ID/convex.log" "$EVIDENCE_DIR/convex.log" 2>/dev/null || true
 fi
 rm -rf "$RUNS_DIR/$RUN_ID"
 

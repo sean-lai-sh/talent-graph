@@ -11,20 +11,20 @@ Scoring, dashboard text, and spec drift are not this map. Use `.cursor/skills/ve
 - Drive only that URL. Never attach to `http://127.0.0.1:3000` unless doctor says this run owns it.
 - Viewport width ≥ 1280 so the `Applicants` region is visible.
 - Start from the seed: refresh `/demo` or choose `Reset to seed` after any mutation. Doctor must have already proven `/demo` is the seed board.
-- Do not sign in. `/club` is in scope only as a redirect to `/login`.
+- Do not sign in during the public recipes. The signed-in recipe (`signed-in.md`) is the only one that submits `/login`, and only as `admin@example.com` and `member@example.com` on the anonymous backend doctor named.
 
 ## Driving conventions
 
 - Start every recipe from the baseline state unless its preconditions say otherwise.
 - Prefer ARIA roles and accessible names over CSS selectors or DOM position.
 - Treat every command as literal. Keep quoted names unchanged.
-- Run browser actions through cursor-ide-browser against the doctor URL.
+- Run browser actions through `agent-browser --session verify-club` against the doctor URL. The walk is foreground-only and ends with `agent-browser --session verify-club close`.
 - After a mutation, restore the seed. Do not remove proof artifacts during cleanup.
 
 ## Proof and skip reporting
 
 - Capture the user action and the resulting state, not only the final screen.
-- UI proof includes an accessibility snapshot and a screenshot with Club identity visible (`Tech@NYU` or the case heading).
+- UI proof includes an `agent-browser snapshot` (accessibility tree with `@eN` refs) and a screenshot with Club identity visible (`Tech@NYU`, `Council`, `Forum`, or the case heading).
 - Mutation proof includes a second user-facing view of the change (list group, status kicker, search).
 - Record the feature ID and entry point (`/demo` or `/example` redirect) with every artifact.
 - Report an unreachable path with the attempted control and the unmet precondition.
@@ -36,7 +36,7 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 
 1. `Sub-features` lists short IDs with one line for each behavior.
 2. `How to get to it (user POV)` lists every user entry point.
-3. `Driving it with cursor-ide-browser` starts with `Preconditions:` and uses labeled bullets that pair each user action with an exact command and observable result.
+3. `Driving it with agent-browser` starts with `Preconditions:` and uses labeled bullets that pair each user action with an exact command and observable result.
 4. `Gotchas` lists traps that can waste or invalidate a verification run.
 
 Keep implementation details out of the map. Name only user paths, stable handles, required state, commands, and observable proof.
@@ -51,3 +51,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Login door](./login-door.md) covers the chips `/login` form, the `/club` redirect, `/info` login, and that `/` and `/demo` stay public.
 - [Comparisons](./comparisons.md) covers the per-trait record sheet on a case.
 - [Info](./info.md) covers the underlined `info` on `/` and the `/info` note.
+- [Signed-in club](./signed-in.md) covers the synthetic admin council board and the synthetic member portal.

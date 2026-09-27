@@ -42,6 +42,16 @@ printf '%s\n' "$VERIFY_CLUB_HOST" >"$RUN_DIR/host"
 cp "$REPO_ROOT/apps/club/tsconfig.json" "$RUN_DIR/tsconfig.pre.json"
 echo "$RUN_ID" >"$CURRENT_FILE"
 
+if ! "$SKILL_DIR/helpers/local-convex.sh" start; then
+  echo "verify-club: local convex failed; keeping evidence and dropping the run" >&2
+  if [[ -f "$RUN_DIR/convex.log" ]]; then
+    cp "$RUN_DIR/convex.log" "$EVIDENCE_DIR/convex.log" 2>/dev/null || true
+  fi
+  rm -f "$CURRENT_FILE"
+  rm -rf "$RUN_DIR"
+  exit 1
+fi
+
 # Isolated distDir so we do not share apps/club/.next with developer next dev.
 # next start + typed routes fails typecheck on a custom distDir; next dev works.
 # WATCHPACK_POLLING avoids EMFILE when another Next is already watching the repo.
@@ -51,7 +61,12 @@ echo "verify-club: next dev on $URL (dist $DIST_DIR)" >&2
 nohup bash -c "
   cd \"$REPO_ROOT/apps/club\" &&
   unset TG_BT_REGULARIZATION TG_BT_MAX_ITERATIONS TG_BT_TOLERANCE \
-    TG_MIN_COMPARISONS TG_MIN_OPPONENTS TG_TOP_K_REFERRALS &&
+    TG_MIN_COMPARISONS TG_MIN_OPPONENTS TG_TOP_K_REFERRALS \
+    CONVEX_DEPLOY_KEY &&
+  export CONVEX_DEPLOYMENT=anonymous:anonymous-agent &&
+  export NEXT_PUBLIC_CONVEX_URL=http://127.0.0.1:3210 &&
+  export NEXT_PUBLIC_CONVEX_SITE_URL=http://verify-club.convex.site &&
+  export NEXT_PUBLIC_SITE_URL=\"$URL\" &&
   exec env NEXT_DIST_DIR=\"$DIST_DIR\" WATCHPACK_POLLING=true CHOKIDAR_USEPOLLING=true \
     bun run dev -- -p \"$VERIFY_CLUB_PORT\"
 " >"$RUN_DIR/log" 2>&1 &
