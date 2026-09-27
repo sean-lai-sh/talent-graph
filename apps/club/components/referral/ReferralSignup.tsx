@@ -180,6 +180,7 @@ export function ReferralSignup({
           <Input
             type="file"
             accept="application/pdf"
+            className="cursor-pointer py-[2px] text-muted file:mr-3 file:h-7 file:cursor-pointer file:rounded-md file:border file:border-line-strong file:bg-raised file:px-2.5 file:text-xs file:font-medium file:text-ink hover:file:bg-subtle"
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           />
         </Field>
