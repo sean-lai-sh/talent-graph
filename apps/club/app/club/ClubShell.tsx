@@ -8,6 +8,7 @@ import { MEMBER_HOME } from "@/lib/clubRole.ts";
 import { convexConfigured } from "@/lib/convexEnv";
 import { clubLoginHref, SIGN_OUT_HREF } from "@/lib/loginReturnPath.ts";
 import { api } from "../../convex/_generated/api";
+import { MemberHome } from "../members/MemberHome";
 import { PersistedClub } from "./PersistedClub";
 
 /**
@@ -15,7 +16,8 @@ import { PersistedClub } from "./PersistedClub";
  * Unauthenticated visitors go to `/login` — never the seed board
  * and never PersistedClub. `/demo` is the hidden public seed.
  * Only marked admin accounts stay on the council board.
- * Everyone else is sent to the member forum at `/members`.
+ * The server page redirects a known non-admin before this renders.
+ * This check still runs when that role read fails.
  */
 export function ClubShell() {
   const configured = convexConfigured();
@@ -64,7 +66,9 @@ function ClubSignedIn() {
   }
 
   return (
-    <PersistedClub
+    <MemberHome
+      clubRole="admin"
+      council={<PersistedClub />}
       onSignOut={() => {
         void authClient.signOut().then(() => {
           router.replace(SIGN_OUT_HREF);
