@@ -1,9 +1,14 @@
 import type { JevClaimQuestionsV11 } from "../apps/club/lib/longitudinal/jevClient.ts";
 import { claimQuestionsV11, createJevClient } from "../apps/club/lib/longitudinal/jevClient.ts";
-import { preprocessClaims } from "../src/longitudinal/claimPreprocess.ts";
+import {
+  type AtomicClaim,
+  preprocessClaims,
+  selectionOutputHalves,
+} from "../src/longitudinal/claimPreprocess.ts";
 import {
   type ClaimRubricState,
   claimRubricRequest,
+  halfClaim,
   parseClaimRubricResponse,
   type ScoredClaimV11,
   scoreClaimRubric,
@@ -296,7 +301,7 @@ async function judgeItem(
   let invariant = 0;
   const models: string[] = [];
 
-  for (const claim of atomic) {
+  async function ask(claim: AtomicClaim): Promise<Attempt> {
     const request = claimRubricRequest(spec, claim, "resume");
     calls += 1;
     const attempt: Attempt = {
@@ -325,19 +330,45 @@ async function judgeItem(
       if (outcome === "invariant") invariant += 1;
       else unavailable += 1;
     }
-    attempts.push(attempt);
+    return attempt;
   }
 
-  const scored = scoreAttempts(item.statement, item.id, spec, atomic.length > 1, attempts);
+  for (const claim of atomic) {
+    attempts.push(await ask(claim));
+  }
+  const parent = atomic[0];
+  const first = attempts[0];
+  if (!splitterSplit && parent && first?.answered) {
+    const parsed = parseClaimRubricResponse(first.answered.answers);
+    if (
+      parsed.claim_class.choice === "both" &&
+      parsed.claim_class.confidence < spec.thresholds.classConfidence
+    ) {
+      const halves = selectionOutputHalves(parent.text);
+      if (halves) {
+        attempts.push(await ask(halfClaim(parent, halves[0], "selection")));
+        attempts.push(await ask(halfClaim(parent, halves[1], "output")));
+      }
+    }
+  }
+
+  const scored = scoreAttempts(item.statement, item.id, spec, splitterSplit, attempts);
   const rows: V11Row[] = [];
   for (const attempt of attempts) {
     if (attempt.failure !== null) {
       rows.push(failedRow(item, attempt, attempt.failure, stamped));
       continue;
     }
-    const claimRows = scored.filter((claim) => atomicId(claim, splitterSplit) === attempt.id);
+    const claimRows = scored.filter((claim) => claim.text === attempt.text);
     const answer = attempt.answered;
-    if (answer === null || claimRows.length === 0) {
+    if (answer === null) {
+      throw new Error(`claim ${attempt.id} was not scored`);
+    }
+    if (claimRows.length === 0) {
+      const superseded = scored.some(
+        (claim) => claim.statement === attempt.text && claim.text !== attempt.text,
+      );
+      if (superseded) continue;
       throw new Error(`claim ${attempt.id} was not scored`);
     }
     for (const claim of claimRows) {
@@ -371,6 +402,8 @@ function scoreAttempts(
     spec,
   );
   return scored.filter((claim) => {
+    const byText = attempts.find((entry) => entry.text === claim.text);
+    if (byText) return byText.answered !== null;
     const attempt = attempts.find((entry) => entry.id === atomicId(claim, splitterSplit));
     return attempt?.answered !== null && attempt !== undefined;
   });

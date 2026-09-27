@@ -124,8 +124,11 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   inclusive upper bounds, strictest first. At most 0.01 is level 4, at most
   0.05 is level 3, at most 0.20 is level 2, at most 0.50 is level 1, and a
   higher rate is level 0. `preprocessClaims` runs first. A bullet it leaves
-  whole and the model calls `both` becomes two claims that share `parentId`.
-  A bullet the splitter already divided is not divided again. The verb tier
+  whole and the model calls `both` at or above the class cutoff becomes two
+  claims that share `parentId` and the original text. Below the cutoff, that
+  bullet is split into a selection half and an output half and each half is
+  scored on its own. A bullet the splitter already divided is not divided
+  again. The verb tier
   seeds ownership. `led` stays `led`, `built` becomes `core_contributor`, and
   `contributed` becomes `supporting`. The seed is on the prompt as
   `ownership_seed`. It does not replace the model's distribution. Review

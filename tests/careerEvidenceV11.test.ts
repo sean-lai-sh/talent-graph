@@ -258,7 +258,7 @@ describe("class scoring", () => {
   });
 
   test("a mixed claim the splitter left whole comes back as two linked claims", () => {
-    const statement = "Won 1 of 400 for building the Northwind routing service.";
+    const statement = "Won 1 of 400 with the Northwind routing service behind it.";
     let calls = 0;
     const claims = score(
       statement,
@@ -357,6 +357,38 @@ describe("class scoring", () => {
     expect(claims.map((claim) => claim.reviewReasons)).toEqual([[], []]);
     expect(claims.every((claim) => claim.statement === statement)).toBe(true);
     expect(claims.every((claim) => claim.parentId === "fellow")).toBe(true);
+  });
+
+  test("both at the class cutoff keeps one response and the original text", () => {
+    const statement = "Admitted to the Northwind fellowship and kept the lab notes.";
+    let calls = 0;
+    const claims = score(statement, () => {
+      calls += 1;
+      return answer({
+        choice: "both",
+        classConfidence: 0.65,
+        probabilities: { selection: 0.2, output: 0.1, both: 0.7 },
+      });
+    });
+    expect(calls).toBe(1);
+    expect(claims.map((claim) => claim.text)).toEqual([statement, statement]);
+    expect(claims.map((claim) => claim.status)).toEqual(["accepted", "accepted"]);
+  });
+
+  test("both below the cutoff with no separable half still reviews", () => {
+    const statement = "Admitted to the Northwind fellowship.";
+    const claims = score(statement, () =>
+      answer({
+        choice: "both",
+        classConfidence: 0.32,
+        probabilities: { selection: 0.4, output: 0.28, both: 0.32 },
+      }),
+    );
+    expect(claims.map((claim) => claim.text)).toEqual([statement, statement]);
+    expect(claims.map((claim) => claim.reviewReasons)).toEqual([
+      ["class_low_confidence"],
+      ["class_low_confidence"],
+    ]);
   });
 });
 

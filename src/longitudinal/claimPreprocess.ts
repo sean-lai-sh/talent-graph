@@ -46,11 +46,16 @@ export interface AtomicClaim {
 
 const NUM = String.raw`\$?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?[kK]?\+?`;
 const NUMBER = String.raw`(?<![\w.])(${NUM})(?![\w])`;
+const BETWEEN = String.raw`(?:\s+[A-Za-z][A-Za-z'-]*){0,2}`;
 const TIME_UNIT = "milliseconds?|seconds?|minutes?|hours?|days?|secs?|mins?|hrs?|ms|sec|min|hr|s";
 const QTY = String.raw`(?<![\w.])([+-])?\s*(${NUM})\s*(%|${TIME_UNIT})(?![A-Za-z])`;
 
 const OUTPUT_VERB =
   /\b(?:led|owned|founded|built|developed|designed|contributed|assisted|helped|shipped|launched|created|worked\s+under)\b/i;
+
+const WORK_GERUNDS =
+  "building|creating|developing|designing|leading|shipping|launching|conducting|completing";
+const WORK_GERUND = new RegExp(`^(?:${WORK_GERUNDS})\\b`, "i");
 
 const SECONDS: Readonly<Record<string, number>> = {
   ms: 0.001,
@@ -209,8 +214,18 @@ function hasSelectionWording(text: string): boolean {
   );
 }
 
+function hasAwardCue(text: string): boolean {
+  return (
+    /\bwinners?\b/i.test(text) ||
+    /\bfinalists?\b/i.test(text) ||
+    /\bcompetitions?\b/i.test(text) ||
+    /\bawards?\b(?!-)/i.test(text) ||
+    /\bplaced\b(?!\s+(?:the|a|an)\b)/i.test(text)
+  );
+}
+
 function hasSelectionContext(text: string, end: number): boolean {
-  return POOL_NOUN.test(text.slice(end)) || hasSelectionWording(text);
+  return POOL_NOUN.test(text.slice(end)) || hasSelectionWording(text) || hasAwardCue(text);
 }
 
 function isYearToken(raw: string): boolean {
@@ -238,11 +253,11 @@ function extractSelections(text: string): { values: SelectionRatio[]; consumed: 
 
   const paired: { pattern: RegExp; slash: boolean }[] = [
     {
-      pattern: new RegExp(String.raw`${NUMBER}\s+out\s+of\s+(?:the\s+)?${NUMBER}`, "gi"),
+      pattern: new RegExp(String.raw`${NUMBER}${BETWEEN}\s+out\s+of\s+(?:the\s+)?${NUMBER}`, "gi"),
       slash: false,
     },
     {
-      pattern: new RegExp(String.raw`${NUMBER}\s+of\s+(?:the\s+)?${NUMBER}`, "gi"),
+      pattern: new RegExp(String.raw`${NUMBER}${BETWEEN}\s+of\s+(?:the\s+)?${NUMBER}`, "gi"),
       slash: false,
     },
     {
@@ -489,7 +504,7 @@ function isSelectionClause(clause: string): boolean {
 }
 
 function clauseClass(clause: string): ClauseKind {
-  const role = OUTPUT_VERB.test(clause);
+  const role = OUTPUT_VERB.test(clause) || WORK_GERUND.test(clause.trim());
   const selection = isSelectionClause(clause);
   if (role && selection) return "both";
   if (role) return "role";
@@ -595,7 +610,10 @@ function glueOthers(statement: string, parts: readonly string[]): string[] | nul
 }
 
 function conjunctionParts(statement: string): string[] | null {
-  const pattern = /\s+and\s+|\s+to\s+(?=win\b|place\b|earn\b)/gi;
+  const pattern = new RegExp(
+    String.raw`\s+and\s+|\s+to\s+(?=win\b|place\b|earn\b)|\s+(?:for|by|after)\s+(?=(?:${WORK_GERUNDS})\b)`,
+    "gi",
+  );
   const matches = [...statement.matchAll(pattern)];
   for (let index = matches.length - 1; index >= 0; index--) {
     const match = matches[index];
@@ -604,6 +622,26 @@ function conjunctionParts(statement: string): string[] | null {
     const right = statement.slice(match.index + match[0].length).trim();
     if (left.length === 0 || right.length === 0) continue;
     if (canSplit([left, right])) return [left, right];
+  }
+  return null;
+}
+
+export function selectionOutputHalves(statement: string): readonly [string, string] | null {
+  const pattern = /\s+and\s+|\s+to\s+(?=win\b|place\b|earn\b)|\s+(?:for|by|after)\s+/gi;
+  const matches = [...statement.matchAll(pattern)];
+  for (let index = matches.length - 1; index >= 0; index--) {
+    const match = matches[index];
+    if (match?.index === undefined) continue;
+    const left = statement.slice(0, match.index).trim();
+    const right = statement.slice(match.index + match[0].length).trim();
+    if (left.length === 0 || right.length === 0) continue;
+    if (splitStatement(left).length > 1 || splitStatement(right).length > 1) continue;
+    const leftSelection = clauseClass(left) === "selection" || clauseClass(left) === "both";
+    const rightSelection = clauseClass(right) === "selection" || clauseClass(right) === "both";
+    if (leftSelection === rightSelection) continue;
+    const selection = leftSelection ? left : right;
+    const output = leftSelection ? right : left;
+    return [selection, output];
   }
   return null;
 }

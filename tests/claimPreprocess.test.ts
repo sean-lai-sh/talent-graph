@@ -73,7 +73,9 @@ describe("selection ratios", () => {
   });
 
   test("an award or competition line keeps a ratio that has no pool noun", () => {
-    const ratio = [{ kind: "ratio", selected: 1, pool: 400, rate: 1 / 400, poolLowerBound: false }];
+    const ratio = [
+      { kind: "ratio" as const, selected: 1, pool: 400, rate: 1 / 400, poolLowerBound: false },
+    ];
     expect(factsOf("Award recipient, 1 of 400.").selections).toEqual(ratio);
     expect(factsOf("Innovation Award, 1 of 400.").selections).toEqual(ratio);
     expect(factsOf("Winner, 1 of 400.").selections).toEqual(ratio);
