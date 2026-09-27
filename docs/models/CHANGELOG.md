@@ -111,6 +111,41 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   pipeline stamps on events)
 - **PR:** #54 T5.
 
+## career_evidence@1.1.0 — selection and output classes
+
+- **What:** A second career-evidence rubric, `CAREER_EVIDENCE_V1_1_0`, registered
+  beside `1.0.0`. `CURRENT_SPECS.career_evidence` stays `1.0.0`, and the 1.0.0
+  question set, wire payload, and fixture are unchanged. `1.1.0` asks five
+  questions. `claim_class` chooses `selection`, `output`, or `both`. Selection
+  is scored on `selectivity`. Output is scored on `difficulty` and
+  `generalized_impact` (the old `external_impact`). Ownership is a choice
+  among `led`, `core_contributor`, and `supporting`, not a 0–4 dimension.
+  Originality and peer validation are not questions. Selectivity cuts are
+  inclusive upper bounds, strictest first. At most 0.01 is level 4, at most
+  0.05 is level 3, at most 0.20 is level 2, at most 0.50 is level 1, and a
+  higher rate is level 0. `preprocessClaims` runs first. A bullet it leaves
+  whole and the model calls `both` becomes two claims that share `parentId`.
+  A bullet the splitter already divided is not divided again. The verb tier
+  seeds ownership. `led` stays `led`, `built` becomes `core_contributor`, and
+  `contributed` becomes `supporting`. The seed is on the prompt as
+  `ownership_seed`. It does not replace the model's distribution. Review
+  fires when class confidence is below 0.65, or when a dimension of the
+  chosen class is below 0.5. Ownership confidence does not review. The other
+  class's dimensions do not review. Every scored claim carries `rubricId`
+  `career_evidence@1.1.0` and `rubricHash`
+  `60dadea6eae5cd8e3a0a552941ab30ef5cc12bde0f1346ab4d65ed6a78ab689c`.
+  `careerEvidenceV11RubricHash` fingerprints the class text, the anchors, the
+  ownership tiers, the cuts, and the model. Thresholds stay outside the hash,
+  as they do for 1.0.0.
+- **Why:** On the 1.0.0 baseline, accepted resume claims were mostly selective
+  roles, and peer validation sat near 0 because a resume is a self-report.
+  Role bullets were also split across event kinds and sent to review for
+  `event_low_confidence`. Class replaces that event-kind gate. Scores are not
+  combined here.
+- **Drift:** n/a (rubric-only kind; `CURRENT_SPECS` did not move, and this
+  spec produces no pipeline number)
+- **PR:** #85, stacked on SEA-36 (PR #84).
+
 ## Run id format
 
 Run ids are not spec versions: this section records changes to the format of

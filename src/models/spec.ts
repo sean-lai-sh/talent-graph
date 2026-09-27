@@ -136,11 +136,41 @@ export interface CareerEvidenceSpec {
   };
 }
 
+/** Five anchored levels. Index is the level, from 0 through 4. */
+export type CareerEvidenceLevelText = readonly [string, string, string, string, string];
+
+export interface CareerEvidenceV11Spec {
+  kind: "career_evidence";
+  version: "1.1.0";
+  model: string;
+  claimClass: {
+    question: string;
+    selection: string;
+    output: string;
+    both: string;
+  };
+  selectivity: { question: string; levels: CareerEvidenceLevelText };
+  difficulty: { question: string; levels: CareerEvidenceLevelText };
+  generalized_impact: { question: string; levels: CareerEvidenceLevelText };
+  ownership: {
+    question: string;
+    led: string;
+    core_contributor: string;
+    supporting: string;
+  };
+  selectivityCuts: readonly { maxRate: number; level: 1 | 2 | 3 | 4 }[];
+  thresholds: {
+    classConfidence: number;
+    dimensionConfidence: number;
+  };
+}
+
 export type ModelSpec =
   | ReferralSignalSpec
   | BradleyTerrySpec
   | JudgeReliabilitySpec
-  | CareerEvidenceSpec;
+  | CareerEvidenceSpec
+  | CareerEvidenceV11Spec;
 
 export type ModelSpecKind = ModelSpec["kind"];
 
@@ -369,6 +399,118 @@ function validateCareerEvidenceQuestions(spec: CareerEvidenceSpec, errors: strin
   }
 }
 
+const V11_LEVEL_KEYS = ["selectivity", "difficulty", "generalized_impact"] as const;
+const V11_CUT_LEVELS = [4, 3, 2, 1] as const;
+const V11_OWNERSHIP_KEYS = ["question", "led", "core_contributor", "supporting"] as const;
+const V11_CLASS_KEYS = ["question", "selection", "output", "both"] as const;
+const V11_BANNED_KEYS = [
+  "levels",
+  "questions",
+  "eventCriteria",
+  "peer_validation",
+  "originality",
+  "external_impact",
+] as const;
+
+function validateCareerEvidenceV11Spec(spec: CareerEvidenceV11Spec, errors: string[]): void {
+  const raw = spec as unknown as Record<string, unknown>;
+  if (spec.version !== "1.1.0") errors.push('version must be "1.1.0"');
+  if (!isNonEmptyString(spec.model)) errors.push("model must be a non-empty string");
+  for (const key of V11_BANNED_KEYS) {
+    if (key in raw) errors.push(`${key} is not part of career_evidence@1.1.0`);
+  }
+
+  const claimClass = raw.claimClass as Record<string, unknown> | null | undefined;
+  if (claimClass === null || typeof claimClass !== "object") {
+    errors.push("claimClass must be an object");
+  } else {
+    for (const key of V11_CLASS_KEYS) {
+      if (!isNonEmptyString(claimClass[key])) {
+        errors.push(`claimClass.${key} must be a non-empty string`);
+      }
+    }
+  }
+
+  for (const key of V11_LEVEL_KEYS) {
+    const dimension = raw[key] as Record<string, unknown> | null | undefined;
+    if (dimension === null || typeof dimension !== "object") {
+      errors.push(`${key} must be an object with a question and 5 levels`);
+      continue;
+    }
+    if (!isNonEmptyString(dimension.question)) {
+      errors.push(`${key}.question must be a non-empty string`);
+    }
+    const levels = dimension.levels;
+    if (!Array.isArray(levels) || levels.length !== MAX_LEVEL + 1) {
+      errors.push(`${key}.levels must have ${MAX_LEVEL + 1} entries (0..${MAX_LEVEL})`);
+    } else if (!levels.every(isNonEmptyString)) {
+      errors.push(`${key}.levels descriptions must be non-empty strings`);
+    }
+  }
+
+  const ownership = raw.ownership as Record<string, unknown> | null | undefined;
+  if (ownership === null || typeof ownership !== "object") {
+    errors.push("ownership must be an object");
+  } else {
+    for (const key of V11_OWNERSHIP_KEYS) {
+      if (!isNonEmptyString(ownership[key])) {
+        errors.push(`ownership.${key} must be a non-empty string`);
+      }
+    }
+    for (const key of Object.keys(ownership)) {
+      if (!(V11_OWNERSHIP_KEYS as readonly string[]).includes(key)) {
+        errors.push(`unknown ownership field: ${key}`);
+      }
+    }
+  }
+
+  const cuts = raw.selectivityCuts;
+  if (!Array.isArray(cuts) || cuts.length !== V11_CUT_LEVELS.length) {
+    errors.push("selectivityCuts must be four inclusive upper bounds, for levels 4, 3, 2, 1");
+  } else {
+    let previousRate = 0;
+    for (let index = 0; index < cuts.length; index++) {
+      const cut = cuts[index] as { maxRate?: unknown; level?: unknown } | null;
+      const level = V11_CUT_LEVELS[index];
+      if (cut === null || typeof cut !== "object") {
+        errors.push(`selectivityCuts[${index}] must be an object`);
+        continue;
+      }
+      if (!isFiniteNumber(cut.maxRate) || cut.maxRate <= 0 || cut.maxRate > 1) {
+        errors.push(`selectivityCuts[${index}].maxRate must be in (0, 1]`);
+      } else if (cut.maxRate <= previousRate) {
+        errors.push(
+          "selectivityCuts maxRate values must be strictly increasing, strictest band first",
+        );
+      } else {
+        previousRate = cut.maxRate;
+      }
+      if (cut.level !== level) {
+        errors.push(`selectivityCuts[${index}].level must be ${level}`);
+      }
+    }
+  }
+
+  const thresholds = raw.thresholds as Record<string, unknown> | null | undefined;
+  if (thresholds === null || typeof thresholds !== "object") {
+    errors.push("thresholds must be an object");
+  } else {
+    for (const key of ["classConfidence", "dimensionConfidence"] as const) {
+      const value = thresholds[key];
+      if (!isFiniteNumber(value)) errors.push(`thresholds.${key} must be a finite number`);
+      else if (value < 0 || value > 1) {
+        errors.push(`thresholds.${key} must be in [0, 1] (got ${value})`);
+      }
+    }
+  }
+}
+
+function isCareerEvidenceV11(
+  spec: CareerEvidenceSpec | CareerEvidenceV11Spec,
+): spec is CareerEvidenceV11Spec {
+  return "selectivityCuts" in spec;
+}
+
 function validateCareerEvidenceSpec(spec: CareerEvidenceSpec, errors: string[]): void {
   if (!isNonEmptyString(spec.model)) errors.push("model must be a non-empty string");
 
@@ -423,7 +565,8 @@ export function validateSpec(spec: ModelSpec): SpecValidationResult {
       validateJudgeReliabilitySpec(spec, errors);
       break;
     case "career_evidence":
-      validateCareerEvidenceSpec(spec, errors);
+      if (isCareerEvidenceV11(spec)) validateCareerEvidenceV11Spec(spec, errors);
+      else validateCareerEvidenceSpec(spec, errors);
       break;
     default:
       errors.push(`unknown spec kind: ${String((spec as ModelSpec).kind)}`);

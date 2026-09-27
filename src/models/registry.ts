@@ -10,6 +10,7 @@
 
 import { EVIDENCE_MULTIPLIER, REFERRAL_WEIGHTS } from "../domain/constants.ts";
 import { CAREER_EVIDENCE_V1_0_0 } from "./careerEvidence.ts";
+import { CAREER_EVIDENCE_V1_1_0 } from "./careerEvidenceV11.ts";
 import { deepFreeze } from "./freeze.ts";
 import {
   type BradleyTerrySpec,
@@ -80,6 +81,7 @@ export const SPEC_HISTORY: readonly ModelSpec[] = deepFreeze([
   BRADLEY_TERRY_V1_0_0,
   JUDGE_RELIABILITY_V2_0_0,
   CAREER_EVIDENCE_V1_0_0,
+  CAREER_EVIDENCE_V1_1_0,
 ]);
 
 /** The version used when a caller does not pass a spec explicitly. */
