@@ -15,6 +15,11 @@ const SIZES: Record<ButtonSize, string> = {
   md: "h-8 px-3 text-sm",
 };
 
+/** Button chrome for an element that cannot be a `<button>`, such as a file picker's label. */
+export function buttonClass(variant: ButtonVariant = "secondary", size: ButtonSize = "md"): string {
+  return `press inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md border font-medium disabled:cursor-not-allowed disabled:opacity-40 ${VARIANTS[variant]} ${SIZES[size]}`;
+}
+
 export function Button({
   variant = "secondary",
   size = "md",
@@ -27,11 +32,7 @@ export function Button({
   children: ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      {...rest}
-      className={`press inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md border font-medium disabled:cursor-not-allowed disabled:opacity-40 ${VARIANTS[variant]} ${SIZES[size]} ${className}`}
-    >
+    <button type="button" {...rest} className={`${buttonClass(variant, size)} ${className}`}>
       {children}
     </button>
   );

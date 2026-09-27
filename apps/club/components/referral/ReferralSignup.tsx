@@ -2,7 +2,7 @@
 
 import { useConvex, useMutation } from "convex/react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import {
@@ -14,7 +14,7 @@ import {
   parseContact,
   planSignup,
 } from "../../lib/referralSignup.ts";
-import { Button, EmptyState, Field, Input } from "../ui/index.ts";
+import { Button, buttonClass, EmptyState, Field, Input } from "../ui/index.ts";
 
 type Step =
   | { kind: "contact" }
@@ -177,12 +177,7 @@ export function ReferralSignup({
           <Input value={github} onChange={(event) => setGithub(event.target.value)} />
         </Field>
         <Field label="Resume" hint="PDF up to 5 MB. Required if you do not add LinkedIn or X.">
-          <Input
-            type="file"
-            accept="application/pdf"
-            className="cursor-pointer py-[2px] text-muted file:mr-3 file:h-7 file:cursor-pointer file:rounded-md file:border file:border-line-strong file:bg-raised file:px-2.5 file:text-xs file:font-medium file:text-ink hover:file:bg-subtle"
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-          />
+          <ResumePicker file={file} onChange={setFile} />
         </Field>
         {alert}
         <div className="flex justify-end gap-2">
@@ -256,6 +251,61 @@ export function ReferralSignup({
         </Button>
       </div>
     </form>
+  );
+}
+
+function fileSize(bytes: number): string {
+  return bytes < 1024 * 1024
+    ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+    : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Renders inside `Field`'s `<label>`, which opens the hidden file input on
+ * click. The input stays focusable, so the visible button takes its focus ring.
+ */
+function ResumePicker({
+  file,
+  onChange,
+}: {
+  file: File | null;
+  onChange: (file: File | null) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <span className="flex min-h-8 items-center gap-3">
+      <input
+        ref={input}
+        type="file"
+        accept="application/pdf"
+        className="peer sr-only"
+        onChange={(event) => onChange(event.target.files?.[0] ?? null)}
+      />
+      <span
+        className={`${buttonClass("secondary")} cursor-pointer peer-focus-visible:shadow-[var(--focus-ring)]`}
+      >
+        {file ? "Replace" : "Choose PDF"}
+      </span>
+      {file ? (
+        <>
+          <span className="min-w-0 truncate text-sm text-ink" title={file.name}>
+            {file.name}
+          </span>
+          <span className="shrink-0 text-xs text-muted tabular-nums">{fileSize(file.size)}</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto"
+            onClick={() => {
+              if (input.current) input.current.value = "";
+              onChange(null);
+            }}
+          >
+            Remove
+          </Button>
+        </>
+      ) : null}
+    </span>
   );
 }
 
