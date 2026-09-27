@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import {
   createJevClient,
   createJevJudgmentService,
@@ -24,7 +24,17 @@ import { JudgmentInvariantError } from "../src/longitudinal/records.ts";
 import { decideStatus } from "../src/longitudinal/stages.ts";
 import type { ClaimStatus, GrokEvidenceItem, ReviewReason } from "../src/longitudinal/types.ts";
 import { CAREER_EVIDENCE_V1_0_0, careerEvidenceRubricHash } from "../src/models/careerEvidence.ts";
+import { CAREER_EVIDENCE_V1_1_0 } from "../src/models/careerEvidenceV11.ts";
 import { type CareerEvidenceSpec, specId } from "../src/models/spec.ts";
+import {
+  liveV11Client,
+  renderV11Jsonl,
+  renderV11Summary,
+  runV11ClaimSmoke,
+  V11_JSONL_NAME,
+  V11_SUMMARY_NAME,
+  type V11JevClient,
+} from "./jev-claim-smoke-v11.ts";
 
 export const SOURCE_URL_PLACEHOLDER = "https://example.invalid/resume-source-placeholder";
 
@@ -541,18 +551,21 @@ function rubricFor(name: string | undefined): CareerEvidenceSpec {
 }
 
 const USAGE =
-  "usage: bun run scripts/jev-claim-smoke.ts --items <path> --jsonl <path> --summary <path> [--spec career_evidence@1.0.0]";
+  "usage: bun run scripts/jev-claim-smoke.ts --items <path> (--jsonl <path> --summary <path> | --out <dir>) [--spec career_evidence@1.0.0] [--rubric career_evidence@1.0.0|career_evidence@1.1.0]";
+
+const FLAGS = new Set<string>(["--items", "--jsonl", "--summary", "--spec", "--rubric", "--out"]);
 
 function parseArgs(argv: readonly string[]): {
   items: string;
   jsonl: string;
   summary: string;
   spec: string | undefined;
+  rubric: string | undefined;
 } {
   const values = new Map<string, string>();
   for (let index = 0; index < argv.length; index++) {
     const flag = argv[index];
-    if (flag !== "--items" && flag !== "--jsonl" && flag !== "--summary" && flag !== "--spec") {
+    if (flag === undefined || !FLAGS.has(flag)) {
       throw new Error(`unknown argument ${flag ?? ""}`);
     }
     const value = argv[index + 1];
@@ -561,16 +574,56 @@ function parseArgs(argv: readonly string[]): {
     index += 1;
   }
   const items = values.get("--items");
-  const jsonl = values.get("--jsonl");
-  const summary = values.get("--summary");
-  if (items === undefined || jsonl === undefined || summary === undefined) {
-    throw new Error(USAGE);
-  }
-  return { items, jsonl, summary, spec: values.get("--spec") };
+  const out = values.get("--out");
+  const jsonl =
+    values.get("--jsonl") ?? (out === undefined ? undefined : join(out, V11_JSONL_NAME));
+  const summary =
+    values.get("--summary") ?? (out === undefined ? undefined : join(out, V11_SUMMARY_NAME));
+  if (items === undefined || jsonl === undefined || summary === undefined) throw new Error(USAGE);
+  return { items, jsonl, summary, spec: values.get("--spec"), rubric: values.get("--rubric") };
 }
 
-export async function main(argv: readonly string[], service?: JevJudgmentService): Promise<number> {
+function rubricMode(specFlag: string | undefined, rubricFlag: string | undefined): "v10" | "v11" {
+  if (rubricFlag === undefined) {
+    rubricFor(specFlag);
+    return "v10";
+  }
+  const v11 =
+    rubricFlag === specId(CAREER_EVIDENCE_V1_1_0) || rubricFlag === "CAREER_EVIDENCE_V1_1_0";
+  const v10 =
+    rubricFlag === specId(CAREER_EVIDENCE_V1_0_0) || rubricFlag === "CAREER_EVIDENCE_V1_0_0";
+  if (!v11 && !v10) throw new Error(`unknown rubric ${rubricFlag}`);
+  if (v10) {
+    rubricFor(specFlag);
+    return "v10";
+  }
+  if (
+    specFlag !== undefined &&
+    specFlag !== specId(CAREER_EVIDENCE_V1_1_0) &&
+    specFlag !== "CAREER_EVIDENCE_V1_1_0"
+  ) {
+    throw new Error(`rubric flags disagree: --spec ${specFlag} and --rubric ${rubricFlag}`);
+  }
+  return "v11";
+}
+
+export async function main(
+  argv: readonly string[],
+  service?: JevJudgmentService,
+  v11Client?: V11JevClient,
+): Promise<number> {
   const args = parseArgs(argv);
+  if (rubricMode(args.spec, args.rubric) === "v11") {
+    const raw: unknown = JSON.parse(await readFile(args.items, "utf8"));
+    const items = parseSmokeItems(raw);
+    if (items.length === 0) throw new Error("items file is empty");
+    const report = await runV11ClaimSmoke(items, v11Client ?? liveV11Client());
+    await mkdir(dirname(args.jsonl), { recursive: true });
+    await mkdir(dirname(args.summary), { recursive: true });
+    await writeFile(args.jsonl, renderV11Jsonl(report));
+    await writeFile(args.summary, renderV11Summary(report));
+    return report.invariant > 0 ? 1 : 0;
+  }
   const spec = rubricFor(args.spec);
   const report = await runClaimSmokeFiles({
     itemsPath: args.items,
