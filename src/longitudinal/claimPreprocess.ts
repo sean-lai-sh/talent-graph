@@ -118,8 +118,8 @@ const LEAD_IN = new Set([
 
 const METRIC_SKIP = new Set(["the", "a", "an", "of", "by", "for", "to", "in", "on", "at", "from"]);
 
-const DELTA_CUE =
-  /\b(?:improving|improved|improvement|reducing|reduced|reduction|increasing|increased|increase|decreasing|decreased|decrease)\b/i;
+const POOL_NOUN =
+  /^(?:\s+\S+){0,4}\s+(?:applicants?|applications?|entr(?:y|ies)|candidates?|teams?|participants?|submissions?|finalists?|nominees?|contestants?|fellows?|people)\b/i;
 
 interface ParsedNumber {
   value: number;
@@ -190,6 +190,29 @@ function ratio(selectedRaw: string, poolRaw: string): CountRatio | null {
   };
 }
 
+function hasSelectionWording(text: string): boolean {
+  return (
+    /\b(?:was|were|been|got)\s+selected\b/i.test(text) ||
+    /\bselected\s+(?:for|as|into|among|from)\b/i.test(text) ||
+    /\b(?:was|were|been|got)\s+chosen\b/i.test(text) ||
+    /\bchosen\s+(?:for|as|among|from)\b/i.test(text) ||
+    /\bplaced\s+(?:first|second|third|fourth|\d+(?:st|nd|rd|th))\b/i.test(text) ||
+    /\b(?:first|second|third|\d+(?:st|nd|rd|th))\s+place\b/i.test(text) ||
+    /\bearn(?:ed)?\s+(?:the\s+|an?\s+)?(?:award|fellowship|prize|scholarship|grant|medal)\b/i.test(
+      text,
+    ) ||
+    /\b(?:was|were|been)\s+admitted\b/i.test(text) ||
+    /\badmitted\s+(?:to|into)\b/i.test(text) ||
+    /\b(?:was|were|been)\s+awarded\b/i.test(text) ||
+    /\bawarded\s+(?:the|a|an)\b/i.test(text) ||
+    /\b(?:win(?!-)|won|wins)\b/i.test(text)
+  );
+}
+
+function hasSelectionContext(text: string, end: number): boolean {
+  return POOL_NOUN.test(text.slice(end)) || hasSelectionWording(text);
+}
+
 function isYearToken(raw: string): boolean {
   const body = raw.replaceAll(",", "");
   if (!/^\d{4}$/.test(body)) return false;
@@ -243,6 +266,10 @@ function extractSelections(text: string): { values: SelectionRatio[]; consumed: 
         continue;
       }
       if (entry.slash && (value.pool < 10 || value.rate > 0.5 || isYearToken(right))) {
+        blocked.push(span);
+        continue;
+      }
+      if (!hasSelectionContext(text, span.end)) {
         blocked.push(span);
         continue;
       }
@@ -352,9 +379,7 @@ function extractTeamSize(
 
 function percentIsDelta(text: string, index: number, sign: string | undefined): boolean {
   if (sign === "+" || sign === "-") return true;
-  const window = text.slice(Math.max(0, index - 48), index);
-  if (/\bby\s*$/i.test(window)) return true;
-  return DELTA_CUE.test(window);
+  return /\bby\s*$/i.test(text.slice(0, index));
 }
 
 function extractPercents(
@@ -424,6 +449,7 @@ function extractCounts(text: string, consumed: Span[]): CountFact[] {
   return absorb(hits, consumed).values;
 }
 
+// shipped, launched, and created split a role clause and leave ownership null.
 function extractOwnership(text: string): OwnershipTier | null {
   const patterns: { tier: OwnershipTier; pattern: RegExp }[] = [
     { tier: "led", pattern: /\b(?:led|owned|founded)\b/gi },
@@ -456,11 +482,10 @@ function extractFacts(text: string): ClaimFacts {
   };
 }
 
+// A ratio in selection context counts even when the clause uses none of these verbs.
 function isSelectionClause(clause: string): boolean {
   if (extractFacts(clause).selections.length > 0) return true;
-  const trimmed = clause.trim();
-  if (/^awarded\s+(?:the|a|an)\b/i.test(trimmed)) return true;
-  return /^(?:win(?!-)|won|wins)\b/i.test(trimmed);
+  return hasSelectionWording(clause);
 }
 
 function clauseClass(clause: string): ClauseKind {
@@ -512,25 +537,61 @@ function sentenceParts(statement: string): string[] | null {
   return parts.length >= 2 ? parts : null;
 }
 
-function glueOthers(parts: readonly string[]): string[] | null {
-  const classes = parts.map(clauseClass);
-  if (classes.some((kind) => kind === "both")) return null;
-  if (!classes.includes("role") || !classes.includes("selection")) return null;
-  const glued: string[] = [];
-  let leading: string[] = [];
+function locateParts(
+  statement: string,
+  parts: readonly string[],
+): { start: number; end: number }[] | null {
+  const spans: { start: number; end: number }[] = [];
+  let from = 0;
+  for (const part of parts) {
+    const start = statement.indexOf(part, from);
+    if (start < 0) return null;
+    spans.push({ start, end: start + part.length });
+    from = start + part.length;
+  }
+  return spans;
+}
+
+function glueOthers(statement: string, parts: readonly string[]): string[] | null {
+  const spans = locateParts(statement, parts);
+  if (spans === null) return null;
+  const kinds = parts.map(clauseClass);
+  if (kinds.some((kind) => kind === "both")) return null;
+  if (!kinds.includes("role") || !kinds.includes("selection")) return null;
+
+  type Group = { start: number; end: number; kind: ClauseKind };
+  const groups: Group[] = [];
+  let leading: { start: number; end: number } | null = null;
   for (let index = 0; index < parts.length; index++) {
-    const part = parts[index];
-    if (part === undefined) continue;
-    if (classes[index] === "other") {
-      if (glued.length === 0) leading.push(part);
-      else glued[glued.length - 1] = `${glued[glued.length - 1]} ${part}`.trim();
+    const span = spans[index];
+    const kind = kinds[index];
+    if (span === undefined || kind === undefined) continue;
+    if (kind === "other") {
+      if (groups.length === 0)
+        leading = leading === null ? span : { start: leading.start, end: span.end };
+      else {
+        const prev = groups[groups.length - 1];
+        if (prev) prev.end = span.end;
+      }
       continue;
     }
-    glued.push([...leading, part].join(" ").trim());
-    leading = [];
+    groups.push({ start: leading === null ? span.start : leading.start, end: span.end, kind });
+    leading = null;
   }
-  if (glued.length < 2 || !canSplit(glued)) return null;
-  return glued;
+
+  const merged: Group[] = [];
+  for (const group of groups) {
+    const prev = merged[merged.length - 1];
+    if (prev && prev.kind === group.kind && (group.kind === "role" || group.kind === "selection")) {
+      prev.end = group.end;
+      continue;
+    }
+    merged.push({ ...group });
+  }
+  if (merged.length < 2) return null;
+  const texts = merged.map((group) => statement.slice(group.start, group.end).trim());
+  if (!canSplit(texts)) return null;
+  return texts;
 }
 
 function conjunctionParts(statement: string): string[] | null {
@@ -550,7 +611,7 @@ function conjunctionParts(statement: string): string[] | null {
 function splitStatement(statement: string): string[] {
   const sentences = sentenceParts(statement);
   if (sentences) {
-    const glued = glueOthers(sentences);
+    const glued = glueOthers(statement, sentences);
     if (glued) return glued;
   }
   const cut = conjunctionParts(statement);
