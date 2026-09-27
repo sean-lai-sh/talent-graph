@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { main, type SmokeItem } from "../scripts/jev-claim-smoke.ts";
 import type { V11JevClient } from "../scripts/jev-claim-smoke-v11.ts";
-import type { V12JevClient } from "../scripts/jev-claim-smoke-v12.ts";
+import { type V12JevClient, v12JobCheckText } from "../scripts/jev-claim-smoke-v12.ts";
+import { preprocessJobClaims } from "../src/longitudinal/claimPreprocess.ts";
 import type { JevJudgmentService } from "../src/longitudinal/judgments.ts";
 import { JudgmentInvariantError } from "../src/longitudinal/records.ts";
 import { fixtureAnswers, fixtureV12Client } from "./fixtures/jev-claim-smoke-v12-client.ts";
@@ -70,9 +71,10 @@ test("career_evidence@1.2.0 scores claims offline and rolls people up", async ()
   expect(summary).toContain("Calls 16. Answered 16. judgment_unavailable 0. Invariant failures 0.");
   expect(summary).toContain("respondedModel fixture-v12.");
   expect(summary).toContain("### A");
-  expect(summary).toContain("Jobs 4. Job selection claims 3. One selection claim per job: no.");
+  expect(summary).toContain("Jobs 5. Hire claims 4. One hire claim per job: no.");
+  expect(summary).toContain("Award claims 0.");
   expect(summary).toContain("Founders 2. Funding claims 1. Founders with no funding claim: 1.");
-  expect(summary).toContain("Jobs 2. Job selection claims 2. One selection claim per job: yes.");
+  expect(summary).toContain("Jobs 3. Hire claims 3. One hire claim per job: yes.");
   expect(summary).toContain("Founders 0. Funding claims 0. Founders with no funding claim: 0.");
   expect(summary).toContain("| 1 | 1 |");
   expect(summary).toContain("| 3 | 1 |");
@@ -293,6 +295,71 @@ test("a founder funding claim is that job's hire claim", async () => {
   expect(summary).toContain("| foundry#funding |");
   expect(summary).not.toContain("#hire");
 });
+
+test("a job with two hire claims fails", () => {
+  const header = "Engineer at Example Lab (Jan 2020 - Mar 2021)\n- Built the kiosk";
+  const left = preprocessJobClaims([{ id: "left", statement: header, publishedAt: null }], {
+    version: "1.2.0",
+  });
+  const right = preprocessJobClaims([{ id: "right", statement: header, publishedAt: null }], {
+    version: "1.2.0",
+  });
+  expect(v12JobCheckText([...left, ...right], ["left", "right"])).toBe(
+    [
+      "Jobs 1. Hire claims 2. One hire claim per job: no.",
+      "Award claims 0.",
+      "Founders 0. Funding claims 0. Founders with no funding claim: 0.",
+    ].join("\n"),
+  );
+});
+
+test("claims.jsonl reprints the hire check without a model call", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jev-v12-jsonl-"));
+  const jsonlPath = join(dir, "claims.jsonl");
+  const rows = [
+    claimRow("A", "prize", "prize#hire", "selection", "selection"),
+    claimRow("A", "prize", "prize#1", "selection", "selection"),
+    claimRow("A", "prize", "prize#2", "output", "output"),
+    claimRow("A", "foundry", "foundry#funding", "funding", "selection"),
+    claimRow("A", "shift", "shift#hire", "selection", "selection"),
+    claimRow("A", "shift", "shift#again#hire", "selection", "selection"),
+    claimRow("B", "north", "north", "selection", "selection"),
+  ];
+  await Bun.write(jsonlPath, `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`);
+  const logged: string[] = [];
+  const write = console.log;
+  console.log = (message?: unknown) => {
+    logged.push(String(message));
+  };
+  try {
+    const code = await main(["--jobs-from-jsonl", jsonlPath], throwingV10(), throwingV11(), {
+      systemOne() {
+        throw new Error("model was called");
+      },
+    });
+    expect(code).toBe(0);
+  } finally {
+    console.log = write;
+  }
+  const text = logged.join("\n");
+  expect(text).toContain("### A");
+  expect(text).toContain("Jobs 3. Hire claims 4. One hire claim per job: no.");
+  expect(text).toContain("Award claims 1: prize.");
+  expect(text).toContain("Founders 1. Funding claims 1. Founders with no funding claim: 0.");
+  expect(text).toContain("### B");
+  expect(text).toContain("Jobs 1. Hire claims 1. One hire claim per job: yes.");
+  expect(text).toContain("Award claims 0.");
+});
+
+function claimRow(
+  resume: "A" | "B",
+  itemId: string,
+  claimId: string,
+  klass: string,
+  claimClass: string,
+) {
+  return { resume, itemId, claimId, class: klass, claimClass, outcome: "answered" };
+}
 
 async function jobsSummary(items: SmokeItem[]): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "jev-v12-jobs-"));

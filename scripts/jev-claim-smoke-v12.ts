@@ -3,6 +3,7 @@ import {
   type JobClaimLine,
   observedAtForJobClaim,
   preprocessJobClaims,
+  type SplitClaim,
 } from "../src/longitudinal/claimPreprocess.ts";
 import {
   type ClaimRubricV12Request,
@@ -81,8 +82,10 @@ type V12Row = AnsweredV12Row | FailedV12Row;
 
 export interface JobStats {
   jobs: number;
-  jobSelectionClaims: number;
+  hireClaims: number;
   oneEach: boolean;
+  awardClaims: number;
+  awardItems: string[];
   founders: number;
   fundingClaims: number;
   foundersWithoutFunding: number;
@@ -452,8 +455,10 @@ function stamp(spec: CareerEvidenceV12Spec): Stamp {
 
 interface OpenJobCount {
   founder: boolean;
-  selections: number;
+  designated: number;
   funding: number;
+  awardCount: number;
+  awardItems: string[];
   ids: string[];
 }
 
@@ -465,11 +470,27 @@ interface FundingClaim {
 }
 
 function jobStats(lines: readonly JobClaimLine[]): JobStats {
-  const prepared = preprocessJobClaims(lines, { version: "1.2.0" });
+  return tallySplitClaims(
+    preprocessJobClaims(lines, { version: "1.2.0" }),
+    lines.map((line) => line.id),
+  );
+}
+
+export function v12JobCheckText(claims: readonly SplitClaim[], itemIds: readonly string[]): string {
+  return formatJobStats(tallySplitClaims(claims, itemIds)).join("\n");
+}
+
+function tallySplitClaims(claims: readonly SplitClaim[], itemIds: readonly string[]): JobStats {
+  const known = new Set(itemIds);
   const jobs = new Map<string, OpenJobCount>();
   const funding: FundingClaim[] = [];
-  for (const claim of prepared) {
-    if (!("founder" in claim)) continue;
+  for (const claim of claims) {
+    if (!("founder" in claim)) {
+      if (claim.facts.selections.length === 0) continue;
+      const job = openJob(jobs, `bare\0${claim.id}`);
+      job.designated += 1;
+      continue;
+    }
     if (claim.id.endsWith("#funding")) {
       funding.push({
         id: claim.id,
@@ -479,12 +500,11 @@ function jobStats(lines: readonly JobClaimLine[]): JobStats {
       });
       continue;
     }
-    const key = jobGroupKey(claim.title, claim.org, claim.startedAt);
-    const job = jobs.get(key) ?? { founder: false, selections: 0, funding: 0, ids: [] };
+    const job = openJob(jobs, jobGroupKey(claim.title, claim.org, claim.startedAt));
     job.founder = job.founder || claim.founder;
     job.ids.push(claim.id, claim.parentId);
-    if (claim.claimClass === "selection") job.selections += 1;
-    jobs.set(key, job);
+    if (claim.id.endsWith("#hire")) job.designated += 1;
+    else if (claim.claimClass === "selection") noteAward(job, smokeItemId(claim.id, known));
   }
   for (const claim of funding) {
     const titleKey = jobGroupKey(claim.title, claim.org, null);
@@ -493,45 +513,158 @@ function jobStats(lines: readonly JobClaimLine[]): JobStats {
         job.founder &&
         job.ids.some((id) => id === claim.parentId || id.startsWith(`${claim.parentId}#`)),
     );
-    const job = matches[0];
-    if (job) {
-      job.selections += 1;
-      job.funding += 1;
-      continue;
-    }
-    const created = jobs.get(titleKey) ?? {
-      founder: true,
-      selections: 0,
-      funding: 0,
-      ids: [],
-    };
-    created.founder = true;
-    created.selections += 1;
-    created.funding += 1;
-    created.ids.push(claim.id, claim.parentId);
-    jobs.set(titleKey, created);
+    const job = matches[0] ?? openJob(jobs, titleKey);
+    job.founder = true;
+    job.designated += 1;
+    job.funding += 1;
+    job.ids.push(claim.id, claim.parentId);
   }
-  let jobSelectionClaims = 0;
+  return finishJobs(jobs.values());
+}
+
+function openJob(jobs: Map<string, OpenJobCount>, key: string): OpenJobCount {
+  const existing = jobs.get(key);
+  if (existing) return existing;
+  const created: OpenJobCount = {
+    founder: false,
+    designated: 0,
+    funding: 0,
+    awardCount: 0,
+    awardItems: [],
+    ids: [],
+  };
+  jobs.set(key, created);
+  return created;
+}
+
+function noteAward(job: OpenJobCount, itemId: string): void {
+  job.awardCount += 1;
+  if (!job.awardItems.includes(itemId)) job.awardItems.push(itemId);
+}
+
+function smokeItemId(claimId: string, itemIds: ReadonlySet<string>): string {
+  let current = claimId;
+  while (current.length > 0) {
+    if (itemIds.has(current)) return current;
+    const index = current.lastIndexOf("#");
+    if (index <= 0) break;
+    current = current.slice(0, index);
+  }
+  return claimId;
+}
+
+function finishJobs(jobs: Iterable<OpenJobCount>): JobStats {
+  let hireClaims = 0;
   let founders = 0;
   let fundingClaims = 0;
   let foundersWithoutFunding = 0;
+  let awardClaims = 0;
+  const awardItems: string[] = [];
   let oneEach = true;
-  for (const job of jobs.values()) {
-    jobSelectionClaims += job.selections;
-    if (job.selections !== 1) oneEach = false;
+  let count = 0;
+  for (const job of jobs) {
+    count += 1;
+    hireClaims += job.designated;
+    awardClaims += job.awardCount;
+    for (const itemId of job.awardItems) {
+      if (!awardItems.includes(itemId)) awardItems.push(itemId);
+    }
+    if (job.designated !== 1) oneEach = false;
     if (!job.founder) continue;
     founders += 1;
     fundingClaims += job.funding;
     if (job.funding === 0) foundersWithoutFunding += 1;
   }
   return {
-    jobs: jobs.size,
-    jobSelectionClaims,
+    jobs: count,
+    hireClaims,
     oneEach,
+    awardClaims,
+    awardItems,
     founders,
     fundingClaims,
     foundersWithoutFunding,
   };
+}
+
+export function renderV12JobsFromJsonl(jsonl: string): string {
+  const byResume = new Map<string, JsonlClaim[]>();
+  const extras: string[] = [];
+  for (const line of jsonl.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    const row = JSON.parse(trimmed) as JsonlClaim;
+    if (typeof row.resume !== "string" || typeof row.claimId !== "string") {
+      throw new Error("claims.jsonl row needs resume and claimId");
+    }
+    const itemId = typeof row.itemId === "string" ? row.itemId : row.claimId;
+    const bucket = byResume.get(row.resume) ?? [];
+    bucket.push({ ...row, itemId });
+    byResume.set(row.resume, bucket);
+    if (row.resume !== "A" && row.resume !== "B" && !extras.includes(row.resume)) {
+      extras.push(row.resume);
+    }
+  }
+  const order = [...RESUMES.filter((resume) => byResume.has(resume)), ...extras];
+  const lines = [
+    "## Jobs",
+    "",
+    "The 1.2.0 split yields one hire claim for each non-founder job.",
+    "A founder job yields one funding claim, or none.",
+    "",
+  ];
+  for (const resume of order) {
+    const rows = byResume.get(resume) ?? [];
+    lines.push(`### ${resume}`, "", ...formatJobStats(tallyJsonlClaims(rows)), "");
+  }
+  return lines.join("\n");
+}
+
+interface JsonlClaim {
+  resume?: string;
+  itemId?: string;
+  claimId?: string;
+  class?: string;
+  claimClass?: string;
+}
+
+function tallyJsonlClaims(rows: readonly JsonlClaim[]): JobStats {
+  const jobs = new Map<string, OpenJobCount>();
+  for (const row of rows) {
+    const claimId = row.claimId ?? "";
+    const itemId = row.itemId ?? claimId;
+    if (claimId.endsWith("#hire")) {
+      openJob(jobs, itemId).designated += 1;
+      continue;
+    }
+    if (claimId.endsWith("#funding") || row.class === "funding") {
+      const job = openJob(jobs, itemId);
+      job.founder = true;
+      job.designated += 1;
+      job.funding += 1;
+      continue;
+    }
+    const selection = row.claimClass === "selection" || row.class === "selection";
+    if (!selection) continue;
+    if (claimId === itemId) {
+      openJob(jobs, `bare\0${itemId}`).designated += 1;
+      continue;
+    }
+    noteAward(openJob(jobs, itemId), itemId);
+  }
+  return finishJobs(jobs.values());
+}
+
+function formatJobStats(stats: JobStats): string[] {
+  const awards =
+    stats.awardClaims === 0
+      ? "Award claims 0."
+      : `Award claims ${stats.awardClaims}: ${stats.awardItems.join(", ")}.`;
+  return [
+    `Jobs ${stats.jobs}. Hire claims ${stats.hireClaims}. One hire claim per job: ${stats.oneEach ? "yes" : "no"}.`,
+    awards,
+    `Founders ${stats.founders}. Funding claims ${stats.fundingClaims}. Founders with no funding claim: ${stats.foundersWithoutFunding}.`,
+  ];
 }
 
 function jobGroupKey(title: string, org: string, startedAt: string | null): string {
@@ -759,14 +892,7 @@ function tableRow(row: V12Row): string {
 }
 
 function jobLines(resume: ResumeReport): string[] {
-  const stats = resume.jobs;
-  return [
-    `### ${resume.resume}`,
-    "",
-    `Jobs ${stats.jobs}. Job selection claims ${stats.jobSelectionClaims}. One selection claim per job: ${stats.oneEach ? "yes" : "no"}.`,
-    `Founders ${stats.founders}. Funding claims ${stats.fundingClaims}. Founders with no funding claim: ${stats.foundersWithoutFunding}.`,
-    "",
-  ];
+  return [`### ${resume.resume}`, "", ...formatJobStats(resume.jobs), ""];
 }
 
 function distribution(

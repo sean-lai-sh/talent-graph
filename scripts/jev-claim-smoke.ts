@@ -38,6 +38,7 @@ import {
 } from "./jev-claim-smoke-v11.ts";
 import {
   liveV12Client,
+  renderV12JobsFromJsonl,
   renderV12Jsonl,
   renderV12Summary,
   runV12ClaimSmoke,
@@ -561,7 +562,15 @@ function rubricFor(name: string | undefined): CareerEvidenceSpec {
 const USAGE =
   "usage: bun run scripts/jev-claim-smoke.ts --items <path> (--jsonl <path> --summary <path> | --out <dir>) [--spec career_evidence@1.0.0] [--rubric career_evidence@1.0.0|career_evidence@1.1.0|career_evidence@1.2.0]";
 
-const FLAGS = new Set<string>(["--items", "--jsonl", "--summary", "--spec", "--rubric", "--out"]);
+const FLAGS = new Set<string>([
+  "--items",
+  "--jsonl",
+  "--summary",
+  "--spec",
+  "--rubric",
+  "--out",
+  "--jobs-from-jsonl",
+]);
 
 function parseArgs(argv: readonly string[]): {
   items: string;
@@ -569,6 +578,7 @@ function parseArgs(argv: readonly string[]): {
   summary: string;
   spec: string | undefined;
   rubric: string | undefined;
+  jobsFromJsonl: string | undefined;
 } {
   const values = new Map<string, string>();
   for (let index = 0; index < argv.length; index++) {
@@ -581,6 +591,17 @@ function parseArgs(argv: readonly string[]): {
     values.set(flag, value);
     index += 1;
   }
+  const jobsFromJsonl = values.get("--jobs-from-jsonl");
+  if (jobsFromJsonl !== undefined) {
+    return {
+      items: "",
+      jsonl: "",
+      summary: "",
+      spec: values.get("--spec"),
+      rubric: values.get("--rubric"),
+      jobsFromJsonl,
+    };
+  }
   const items = values.get("--items");
   const out = values.get("--out");
   const jsonl =
@@ -588,7 +609,14 @@ function parseArgs(argv: readonly string[]): {
   const summary =
     values.get("--summary") ?? (out === undefined ? undefined : join(out, V11_SUMMARY_NAME));
   if (items === undefined || jsonl === undefined || summary === undefined) throw new Error(USAGE);
-  return { items, jsonl, summary, spec: values.get("--spec"), rubric: values.get("--rubric") };
+  return {
+    items,
+    jsonl,
+    summary,
+    spec: values.get("--spec"),
+    rubric: values.get("--rubric"),
+    jobsFromJsonl: undefined,
+  };
 }
 
 function rubricMode(
@@ -625,6 +653,10 @@ export async function main(
   v12Client?: V12JevClient,
 ): Promise<number> {
   const args = parseArgs(argv);
+  if (args.jobsFromJsonl !== undefined) {
+    console.log(renderV12JobsFromJsonl(await readFile(args.jobsFromJsonl, "utf8")));
+    return 0;
+  }
   const mode = rubricMode(args.spec, args.rubric);
   if (mode === "v11" || mode === "v12") {
     const raw: unknown = JSON.parse(await readFile(args.items, "utf8"));
