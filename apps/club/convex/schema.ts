@@ -222,8 +222,7 @@ export default defineSchema({
     .index("by_club_and_domain_id", ["clubId", "id"]),
   clubFeedbackRequests: defineTable({ clubId, ...clubFeedbackRequestFields })
     .index("by_club", ["clubId"])
-    .index("by_club_and_domain_id", ["clubId", "id"])
-    .index("by_club_and_member", ["clubId", "memberId"]),
+    .index("by_club_and_domain_id", ["clubId", "id"]),
   clubPosts: defineTable({
     clubId,
     body: v.string(),

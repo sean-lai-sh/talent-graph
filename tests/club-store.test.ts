@@ -166,6 +166,22 @@ describe("club state round trip", () => {
     expect(loaded).toEqual(reviveState(state));
   });
 
+  test("several snapshots saved in one call load newest first", async () => {
+    let decided = initialState();
+    for (const personId of ["p-bram", "p-cleo"]) {
+      const next = decide(decided, personId, "admit");
+      expect(next.error).toBeUndefined();
+      decided = next.state;
+    }
+    const { db } = fakeDb();
+    let club = await ensureClub(db, "user-ada");
+    await saveState(db, club, stateOf(club), decided);
+    club = await reload(db, club);
+    const loaded = await loadState(db, club);
+    expect(loaded.snapshots.map((s) => s.personId)).toEqual(["p-cleo", "p-bram"]);
+    expect(loaded).toEqual(reviveState(decided));
+  });
+
   test("a decision writes one replaced person and one inserted snapshot", async () => {
     const { db, writes } = fakeDb();
     let club = await ensureClub(db, "user-ada");

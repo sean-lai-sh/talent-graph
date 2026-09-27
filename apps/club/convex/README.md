@@ -34,9 +34,12 @@ membership / invite model. Accounts that are not marked admin land on `/members`
 The member forum is `clubPosts` — any signed-in user can post.
 The member directory is `listMembers` (name, LinkedIn, email).
 
-**Before deploying SEA-56:** the schema no longer has `clubOrgs`. Check
-`npx convex data clubOrgs` on the target deployment and clear any leftover
-test documents first. There is no migration; production had no club data.
+**Before deploying SEA-56:** there is no migration; production had no club
+data. On the target deployment, check each of these with
+`npx convex data <table>` and clear leftover test rows first. `clubOrgs` is
+gone from the schema, and the other three now require a `clubId` that old
+rows lack, so the schema push fails while they hold data:
+`clubOrgs`, `clubPosts`, `referralContacts`, `memberReferrals`.
 
 **Computed:** every mutation and `getBoard` call `computeView` / `addPerson`
 / `setStatus` / `addReferral` / … from `lib/engine.ts`, which imports

@@ -17,8 +17,9 @@ type Writer = GenericDatabaseWriter<DataModel>;
 export type Club = Doc<"clubs">;
 
 /**
- * The only module that knows how a club is stored. Convex functions go
- * through these; nothing else reads the `club*` record tables whole.
+ * How a club's engine state is stored. Loading or saving the whole state goes
+ * through here. Point reads and writes by index (signup inserting one person,
+ * the member directory) happen in the Convex functions themselves.
  */
 
 /** One club per deployment: the oldest `clubs` row, or null before the first admin creates it. */
@@ -141,7 +142,11 @@ export async function saveState(
   const plan = planWrites(before, after);
   const clubId = club._id;
   for (const collection of COLLECTIONS) {
-    for (const write of plan.rows[collection]) {
+    // Snapshots are newest first in the state; insert them oldest first so the
+    // stored order matches decision order and `loadState` can reverse it.
+    const writes =
+      collection === "snapshots" ? [...plan.rows[collection]].reverse() : plan.rows[collection];
+    for (const write of writes) {
       if (write.kind === "insert") {
         const row = write.row as ClubRecord<"people">;
         await db.insert(tableOf(collection), { clubId, ...row });
