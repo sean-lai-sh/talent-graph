@@ -6,11 +6,13 @@ import {
   BOOTSTRAP_ADMIN_EMAIL,
   decideClubPage,
   destAfterLogin,
+  doorAfterLogin,
   extraAdminEmailsFromEnv,
   isAdminEmail,
   MEMBER_HOME,
   resolveRole,
 } from "../apps/club/lib/clubRole.ts";
+import { navForRole } from "../apps/club/lib/shellNav.ts";
 
 const root = join(import.meta.dir, "..");
 
@@ -72,6 +74,39 @@ describe("admin vs member role", () => {
     ).toBe(MEMBER_HOME);
   });
 
+  test("login door sends a known role before the page renders", () => {
+    const member = resolveRole({ email: "member@example.test" });
+    const admin = resolveRole({ email: "admin@example.test", stored: "admin" });
+    expect(doorAfterLogin("/club", member)).toBe("/members");
+    expect(doorAfterLogin("/club", admin)).toBe("/club");
+    expect(doorAfterLogin("/members", admin)).toBe("/members");
+    expect(doorAfterLogin("/club", null)).toBeNull();
+    expect(doorAfterLogin("/club")).toBeNull();
+
+    const login = read("apps/club/app/login/page.tsx");
+    expect(login.indexOf("redirect(dest)")).toBeLessThan(login.indexOf("<SignInForm"));
+    expect(login).toContain("doorAfterLogin");
+  });
+
+  test("sidebar items come from the role and keep the member list", () => {
+    expect(navForRole("member").map((item) => item.label)).toEqual([
+      "Forum",
+      "Submit Referral",
+      "Member List",
+      "Evaluations",
+      "Upcoming Events",
+    ]);
+    expect(navForRole("admin").map((item) => item.label)).toEqual([
+      "Council",
+      "Forum",
+      "Submit Referral",
+      "Member List",
+      "Evaluations",
+      "Upcoming Events",
+    ]);
+    expect(navForRole("member").some((item) => item.id === "council")).toBe(false);
+  });
+
   test("server /club gate sends a known member away before the council shell", () => {
     expect(decideClubPage({ signedIn: false })).toBe("login");
     expect(decideClubPage({ signedIn: false, role: "admin" })).toBe("login");
@@ -118,8 +153,10 @@ describe("admin vs member role", () => {
     expect(shell).toContain('me.role !== "admin"');
     expect(shell).toContain("<PersistedClub");
     expect(login).toContain("RoleHomeRedirect");
+    expect(login).toContain("doorAfterLogin");
+    expect(login).toContain("readSessionRole");
     expect(form).toContain("destAfterLogin");
-    expect(form).toContain("getMyRole");
+    expect(form).toContain("clubLoginHref");
     expect(club).toContain("export const getMyRole");
     expect(club).toContain('query("clubPosts")');
     expect(club).toContain('query("clubAccounts")');

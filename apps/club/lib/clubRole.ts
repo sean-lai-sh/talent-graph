@@ -44,6 +44,22 @@ export function destAfterLogin(next: string, role: ClubRole): string {
   return safe;
 }
 
+/**
+ * `/login` is the single post-login door. A known role is sent on from
+ * here with `destAfterLogin`. Null means the role was not read — the
+ * client `RoleHomeRedirect` still runs.
+ */
+export function doorAfterLogin(next: string, role?: ClubRole | null): string | null {
+  if (role !== "admin" && role !== "member") return null;
+  return destAfterLogin(next, role);
+}
+
+/** Council reads are null unless the role is admin. Same rule as `getBoard`. */
+export function adminRead<T>(role: ClubRole | null | undefined, value: T | null): T | null {
+  if (role !== "admin") return null;
+  return value;
+}
+
 export type ClubPageDecision = "login" | "members" | "council" | "defer";
 
 /**

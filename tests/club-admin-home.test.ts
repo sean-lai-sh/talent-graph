@@ -12,18 +12,21 @@ describe("member home + admin board", () => {
   test("member home is the sidebar forum from the wireframe", () => {
     const home = read("apps/club/app/members/MemberHome.tsx");
     const chrome = read("apps/club/components/shell/MemberChrome.tsx");
+    const nav = read("apps/club/lib/shellNav.ts");
     const shell = read("apps/club/components/shell/SignedInShell.tsx");
     const forum = read("apps/club/components/forum/Forum.tsx");
     const schema = read("apps/club/convex/schema.ts");
     const club = read("apps/club/convex/club.ts");
-    expect(chrome).toContain('label: "Forum"');
-    expect(chrome).toContain('label: "Submit Referral"');
-    expect(chrome).toContain('label: "Member List"');
-    expect(chrome).toContain('label: "Evaluations"');
-    expect(chrome).toContain('label: "Upcoming Events"');
+    expect(nav).toContain('label: "Forum"');
+    expect(nav).toContain('label: "Submit Referral"');
+    expect(nav).toContain('label: "Member List"');
+    expect(nav).toContain('label: "Evaluations"');
+    expect(nav).toContain('label: "Upcoming Events"');
+    expect(chrome).toContain("navForRole");
     expect(chrome).toContain("<Forum");
     expect(chrome).toContain("<MemberList");
     expect(chrome).not.toContain('label: "Review"');
+    expect(nav).not.toContain('label: "Review"');
     expect(home).toContain("<MemberChrome");
     expect(home).toContain("api.club.listPosts");
     expect(home).toContain("api.club.addPost");

@@ -1,6 +1,6 @@
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
-import { type ClubRole, extraAdminEmailsFromEnv, resolveRole } from "../lib/clubRole.ts";
+import { adminRead, type ClubRole, extraAdminEmailsFromEnv, resolveRole } from "../lib/clubRole.ts";
 import {
   addPerson as addPersonEngine,
   addReferral as addReferralEngine,
@@ -113,8 +113,9 @@ async function roleForUser(ctx: QueryCtx | MutationCtx, user: AuthUser): Promise
 async function loadOrgForSession(ctx: QueryCtx | MutationCtx): Promise<Doc<"clubOrgs"> | null> {
   const user = await authComponent.safeGetAuthUser(ctx);
   if (!user) return null;
-  if ((await roleForUser(ctx, user)) !== "admin") return null;
-  return await loadOwnedOrg(ctx, user._id);
+  const role = await roleForUser(ctx, user);
+  const org = role === "admin" ? await loadOwnedOrg(ctx, user._id) : null;
+  return adminRead(role, org);
 }
 
 async function requireAdmin(ctx: MutationCtx): Promise<AuthUser> {

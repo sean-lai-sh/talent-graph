@@ -8,6 +8,7 @@ import { MEMBER_HOME } from "@/lib/clubRole.ts";
 import { convexConfigured } from "@/lib/convexEnv";
 import { clubLoginHref, SIGN_OUT_HREF } from "@/lib/loginReturnPath.ts";
 import { api } from "../../convex/_generated/api";
+import { MemberHome } from "../members/MemberHome";
 import { PersistedClub } from "./PersistedClub";
 
 /**
@@ -65,7 +66,9 @@ function ClubSignedIn() {
   }
 
   return (
-    <PersistedClub
+    <MemberHome
+      clubRole="admin"
+      council={<PersistedClub />}
       onSignOut={() => {
         void authClient.signOut().then(() => {
           router.replace(SIGN_OUT_HREF);
