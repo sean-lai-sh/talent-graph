@@ -249,3 +249,61 @@ function item(id: string, resume: "A" | "B", statement: string, pair: string | n
     publishedAt: "2024-01-01T00:00:00.000Z",
   };
 }
+
+test("one hire claim per job passes, including a bare selection", async () => {
+  const summary = await jobsSummary([
+    item("shift", "A", "Engineer at Example Lab (Jan 2020 - Mar 2021)\n- Built the kiosk", null),
+    item(
+      "north",
+      "A",
+      "Selected as 1 of 400 applicants from one school for the Example program.",
+      null,
+    ),
+  ]);
+  expect(summary).toContain("Jobs 2. Hire claims 2. One hire claim per job: yes.");
+  expect(summary).toContain("Award claims 0.");
+});
+
+test("an award inside a job is reported and does not fail the hire check", async () => {
+  const summary = await jobsSummary([
+    item(
+      "prize",
+      "A",
+      "Engineer at Example Lab (Jan 2020 - Mar 2021)\n- Won the example prize\n- Built the kiosk",
+      null,
+    ),
+  ]);
+  expect(summary).toContain("Jobs 1. Hire claims 1. One hire claim per job: yes.");
+  expect(summary).toContain("Award claims 1: prize.");
+  expect(summary).toContain("| prize#hire |");
+});
+
+test("a founder funding claim is that job's hire claim", async () => {
+  const summary = await jobsSummary([
+    item(
+      "foundry",
+      "A",
+      "Founder at Example Foundry (Jan 2024 - Present)\n- Accepted into YC W24\n- Won the example prize",
+      null,
+    ),
+  ]);
+  expect(summary).toContain("Jobs 1. Hire claims 1. One hire claim per job: yes.");
+  expect(summary).toContain("Award claims 1: foundry.");
+  expect(summary).toContain("Founders 1. Funding claims 1. Founders with no funding claim: 0.");
+  expect(summary).toContain("| foundry#funding |");
+  expect(summary).not.toContain("#hire");
+});
+
+async function jobsSummary(items: SmokeItem[]): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "jev-v12-jobs-"));
+  const itemsPath = join(dir, "items.json");
+  await Bun.write(itemsPath, JSON.stringify(items));
+  const code = await main(
+    ["--items", itemsPath, "--rubric", "career_evidence@1.2.0", "--out", dir],
+    throwingV10(),
+    throwingV11(),
+    fixtureV12Client(),
+  );
+  expect(code).toBe(0);
+  return readFile(join(dir, "summary.md"), "utf8");
+}
