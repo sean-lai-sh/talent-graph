@@ -1,0 +1,32 @@
+[
+  {
+    "id": "a-alpha",
+    "resume": "A",
+    "org": "Example Lab",
+    "role": "Example Role",
+    "dates": "Jan 2024 to May 2024",
+    "statement": "Example Role at Example Lab: synthetic bullet alpha",
+    "pair": "alpha",
+    "publishedAt": "2024-05-31T00:00:00.000Z"
+  },
+  {
+    "id": "b-alpha",
+    "resume": "B",
+    "org": "Example Lab",
+    "role": "Example Role",
+    "dates": "Jan 2024 to May 2024",
+    "statement": "Example Role at Example Lab: synthetic bullet alpha, worded the same",
+    "pair": "alpha",
+    "publishedAt": "2024-05-31T00:00:00.000Z"
+  },
+  {
+    "id": "a-solo",
+    "resume": "A",
+    "org": "Example Org",
+    "role": "Solo Role",
+    "dates": "Jun 2024",
+    "statement": "Solo Role at Example Org: synthetic bullet with no pair",
+    "pair": null,
+    "publishedAt": "2024-06-30T00:00:00.000Z"
+  }
+]
