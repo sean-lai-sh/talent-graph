@@ -146,6 +146,9 @@ describe("referral signup access", () => {
     const submit = handler(referral, "submitReferralSignup", "mutation");
     expect(submit).toContain("resumeClaimError(upload, user._id)");
     expect(submit).toContain("deleteIfNotResume(");
+    expect(submit).toContain("const club = await loadClub(ctx.db)");
+    expect(submit).not.toMatch(/for \(const \w+ of/);
+    expect(referral).not.toContain("ORG_SCAN");
     const status = handler(referral, "referralStatus", "query");
     expect(status).toContain("token: v.string()");
     expect(status).toContain("hashStatusToken");

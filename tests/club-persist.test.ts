@@ -191,7 +191,6 @@ describe("SEA-10 Convex persistence path", () => {
     expect(club).toContain("emptyState()");
     expect(club).not.toContain("EXAMPLE_T");
     expect(club).toContain("authComponent.getAuthUser");
-    expect(club).toContain("ownerUserId");
     expect(club).toContain("not a membership / invite model");
   });
 
