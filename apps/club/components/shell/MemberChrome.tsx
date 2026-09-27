@@ -1,21 +1,14 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useState } from "react";
+import type { ClubRole } from "../../lib/clubRole.ts";
 import type { DirectoryMember } from "../../lib/memberDirectory.ts";
+import { type MemberPane, navForRole, type ShellPane } from "../../lib/shellNav.ts";
 import { Forum, type ForumPost } from "../forum/Forum.tsx";
 import { MemberList } from "../members/MemberList.tsx";
 import { EmptyState } from "../ui/EmptyState.tsx";
 import { SignedInShell } from "./SignedInShell.tsx";
-
-export const MEMBER_NAV = [
-  { id: "forum", label: "Forum" },
-  { id: "referral", label: "Submit Referral" },
-  { id: "members", label: "Member List" },
-  { id: "evaluations", label: "Evaluations", count: 0 },
-  { id: "events", label: "Upcoming Events" },
-] as const;
-
-export type MemberPane = (typeof MEMBER_NAV)[number]["id"];
 
 const TITLES: Record<MemberPane, string> = {
   forum: "Forum",
@@ -25,8 +18,9 @@ const TITLES: Record<MemberPane, string> = {
   events: "Upcoming Events",
 };
 
-/** Member wireframe: sidebar actions, forum as the main pane. */
+/** Shared signed-in chrome. Sidebar items come from the role. */
 export function MemberChrome({
+  clubRole = "member",
   posts,
   members = [],
   loading = false,
@@ -34,7 +28,12 @@ export function MemberChrome({
   busy = false,
   onPost,
   onSignOut,
+  council,
+  referral,
+  feedback,
+  feedbackCount = 0,
 }: {
+  clubRole?: ClubRole;
   posts: ForumPost[];
   members?: DirectoryMember[];
   loading?: boolean;
@@ -42,39 +41,35 @@ export function MemberChrome({
   busy?: boolean;
   onPost: (body: string) => void;
   onSignOut?: () => void;
+  council?: ReactNode;
+  referral: ReactNode;
+  feedback: ReactNode;
+  feedbackCount?: number;
 }) {
-  const [pane, setPane] = useState<MemberPane>("forum");
-  const items = MEMBER_NAV.map((item) =>
-    item.id === "members" ? { ...item, count: members.length } : item,
-  );
+  const [pane, setPane] = useState<ShellPane>(clubRole === "admin" ? "council" : "forum");
+  const items = navForRole(clubRole).map((item) => {
+    if (item.id === "members") return { ...item, count: members.length };
+    if (item.id === "evaluations") return { ...item, count: feedbackCount };
+    return item;
+  });
+  const title = pane === "council" ? "Council" : TITLES[pane];
 
   return (
     <SignedInShell
-      navLabel="Member"
+      navLabel={clubRole === "admin" ? "Admin" : "Member"}
       items={items}
       activeId={pane}
-      onSelect={(id) => setPane(id as MemberPane)}
-      title={TITLES[pane]}
+      onSelect={(id) => setPane(id as ShellPane)}
+      title={title}
       onSignOut={onSignOut}
     >
+      {pane === "council" ? council : null}
       {pane === "forum" ? (
         <Forum posts={posts} loading={loading} busy={busy} onPost={onPost} />
       ) : null}
-      {pane === "referral" ? (
-        <div className="px-6 py-16">
-          <EmptyState title="Referral form lands here.">
-            Members will submit people from this pane.
-          </EmptyState>
-        </div>
-      ) : null}
+      {pane === "referral" ? referral : null}
       {pane === "members" ? <MemberList members={members} loading={membersLoading} /> : null}
-      {pane === "evaluations" ? (
-        <div className="px-6 py-16">
-          <EmptyState title="No evaluations waiting.">
-            Asked responses will show a count on Evaluations.
-          </EmptyState>
-        </div>
-      ) : null}
+      {pane === "evaluations" ? feedback : null}
       {pane === "events" ? (
         <div className="px-6 py-16">
           <EmptyState title="No upcoming events.">Club events will list here.</EmptyState>
