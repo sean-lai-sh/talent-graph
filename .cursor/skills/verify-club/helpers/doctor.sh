@@ -116,13 +116,10 @@ if [[ "$RUN_PORT" == "3000" ]]; then
   die "port 3000 is the developer server. Refusing to drive it."
 fi
 
-CONVEX_HOST=""
-if [[ -f "$RUNS_DIR/$RUN_ID/convex-host" ]]; then
-  CONVEX_HOST="$(cat "$RUNS_DIR/$RUN_ID/convex-host")"
-fi
-[[ "$CONVEX_HOST" == *.convex.site ]] || die "local convex host was not recorded"
+CONVEX_CLOUD_URL="http://127.0.0.1:3210"
+CONVEX_SITE_URL="http://127.0.0.1:3211"
 
-instance="$(curl -fsS --max-time 3 http://127.0.0.1:3210/instance_name | tr -d '\r\n')"
+instance="$(curl -fsS --max-time 3 "${CONVEX_CLOUD_URL}/instance_name" | tr -d '\r\n')"
 [[ "$instance" == "anonymous-agent" ]] || die "backend instance is '${instance:-empty}', not anonymous-agent"
 
 if [[ -f "$REPO_ROOT/apps/club/.env.local" ]] && grep -q 'convex\.cloud' "$REPO_ROOT/apps/club/.env.local"; then
@@ -131,28 +128,18 @@ fi
 
 [[ -r "/proc/$RUN_PID/environ" ]] || die "cannot read launch process environment"
 env_text="$(tr '\0' '\n' <"/proc/$RUN_PID/environ")"
-if ! grep -qx "NEXT_PUBLIC_CONVEX_SITE_URL=http://${CONVEX_HOST}" <<<"$env_text"; then
-  die "next is not using the local site URL http://${CONVEX_HOST}"
+if ! grep -qx "NEXT_PUBLIC_CONVEX_SITE_URL=${CONVEX_SITE_URL}" <<<"$env_text"; then
+  die "next is not using the local site URL ${CONVEX_SITE_URL}"
 fi
-if ! grep -qx "NEXT_PUBLIC_CONVEX_URL=http://127.0.0.1:3210" <<<"$env_text"; then
-  die "next is not using the local convex URL http://127.0.0.1:3210"
+if ! grep -qx "NEXT_PUBLIC_CONVEX_URL=${CONVEX_CLOUD_URL}" <<<"$env_text"; then
+  die "next is not using the local convex URL ${CONVEX_CLOUD_URL}"
 fi
 if grep -q 'convex\.cloud' <<<"$env_text"; then
   die "next environment contains convex.cloud. Refusing to drive."
 fi
 
-addrs="$(getent hosts "$CONVEX_HOST" | awk '{print $1}' | sort -u)"
-[[ -n "$addrs" ]] || die "$CONVEX_HOST is not in the resolver"
-while read -r ip; do
-  [[ -n "$ip" ]] || continue
-  [[ "$ip" == "127.0.0.1" || "$ip" == "::1" ]] || die "$CONVEX_HOST resolved to $ip"
-done <<<"$addrs"
-
-direct="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1:3211/ || true)"
-v4="$(curl -4 -s -o /dev/null -w '%{http_code}' --max-time 3 "http://${CONVEX_HOST}/" || true)"
-v6="$(curl -6 -g -s -o /dev/null -w '%{http_code}' --max-time 3 "http://${CONVEX_HOST}/" || true)"
-[[ "$direct" != "000" && "$v4" == "$direct" && "$v6" == "$direct" ]] || \
-  die "site proxy mismatch (direct $direct, v4 $v4, v6 $v6)"
+site_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "${CONVEX_SITE_URL}/" || true)"
+[[ "$site_code" != "000" ]] || die "local convex site ${CONVEX_SITE_URL} did not respond"
 
 echo "verify-club doctor ok"
 echo "  run     $RUN_ID"
@@ -160,6 +147,6 @@ echo "  pid     $RUN_PID"
 echo "  listen  $listen"
 echo "  url     $RUN_URL"
 echo "  board   hidden public seed (/demo; /example redirects; / is landing; /club → /login)"
-echo "  convex  anonymous-agent at 127.0.0.1:3210 (site http://${CONVEX_HOST})"
+echo "  convex  anonymous-agent at ${CONVEX_CLOUD_URL} (site ${CONVEX_SITE_URL})"
 echo "  users   admin@example.com member@example.com (passwords in runs/${RUN_ID}/local.env)"
 echo "  evidence $EVIDENCE_DIR"

@@ -65,7 +65,7 @@ setsid nohup bash -c "
     CONVEX_DEPLOY_KEY &&
   export CONVEX_DEPLOYMENT=anonymous:anonymous-agent &&
   export NEXT_PUBLIC_CONVEX_URL=http://127.0.0.1:3210 &&
-  export NEXT_PUBLIC_CONVEX_SITE_URL=http://verify-club.convex.site &&
+  export NEXT_PUBLIC_CONVEX_SITE_URL=http://127.0.0.1:3211 &&
   export NEXT_PUBLIC_SITE_URL=\"$URL\" &&
   exec env NEXT_DIST_DIR=\"$DIST_DIR\" WATCHPACK_POLLING=true CHOKIDAR_USEPOLLING=true \
     bun run dev -- -p \"$VERIFY_CLUB_PORT\"

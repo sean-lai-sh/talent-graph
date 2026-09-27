@@ -4,9 +4,10 @@
 set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
-CONVEX_HOST="verify-club.convex.site"
 CONVEX_CLOUD_PORT=3210
 CONVEX_SITE_PORT=3211
+CONVEX_CLOUD_URL="http://127.0.0.1:${CONVEX_CLOUD_PORT}"
+CONVEX_SITE_URL="http://127.0.0.1:${CONVEX_SITE_PORT}"
 ENV_FILE="$REPO_ROOT/apps/club/.env.local"
 CONVEX_BIN="$REPO_ROOT/apps/club/node_modules/.bin/convex"
 
@@ -77,40 +78,6 @@ stop_convex() {
   if [[ -n "$listen" && -n "$pid" ]] && is_in_tree "$listen" "$pid"; then
     kill_ours "$listen" "convex"
   fi
-}
-
-stop_proxy() {
-  local dir="$1"
-  local pid=""
-  [[ -f "$dir/proxy.pid" ]] || return 0
-  pid="$(cat "$dir/proxy.pid")"
-  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 0
-  # The proxy is root, so kill -0 from this user returns EPERM. ps can still see it.
-  if ! ps -p "$pid" >/dev/null 2>&1; then
-    return 0
-  fi
-  local cmd
-  cmd="$(pid_command "$pid")"
-  if [[ "$cmd" != *site-proxy.py* ]]; then
-    echo "verify-club: not killing proxy pid $pid (command no longer matches site-proxy.py)" >&2
-    return 0
-  fi
-  sudo -n kill "$pid" 2>/dev/null || true
-  sleep 0.2
-  if pid_alive "$pid"; then
-    sudo -n kill -9 "$pid" 2>/dev/null || true
-  fi
-}
-
-remove_hosts() {
-  local dir="$1"
-  local tmp
-  [[ -f "$dir/convex-host" ]] || return 0
-  [[ "$(cat "$dir/convex-host")" == "$CONVEX_HOST" ]] || return 0
-  tmp="$(mktemp)"
-  grep -vxF -e "127.0.0.1 $CONVEX_HOST" -e "::1 $CONVEX_HOST" /etc/hosts >"$tmp" || true
-  sudo -n cp "$tmp" /etc/hosts
-  rm -f "$tmp"
 }
 
 wait_ready() {
@@ -198,45 +165,11 @@ provision_users() {
   )
 }
 
-add_hosts() {
-  local line
-  for line in "127.0.0.1 $CONVEX_HOST" "::1 $CONVEX_HOST"; do
-    grep -qxF "$line" /etc/hosts || echo "$line" | sudo -n tee -a /etc/hosts >/dev/null
-  done
-}
-
-start_proxy() {
-  local dir="$1"
-  local i ppid
-  sudo -n setsid bash -c "echo \$\$ > '$dir/proxy.pid'; exec python3 '$SKILL_DIR/helpers/site-proxy.py'" \
-    >"$dir/proxy.log" 2>&1 &
-  for i in $(seq 1 25); do
-    if grep -q "proxy 127.0.0.1:80" "$dir/proxy.log" 2>/dev/null \
-      && grep -q "proxy \[::1\]:80" "$dir/proxy.log" 2>/dev/null; then
-      return 0
-    fi
-    if [[ -f "$dir/proxy.pid" ]]; then
-      ppid="$(cat "$dir/proxy.pid")"
-      if ! pid_alive "$ppid"; then
-        echo "verify-club: site proxy exited. last log:" >&2
-        cat "$dir/proxy.log" >&2 || true
-        return 1
-      fi
-    fi
-    sleep 0.2
-  done
-  echo "verify-club: site proxy did not listen. last log:" >&2
-  cat "$dir/proxy.log" >&2 || true
-  return 1
-}
-
-check_proxy() {
-  local direct v4 v6
-  direct="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://127.0.0.1:${CONVEX_SITE_PORT}/" || true)"
-  v4="$(curl -4 -s -o /dev/null -w '%{http_code}' --max-time 3 "http://${CONVEX_HOST}/" || true)"
-  v6="$(curl -6 -g -s -o /dev/null -w '%{http_code}' --max-time 3 "http://${CONVEX_HOST}/" || true)"
-  if [[ "$direct" == "000" || "$v4" != "$direct" || "$v6" != "$direct" ]]; then
-    echo "verify-club: site proxy mismatch (direct $direct, v4 $v4, v6 $v6)" >&2
+check_site() {
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "${CONVEX_SITE_URL}/" || true)"
+  if [[ "$code" == "000" ]]; then
+    echo "verify-club: local convex site ${CONVEX_SITE_URL} did not respond" >&2
     return 1
   fi
 }
@@ -250,8 +183,9 @@ patch_env_file() {
   fi
   local tmp
   tmp="$(mktemp)"
-  grep -vE '^(NEXT_PUBLIC_CONVEX_SITE_URL|NEXT_PUBLIC_SITE_URL)=' "$ENV_FILE" >"$tmp" || true
-  printf 'NEXT_PUBLIC_CONVEX_SITE_URL=http://%s\nNEXT_PUBLIC_SITE_URL=%s\n' "$CONVEX_HOST" "$site_url" >>"$tmp"
+  grep -vE '^(NEXT_PUBLIC_CONVEX_URL|NEXT_PUBLIC_CONVEX_SITE_URL|NEXT_PUBLIC_SITE_URL)=' "$ENV_FILE" >"$tmp" || true
+  printf 'NEXT_PUBLIC_CONVEX_URL=%s\nNEXT_PUBLIC_CONVEX_SITE_URL=%s\nNEXT_PUBLIC_SITE_URL=%s\n' \
+    "$CONVEX_CLOUD_URL" "$CONVEX_SITE_URL" "$site_url" >>"$tmp"
   mv "$tmp" "$ENV_FILE"
 }
 
@@ -266,17 +200,13 @@ start() {
   if [[ -n "$owner" ]]; then
     die "port $CONVEX_CLOUD_PORT is already listening (pid $owner). Not attaching to someone else's Convex."
   fi
-  owner="$(listening_pid 80 || true)"
-  if [[ -n "$owner" ]]; then
-    die "port 80 is already listening (pid $owner). Not starting the convex site proxy."
-  fi
   snapshot_env "$dir"
   if [[ ! -d "$REPO_ROOT/apps/club/.convex" ]]; then
     : >"$dir/convex-data-owned"
   fi
   site_url="http://${VERIFY_CLUB_HOST}:$(cat "$dir/port")"
   generate_secrets "$dir" "$site_url"
-  echo "verify-club: anonymous convex on 127.0.0.1:${CONVEX_CLOUD_PORT} (site ${CONVEX_HOST} via :80)" >&2
+  echo "verify-club: anonymous convex on ${CONVEX_CLOUD_URL} (site ${CONVEX_SITE_URL})" >&2
   # setsid: bun resets SIGHUP, so nohup still dies with the launcher's process group.
   setsid nohup bash -c "
     cd \"$REPO_ROOT/apps/club\" &&
@@ -298,13 +228,7 @@ start() {
     stop || true
     exit 1
   fi
-  printf '%s\n' "$CONVEX_HOST" >"$dir/convex-host"
-  add_hosts
-  if ! start_proxy "$dir"; then
-    stop || true
-    exit 1
-  fi
-  if ! check_proxy; then
+  if ! check_site; then
     stop || true
     exit 1
   fi
@@ -320,9 +244,7 @@ stop() {
   local dir
   dir="$(run_path)"
   [[ -d "$dir" ]] || return 0
-  stop_proxy "$dir"
   stop_convex "$dir"
-  remove_hosts "$dir"
   restore_env "$dir"
   if [[ -f "$dir/convex-data-owned" ]]; then
     rm -rf "$REPO_ROOT/apps/club/.convex"

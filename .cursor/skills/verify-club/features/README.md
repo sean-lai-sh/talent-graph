@@ -51,4 +51,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Login door](./login-door.md) covers the chips `/login` form, the `/club` redirect, `/info` login, and that `/` and `/demo` stay public.
 - [Comparisons](./comparisons.md) covers the per-trait record sheet on a case.
 - [Info](./info.md) covers the underlined `info` on `/` and the `/info` note.
-- [Signed-in club](./signed-in.md) covers the synthetic admin council board and the synthetic member portal.
+- [Signed-in club](./signed-in.md) covers the synthetic admin council board, the synthetic member portal, the referral contact step, and the member feedback inbox.

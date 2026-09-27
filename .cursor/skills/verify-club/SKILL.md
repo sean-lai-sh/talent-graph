@@ -56,7 +56,7 @@ What launch does:
 - Starts `next dev` under `setsid` with `NEXT_DIST_DIR=.next-verify-<port>` so the cache is not `apps/club/.next`. A developer session on :3000 owns that directory. Do not run `bun run club:web` (Doppler + :3000).
 - `nohup` is not enough. Bun resets `SIGHUP`, so when the launcher's process group is torn down (a tmux pane that exits), Next and Convex die. `setsid` puts them in a new session. Doctor still has to see the recorded pid alive after launch.sh has exited.
 - Sets `WATCHPACK_POLLING=true` so a second watcher is less likely to hit EMFILE next to a developer server.
-- Points Next at the local backend: `NEXT_PUBLIC_CONVEX_URL=http://127.0.0.1:3210`, `NEXT_PUBLIC_CONVEX_SITE_URL=http://verify-club.convex.site`, `NEXT_PUBLIC_SITE_URL` equal to the printed origin.
+- Points Next at the local backend: `NEXT_PUBLIC_CONVEX_URL=http://127.0.0.1:3210`, `NEXT_PUBLIC_CONVEX_SITE_URL=http://127.0.0.1:3211`, `NEXT_PUBLIC_SITE_URL` equal to the printed origin.
 - Unsets `TG_*` so Club seed pins stay stable.
 - Next may rewrite `apps/club/tsconfig.json` to include the verify distDir. Cleanup restores the snapshot taken at launch (never `git checkout`).
 - Waits until `GET /demo` answers, records the listening pid, runs doctor.
@@ -69,15 +69,13 @@ Teardown is `helpers/cleanup.sh`. After every failed iteration, run cleanup befo
 
 ## Local Convex
 
-`convexConfigured()` is true only when `NEXT_PUBLIC_CONVEX_SITE_URL` ends with `.convex.site`, so a URL with a port does not count. Launch therefore:
+`convexConfigured()` is true for a cloud site URL ending in `.convex.site`, and also when both `NEXT_PUBLIC_CONVEX_URL` and `NEXT_PUBLIC_CONVEX_SITE_URL` are loopback (`127.0.0.1`, `localhost`, or `[::1]`). A throwaway local backend uses the loopback pair. Launch therefore:
 
-- Runs anonymous `convex dev` (deployment `anonymous-agent` only).
-- Adds `127.0.0.1` and `::1` hosts entries for `verify-club.convex.site`.
-- Proxies port 80 on both loopback addresses to `127.0.0.1:3211` (`helpers/site-proxy.py`).
+- Runs anonymous `convex dev` (deployment `anonymous-agent` only) on `http://127.0.0.1:3210` with HTTP actions on `http://127.0.0.1:3211`.
 - Sets Better Auth `SITE_URL` on that deployment to this run's origin (the 43173 URL, not `:3000`).
 - Provisions `admin@example.com` (admin) and `member@example.com` (member). Passwords are in `runs/<run-id>/local.env` (mode 600). Do not copy that file into evidence, the PR, or a commit.
 
-If `apps/club/.env.local` already points at Convex cloud, or at any deployment other than `anonymous:anonymous-agent`, launch refuses and does not modify it. Cleanup restores the `.env.local` snapshot from launch, removes the hosts lines, and stops the proxy and backend. Do not commit `.env.local` or `runs/<id>/local.env`.
+If `apps/club/.env.local` already points at Convex cloud, or at any deployment other than `anonymous:anonymous-agent`, launch refuses and does not modify it. Cleanup restores the `.env.local` snapshot from launch and stops the backend. Do not commit `.env.local` or `runs/<id>/local.env`. Launch does not edit `/etc/hosts` and does not bind port 80.
 
 Never sign in to Sean's shared Convex dev deployment and never write to it. Synthetic `@example.com` users only. Any other email is a mistake; stop.
 
@@ -96,8 +94,8 @@ It requires a `runs/current` file from launch, then checks:
 1. The recorded launch pid is alive.
 2. The recorded port is listened to by that pid or a child. A foreign pid fails. Do not drive someone else's server. Port 3000 fails.
 3. `GET /` is the chips landing with an underlined `info` link. `GET /info` has login, contact, program copy, home, and `chips@techatnyu.org`. `GET /example` redirects to `/demo`. `GET /demo` is the public seed board. `GET /club` redirects to `/login`. `GET /login` is the sign-in form (no Create account).
-4. The Convex instance name is `anonymous-agent`. Next's environment uses `http://127.0.0.1:3210` and `http://verify-club.convex.site`. Nothing in that environment or `.env.local` contains `convex.cloud`.
-5. `verify-club.convex.site` resolves only to loopback, and both IPv4 and IPv6 on port 80 match the direct site port.
+4. The Convex instance name is `anonymous-agent`. Next's environment uses `http://127.0.0.1:3210` and `http://127.0.0.1:3211`. Nothing in that environment or `.env.local` contains `convex.cloud`.
+5. `http://127.0.0.1:3211` responds. That is the local backend's HTTP actions port. There is no hosts entry and no port-80 proxy.
 
 If doctor fails, stop. Cleanup, relaunch, doctor again. Do not fall back to `:3000` or a preview URL.
 
@@ -209,7 +207,7 @@ Proof standards:
 .cursor/skills/verify-club/helpers/cleanup.sh
 ```
 
-Closes the browser (`agent-browser --session verify-club close`, then the default session). Stops the local Convex backend, the port-80 proxy, and the hosts entries. Restores `.env.local` and `apps/club/tsconfig.json` from the launch snapshots.
+Closes the browser (`agent-browser --session verify-club close`, then the default session). Stops the local Convex backend. Restores `.env.local` and `apps/club/tsconfig.json` from the launch snapshots.
 
 Kills the Next process tree recorded at launch only after the live command still matches what launch wrote. Never `pkill -f next`, `killall node`, or any kill-by-name. If the listener on the recorded port is not in that tree, cleanup leaves it alone.
 
@@ -226,8 +224,7 @@ All scripts are executable. Run them from any cwd; they resolve the repo root th
 | `helpers/launch.sh` | Install if needed, start local Convex and isolated Next, doctor, print URL |
 | `helpers/doctor.sh` | Read-only health of this run, including the anonymous backend |
 | `helpers/cleanup.sh` | Close the browser, stop Convex, keep evidence |
-| `helpers/local-convex.sh` | `start` / `stop` the anonymous backend, hosts entry, and port-80 proxy |
-| `helpers/site-proxy.py` | Loopback port 80 → `127.0.0.1:3211` |
+| `helpers/local-convex.sh` | `start` / `stop` the anonymous backend on `127.0.0.1:3210` and `127.0.0.1:3211` |
 
 Shared functions live in `helpers/lib.sh` (sourced, not invoked).
 

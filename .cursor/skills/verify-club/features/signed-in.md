@@ -7,6 +7,7 @@ An admin signs in on the throwaway backend and sees the council board at `/club`
 - `admin-board` signs in as `admin@example.com` and shows the council board (`Council`, region `Applicants`).
 - `member-portal` signs out, signs in as `member@example.com`, and shows the member portal (`Forum`, `Submit Referral`, no `Council` nav).
 - `referral-contact` opens Submit Referral and shows the contact step (`Email or phone`, button `Continue`). Do not submit.
+- `feedback-inbox` opens Evaluations and shows the member feedback inbox. An empty inbox (`No feedback requests waiting.`) counts. Do not submit a response.
 
 ## How to get to it (user POV)
 
@@ -29,8 +30,9 @@ Preconditions:
 - **Sign out.** Click `Sign out`. The page is the sign-in form again.
 - **Member sign-in.** Fill `member@example.com` and `MEMBER_PASSWORD`. Click `Sign in`. Wait until the URL contains `/members`. The page shows heading `Forum` and nav `Submit Referral`. It does not show a `Council` nav item. Snapshot and screenshot.
 - **Referral contact.** Click `Submit Referral`. The heading becomes `Submit Referral`. The form shows textbox `Email or phone` (hint: lookup uses this contact, never a name) and button `Continue`. Do not type a contact and do not click `Continue`. Snapshot and screenshot.
+- **Feedback inbox.** Click the nav button `Evaluations`. The heading becomes `Evaluations`. The inbox shows `No feedback requests waiting.` when the member has no asks, or a list named `Feedback requests` when it does. Do not fill a response and do not click `Submit response`. Snapshot and screenshot.
 - **Close.** `agent-browser --session verify-club close`.
-- **Proof.** Save snapshots and screenshots of (1) the login form, (2) the admin council board, (3) sign-out back on the form, (4) the member portal, (5) the referral contact step. Put them in `evidence/<run-id>/signed-in/`. The step table in `notes.md` records each result. Do not put passwords in that file.
+- **Proof.** Save snapshots and screenshots of (1) the login form, (2) the admin council board, (3) sign-out back on the form, (4) the member portal, (5) the referral contact step, (6) the feedback inbox. Put them in `evidence/<run-id>/signed-in/`. The step table in `notes.md` records each result. Do not put passwords in that file.
 
 ## Gotchas
 
