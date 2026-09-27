@@ -139,7 +139,7 @@ function normalizeHttpUrl(raw: string): string | null {
 
 type NormalizedProfile = {
   name: string;
-  website: string;
+  website?: string;
   affiliation?: string;
   linkedin?: string;
   x?: string;
@@ -155,11 +155,8 @@ export function normalizeProfile(
   const name = draft.name.trim();
   if (!name) return { ok: false, error: "Name is required." };
 
-  const websiteRaw = draft.website.trim();
-  if (!websiteRaw) return { ok: false, error: "Add a personal page." };
-  const website = normalizeHttpUrl(websiteRaw);
-  if (!website) return { ok: false, error: "Enter a valid personal page URL." };
-
+  const website = optionalUrl(draft.website, "Enter a valid personal page URL.");
+  if (website.ok === false) return website;
   const linkedin = optionalUrl(draft.linkedin, "Enter a valid LinkedIn URL.");
   if (linkedin.ok === false) return linkedin;
   const x = optionalUrl(draft.x, "Enter a valid X URL.");
@@ -173,7 +170,8 @@ export function normalizeProfile(
     return { ok: false, error: "Add a resume or a LinkedIn or X profile." };
   }
 
-  const profile: NormalizedProfile = { name, website };
+  const profile: NormalizedProfile = { name };
+  if (website.url) profile.website = website.url;
   const affiliation = draft.affiliation.trim();
   if (affiliation) profile.affiliation = affiliation;
   if (linkedin.url) profile.linkedin = linkedin.url;

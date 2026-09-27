@@ -162,10 +162,9 @@ describe("referral signup profile", () => {
     });
     expect(withX.ok).toBe(true);
 
-    expect(normalizeProfile({ ...draft, website: "" })).toEqual({
-      ok: false,
-      error: "Add a personal page.",
-    });
+    const noPage = plan({ draft: { ...draft, website: "" } });
+    expect(noPage.action).toBe("create");
+    if (noPage.action === "create") expect(noPage.person.website).toBeUndefined();
     expect(normalizeProfile({ ...draft, website: "javascript:alert(1)" })).toEqual({
       ok: false,
       error: "Enter a valid personal page URL.",

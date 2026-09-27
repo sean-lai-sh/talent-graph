@@ -166,9 +166,8 @@ export function ReferralSignup({
         <Field label="X">
           <Input value={x} onChange={(event) => setX(event.target.value)} />
         </Field>
-        <Field label="Personal page">
+        <Field label="Personal page" hint="Optional.">
           <Input
-            required
             value={website}
             onChange={(event) => setWebsite(event.target.value)}
             placeholder="https://example.com"
