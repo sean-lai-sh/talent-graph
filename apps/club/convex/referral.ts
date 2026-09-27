@@ -10,9 +10,14 @@ import {
   parseContact,
   planSignup,
   profileExistsInPeople,
+  resumeClaimError,
+  resumeFileError,
   statusLine,
+  UPLOAD_URL_LIMIT,
+  uploadUrlAllowed,
 } from "../lib/referralSignup.ts";
 import type { ClubPerson } from "../lib/types.ts";
+import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { authComponent } from "./auth";
@@ -73,12 +78,62 @@ export const referralStatus = query({
   },
 });
 
+async function deleteIfNotResume(ctx: MutationCtx, storageId: Id<"_storage">) {
+  const file = await ctx.db.system.get("_storage", storageId);
+  const error = resumeFileError(file);
+  if (error && file) await ctx.storage.delete(storageId);
+  return error;
+}
+
+function uploadByStorage(ctx: MutationCtx, storageId: Id<"_storage">) {
+  return ctx.db
+    .query("referralUploads")
+    .withIndex("by_storage", (q) => q.eq("storageId", storageId))
+    .unique();
+}
+
 export const generateResumeUploadUrl = mutation({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<{ url: string } | { error: string }> => {
     const user = await authComponent.getAuthUser(ctx);
     if (!user) throw new Error("Sign in required.");
-    return await ctx.storage.generateUploadUrl();
+    const now = Date.now();
+    const recent = await ctx.db
+      .query("referralUploads")
+      .withIndex("by_uploader", (q) =>
+        q.eq("uploaderUserId", user._id).gt("createdAt", now - UPLOAD_URL_LIMIT.windowMs),
+      )
+      .take(UPLOAD_URL_LIMIT.perMember);
+    if (
+      !uploadUrlAllowed(
+        recent.map((row) => row.createdAt),
+        now,
+      )
+    ) {
+      return { error: "Too many resume uploads. Try again in an hour." };
+    }
+    await ctx.db.insert("referralUploads", { uploaderUserId: user._id, createdAt: now });
+    return { url: await ctx.storage.generateUploadUrl() };
+  },
+});
+
+export const registerResumeUpload = mutation({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, args): Promise<{ ok: true } | { error: string }> => {
+    const user = await authComponent.getAuthUser(ctx);
+    if (!user) throw new Error("Sign in required.");
+    if (await uploadByStorage(ctx, args.storageId)) return { error: "Upload the resume again." };
+    const pending = await ctx.db
+      .query("referralUploads")
+      .withIndex("by_uploader", (q) => q.eq("uploaderUserId", user._id))
+      .order("desc")
+      .filter((q) => q.eq(q.field("storageId"), undefined))
+      .first();
+    if (!pending) return { error: "Upload the resume again." };
+    const error = await deleteIfNotResume(ctx, args.storageId);
+    if (error) return { error };
+    await ctx.db.patch(pending._id, { storageId: args.storageId });
+    return { ok: true };
   },
 });
 
@@ -97,12 +152,12 @@ export const submitReferralSignup = mutation({
     const user = await authComponent.getAuthUser(ctx);
     if (!user) throw new Error("Sign in required.");
     const actor = { email: user.email };
+    const upload = args.resumeStorageId ? await uploadByStorage(ctx, args.resumeStorageId) : null;
     let resumeUrl: string | undefined;
     if (args.resumeStorageId) {
-      const meta = await ctx.db.system.get("_storage", args.resumeStorageId);
-      if (!meta?.contentType?.startsWith("application/pdf")) {
-        return { status: "rejected" as const, error: "Resume must be a PDF." };
-      }
+      const error =
+        resumeClaimError(upload, user._id) ?? (await deleteIfNotResume(ctx, args.resumeStorageId));
+      if (error) return { status: "rejected" as const, error };
       resumeUrl = (await ctx.storage.getUrl(args.resumeStorageId)) ?? undefined;
     }
 
@@ -153,6 +208,7 @@ export const submitReferralSignup = mutation({
       createdAt: plan.createdAt,
       tokenHash: plan.tokenHash,
     });
+    if (upload) await ctx.db.patch(upload._id, { usedAt: Date.now() });
     for (const org of orgs) {
       const people = mergeCandidate(org.people as ClubPerson[], plan.person);
       if (people.length !== org.people.length) {

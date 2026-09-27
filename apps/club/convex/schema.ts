@@ -232,4 +232,13 @@ export default defineSchema({
   })
     .index("by_referrer_and_contact", ["referrerUserId", "normalizedContact"])
     .index("by_token_hash", ["tokenHash"]),
+  // One row per issued upload URL. `storageId` is set when the uploader registers the file.
+  referralUploads: defineTable({
+    uploaderUserId: v.string(),
+    createdAt: v.number(),
+    storageId: v.optional(v.id("_storage")),
+    usedAt: v.optional(v.number()),
+  })
+    .index("by_uploader", ["uploaderUserId", "createdAt"])
+    .index("by_storage", ["storageId"]),
 });

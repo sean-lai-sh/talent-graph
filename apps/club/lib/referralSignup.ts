@@ -273,3 +273,30 @@ export async function newStatusToken(): Promise<{ token: string; hash: string }>
   const token = btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
   return { token, hash: await hashStatusToken(token) };
 }
+
+export const RESUME_MAX_BYTES = 5 * 1024 * 1024;
+
+export const UPLOAD_URL_LIMIT = { perMember: 10, windowMs: 60 * 60 * 1000 } as const;
+
+export function uploadUrlAllowed(issuedAt: readonly number[], now: number): boolean {
+  const since = now - UPLOAD_URL_LIMIT.windowMs;
+  return issuedAt.filter((at) => at > since).length < UPLOAD_URL_LIMIT.perMember;
+}
+
+export function resumeFileError(
+  file: { contentType?: string; size: number } | null,
+): string | null {
+  if (!file) return "Upload the resume again.";
+  if (file.contentType !== "application/pdf") return "Resume must be a PDF.";
+  if (file.size > RESUME_MAX_BYTES) return "Resume must be 5 MB or smaller.";
+  return null;
+}
+
+export function resumeClaimError(
+  upload: { uploaderUserId: string; usedAt?: number } | null,
+  userId: string,
+): string | null {
+  if (!upload || upload.uploaderUserId !== userId) return "Upload the resume again.";
+  if (upload.usedAt !== undefined) return "That resume is already attached to a referral.";
+  return null;
+}

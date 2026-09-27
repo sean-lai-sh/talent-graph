@@ -107,7 +107,11 @@ const PUBLIC_TOKEN_QUERIES = ["referralStatus"] as const;
 
 const MEMBER_OPEN_QUERIES = ["lookupReferralContact"] as const;
 
-const MEMBER_OPEN_MUTATIONS = ["generateResumeUploadUrl", "submitReferralSignup"] as const;
+const MEMBER_OPEN_MUTATIONS = [
+  "generateResumeUploadUrl",
+  "registerResumeUpload",
+  "submitReferralSignup",
+] as const;
 
 describe("referral signup access", () => {
   test("every referral function is member-open or public-token", () => {
@@ -131,6 +135,11 @@ describe("referral signup access", () => {
       expect(body).not.toContain("requireAdmin");
       expect(body).not.toContain("applyEngine");
     }
+    expect(handler(referral, "generateResumeUploadUrl", "mutation")).toContain("uploadUrlAllowed(");
+    expect(handler(referral, "registerResumeUpload", "mutation")).toContain("deleteIfNotResume(");
+    const submit = handler(referral, "submitReferralSignup", "mutation");
+    expect(submit).toContain("resumeClaimError(upload, user._id)");
+    expect(submit).toContain("deleteIfNotResume(");
     const status = handler(referral, "referralStatus", "query");
     expect(status).toContain("token: v.string()");
     expect(status).toContain("hashStatusToken");

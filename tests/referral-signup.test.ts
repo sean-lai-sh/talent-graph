@@ -10,7 +10,12 @@ import {
   normalizeProfile,
   parseContact,
   planSignup,
+  RESUME_MAX_BYTES,
+  resumeClaimError,
+  resumeFileError,
   statusLine,
+  UPLOAD_URL_LIMIT,
+  uploadUrlAllowed,
 } from "../apps/club/lib/referralSignup.ts";
 import { reviveState } from "../apps/club/lib/serialize.ts";
 import { MEMBER_NAV } from "../apps/club/lib/shellNav.ts";
@@ -200,6 +205,41 @@ describe("referral signup profile", () => {
     expect(person?.linkedin).toBe("https://www.linkedin.com/in/ada-example");
     expect(person?.resume).toBe("https://files.example.com/ada.pdf");
     expect(person?.phone).toBeNull();
+  });
+});
+
+describe("referral resume upload", () => {
+  const pdf = { contentType: "application/pdf", size: 2048 };
+
+  test("only a PDF up to 5 MB is accepted", () => {
+    expect(resumeFileError(pdf)).toBeNull();
+    expect(resumeFileError({ ...pdf, size: RESUME_MAX_BYTES })).toBeNull();
+    expect(resumeFileError({ ...pdf, size: RESUME_MAX_BYTES + 1 })).toBe(
+      "Resume must be 5 MB or smaller.",
+    );
+    expect(resumeFileError({ contentType: "text/plain", size: 10 })).toBe("Resume must be a PDF.");
+    expect(resumeFileError({ size: 10 })).toBe("Resume must be a PDF.");
+    expect(resumeFileError(null)).toBe("Upload the resume again.");
+  });
+
+  test("a resume belongs to the member who uploaded it and is used once", () => {
+    const upload = { uploaderUserId: "user-member" };
+    expect(resumeClaimError(upload, "user-member")).toBeNull();
+    expect(resumeClaimError(upload, "user-other")).toBe("Upload the resume again.");
+    expect(resumeClaimError(null, "user-member")).toBe("Upload the resume again.");
+    expect(resumeClaimError({ ...upload, usedAt: Date.parse(NOW) }, "user-member")).toBe(
+      "That resume is already attached to a referral.",
+    );
+  });
+
+  test("a member gets at most the limit of upload URLs per rolling window", () => {
+    const now = Date.parse(NOW);
+    const { perMember, windowMs } = UPLOAD_URL_LIMIT;
+    const recent = Array.from({ length: perMember - 1 }, (_, i) => now - i * 1000);
+    expect(uploadUrlAllowed(recent, now)).toBe(true);
+    expect(uploadUrlAllowed([...recent, now], now)).toBe(false);
+    const aged = recent.map((at) => at - windowMs);
+    expect(uploadUrlAllowed([...aged, now - windowMs], now)).toBe(true);
   });
 });
 

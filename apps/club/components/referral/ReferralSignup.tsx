@@ -176,7 +176,7 @@ export function ReferralSignup({
         <Field label="GitHub" hint="Optional.">
           <Input value={github} onChange={(event) => setGithub(event.target.value)} />
         </Field>
-        <Field label="Resume" hint="PDF. Required if you do not add LinkedIn or X.">
+        <Field label="Resume" hint="PDF up to 5 MB. Required if you do not add LinkedIn or X.">
           <Input
             type="file"
             accept="application/pdf"
@@ -262,6 +262,7 @@ export function ReferralSignupConnected() {
   const convex = useConvex();
   const router = useRouter();
   const generateUrl = useMutation(api.referral.generateResumeUploadUrl);
+  const registerUpload = useMutation(api.referral.registerResumeUpload);
   const submitSignup = useMutation(api.referral.submitReferralSignup);
 
   return (
@@ -269,15 +270,18 @@ export function ReferralSignupConnected() {
       onExists={() => router.push("/members/referral/add")}
       lookup={(raw) => convex.query(api.referral.lookupReferralContact, { contact: raw })}
       uploadResume={async (file) => {
-        const postUrl = await generateUrl({});
-        const response = await fetch(postUrl, {
+        const issued = await generateUrl({});
+        if ("error" in issued) return issued;
+        const response = await fetch(issued.url, {
           method: "POST",
           headers: { "Content-Type": file.type || "application/pdf" },
           body: file,
         });
         if (!response.ok) return { error: "Resume upload failed." };
-        const body = (await response.json()) as { storageId?: string };
+        const body = (await response.json()) as { storageId?: Id<"_storage"> };
         if (!body.storageId) return { error: "Resume upload failed." };
+        const registered = await registerUpload({ storageId: body.storageId });
+        if ("error" in registered) return registered;
         return { storageId: body.storageId };
       }}
       submit={(input) =>
