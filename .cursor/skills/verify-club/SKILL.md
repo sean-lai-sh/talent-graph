@@ -23,6 +23,8 @@ Cloud agents run `.cursor/environment.json`. Its `install` command, from the rep
 
 The version is the exact `agent-browser` entry in the root `package.json`. Do not `npm install -g` and do not install a floating version.
 
+`install` runs when a Cloud Agent Build is created, then the disk is snapshotted. A later agent boots from that snapshot and does not run `install` again. Recurring builds clone `main`, so a snapshot taken before this pin (or from `main` before the pin is merged) has no `agent-browser`. `start` runs on every boot and repeats those three steps only when `agent-browser --version` fails, so the next boot still gets the pinned CLI.
+
 On a machine that is not a cloud agent, from the repo root:
 
 ```sh
