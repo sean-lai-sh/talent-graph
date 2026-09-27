@@ -192,7 +192,7 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   later change.
 - **Drift:** n/a (rubric-only kind; `CURRENT_SPECS` did not move, and this
   spec produces no pipeline number)
-- **PR:** stacked on #89.
+- **PR:** #90, stacked on #89.
 
 ## claim_value@1.1.0 — square-law claim value
 
