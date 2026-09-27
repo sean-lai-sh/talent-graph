@@ -5,10 +5,9 @@ import {
   companyByOrg,
   companySeedHash,
   normalizeOrgName,
+  PINNED_COMPANY_SEED_HASH,
 } from "../src/longitudinal/companySeed.ts";
 import { SYNTHETIC_COMPANY_SEED } from "./fixtures/companySeed.synthetic.ts";
-
-const PINNED_SEED_HASH = "2229a5fe852c86e6c9988dcca0b56045b2525c54113f16cf429f0b6f7afd88e7";
 
 function reverseKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(reverseKeys);
@@ -24,9 +23,9 @@ function reverseKeys(value: unknown): unknown {
 
 describe("company seed", () => {
   test("the seed hash is pinned, and key order does not change it", () => {
-    expect(companySeedHash()).toBe(PINNED_SEED_HASH);
+    expect(companySeedHash()).toBe(PINNED_COMPANY_SEED_HASH);
     const reordered = reverseKeys(structuredClone(COMPANY_SEED)) as CompanySeed;
-    expect(companySeedHash(reordered)).toBe(PINNED_SEED_HASH);
+    expect(companySeedHash(reordered)).toBe(PINNED_COMPANY_SEED_HASH);
   });
 
   test("editing a seed field changes the hash", () => {
