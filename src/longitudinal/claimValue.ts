@@ -14,6 +14,7 @@
 import type { Outcome } from "../domain/types.ts";
 import { deepFreeze } from "../models/freeze.ts";
 import { hashInputs } from "../provenance/hash.ts";
+import { type JobDateFields, observedAtForJobClaim } from "./claimPreprocess.ts";
 import type { LevelDistribution, OwnershipDistribution } from "./claimRubricV11.ts";
 import type { LongitudinalResidualSlope } from "./types.ts";
 
@@ -89,6 +90,7 @@ export interface ValuedClaim {
   status: "accepted" | "review";
   observedAt: Date;
   createdAt: Date;
+  jobDates?: JobDateFields;
 }
 
 export function claimValueConfigHash(config: ClaimValueConfig): string {
@@ -144,17 +146,28 @@ export function claimValuesToLongitudinalRecords(claims: readonly ValuedClaim[])
   for (const claim of claims) {
     if (claim.status !== "accepted") continue;
     if (!Number.isFinite(claim.claimValue)) continue;
+    const observedAt = observedAtFromClaim(claim);
+    if (observedAt === null) continue;
     outcomes.push({
       id: `outcome-${claim.id}`,
       personId: claim.personId,
       opportunityId: null,
       kind: `career_claim:${claim.claimClass}`,
       value: claim.claimValue,
-      observedAt: new Date(claim.observedAt.getTime()),
+      observedAt,
       createdAt: new Date(claim.createdAt.getTime()),
     });
   }
   return { outcomes, opportunities: [] };
+}
+
+function observedAtFromClaim(claim: ValuedClaim): Date | null {
+  if (!claim.jobDates) return new Date(claim.observedAt.getTime());
+  const iso = observedAtForJobClaim(claim.claimClass, claim.jobDates);
+  if (iso === null) return null;
+  const parsed = Date.parse(`${iso}T00:00:00.000Z`);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed);
 }
 
 /**
