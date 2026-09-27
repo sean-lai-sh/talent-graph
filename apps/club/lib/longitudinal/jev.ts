@@ -17,6 +17,10 @@ import type {
   SystemOneRequest,
   SystemOneResult,
 } from "@typesafe-ai/sdk";
+import {
+  type AtomicClaim,
+  preprocessClaims,
+} from "../../../../src/longitudinal/claimPreprocess.ts";
 import { CAREER_EVIDENCE_DIMENSIONS } from "../../../../src/longitudinal/dimensions.ts";
 import type {
   ClaimAssessment,
@@ -84,6 +88,41 @@ export interface JevClient {
  */
 export const LEVELS: Record<CareerEvidenceDimension, ScoreLevels> = CAREER_EVIDENCE_V1_0_0.levels;
 
+/** What the claim step is given. `claims` is additive and is not copied onto the 1.0.0 request. */
+export interface ClaimStepInput {
+  source: GrokEvidenceItem["source"];
+  publisher: string;
+  published_at: string;
+  source_url: string;
+  statement: string;
+  quoted_evidence: string;
+  claims: readonly AtomicClaim[];
+}
+
+export function claimStepInput(evidence: GrokEvidenceItem): ClaimStepInput {
+  return {
+    source: evidence.source,
+    publisher: evidence.publisher,
+    published_at: evidence.publishedAt,
+    source_url: evidence.url,
+    statement: evidence.statement,
+    quoted_evidence: evidence.quotedText,
+    claims: preprocessClaims(evidence.statement, evidence.sourceId),
+  };
+}
+
+/** The six fields the 1.0.0 claim request sends. `claims` stays off this object. */
+export function claimWireState(input: ClaimStepInput): Omit<ClaimStepInput, "claims"> {
+  return {
+    source: input.source,
+    publisher: input.publisher,
+    published_at: input.published_at,
+    source_url: input.source_url,
+    statement: input.statement,
+    quoted_evidence: input.quoted_evidence,
+  };
+}
+
 /**
  * Server-side TypeSafe/Jev adapter. Keep the API key out of browser bundles.
  *
@@ -129,15 +168,8 @@ export function createJevJudgmentService(
     },
   });
 
-  /** The state of a claim request. The person is not shown: only the evidence. */
-  const claimState = (evidence: GrokEvidenceItem) => ({
-    source: evidence.source,
-    publisher: evidence.publisher,
-    published_at: evidence.publishedAt,
-    source_url: evidence.url,
-    statement: evidence.statement,
-    quoted_evidence: evidence.quotedText,
-  });
+  /** The person is not shown. Facts stay on `claimStepInput` and off this object. */
+  const claimState = (evidence: GrokEvidenceItem) => claimWireState(claimStepInput(evidence));
 
   const fingerprintOf = (state: unknown, questions: unknown): string =>
     requestFingerprint({ state, questions, specId });
