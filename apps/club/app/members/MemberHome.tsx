@@ -1,15 +1,26 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
+import type { ReactNode } from "react";
 import { useState } from "react";
 import { MemberChrome } from "../../components/shell/MemberChrome.tsx";
 import { api } from "../../convex/_generated/api";
+import type { ClubRole } from "../../lib/clubRole.ts";
 
 /**
- * Member home for non-admin accounts: sidebar from the wireframe,
- * shared forum in the main pane. Sign-out sits in the top bar.
+ * Signed-in home. Sidebar items follow the role. The member panes are
+ * the forum, referral placeholder, directory, evaluations, and events.
+ * Admins also get the council board.
  */
-export function MemberHome({ onSignOut }: { onSignOut: () => void }) {
+export function MemberHome({
+  onSignOut,
+  clubRole = "member",
+  council,
+}: {
+  onSignOut: () => void;
+  clubRole?: ClubRole;
+  council?: ReactNode;
+}) {
   const posts = useQuery(api.club.listPosts);
   const members = useQuery(api.club.listMembers);
   const addPost = useMutation(api.club.addPost);
@@ -17,6 +28,7 @@ export function MemberHome({ onSignOut }: { onSignOut: () => void }) {
 
   return (
     <MemberChrome
+      clubRole={clubRole}
       posts={posts ?? []}
       members={members ?? []}
       loading={posts === undefined}
@@ -27,6 +39,7 @@ export function MemberHome({ onSignOut }: { onSignOut: () => void }) {
         void addPost({ body }).finally(() => setBusy(false));
       }}
       onSignOut={onSignOut}
+      council={council}
     />
   );
 }

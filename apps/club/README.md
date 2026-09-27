@@ -28,19 +28,23 @@ feedback inside a 48-hour window. It works over a screen share.
   Posts stay in the tab. Live persist is `/members` after sign-in.
 - `/example` — redirects to `/demo` so old links still work.
 - `/login` — chips email/password sign-in. No create-account control.
-  Unauthenticated `/club` and `/members` redirect here. Sign-out from `/club` returns to `/login`.
+  Unauthenticated `/club` and `/members` redirect here. A signed-in visit
+  is the one door: the server reads the role and sends admins to `/club`
+  and members to `/members` before the page renders. Sign-out from `/club` returns to `/login`.
 - `/members` — signed-in home for accounts that are not marked admin.
   Sidebar is Forum, Submit Referral, Member List, Evaluations, Upcoming
   Events. The main pane is a forum. Member List is a table of admitted
   people (name, LinkedIn, email). Sign-out sits in the top bar. Referral
-  and inbox flows come later.
+  and inbox flows come later. `/club` uses this same shell; admins also
+  see Council at the top of the sidebar.
 - `/club` — council board for marked admin accounts. Domain
   inputs (people with review status, referrals, comparisons, evaluations,
   feedback requests, round settings, snapshots) persist in Convex. Each write
   stamps the org clock with wall time and re-runs views via `lib/engine.ts` →
   `src/`. The session / org gate is on: unauthenticated visitors redirect to
   `/login` (not the seed board, not PersistedClub). Accounts that are not
-  marked admin are sent to `/members`. Signed-in admins get the Convex-backed
+  marked admin are sent to `/members` on the server, before the council
+  shell. Signed-in admins get the Convex-backed
   page when Convex env is configured. `/demo` stays in-memory `generateSeed()`
   with no auth. `/example` redirects there. Public signup is disabled;
   provision owners with `bun run provision-user` (`ACCOUNT_ROLE=member`
@@ -94,16 +98,8 @@ npx convex env set SITE_URL http://127.0.0.1:3000
 npx convex env set ADMIN_PROVISION_SECRET=$(openssl rand -base64 32)
 ```
 
-Then provision the first owner (no public signup). Default role is admin
-(council board). `ACCOUNT_ROLE=member` marks a non-admin account — they
-land on the member forum instead of `/club`.
-
-```sh
-OWNER_EMAIL=you@club.edu OWNER_NAME="You" OWNER_PASSWORD='…' \
-  ADMIN_PROVISION_SECRET='…' bun run provision-user
-ACCOUNT_ROLE=member OWNER_EMAIL=member@club.edu OWNER_NAME="Member" \
-  OWNER_PASSWORD='…' ADMIN_PROVISION_SECRET='…' bun run provision-user
-```
+Then provision the first admin (no public signup). Steps, the email
+fallback, and how to promote or demote are in [First admin](#first-admin).
 
 Do not put any of these keys on the public example deploy.
 
@@ -120,6 +116,47 @@ Required env for a live `/club` door (Sean):
 | Convex deployment | `ADMIN_PROVISION_SECRET` | Shared secret for `auth:provisionUser` |
 
 Without those, `/club` redirects to `/login`. The seed board does not appear there. A live session / persist round-trip still needs `npx convex dev`.
+
+## First admin
+
+One Convex deployment is one club. A signed-in user's role (`admin` or
+`member`) lives on `clubAccounts` and applies to that club. `clubOrgs` is
+the admin council board — one row per admin, keyed by `ownerUserId` — not
+a separate organization a member joins. Roles are not keyed by `orgId`.
+
+Public signup is off. From `apps/club`, with `ADMIN_PROVISION_SECRET` set
+on the Convex deployment (table above), pass the same value in the shell.
+Do not commit it. `bun run provision-user` runs `scripts/provision-user.ts`,
+which hashes the password and calls secret-gated `auth:provisionUser`.
+
+```sh
+OWNER_EMAIL=admin@example.test OWNER_NAME="Admin" OWNER_PASSWORD='…' \
+  ACCOUNT_ROLE=admin ADMIN_PROVISION_SECRET='…' bun run provision-user
+```
+
+`ACCOUNT_ROLE` is `admin` or `member`. Omit it and the script defaults to
+`admin`. A member account lands on `/members`, not the council board:
+
+```sh
+ACCOUNT_ROLE=member OWNER_EMAIL=member@example.test OWNER_NAME="Member" \
+  OWNER_PASSWORD='…' ADMIN_PROVISION_SECRET='…' bun run provision-user
+```
+
+Until a `clubAccounts` row exists, `resolveRole` marks `chips@techatnyu.org`
+(`BOOTSTRAP_ADMIN_EMAIL`) and any address in the Convex env
+`CLUB_ADMIN_EMAILS` (comma-separated) as admin. Everyone else is a member.
+Set the list on the deployment, not in git:
+
+```sh
+npx convex env set CLUB_ADMIN_EMAILS 'admin@example.test'
+```
+
+A stored row wins over both fallbacks. Promote or demote by running
+`provision-user` again for the same `OWNER_EMAIL` with `ACCOUNT_ROLE=admin`
+or `ACCOUNT_ROLE=member`. That upserts `clubAccounts.role`. Provisioning
+`chips@techatnyu.org` as `member` demotes it: the stored row overrides the
+bootstrap email. Council mutations reject anyone whose resolved role is
+not admin.
 
 ## What to look at
 
