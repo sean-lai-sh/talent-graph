@@ -53,9 +53,7 @@ const QTY = String.raw`(?<![\w.])([+-])?\s*(${NUM})\s*(%|${TIME_UNIT})(?![A-Za-z
 const OUTPUT_VERB =
   /\b(?:led|owned|founded|built|developed|designed|contributed|assisted|helped|shipped|launched|created|worked\s+under)\b/i;
 
-const WORK_GERUNDS =
-  "building|creating|developing|designing|leading|shipping|launching|conducting|completing";
-const WORK_GERUND = new RegExp(`^(?:${WORK_GERUNDS})\\b`, "i");
+const CLAUSE_VERB = /\b(?:kept|cut|made|ran|wrote|did|spoke|[A-Za-z]+(?:ed|ing))\b/i;
 
 const SECONDS: Readonly<Record<string, number>> = {
   ms: 0.001,
@@ -482,7 +480,7 @@ function extractOwnership(text: string): OwnershipTier | null {
   return best?.tier ?? null;
 }
 
-function extractFacts(text: string): ClaimFacts {
+export function extractFacts(text: string): ClaimFacts {
   const selections = extractSelections(text);
   const changes = extractChanges(text, selections.consumed);
   const team = extractTeamSize(text, changes.consumed);
@@ -503,8 +501,20 @@ function isSelectionClause(clause: string): boolean {
   return hasSelectionWording(clause);
 }
 
+function hasClauseVerb(clause: string): boolean {
+  return OUTPUT_VERB.test(clause) || hasSelectionWording(clause) || CLAUSE_VERB.test(clause);
+}
+
+function roleColonHalves(statement: string): readonly [string, string] | null {
+  const match = /^(.+?\sat\s+[^:]+):\s+(\S[\s\S]*)$/.exec(statement);
+  const title = match?.[1]?.trim() ?? "";
+  const body = match?.[2]?.trim() ?? "";
+  if (title.length === 0 || body.length === 0 || !hasClauseVerb(body)) return null;
+  return [title, body];
+}
+
 function clauseClass(clause: string): ClauseKind {
-  const role = OUTPUT_VERB.test(clause) || WORK_GERUND.test(clause.trim());
+  const role = OUTPUT_VERB.test(clause);
   const selection = isSelectionClause(clause);
   if (role && selection) return "both";
   if (role) return "role";
@@ -610,10 +620,7 @@ function glueOthers(statement: string, parts: readonly string[]): string[] | nul
 }
 
 function conjunctionParts(statement: string): string[] | null {
-  const pattern = new RegExp(
-    String.raw`\s+and\s+|\s+to\s+(?=win\b|place\b|earn\b)|\s+(?:for|by|after)\s+(?=(?:${WORK_GERUNDS})\b)`,
-    "gi",
-  );
+  const pattern = /\s+and\s+|\s+to\s+(?=win\b|place\b|earn\b)/gi;
   const matches = [...statement.matchAll(pattern)];
   for (let index = matches.length - 1; index >= 0; index--) {
     const match = matches[index];
@@ -627,6 +634,8 @@ function conjunctionParts(statement: string): string[] | null {
 }
 
 export function selectionOutputHalves(statement: string): readonly [string, string] | null {
+  const colon = roleColonHalves(statement);
+  if (colon) return colon;
   const pattern = /\s+and\s+|\s+to\s+(?=win\b|place\b|earn\b)|\s+(?:for|by|after)\s+/gi;
   const matches = [...statement.matchAll(pattern)];
   for (let index = matches.length - 1; index >= 0; index--) {
@@ -641,12 +650,14 @@ export function selectionOutputHalves(statement: string): readonly [string, stri
     if (leftSelection === rightSelection) continue;
     const selection = leftSelection ? left : right;
     const output = leftSelection ? right : left;
+    if (!hasClauseVerb(output)) continue;
     return [selection, output];
   }
   return null;
 }
 
 function splitStatement(statement: string): string[] {
+  if (roleColonHalves(statement)) return [statement];
   const sentences = sentenceParts(statement);
   if (sentences) {
     const glued = glueOthers(statement, sentences);

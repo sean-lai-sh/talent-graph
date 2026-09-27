@@ -11,6 +11,7 @@ import {
 import {
   type AtomicClaim,
   type ClaimFacts,
+  extractFacts,
   type OwnershipTier,
   preprocessClaims,
   selectionOutputHalves,
@@ -228,16 +229,15 @@ export function halfClaim(
   text: string,
   role: "selection" | "output",
 ): AtomicClaim {
-  const [child] = preprocessClaims(text, parent.parentId);
-  if (child === undefined) {
+  if (text.trim().length === 0) {
     throw new JudgmentInvariantError("claim half was empty");
   }
   return {
-    ...child,
     id: `${parent.parentId}#${role}`,
     parentId: parent.parentId,
     text,
     statement: parent.statement,
+    facts: extractFacts(text),
   };
 }
 

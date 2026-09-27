@@ -559,7 +559,7 @@ const CONFIG_HASH_V11 = "8f66391ae3488a303bc8135936840cd739d0b808642b27293a1a906
 test("career_evidence@1.1.0 preprocesses, scores, and diffs pairs without a live call", async () => {
   const split = "Built the example routing service; selected as 1 of 400 applicants.";
   const pure = "Built the example widget.";
-  const mixed = "Won 1 of 400 with the example widget in hand.";
+  const mixed = "Won 1 of 400 for building the example widget.";
   const unowned = "Shipped the example widget.";
   const rosterA = "Built the example roster alpha.";
   const rosterB = "Built the example roster beta.";
@@ -977,7 +977,7 @@ function answerFor(text: string) {
       owned("core_contributor"),
     );
   }
-  if (text === "Won 1 of 400 with the example widget in hand.") {
+  if (text === "Won 1 of 400 for building the example widget.") {
     return {
       ...body(
         "both",

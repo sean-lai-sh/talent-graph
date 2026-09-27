@@ -453,9 +453,7 @@ describe("splitting", () => {
     const winFirst = `${title}: Won 1st place (1 of 400+) in the Northwind Design Competition for best product pitch and MVP execution`;
     const workFirst = `${title}: Led market research, pitch deck creation, and speaking prep to win Northwind design competition (1 out of 400)`;
     expect(preprocessClaims(winFirst, "autogo-a").map((claim) => claim.text)).toEqual([winFirst]);
-    expect(preprocessClaims(workFirst, "autogo-b").map((claim) => claim.text)).toEqual([
-      workFirst,
-    ]);
+    expect(preprocessClaims(workFirst, "autogo-b").map((claim) => claim.text)).toEqual([workFirst]);
     expect(selectionOutputHalves(winFirst)).toEqual([
       title,
       "Won 1st place (1 of 400+) in the Northwind Design Competition for best product pitch and MVP execution",

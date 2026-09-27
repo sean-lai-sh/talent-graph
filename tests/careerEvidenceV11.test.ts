@@ -258,7 +258,7 @@ describe("class scoring", () => {
   });
 
   test("a mixed claim the splitter left whole comes back as two linked claims", () => {
-    const statement = "Won 1 of 400 with the Northwind routing service behind it.";
+    const statement = "Won 1 of 400 for building the Northwind routing service.";
     let calls = 0;
     const claims = score(
       statement,
@@ -357,6 +357,41 @@ describe("class scoring", () => {
       ["fellow#output", "output", output, "accepted"],
     ]);
     expect(claims.map((claim) => claim.reviewReasons)).toEqual([[], []]);
+  });
+
+  test("both role-at-org wordings keep the win rate on the sentence after the colon", () => {
+    const title = "Project builder at Northwind project (widget)";
+    const winBody =
+      "Won 1st place (1 of 400+) in the Northwind Design Competition for best product pitch and MVP execution";
+    const workBody =
+      "Led market research, pitch deck creation, and speaking prep to win Northwind design competition (1 out of 400)";
+    for (const body of [winBody, workBody]) {
+      const statement = `${title}: ${body}`;
+      const rates: { text: string; rate: number | null }[] = [];
+      const claims = score(statement, (request) => {
+        rates.push({ text: request.state.text, rate: request.state.selection_rate });
+        if (request.state.text === statement) {
+          return answer({
+            choice: "both",
+            classConfidence: 0.35,
+            probabilities: { selection: 0.3, output: 0.35, both: 0.35 },
+          });
+        }
+        if (request.state.text === title) {
+          return answer({ choice: "selection", classConfidence: 0.91 });
+        }
+        if (request.state.text === body) {
+          return answer({ choice: "output", classConfidence: 0.9, ownershipChoice: "led" });
+        }
+        throw new Error(`unexpected text ${request.state.text}`);
+      });
+      expect(rates).toEqual([
+        { text: statement, rate: 1 / 400 },
+        { text: title, rate: null },
+        { text: body, rate: 1 / 400 },
+      ]);
+      expect(claims.map((claim) => claim.status)).toEqual(["accepted", "accepted"]);
+    }
   });
 
   test("both below the class cutoff splits into halves and scores each half", () => {
