@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { FeedbackInbox } from "../../../components/feedback/FeedbackInbox.tsx";
 import type { ForumPost } from "../../../components/forum/Forum.tsx";
+import { ReferralSignupPreview } from "../../../components/referral/ReferralSignup.tsx";
 import { MemberChrome } from "../../../components/shell/MemberChrome.tsx";
 import { initialState } from "../../../lib/engine.ts";
 import { toDirectoryMembers } from "../../../lib/memberDirectory.ts";
@@ -26,6 +28,8 @@ export function MemberHomePreview() {
           ...current,
         ]);
       }}
+      referral={<ReferralSignupPreview />}
+      feedback={<FeedbackInbox requests={[]} loading={false} onRespond={async () => null} />}
     />
   );
 }
