@@ -1,3 +1,10 @@
+import {
+  COMPANY_SEED,
+  type CompanySeed,
+  mentionedInvestors,
+  type SeedInvestor,
+} from "./companySeed.ts";
+
 export type OwnershipTier = "led" | "built" | "contributed";
 
 export type CountUnit = "users" | "students" | "events" | "usd" | "requests" | "requests_per_day";
@@ -55,6 +62,8 @@ export interface DatedClaim extends AtomicClaim {
   observedAt: string | null;
   publishedAt: string | null;
   title: string;
+  org: string;
+  founder: boolean;
   noWorkDescribed?: true;
 }
 
@@ -74,6 +83,7 @@ export interface JobClaimLine {
 
 export interface JobSplitOptions {
   version: "1.2.0";
+  seed?: CompanySeed;
 }
 
 const NUM = String.raw`\$?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?[kK]?\+?`;
@@ -756,7 +766,7 @@ export function preprocessJobClaims(
     throw new Error('preprocessJobClaims requires version "1.2.0"');
   }
   void modelClaimClass;
-  return emitJobs(groupJobs(lines));
+  return emitJobs(groupJobs(lines), options.seed ?? COMPANY_SEED);
 }
 
 export function observedAtForJobClaim(
@@ -797,25 +807,6 @@ const MONTHS: Readonly<Record<string, string>> = {
   dec: "12",
   december: "12",
 };
-
-const TOP_FUNDS = [
-  "Y Combinator",
-  "Andreessen Horowitz",
-  "Kleiner Perkins",
-  "Founders Fund",
-  "Index Ventures",
-  "General Catalyst",
-  "Lightspeed",
-  "Benchmark",
-  "Sequoia",
-  "Greylock",
-  "Accel",
-  "a16z",
-] as const;
-
-const FUND_NAME = TOP_FUNDS.map((fund) => fund.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-  .sort((a, b) => b.length - a.length)
-  .join("|");
 
 interface PhysicalLine {
   id: string;
@@ -1074,7 +1065,7 @@ function groupJobs(lines: readonly JobClaimLine[]): JobEvent[] {
   return events;
 }
 
-function isFundingSentence(sentence: string): boolean {
+function isFundingSentence(sentence: string, seed: CompanySeed): boolean {
   if (
     /\bY Combinator\b/i.test(sentence) &&
     /\b(?:accepted|acceptance|joined|backed|funded|funding|raised)\b/i.test(sentence)
@@ -1083,11 +1074,22 @@ function isFundingSentence(sentence: string): boolean {
   }
   if (/\bYC\s+[WSF]\d{2}\b/.test(sentence)) return true;
   if (/\baccepted\s+(?:into|to)\s+YC\b/i.test(sentence)) return true;
-  const fund = new RegExp(`\\b(?:${FUND_NAME})\\b`, "i");
-  if (!fund.test(sentence)) return false;
+  const investors = mentionedInvestors(sentence, seed);
+  if (investors.length === 0) return false;
   if (/\braised\b/i.test(sentence) && /\b(?:from|by)\b/i.test(sentence)) return true;
   if (/\b(?:backed|funded)\s+by\b/i.test(sentence)) return true;
-  return new RegExp(`\\b(?:${FUND_NAME})\\b\\s+led\\b`, "i").test(sentence);
+  return investors.some((investor) => fundLed(sentence, investor));
+}
+
+function fundLed(sentence: string, investor: SeedInvestor): boolean {
+  for (const name of [investor.name, ...investor.aliases]) {
+    if (new RegExp(`\\b${escapeRegExp(name)}\\b\\s+led\\b`, "i").test(sentence)) return true;
+  }
+  return false;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function sameSentence(left: string, right: string): boolean {
@@ -1099,11 +1101,14 @@ function sameSentence(left: string, right: string): boolean {
   return norm(left) === norm(right);
 }
 
-function fundingIn(text: string): { sentence: string; observedAt: string | null } | null {
+function fundingIn(
+  text: string,
+  seed: CompanySeed,
+): { sentence: string; observedAt: string | null } | null {
   const sentences = text.split(/(?<=[.!;])\s+/);
   for (const sentence of sentences) {
     const trimmed = sentence.trim();
-    if (!trimmed || !isFundingSentence(trimmed)) continue;
+    if (!trimmed || !isFundingSentence(trimmed, seed)) continue;
     return { sentence: trimmed, observedAt: dateInText(trimmed) };
   }
   return null;
@@ -1124,6 +1129,8 @@ function datedClaim(input: {
   endedAt: string | null;
   publishedAt: string | null;
   title: string;
+  org: string;
+  founder: boolean;
   noWorkDescribed?: true;
 }): DatedClaim {
   const observedAt = observedAtForJobClaim(input.claimClass, {
@@ -1143,6 +1150,8 @@ function datedClaim(input: {
     observedAt,
     publishedAt: input.publishedAt,
     title: input.title,
+    org: input.org,
+    founder: input.founder,
   };
   if (input.noWorkDescribed) claim.noWorkDescribed = true;
   return claim;
@@ -1153,6 +1162,8 @@ function withBulletDates(
   range: { startedAt: string | null; endedAt: string | null },
   publishedAt: string | null,
   title: string,
+  org: string,
+  founder: boolean,
 ): DatedClaim {
   const claimClass = clauseClass(claim.text) === "selection" ? "selection" : "output";
   return {
@@ -1163,16 +1174,18 @@ function withBulletDates(
     observedAt: observedAtForJobClaim(claimClass, { ...range, publishedAt }),
     publishedAt,
     title,
+    org,
+    founder,
   };
 }
 
-function emitJob(job: OpenJob): DatedClaim[] {
+function emitJob(job: OpenJob, seed: CompanySeed): DatedClaim[] {
   const range = { startedAt: job.startedAt, endedAt: job.endedAt };
   const label = headerLabel(job);
   const claims: DatedClaim[] = [];
   const funding = job.founder
     ? job.bullets
-        .map((bullet) => ({ bullet, funding: fundingIn(bullet.text) }))
+        .map((bullet) => ({ bullet, funding: fundingIn(bullet.text, seed) }))
         .find((entry) => entry.funding !== null)
     : undefined;
   if (!job.founder) {
@@ -1187,6 +1200,8 @@ function emitJob(job: OpenJob): DatedClaim[] {
         endedAt: range.endedAt,
         publishedAt: job.publishedAt,
         title: job.title,
+        org: job.org,
+        founder: false,
       }),
     );
   } else if (funding?.funding) {
@@ -1201,6 +1216,8 @@ function emitJob(job: OpenJob): DatedClaim[] {
         endedAt: null,
         publishedAt: funding.bullet.publishedAt,
         title: job.title,
+        org: job.org,
+        founder: true,
       }),
     );
   }
@@ -1212,7 +1229,9 @@ function emitJob(job: OpenJob): DatedClaim[] {
   for (const bullet of job.bullets) {
     if (bullet.id === consumed) continue;
     for (const part of preprocessClaims(bullet.text, bullet.id)) {
-      outputs.push(withBulletDates(part, range, bullet.publishedAt, job.title));
+      outputs.push(
+        withBulletDates(part, range, bullet.publishedAt, job.title, job.org, job.founder),
+      );
     }
   }
   if (outputs.length === 0) {
@@ -1227,6 +1246,8 @@ function emitJob(job: OpenJob): DatedClaim[] {
         endedAt: range.endedAt,
         publishedAt: job.publishedAt,
         title: job.title,
+        org: job.org,
+        founder: job.founder,
         noWorkDescribed: true,
       }),
     );
@@ -1235,7 +1256,7 @@ function emitJob(job: OpenJob): DatedClaim[] {
   return claims;
 }
 
-function emitJobs(events: readonly JobEvent[]): SplitClaim[] {
+function emitJobs(events: readonly JobEvent[], seed: CompanySeed): SplitClaim[] {
   const claims: SplitClaim[] = [];
   for (const event of events) {
     if (event.kind === "free") {
@@ -1243,7 +1264,7 @@ function emitJobs(events: readonly JobEvent[]): SplitClaim[] {
       claims.push(...preprocessClaims(statement, event.line.id));
       continue;
     }
-    claims.push(...emitJob(event.job));
+    claims.push(...emitJob(event.job, seed));
   }
   return claims;
 }
