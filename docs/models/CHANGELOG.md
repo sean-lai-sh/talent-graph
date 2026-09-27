@@ -183,9 +183,10 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   `cd500b05728594c6599e31e8aee5c6db81a2c7814aca61332dbd195b3fc662a6`.
   `careerEvidenceV12RubricHash` fingerprints the class text, the anchors, the
   role labels, the cuts, and the model. Thresholds stay outside the hash.
-  Company selection evidence (PR #92) is not part of that rubric hash. `COMPANY_SEED`
-  in `src/longitudinal/companySeed.ts` is the investor list and any published
-  rates. `companySeedHash` fingerprints it. `COMPANY_EVIDENCE_CONFIG` caps a
+  Company selection evidence (PR #92) is not part of that rubric hash. The
+  `company_seed` section of `config.yml` is the investor list and any published
+  rates. `companySeed.ts` loads that section into `COMPANY_SEED`.
+  `companySeedHash` fingerprints the parsed section. `COMPANY_EVIDENCE_CONFIG` caps a
   proxy lift at +1 and at level 3, and the early-joiner bonus defaults to 0
   with a max of 0.25. `companyEvidenceConfigHash` fingerprints that config.
   Neither hash is in `claim_value` yet. When a hired or founder selection
