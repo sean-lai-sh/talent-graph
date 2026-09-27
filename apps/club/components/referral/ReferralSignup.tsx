@@ -13,8 +13,9 @@ import {
   type ProfileDraft,
   parseContact,
   planSignup,
+  resumeFileError,
 } from "../../lib/referralSignup.ts";
-import { Button, EmptyState, Field, Input } from "../ui/index.ts";
+import { Button, buttonClass, EmptyState, Field, Input } from "../ui/index.ts";
 
 type Step =
   | { kind: "contact" }
@@ -105,11 +106,6 @@ export function ReferralSignup({
           void (async () => {
             let resumeStorageId: string | undefined;
             if (file) {
-              if (file.type && file.type !== "application/pdf") {
-                setError("Resume must be a PDF.");
-                setBusy(false);
-                return;
-              }
               const uploaded = await uploadResume(file);
               if ("error" in uploaded) {
                 setError(uploaded.error);
@@ -177,10 +173,18 @@ export function ReferralSignup({
           <Input value={github} onChange={(event) => setGithub(event.target.value)} />
         </Field>
         <Field label="Resume" hint="PDF up to 5 MB. Required if you do not add LinkedIn or X.">
-          <Input
-            type="file"
-            accept="application/pdf"
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+          <ResumePicker
+            file={file}
+            onChange={(picked) => {
+              const problem = picked
+                ? resumeFileError({
+                    contentType: picked.type || "application/pdf",
+                    size: picked.size,
+                  })
+                : null;
+              setError(problem);
+              setFile(problem ? null : picked);
+            }}
           />
         </Field>
         {alert}
@@ -255,6 +259,66 @@ export function ReferralSignup({
         </Button>
       </div>
     </form>
+  );
+}
+
+function fileSize(bytes: number): string {
+  return bytes < 1024 * 1024
+    ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+    : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Renders inside `Field`'s `<label>`, which opens the hidden file input on
+ * click. The input stays focusable, so the visible button takes its focus ring.
+ * The picked file lives in state; the input is cleared after each pick so
+ * choosing the same file again still fires `change`.
+ */
+function ResumePicker({
+  file,
+  onChange,
+}: {
+  file: File | null;
+  onChange: (file: File | null) => void;
+}) {
+  return (
+    <span className="flex min-h-8 items-center gap-3">
+      <input
+        type="file"
+        accept="application/pdf"
+        className="peer sr-only"
+        onChange={(event) => {
+          const picked = event.target.files?.[0] ?? null;
+          event.target.value = "";
+          if (picked) onChange(picked);
+        }}
+      />
+      <span
+        className={`${buttonClass("secondary")} cursor-pointer peer-focus-visible:shadow-[var(--focus-ring)]`}
+      >
+        {file ? "Replace" : "Choose PDF"}
+      </span>
+      {file ? (
+        <>
+          <span className="min-w-0 truncate text-sm text-ink" title={file.name}>
+            {file.name}
+          </span>
+          <span className="shrink-0 text-xs text-muted tabular-nums">{fileSize(file.size)}</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto"
+            onClick={(event) => {
+              // Inside Field's <label>: never let this click reach the file input.
+              event.preventDefault();
+              onChange(null);
+            }}
+          >
+            Remove
+          </Button>
+        </>
+      ) : null}
+    </span>
   );
 }
 

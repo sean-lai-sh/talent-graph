@@ -1,6 +1,6 @@
 export { Avatar } from "./Avatar.tsx";
 export { Badge } from "./Badge.tsx";
-export { Button, type ButtonSize, type ButtonVariant } from "./Button.tsx";
+export { Button, type ButtonSize, type ButtonVariant, buttonClass } from "./Button.tsx";
 export { EmptyState } from "./EmptyState.tsx";
 export { Field, inputClass } from "./Field.tsx";
 export { Input, Select, Textarea } from "./Input.tsx";
