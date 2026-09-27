@@ -1,7 +1,3 @@
-/**
- * Synthetic statements only. The strings name fictional orgs and numbers.
- */
-
 import { describe, expect, test } from "bun:test";
 import { type ClaimFacts, preprocessClaims } from "../src/longitudinal/claimPreprocess.ts";
 
@@ -16,30 +12,28 @@ function factsOf(statement: string): ClaimFacts {
 describe("selection ratios", () => {
   test("of, slash, out of, plus, commas, and k", () => {
     expect(factsOf("Picked 3 of 90 Harborline applicants.").selections).toEqual([
-      { selected: 3, pool: 90, rate: 3 / 90, poolLowerBound: false },
+      { kind: "ratio", selected: 3, pool: 90, rate: 3 / 90, poolLowerBound: false },
     ]);
     expect(factsOf("Picked 3/90 Harborline applicants.").selections).toEqual([
-      { selected: 3, pool: 90, rate: 3 / 90, poolLowerBound: false },
+      { kind: "ratio", selected: 3, pool: 90, rate: 3 / 90, poolLowerBound: false },
     ]);
     expect(factsOf("Picked 1 out of 80 Pylon applicants.").selections).toEqual([
-      { selected: 1, pool: 80, rate: 1 / 80, poolLowerBound: false },
+      { kind: "ratio", selected: 1, pool: 80, rate: 1 / 80, poolLowerBound: false },
     ]);
     expect(factsOf("Picked 1 of 400+ Northwind applicants.").selections).toEqual([
-      { selected: 1, pool: 400, rate: 1 / 400, poolLowerBound: true },
+      { kind: "ratio", selected: 1, pool: 400, rate: 1 / 400, poolLowerBound: true },
     ]);
     expect(factsOf("Picked 12 of 10,000 Lumen applicants.").selections).toEqual([
-      { selected: 12, pool: 10000, rate: 12 / 10000, poolLowerBound: false },
+      { kind: "ratio", selected: 12, pool: 10000, rate: 12 / 10000, poolLowerBound: false },
     ]);
     expect(factsOf("Picked 4 of 10k Ferry applicants.").selections).toEqual([
-      { selected: 4, pool: 10000, rate: 4 / 10000, poolLowerBound: false },
+      { kind: "ratio", selected: 4, pool: 10000, rate: 4 / 10000, poolLowerBound: false },
     ]);
     expect(factsOf("Picked 1/10k Ferry applicants.").selections).toEqual([
-      { selected: 1, pool: 10000, rate: 1 / 10000, poolLowerBound: false },
+      { kind: "ratio", selected: 1, pool: 10000, rate: 1 / 10000, poolLowerBound: false },
     ]);
     const top = factsOf("Finished in the top 5% of the Pylon quiz.");
-    expect(top.selections).toEqual([
-      { selected: null, pool: null, rate: 5 / 100, poolLowerBound: false },
-    ]);
+    expect(top.selections).toEqual([{ kind: "top_percent", rate: 5 / 100 }]);
     expect(top.percentages).toEqual([]);
   });
 
@@ -48,6 +42,14 @@ describe("selection ratios", () => {
     expect(factsOf("Joined Q3/2024 planning at Northwind.").selections).toEqual([]);
     expect(factsOf("Read 3/4 of the Lumen brief.").selections).toEqual([]);
     expect(factsOf("Shipped v3.2.1 of the Northwind catalog.").selections).toEqual([]);
+    expect(factsOf("Read 3/4 of 90 Lumen pages.").selections).toEqual([]);
+    expect(factsOf("Read 3/4 students.").counts).toEqual([]);
+    expect(factsOf("Upgraded v3.2.1/90 at Northwind.").selections).toEqual([]);
+    expect(factsOf("Used Node 18/20 and Go.").selections).toEqual([]);
+    expect(factsOf("Picked 1/2k applicants.").selections).toEqual([
+      { kind: "ratio", selected: 1, pool: 2000, rate: 1 / 2000, poolLowerBound: false },
+    ]);
+    expect(factsOf("See 3/2024 of 9000 Pylon seats.").selections).toEqual([]);
   });
 });
 
@@ -57,6 +59,7 @@ describe("before/after metrics", () => {
     expect(yieldChange).toEqual([
       {
         metric: "yield",
+        unit: "percent",
         before: 60,
         after: 99.5,
         relative_change: (99.5 - 60) / 60,
@@ -67,6 +70,7 @@ describe("before/after metrics", () => {
     expect(duration).toEqual([
       {
         metric: "nightly job",
+        unit: "duration",
         before: 300,
         after: 8,
         relative_change: (8 - 300) / 300,
@@ -76,6 +80,7 @@ describe("before/after metrics", () => {
     expect(factsOf("5 minutes to 8 seconds on the Pylon batch.").changes).toEqual([
       {
         metric: "duration",
+        unit: "duration",
         before: 300,
         after: 8,
         relative_change: (8 - 300) / 300,
@@ -85,15 +90,37 @@ describe("before/after metrics", () => {
     expect(factsOf("Moved the bake from 2 hours to 30 minutes.").changes).toEqual([
       {
         metric: "bake",
+        unit: "duration",
         before: 7200,
         after: 1800,
         relative_change: -0.75,
       },
     ]);
 
+    expect(factsOf("Raised yield from +10% to +20%.").changes).toEqual([
+      {
+        metric: "yield",
+        unit: "percent",
+        before: 10,
+        after: 20,
+        relative_change: 1,
+      },
+    ]);
+    expect(factsOf("Raised yield from +10% to +20%.").percentages).toEqual([]);
+    expect(factsOf("Moved uptime from -2% to 4%.").changes).toEqual([
+      {
+        metric: "uptime",
+        unit: "percent",
+        before: -2,
+        after: 4,
+        relative_change: 3,
+      },
+    ]);
+
     expect(factsOf("Moved uptime from 0% to 40%.").changes).toEqual([
       {
         metric: "uptime",
+        unit: "percent",
         before: 0,
         after: 40,
         relative_change: null,
@@ -111,15 +138,15 @@ describe("before/after metrics", () => {
 describe("percents, counts, team size, and ownership", () => {
   test("plain percents, deltas, and counts with units", () => {
     expect(factsOf("Kept a 12% share of replies at Lumen.").percentages).toEqual([
-      { value: 12, delta: false },
+      { kind: "level", value: 12 },
     ]);
     expect(factsOf("Improving latency 10% on the Ferry gate.").percentages).toEqual([
-      { value: 10, delta: true },
+      { kind: "delta", value: 10 },
     ]);
-    expect(factsOf("Cut error rate by 3%.").percentages).toEqual([{ value: 3, delta: true }]);
+    expect(factsOf("Cut error rate by 3%.").percentages).toEqual([{ kind: "delta", value: 3 }]);
     expect(factsOf("Posted a +4% lift and a -2% drop.").percentages).toEqual([
-      { value: 4, delta: true },
-      { value: 2, delta: true },
+      { kind: "delta", value: 4 },
+      { kind: "delta", value: -2 },
     ]);
 
     expect(factsOf("Served 1,200 students, 40 events, and 800 users.").counts).toEqual([
@@ -163,7 +190,7 @@ describe("percents, counts, team size, and ownership", () => {
   test("numbers inside a ratio or a team size are not also counts", () => {
     const ratio = factsOf("Won the harbor quiz bowl (1 of 80 teams).");
     expect(ratio.selections).toEqual([
-      { selected: 1, pool: 80, rate: 1 / 80, poolLowerBound: false },
+      { kind: "ratio", selected: 1, pool: 80, rate: 1 / 80, poolLowerBound: false },
     ]);
     expect(ratio.counts).toEqual([]);
     expect(factsOf("Taught 30 students in a team of 4.").counts).toEqual([
@@ -180,7 +207,7 @@ describe("splitting", () => {
     const claims = preprocessClaims(statement, "bullet-1");
     expect(claims.map((claim) => claim.id)).toEqual(["bullet-1#0", "bullet-1#1"]);
     expect(claims.map((claim) => claim.parentId)).toEqual(["bullet-1", "bullet-1"]);
-    expect(claims.map((claim) => claim.source)).toEqual([statement, statement]);
+    expect(claims.map((claim) => claim.statement)).toEqual([statement, statement]);
     expect(claims.map((claim) => claim.text)).toEqual([
       "Built the routing service for Harborline Transit",
       "selected as 1 of 400 applicants.",
@@ -189,7 +216,7 @@ describe("splitting", () => {
     expect(claims[0]?.facts.selections).toEqual([]);
     expect(claims[1]?.facts.ownership).toBeNull();
     expect(claims[1]?.facts.selections).toEqual([
-      { selected: 1, pool: 400, rate: 1 / 400, poolLowerBound: false },
+      { kind: "ratio", selected: 1, pool: 400, rate: 1 / 400, poolLowerBound: false },
     ]);
   });
 
@@ -200,8 +227,9 @@ describe("splitting", () => {
     );
     expect(sentences).toHaveLength(2);
     expect(sentences[0]?.facts.ownership).toBe("built");
-    expect(sentences[1]?.facts.selections[0]?.selected).toBe(3);
-    expect(sentences[1]?.facts.selections[0]?.pool).toBe(90);
+    expect(sentences[1]?.facts.selections).toEqual([
+      { kind: "ratio", selected: 3, pool: 90, rate: 3 / 90, poolLowerBound: false },
+    ]);
 
     const joined = preprocessClaims(
       "Led the survey for Northwind Foods and won the campus case contest (1 out of 80).",
@@ -213,7 +241,7 @@ describe("splitting", () => {
     ]);
     expect(joined[0]?.facts.ownership).toBe("led");
     expect(joined[1]?.facts.selections).toEqual([
-      { selected: 1, pool: 80, rate: 1 / 80, poolLowerBound: false },
+      { kind: "ratio", selected: 1, pool: 80, rate: 1 / 80, poolLowerBound: false },
     ]);
 
     const toWin = preprocessClaims(
@@ -222,7 +250,9 @@ describe("splitting", () => {
     );
     expect(toWin).toHaveLength(2);
     expect(toWin[1]?.text).toBe("win the harbor quiz, 1 of 400+ entries.");
-    expect(toWin[1]?.facts.selections[0]?.poolLowerBound).toBe(true);
+    expect(toWin[1]?.facts.selections).toEqual([
+      { kind: "ratio", selected: 1, pool: 400, rate: 1 / 400, poolLowerBound: true },
+    ]);
 
     const titled = preprocessClaims(
       "Built the router for Dr. Chen. Won the city prize, 2 of 40 entries.",
@@ -231,6 +261,33 @@ describe("splitting", () => {
     expect(titled.map((claim) => claim.text)).toEqual([
       "Built the router for Dr. Chen.",
       "Won the city prize, 2 of 40 entries.",
+    ]);
+
+    const bareWin = preprocessClaims(
+      "Built the night ferry kiosk to win the harbor quiz bowl.",
+      "bullet-6",
+    );
+    expect(bareWin.map((claim) => claim.text)).toEqual([
+      "Built the night ferry kiosk",
+      "win the harbor quiz bowl.",
+    ]);
+
+    const titledName = preprocessClaims(
+      "Built the router for Mrs. Chen. Won the harbor quiz bowl.",
+      "bullet-7",
+    );
+    expect(titledName.map((claim) => claim.text)).toEqual([
+      "Built the router for Mrs. Chen.",
+      "Won the harbor quiz bowl.",
+    ]);
+
+    const aside = preprocessClaims(
+      "Built the router for Dr. Chen. The notes were short. Won the harbor quiz bowl.",
+      "bullet-8",
+    );
+    expect(aside.map((claim) => claim.text)).toEqual([
+      "Built the router for Dr. Chen. The notes were short.",
+      "Won the harbor quiz bowl.",
     ]);
   });
 
@@ -248,6 +305,11 @@ describe("splitting", () => {
       "Built the portal and selected libraries for the Lumen catalog.",
       "Built the router for Dr. Chen. The notes were short.",
       "Built the API. Designed the schema for Lumen Ferry.",
+      "Built the portal and award-winning libraries.",
+      "Built the portal. The competition was hard.",
+      "Built the portal and admitted the notes were short.",
+      "Designed the poster and the prize table.",
+      "Led the desk. Awarded vendors sent the crates.",
     ];
     for (const statement of single) {
       const claims = preprocessClaims(statement, "only");
@@ -255,7 +317,7 @@ describe("splitting", () => {
       expect(claims[0]?.id).toBe("only");
       expect(claims[0]?.parentId).toBe("only");
       expect(claims[0]?.text).toBe(statement);
-      expect(claims[0]?.source).toBe(statement);
+      expect(claims[0]?.statement).toBe(statement);
     }
   });
 });
@@ -274,7 +336,7 @@ describe("determinism", () => {
         id: "parent-9#0",
         parentId: "parent-9",
         text: "Led the night desk for Pylon Hall",
-        source: statement,
+        statement,
         facts: {
           selections: [],
           changes: [],
@@ -288,9 +350,11 @@ describe("determinism", () => {
         id: "parent-9#1",
         parentId: "parent-9",
         text: "win the harbor quiz, 1 of 400+ entries.",
-        source: statement,
+        statement,
         facts: {
-          selections: [{ selected: 1, pool: 400, rate: 1 / 400, poolLowerBound: true }],
+          selections: [
+            { kind: "ratio", selected: 1, pool: 400, rate: 1 / 400, poolLowerBound: true },
+          ],
           changes: [],
           percentages: [],
           counts: [],

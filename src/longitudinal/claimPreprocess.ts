@@ -1,48 +1,26 @@
-/**
- * Deterministic preprocessing for one source statement, before the Jev claim step.
- *
- * A statement becomes two or more atomic claims only when the clauses are a
- * role or output claim and a selection claim. Numbers are read off the wording
- * into `ClaimFacts`. Same input, same output. No model and no network.
- */
-
 export type OwnershipTier = "led" | "built" | "contributed";
 
 export type CountUnit = "users" | "students" | "events" | "usd" | "requests" | "requests_per_day";
 
-/**
- * A selection ratio.
- *
- * `rate` is a fraction. `1 of 400` is `0.0025`. `top 5%` is `0.05` with
- * `selected` and `pool` null, because the wording has no counts.
- * `poolLowerBound` is true when the pool was written with a trailing `+`.
- * The stored pool is the number that was written.
- */
-export interface SelectionRatio {
-  selected: number | null;
-  pool: number | null;
+export interface CountRatio {
+  kind: "ratio";
+  selected: number;
+  pool: number;
   rate: number;
   poolLowerBound: boolean;
 }
 
-/**
- * A before/after metric. Time quantities are seconds. Percents stay the
- * numbers that were written (`60` and `99.5`). `relative_change` is
- * `(after - before) / |before|`, or null when `before` is 0.
- */
+export type SelectionRatio = CountRatio | { kind: "top_percent"; rate: number };
+
 export interface MetricChange {
   metric: string;
+  unit: "percent" | "duration";
   before: number;
   after: number;
   relative_change: number | null;
 }
 
-/** A percent that is not already part of a selection or a before/after pair. */
-export interface PercentFact {
-  value: number;
-  /** True for a change (`+10%`, `improving latency 10%`). False for a level (`12%`). */
-  delta: boolean;
-}
+export type PercentFact = { kind: "level"; value: number } | { kind: "delta"; value: number };
 
 export interface CountFact {
   value: number;
@@ -59,25 +37,20 @@ export interface ClaimFacts {
 }
 
 export interface AtomicClaim {
-  /** `parentId` when the statement is one claim, otherwise `parentId#0`, `#1`, … */
   id: string;
   parentId: string;
-  /** Verbatim clause. The full statement when it was not split. */
   text: string;
-  /** The full source statement, copied onto every child. */
-  source: string;
+  statement: string;
   facts: ClaimFacts;
 }
 
 const NUM = String.raw`\$?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?[kK]?\+?`;
 const NUMBER = String.raw`(?<![\w.])(${NUM})(?![\w])`;
 const TIME_UNIT = "milliseconds?|seconds?|minutes?|hours?|days?|secs?|mins?|hrs?|ms|sec|min|hr|s";
-const QTY = String.raw`(?<![\w.])(${NUM})\s*(%|${TIME_UNIT})(?![A-Za-z])`;
+const QTY = String.raw`(?<![\w.])([+-])?\s*(${NUM})\s*(%|${TIME_UNIT})(?![A-Za-z])`;
 
-const ROLE =
+const OUTPUT_VERB =
   /\b(?:led|owned|founded|built|developed|designed|contributed|assisted|helped|shipped|launched|created|worked\s+under)\b/i;
-const SELECTION =
-  /\b(?:won|wins|winner|winning|awarded|award|prize|prizes|finalist|admitted|competition|champion|champions)\b/i;
 
 const SECONDS: Readonly<Record<string, number>> = {
   ms: 0.001,
@@ -201,7 +174,7 @@ function absorb<T>(hits: readonly Hit<T>[], consumed: Span[]): { values: T[]; co
   return { values, consumed: next };
 }
 
-function ratio(selectedRaw: string, poolRaw: string): SelectionRatio | null {
+function ratio(selectedRaw: string, poolRaw: string): CountRatio | null {
   const selected = parseNumber(selectedRaw);
   const pool = parseNumber(poolRaw);
   if (selected === null || pool === null) return null;
@@ -209,6 +182,7 @@ function ratio(selectedRaw: string, poolRaw: string): SelectionRatio | null {
   if (!(selected.value > 0) || !(pool.value > 0)) return null;
   if (selected.value > pool.value) return null;
   return {
+    kind: "ratio",
     selected: selected.value,
     pool: pool.value,
     rate: selected.value / pool.value,
@@ -216,8 +190,16 @@ function ratio(selectedRaw: string, poolRaw: string): SelectionRatio | null {
   };
 }
 
+function isYearToken(raw: string): boolean {
+  const body = raw.replaceAll(",", "");
+  if (!/^\d{4}$/.test(body)) return false;
+  const year = Number(body);
+  return year >= 1900 && year <= 2100;
+}
+
 function extractSelections(text: string): { values: SelectionRatio[]; consumed: Span[] } {
   const hits: Hit<SelectionRatio>[] = [];
+  const blocked: Span[] = [];
 
   for (const match of text.matchAll(new RegExp(String.raw`\btop\s+(${NUM})\s*%`, "gi"))) {
     const raw = match[1];
@@ -227,12 +209,7 @@ function extractSelections(text: string): { values: SelectionRatio[]; consumed: 
     hits.push({
       start: match.index,
       end: match.index + match[0].length,
-      value: {
-        selected: null,
-        pool: null,
-        rate: parsed.value / 100,
-        poolLowerBound: false,
-      },
+      value: { kind: "top_percent", rate: parsed.value / 100 },
     });
   }
 
@@ -246,7 +223,10 @@ function extractSelections(text: string): { values: SelectionRatio[]; consumed: 
       slash: false,
     },
     {
-      pattern: new RegExp(String.raw`(?<![\w:/])(${NUM})(?![\w.])\s*\/\s*(${NUM})(?![\w/])`, "gi"),
+      pattern: new RegExp(
+        String.raw`(?<![\w:/.)])(${NUM})(?![\w.])\s*\/\s*(${NUM})(?![\w/])`,
+        "gi",
+      ),
       slash: true,
     },
   ];
@@ -257,13 +237,20 @@ function extractSelections(text: string): { values: SelectionRatio[]; consumed: 
       const right = match[2];
       if (left === undefined || right === undefined || match.index === undefined) continue;
       const value = ratio(left, right);
-      if (value === null || value.pool === null) continue;
-      if (entry.slash && (value.pool < 10 || (value.pool >= 1900 && value.pool <= 2100))) continue;
-      hits.push({ start: match.index, end: match.index + match[0].length, value });
+      const span = { start: match.index, end: match.index + match[0].length };
+      if (value === null) {
+        if (entry.slash) blocked.push(span);
+        continue;
+      }
+      if (entry.slash && (value.pool < 10 || value.rate > 0.5 || isYearToken(right))) {
+        blocked.push(span);
+        continue;
+      }
+      hits.push({ ...span, value });
     }
   }
 
-  return absorb(hits, []);
+  return absorb(hits, blocked);
 }
 
 function metricName(text: string, index: number, family: "percent" | "duration"): string {
@@ -294,28 +281,28 @@ function normalizeQuantity(
   return { value: parsed.value * seconds, family: "duration" };
 }
 
+function signedQuantity(
+  sign: string | undefined,
+  raw: string,
+  unit: string,
+): { value: number; family: "percent" | "duration" } | null {
+  const parsed = normalizeQuantity(raw, unit);
+  if (parsed === null) return null;
+  if (sign === "-" && parsed.family !== "percent") return null;
+  return { value: sign === "-" ? -parsed.value : parsed.value, family: parsed.family };
+}
+
 function changeFrom(text: string, match: RegExpMatchArray): Hit<MetricChange> | null {
   if (match.index === undefined) return null;
-  const beforeRaw = match[1];
-  const beforeUnit = match[2];
-  const afterRaw = match[3];
-  const afterUnit = match[4];
-  if (
-    beforeRaw === undefined ||
-    beforeUnit === undefined ||
-    afterRaw === undefined ||
-    afterUnit === undefined
-  ) {
-    return null;
-  }
-  const before = normalizeQuantity(beforeRaw, beforeUnit);
-  const after = normalizeQuantity(afterRaw, afterUnit);
+  const before = signedQuantity(match[1], match[2] ?? "", match[3] ?? "");
+  const after = signedQuantity(match[4], match[5] ?? "", match[6] ?? "");
   if (before === null || after === null || before.family !== after.family) return null;
   return {
     start: match.index,
     end: match.index + match[0].length,
     value: {
       metric: metricName(text, match.index, before.family),
+      unit: before.family,
       before: before.value,
       after: after.value,
       relative_change:
@@ -381,10 +368,15 @@ function extractPercents(
     if (raw === undefined || match.index === undefined) continue;
     const parsed = parseNumber(raw);
     if (parsed === null || parsed.currency) continue;
+    const sign = match[1];
+    const magnitude = sign === "-" ? -parsed.value : parsed.value;
     hits.push({
       start: match.index,
       end: match.index + match[0].length,
-      value: { value: parsed.value, delta: percentIsDelta(text, match.index, match[1]) },
+      value: {
+        kind: percentIsDelta(text, match.index, sign) ? "delta" : "level",
+        value: magnitude,
+      },
     });
   }
   return absorb(hits, consumed);
@@ -464,9 +456,16 @@ function extractFacts(text: string): ClaimFacts {
   };
 }
 
+function isSelectionClause(clause: string): boolean {
+  if (extractFacts(clause).selections.length > 0) return true;
+  const trimmed = clause.trim();
+  if (/^awarded\s+(?:the|a|an)\b/i.test(trimmed)) return true;
+  return /^(?:win(?!-)|won|wins)\b/i.test(trimmed);
+}
+
 function clauseClass(clause: string): ClauseKind {
-  const role = ROLE.test(clause);
-  const selection = SELECTION.test(clause) || extractFacts(clause).selections.length > 0;
+  const role = OUTPUT_VERB.test(clause);
+  const selection = isSelectionClause(clause);
   if (role && selection) return "both";
   if (role) return "role";
   if (selection) return "selection";
@@ -480,12 +479,58 @@ function canSplit(parts: readonly string[]): boolean {
   return classes.includes("role") && classes.includes("selection");
 }
 
+const TITLE_ABBREV = new Set(["dr", "mr", "mrs", "ms", "prof", "jr", "sr", "st", "vs", "etc"]);
+
 function sentenceParts(statement: string): string[] | null {
-  const parts = statement
-    .split(/\s*;\s*|(?<=[A-Za-z]{3,}[.!?])\s+(?=[A-Z])/)
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
+  const cuts: Span[] = [];
+  for (const match of statement.matchAll(/\s*;\s*/g)) {
+    if (match.index === undefined) continue;
+    cuts.push({ start: match.index, end: match.index + match[0].length });
+  }
+  for (const match of statement.matchAll(/([A-Za-z]+|\d+)\.(\s+)(?=[A-Z])/g)) {
+    const word = match[1];
+    const spaces = match[2];
+    if (word === undefined || spaces === undefined || match.index === undefined) continue;
+    if (/[A-Za-z]/.test(word) && (word.length <= 2 || TITLE_ABBREV.has(word.toLowerCase()))) {
+      continue;
+    }
+    const spaceStart = match.index + word.length + 1;
+    cuts.push({ start: spaceStart, end: spaceStart + spaces.length });
+  }
+  if (cuts.length === 0) return null;
+  cuts.sort((a, b) => a.start - b.start || a.end - b.end);
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const cut of cuts) {
+    if (cut.start < cursor) continue;
+    const left = statement.slice(cursor, cut.start).trim();
+    if (left.length > 0) parts.push(left);
+    cursor = cut.end;
+  }
+  const tail = statement.slice(cursor).trim();
+  if (tail.length > 0) parts.push(tail);
   return parts.length >= 2 ? parts : null;
+}
+
+function glueOthers(parts: readonly string[]): string[] | null {
+  const classes = parts.map(clauseClass);
+  if (classes.some((kind) => kind === "both")) return null;
+  if (!classes.includes("role") || !classes.includes("selection")) return null;
+  const glued: string[] = [];
+  let leading: string[] = [];
+  for (let index = 0; index < parts.length; index++) {
+    const part = parts[index];
+    if (part === undefined) continue;
+    if (classes[index] === "other") {
+      if (glued.length === 0) leading.push(part);
+      else glued[glued.length - 1] = `${glued[glued.length - 1]} ${part}`.trim();
+      continue;
+    }
+    glued.push([...leading, part].join(" ").trim());
+    leading = [];
+  }
+  if (glued.length < 2 || !canSplit(glued)) return null;
+  return glued;
 }
 
 function conjunctionParts(statement: string): string[] | null {
@@ -504,7 +549,10 @@ function conjunctionParts(statement: string): string[] | null {
 
 function splitStatement(statement: string): string[] {
   const sentences = sentenceParts(statement);
-  if (sentences && canSplit(sentences)) return sentences;
+  if (sentences) {
+    const glued = glueOthers(sentences);
+    if (glued) return glued;
+  }
   const cut = conjunctionParts(statement);
   if (cut) return cut;
   return [statement];
@@ -519,7 +567,7 @@ export function preprocessClaims(statement: string, parentId: string): AtomicCla
       id: split ? `${parentId}#${index}` : parentId,
       parentId,
       text,
-      source: statement,
+      statement,
       facts: extractFacts(text),
     };
   });

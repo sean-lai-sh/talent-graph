@@ -112,7 +112,7 @@ describe("CareerEvidenceSpec: the adapter builds its questions from the spec", (
     expect(input.claims.map((claim) => claim.id)).toEqual(["item-rich#0", "item-rich#1"]);
     expect(input.claims[0]?.facts.ownership).toBe("built");
     expect(input.claims[1]?.facts.selections).toEqual([
-      { selected: 1, pool: 400, rate: 1 / 400, poolLowerBound: false },
+      { kind: "ratio", selected: 1, pool: 400, rate: 1 / 400, poolLowerBound: false },
     ]);
 
     const wire = claimWireState(input);

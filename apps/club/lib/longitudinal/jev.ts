@@ -88,14 +88,16 @@ export interface JevClient {
  */
 export const LEVELS: Record<CareerEvidenceDimension, ScoreLevels> = CAREER_EVIDENCE_V1_0_0.levels;
 
-/** What the claim step is given. `claims` is additive and is not copied onto the 1.0.0 request. */
-export interface ClaimStepInput {
+export interface ClaimWireState {
   source: GrokEvidenceItem["source"];
   publisher: string;
   published_at: string;
   source_url: string;
   statement: string;
   quoted_evidence: string;
+}
+
+export interface ClaimStepInput extends ClaimWireState {
   claims: readonly AtomicClaim[];
 }
 
@@ -111,8 +113,7 @@ export function claimStepInput(evidence: GrokEvidenceItem): ClaimStepInput {
   };
 }
 
-/** The six fields the 1.0.0 claim request sends. `claims` stays off this object. */
-export function claimWireState(input: ClaimStepInput): Omit<ClaimStepInput, "claims"> {
+export function claimWireState(input: ClaimStepInput) {
   return {
     source: input.source,
     publisher: input.publisher,
@@ -168,7 +169,7 @@ export function createJevJudgmentService(
     },
   });
 
-  /** The person is not shown. Facts stay on `claimStepInput` and off this object. */
+  /** The state of a claim request. The person is not shown: only the evidence. */
   const claimState = (evidence: GrokEvidenceItem) => claimWireState(claimStepInput(evidence));
 
   const fingerprintOf = (state: unknown, questions: unknown): string =>
