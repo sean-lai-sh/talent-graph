@@ -120,9 +120,9 @@ Without those, `/club` redirects to `/login`. The seed board does not appear the
 ## First admin
 
 One Convex deployment is one club. A signed-in user's role (`admin` or
-`member`) lives on `clubAccounts` and applies to that club. `clubOrgs` is
-the admin council board. Every admin reads and writes the same one, the
-oldest `clubOrgs` document. It is not a separate organization a member joins. Roles are not keyed by `orgId`.
+`member`) lives on `clubAccounts` and applies to that club. The club is
+the oldest `clubs` row, and every admin reads and writes the same one. It is
+not a separate organization a member joins. Roles are not keyed by `orgId`.
 
 Public signup is off. From `apps/club`, with `ADMIN_PROVISION_SECRET` set
 on the Convex deployment (table above), pass the same value in the shell.

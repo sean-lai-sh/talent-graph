@@ -187,8 +187,8 @@ describe("SEA-10 Convex persistence path", () => {
     expect(club).toContain("setReviewConfigEngine");
     expect(club).not.toContain("meddleReferral");
     expect(club).not.toContain("setNow");
-    expect(club).toContain("state.now = new Date().toISOString()");
-    expect(club).toContain("emptyState()");
+    expect(club).toContain("now: new Date().toISOString()");
+    expect(club).toContain("saveState(ctx.db, club, before, result.state)");
     expect(club).not.toContain("EXAMPLE_T");
     expect(club).toContain("authComponent.getAuthUser");
     expect(club).toContain("not a membership / invite model");

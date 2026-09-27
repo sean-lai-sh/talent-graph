@@ -36,8 +36,6 @@ describe("member home + admin board", () => {
     expect(forum).toContain("Post");
     expect(shell).toContain("Sign out");
     expect(shell).not.toContain("Signed in as");
-    expect(schema).toContain("const clubPost");
-    expect(schema).toContain("posts: v.optional");
     expect(schema).toContain("clubAccounts");
     expect(schema).toContain("clubPosts");
     expect(club).toContain("export const listPosts");
