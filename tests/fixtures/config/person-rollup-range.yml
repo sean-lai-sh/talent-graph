@@ -1,0 +1,10 @@
+company_seed:
+  investors: []
+  companies: []
+person_rollup:
+  wTrend: 1.5
+  wSubstance: 0.6
+  wConsensus: 0.4
+  topN: 3
+  minCohortSize: 30
+  minBucketSize: 2

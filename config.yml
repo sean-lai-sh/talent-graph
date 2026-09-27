@@ -1,6 +1,6 @@
 # Project config-as-code. CI validates every section (`bun run check:config`).
-# Scoring hyperparameters, time windows, TG_* overrides, and claim-value
-# settings belong in a later change (SEA-51), not here.
+# Scoring hyperparameters other than person_rollup, time windows, TG_* overrides,
+# and claim-value settings belong in a later change (SEA-51), not here.
 
 company_seed:
   # investors[].name: unique id.
@@ -78,3 +78,17 @@ company_seed:
       source: https://www.hustlefund.vc/
       publishedRates: []
   companies: []
+
+person_rollup:
+  # wTrend: weight on centered trend inside Consensus. Unitless, in [0, 1].
+  wTrend: 0.2
+  # wSubstance: weight on Substance inside Value. Fraction of the blend, in [0, 1].
+  wSubstance: 0.6
+  # wConsensus: weight on Consensus inside Value. Fraction of the blend, in [0, 1].
+  wConsensus: 0.4
+  # topN: strongest accepted claims averaged in each class. Count of claims.
+  topN: 3
+  # minCohortSize: people with Substance required before Alpha is reported. Count of people.
+  minCohortSize: 30
+  # minBucketSize: people required before a Consensus-bucket mean is used. Count of people. 2 is JUDGE_RELIABILITY_V2_0_0.minBucketSize.
+  minBucketSize: 2

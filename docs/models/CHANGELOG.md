@@ -274,6 +274,38 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   is not called by `bun run demo` or `bun run drift`.)
 - **PR:** #93, stacked on #92.
 
+## person_rollup — Consensus, Substance, Value, Alpha
+
+- **What:** `personRollups` and `alphaSlopes` in `src/longitudinal/personRollup.ts`.
+  Not a `ModelSpec`. `CURRENT_SPECS` does not move. Consensus is the mean of the
+  top 3 accepted selection claim values, or 0 when there are none, plus
+  `wTrend * trend` (`wTrend` 0.2, trend defaults to 0). Substance is the same
+  mean over accepted output claims, or null when there are none. Review and
+  `no_work_described` claims are left out. Value is `0.6 * Substance + 0.4 * Consensus`,
+  and null when Substance is null. Alpha is the cohort rank percentile of
+  Substance minus the mean Substance in the person's Consensus bucket.
+  A bucket with fewer than `minBucketSize` people (2, the current
+  `JUDGE_RELIABILITY_V2_0_0.minBucketSize`) uses the cohort mean instead.
+  Below `minCohortSize` 30, Alpha is null with state `not_enough_cohort`.
+  A person with no output evidence keeps state `no_output_evidence`.
+  `alphaSlopes` differences that percentile across two cutoffs and uses the
+  `residualSlope` state names. The config section is `person_rollup` in
+  `config.yml`. Its stamp is
+  `c5c2adaa5b3186798c7c9454ac1dfeb4364d7fb15947a99edb98216d00f54a67`.
+  `company_seed` stays
+  `2229a5fe852c86e6c9988dcca0b56045b2525c54113f16cf429f0b6f7afd88e7`.
+  `claim_value@1.2.0` stays
+  `6aaa508fff88d6f3dedabf803f3b21ea9b20b6a1dec25911fff495ffe6e697f8`.
+  `claim_value@1.1.0` stays
+  `8f66391ae3488a303bc8135936840cd739d0b808642b27293a1a906e1ae76adf`.
+- **Why:** Value answers who is strongest overall. Alpha answers who beat the
+  Substance their Consensus predicts. Plain subtraction pushes a big name
+  negative even when the work matches the signals, because selection claims
+  reach high levels more easily than output claims.
+- **Drift:** n/a (`CURRENT_SPECS` did not move. Demo and drift do not call the
+  roll-up. V2 judge labels and `residualSlope` are unchanged.)
+- **PR:** stacked on #93.
+
 ## Run id format
 
 Run ids are not spec versions: this section records changes to the format of
