@@ -200,8 +200,10 @@ export default defineSchema({
     authorUserId: v.string(),
     createdAt: v.string(),
   }).index("by_created", ["createdAt"]),
+  // One club per deployment: the oldest document (lib/theClub.ts).
   clubOrgs: defineTable({
-    ownerUserId: v.string(),
+    // The admin who created it. Pre-SEA-55 documents were one per admin.
+    ownerUserId: v.optional(v.string()),
     name: v.string(),
     now: v.string(),
     people: v.array(clubPerson),
@@ -216,7 +218,7 @@ export default defineSchema({
     config: v.optional(clubReviewConfig),
     // Legacy per-org notes. The live member feed is `clubPosts`.
     posts: v.optional(v.array(clubPost)),
-  }).index("by_owner", ["ownerUserId"]),
+  }),
   // People live inside clubOrgs, which cannot index a nested contact.
   referralContacts: defineTable({
     normalizedContact: v.string(),

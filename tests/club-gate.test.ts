@@ -58,7 +58,7 @@ describe("SEA-12 Better Auth gate on /club", () => {
     expect(existsSync(join(root, "middleware.ts"))).toBe(false);
   });
 
-  test("Convex mutations lock to Better Auth sessions and owner orgs", () => {
+  test("Convex mutations lock to Better Auth sessions and one shared club", () => {
     const club = read("apps/club/convex/club.ts");
     const schema = read("apps/club/convex/schema.ts");
     const auth = read("apps/club/convex/auth.ts");
@@ -69,11 +69,15 @@ describe("SEA-12 Better Auth gate on /club", () => {
     expect(club).toContain('from "./auth"');
     expect(club).toContain("authComponent.getAuthUser");
     expect(club).toContain("authComponent.safeGetAuthUser");
-    expect(club).toContain("ownerUserId");
-    expect(club).toContain('withIndex("by_owner"');
-    expect(schema).toContain("ownerUserId: v.string()");
-    expect(schema).toContain('.index("by_owner", ["ownerUserId"])');
-    expect(club).not.toContain('query("clubOrgs").first()');
+    expect(club).toContain("ownerUserId: user._id");
+    expect(schema).toContain("ownerUserId: v.optional(v.string())");
+    expect(schema).not.toContain("by_owner");
+    expect(club).not.toContain("by_owner");
+    const referral = read("apps/club/convex/referral.ts");
+    for (const source of [club, referral]) {
+      expect(source).not.toContain('query("clubOrgs")');
+      expect(source).toContain("loadClub(ctx.db)");
+    }
   });
 
   test("docs list the /club env vars Sean needs", () => {

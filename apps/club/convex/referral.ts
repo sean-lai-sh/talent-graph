@@ -16,13 +16,12 @@ import {
   UPLOAD_URL_LIMIT,
   uploadUrlAllowed,
 } from "../lib/referralSignup.ts";
+import { loadClub } from "../lib/theClub.ts";
 import type { ClubPerson } from "../lib/types.ts";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { authComponent } from "./auth";
-
-const ORG_SCAN = 20;
 
 async function profileExists(ctx: QueryCtx | MutationCtx, contact: NormalizedContact) {
   const indexed = await ctx.db
@@ -30,11 +29,8 @@ async function profileExists(ctx: QueryCtx | MutationCtx, contact: NormalizedCon
     .withIndex("by_contact", (q) => q.eq("normalizedContact", contact.value))
     .unique();
   if (indexed) return true;
-  const orgs = await ctx.db.query("clubOrgs").take(ORG_SCAN);
-  return profileExistsInPeople(
-    orgs.flatMap((org) => org.people),
-    contact,
-  );
+  const club = await loadClub(ctx.db);
+  return profileExistsInPeople(club?.people ?? [], contact);
 }
 
 async function referrerAlreadyLinked(
@@ -191,8 +187,8 @@ export const submitReferralSignup = mutation({
     if (plan.action === "duplicate") return { status: "duplicate" as const };
     if (plan.action === "exists") return { status: "exists" as const };
 
-    const orgs = await ctx.db.query("clubOrgs").take(ORG_SCAN);
-    if (orgs.length === 0) {
+    const club = await loadClub(ctx.db);
+    if (!club) {
       return { status: "rejected" as const, error: "Club is not set up yet." };
     }
 
@@ -209,11 +205,9 @@ export const submitReferralSignup = mutation({
       tokenHash: plan.tokenHash,
     });
     if (upload) await ctx.db.patch(upload._id, { usedAt: Date.now() });
-    for (const org of orgs) {
-      const people = mergeCandidate(org.people as ClubPerson[], plan.person);
-      if (people.length !== org.people.length) {
-        await ctx.db.patch(org._id, { people });
-      }
+    const people = mergeCandidate(club.people as ClubPerson[], plan.person);
+    if (people.length !== club.people.length) {
+      await ctx.db.patch(club._id, { people });
     }
     return { status: "created" as const, token: issued.token };
   },

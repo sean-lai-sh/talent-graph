@@ -14,9 +14,11 @@ is accept/archive provenance only.
 **Auth (SEA-12):** board reads and all mutations require a Better Auth
 session via `authComponent.safeGetAuthUser` / `getAuthUser` and a marked
 admin role (`clubAccounts.role`, else `chips@techatnyu.org` /
-`CLUB_ADMIN_EMAILS`). Each signed-in admin gets a `clubOrgs` row keyed by
-`ownerUserId` (index `by_owner`). Owner-keyed club, not a membership /
-invite model. Accounts that are not marked admin land on `/members`.
+`CLUB_ADMIN_EMAILS`). Every admin shares one club: the oldest `clubOrgs`
+document (`lib/theClub.ts`), created by the first admin to open `/club`.
+`ownerUserId` records who created it. Later `clubOrgs` documents (one per
+admin, from before SEA-55) are ignored. One club per deployment, not a
+membership / invite model. Accounts that are not marked admin land on `/members`.
 The member forum is `clubPosts` — any signed-in user can post.
 The member directory is `listMembers` (name, LinkedIn, email).
 
