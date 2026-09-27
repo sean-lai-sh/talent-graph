@@ -29,6 +29,7 @@ export function MemberChrome({
   onPost,
   onSignOut,
   council,
+  referral,
 }: {
   clubRole?: ClubRole;
   posts: ForumPost[];
@@ -39,6 +40,7 @@ export function MemberChrome({
   onPost: (body: string) => void;
   onSignOut?: () => void;
   council?: ReactNode;
+  referral: ReactNode;
 }) {
   const [pane, setPane] = useState<ShellPane>(clubRole === "admin" ? "council" : "forum");
   const items = navForRole(clubRole).map((item) =>
@@ -59,13 +61,7 @@ export function MemberChrome({
       {pane === "forum" ? (
         <Forum posts={posts} loading={loading} busy={busy} onPost={onPost} />
       ) : null}
-      {pane === "referral" ? (
-        <div className="px-6 py-16">
-          <EmptyState title="Referral form lands here.">
-            Members will submit people from this pane.
-          </EmptyState>
-        </div>
-      ) : null}
+      {pane === "referral" ? referral : null}
       {pane === "members" ? <MemberList members={members} loading={membersLoading} /> : null}
       {pane === "evaluations" ? (
         <div className="px-6 py-16">

@@ -33,10 +33,10 @@ feedback inside a 48-hour window. It works over a screen share.
   and members to `/members` before the page renders. Sign-out from `/club` returns to `/login`.
 - `/members` — signed-in home for accounts that are not marked admin.
   Sidebar is Forum, Submit Referral, Member List, Evaluations, Upcoming
-  Events. The main pane is a forum. Member List is a table of admitted
-  people (name, LinkedIn, email). Sign-out sits in the top bar. Referral
-  and inbox flows come later. `/club` uses this same shell; admins also
-  see Council at the top of the sidebar.
+  Events. Submit Referral asks for an email or phone, then a short profile.
+  Evaluations and events are still empty. Member List is a table of admitted
+  people (name, LinkedIn, email). Sign-out sits in the top bar. `/club` uses
+  this same shell; admins also see Council at the top of the sidebar.
 - `/club` — council board for marked admin accounts. Domain
   inputs (people with review status, referrals, comparisons, evaluations,
   feedback requests, round settings, snapshots) persist in Convex. Each write
