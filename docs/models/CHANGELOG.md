@@ -230,6 +230,49 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   unchanged)
 - **PR:** #86, stacked on #85.
 
+## claim_value@1.2.0 — curve, geometric mean, role, referrer notes
+
+- **What:** `CLAIM_VALUE_V1_2_0` beside `CLAIM_VALUE_V1_1_0` in
+  `src/longitudinal/claimValue.ts`. It is not a `ModelSpec` and
+  `CURRENT_SPECS` does not move. `curvePower` defaults to 2. `v(k) = (k / 4) ^ p`
+  is still `sum P(k) * v(k)`. Selection class value is
+  `sqrt(curved selectivity * curved pool strength)` after the company-evidence
+  transform below. Output class value is `sqrt(curved difficulty * curved scale)`.
+  Role multiplies output claims only. The weights are original_author 1,
+  major_contributor 0.8, maintainer 0.65, and minor_part 0.5. A null role uses
+  the configured major_contributor weight. Selection claims use role multiplier
+  1. Backing stays self_reported 0.6, corroborated 0.85, and
+  externally_verified 1. A named referrer note whose `claimId` matches the
+  claim raises self_reported to corroborated and does not lower
+  externally_verified. The note carries a name and a claim id. It has no
+  Referral Signal field, and the scorer does not read one. `displayLevel`
+  maps a 0–4 level onto 0–10. `displayClaimValue` maps a claim value onto 0–10.
+  The stamp is `claim_value@1.2.0:6aaa508f`, `configVersion` `1.2.0`, and
+  `configHash`
+  `6aaa508fff88d6f3dedabf803f3b21ea9b20b6a1dec25911fff495ffe6e697f8`.
+  That hash includes the role weights, the curve power, the backing weights,
+  `companyEvidenceConfigHash()`, and `companySeedHash()`. The hex strings are
+  not copied into this module. `claim_value@1.1.0` still hashes to
+  `8f66391ae3488a303bc8135936840cd739d0b808642b27293a1a906e1ae76adf`.
+  Selectivity, before the curve, is the distribution transform in
+  `selectivityAfterCompanyEvidence`. Each atom `k` moves to
+  `applyProxyLift(k, evidence, COMPANY_EVIDENCE_CONFIG)`. A known rate leaves
+  the atom where it is. Otherwise the atom rises by at most 1 and stops at
+  level 3, so a proxy never writes level 4, and a mass already at 4 stays at 4.
+  The early-joiner bonus is then clamped to `[0, 0.25]`. `joinedEarly` is not
+  read. At bonus 0 the lifted distribution is unchanged. When the bonus `b` is
+  positive, each atom at `L < 4` keeps weight `1 - b` at `L` and moves weight
+  `b` to `L + 1`. An atom at 4 stays at 4. A bonus above 0.25 is 0.25.
+- **Why:** 1.2.0 selection is a rate times the pool, and output is difficulty
+  times scale with a four-stage role. The company proxy has to move the
+  selectivity distribution before the curve, or the geometric mean ignores the
+  SEA-45 lift. The seed hash is inside the stamp so two fund lists are never
+  compared.
+- **Drift:** n/a (`CURRENT_SPECS` did not move. Demo and 1.0.0 pipeline numbers
+  are unchanged, and `claim_value@1.1.0` outputs are unchanged. `claim_value@1.2.0`
+  is not called by `bun run demo` or `bun run drift`.)
+- **PR:** stacked on #92.
+
 ## Run id format
 
 Run ids are not spec versions: this section records changes to the format of
