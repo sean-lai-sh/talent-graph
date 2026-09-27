@@ -208,7 +208,7 @@ add_hosts() {
 start_proxy() {
   local dir="$1"
   local i ppid
-  sudo -n bash -c "echo \$\$ > '$dir/proxy.pid'; exec python3 '$SKILL_DIR/helpers/site-proxy.py'" \
+  sudo -n setsid bash -c "echo \$\$ > '$dir/proxy.pid'; exec python3 '$SKILL_DIR/helpers/site-proxy.py'" \
     >"$dir/proxy.log" 2>&1 &
   for i in $(seq 1 25); do
     if grep -q "proxy 127.0.0.1:80" "$dir/proxy.log" 2>/dev/null \
@@ -277,7 +277,8 @@ start() {
   site_url="http://${VERIFY_CLUB_HOST}:$(cat "$dir/port")"
   generate_secrets "$dir" "$site_url"
   echo "verify-club: anonymous convex on 127.0.0.1:${CONVEX_CLOUD_PORT} (site ${CONVEX_HOST} via :80)" >&2
-  nohup bash -c "
+  # setsid: bun resets SIGHUP, so nohup still dies with the launcher's process group.
+  setsid nohup bash -c "
     cd \"$REPO_ROOT/apps/club\" &&
     export CONVEX_AGENT_MODE=anonymous &&
     unset CONVEX_DEPLOYMENT CONVEX_DEPLOY_KEY &&

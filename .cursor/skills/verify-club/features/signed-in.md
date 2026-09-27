@@ -6,6 +6,7 @@ An admin signs in on the throwaway backend and sees the council board at `/club`
 
 - `admin-board` signs in as `admin@example.com` and shows the council board (`Council`, region `Applicants`).
 - `member-portal` signs out, signs in as `member@example.com`, and shows the member portal (`Forum`, `Submit Referral`, no `Council` nav).
+- `referral-contact` opens Submit Referral and shows the contact step (`Email or phone`, button `Continue`). Do not submit.
 
 ## How to get to it (user POV)
 
@@ -27,8 +28,9 @@ Preconditions:
 - **Admin sign-in.** Fill the email textbox with `admin@example.com` and the password textbox from `ADMIN_PASSWORD`. Click `Sign in`. Wait until the URL contains `/club` and the page shows `Council` and region `Applicants` (click `Create club` first if that button is the only council content). Snapshot and screenshot.
 - **Sign out.** Click `Sign out`. The page is the sign-in form again.
 - **Member sign-in.** Fill `member@example.com` and `MEMBER_PASSWORD`. Click `Sign in`. Wait until the URL contains `/members`. The page shows heading `Forum` and nav `Submit Referral`. It does not show a `Council` nav item. Snapshot and screenshot.
+- **Referral contact.** Click `Submit Referral`. The heading becomes `Submit Referral`. The form shows textbox `Email or phone` (hint: lookup uses this contact, never a name) and button `Continue`. Do not type a contact and do not click `Continue`. Snapshot and screenshot.
 - **Close.** `agent-browser --session verify-club close`.
-- **Proof.** Save snapshots and screenshots of (1) the login form, (2) the admin council board, (3) the member portal. Put them in `evidence/<run-id>/signed-in/`. The step table in `notes.md` records each result. Do not put passwords in that file.
+- **Proof.** Save snapshots and screenshots of (1) the login form, (2) the admin council board, (3) sign-out back on the form, (4) the member portal, (5) the referral contact step. Put them in `evidence/<run-id>/signed-in/`. The step table in `notes.md` records each result. Do not put passwords in that file.
 
 ## Gotchas
 
@@ -38,3 +40,4 @@ Preconditions:
 - `/demo` is a different board (the public seed). This recipe does not prove Cleo's signal.
 - An empty Applicants list is still the council board (`Nobody to review` / `Nobody under consideration`). `Create club` is only a step when that button is the only council content.
 - `wait --text` can match while the page still says `Checking session`. Snapshot again until the heading (`Council` or `Forum`) is in the tree and that line is gone.
+- `wait --text Council` also matches the Admin nav while the board still says `Loading club from Convex…`. Wait until that line is gone and region `Applicants` is present (`Nobody to review` counts).

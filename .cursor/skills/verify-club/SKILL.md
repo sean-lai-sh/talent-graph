@@ -53,8 +53,8 @@ What launch does:
 
 - `bun install` at the repo root and `(cd apps/club && bun install)` if `node_modules` is missing.
 - Starts a throwaway anonymous Convex backend on `127.0.0.1:3210` / `3211` (`CONVEX_AGENT_MODE=anonymous`). It does not log in to Convex and does not use a cloud deployment. See Local Convex.
-- Starts `next dev` under `nohup` with `NEXT_DIST_DIR=.next-verify-<port>` so the cache is not `apps/club/.next`. A developer session on :3000 owns that directory. Do not run `bun run club:web` (Doppler + :3000).
-- If you are an agent whose shell runner kills the process group when a command exits, do not treat launch.sh finishing as “server stays up.” Keep launch as a long-lived background job, or run doctor and the drive in the same session as launch.
+- Starts `next dev` under `setsid` with `NEXT_DIST_DIR=.next-verify-<port>` so the cache is not `apps/club/.next`. A developer session on :3000 owns that directory. Do not run `bun run club:web` (Doppler + :3000).
+- `nohup` is not enough. Bun resets `SIGHUP`, so when the launcher's process group is torn down (a tmux pane that exits), Next and Convex die. `setsid` puts them in a new session. Doctor still has to see the recorded pid alive after launch.sh has exited.
 - Sets `WATCHPACK_POLLING=true` so a second watcher is less likely to hit EMFILE next to a developer server.
 - Points Next at the local backend: `NEXT_PUBLIC_CONVEX_URL=http://127.0.0.1:3210`, `NEXT_PUBLIC_CONVEX_SITE_URL=http://verify-club.convex.site`, `NEXT_PUBLIC_SITE_URL` equal to the printed origin.
 - Unsets `TG_*` so Club seed pins stay stable.
@@ -130,9 +130,9 @@ Rules for those commands:
 - `snapshot` prints the accessibility tree with `@eN` refs. That file is the UI proof. `snapshot -i` is the interactive subset. Save stdout to `NN-name.snapshot.txt`.
 - `click` and `fill` take a ref from the snapshot you just took. Refs go stale after navigation. Snapshot again.
 - `fill` clears the field and types. Quote values. Read passwords from `runs/<run-id>/local.env`. Do not write them into snapshots, notes, or the PR.
-- `screenshot <path>` writes a PNG. Club identity (`Tech@NYU`, `Council`, `Forum`, or the case heading) must be visible.
+- `screenshot <path>` writes a PNG. The first positional argument is a selector, so the path must be absolute or start with `./`. A bare relative path is treated as a selector and the PNG is not written where you asked. Club identity (`Tech@NYU`, `Council`, `Forum`, or the case heading) must be visible.
 - `get url` confirms the address after a redirect.
-- `wait --text "..."` waits until copy is on the page. Use it after Sign in, before the next snapshot.
+- `wait --text "..."` waits until copy is on the page. Use it after Sign in, before the next snapshot. `Council` matches the Admin nav while the board still says `Loading club from Convex…`. Snapshot again until that line is gone.
 
 Below the `lg` breakpoint the Applicants aside is hidden. Desktop is the default proof surface.
 
