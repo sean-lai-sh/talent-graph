@@ -3,14 +3,13 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { computeView, emptyState } from "../apps/club/lib/engine.ts";
 import {
-  appendCandidate,
   hashStatusToken,
   lookupDecision,
+  mergeCandidate,
   newStatusToken,
   normalizeProfile,
   parseContact,
   planSignup,
-  readStatus,
   statusLine,
 } from "../apps/club/lib/referralSignup.ts";
 import { reviveState } from "../apps/club/lib/serialize.ts";
@@ -81,9 +80,8 @@ describe("referral signup contact", () => {
     expect(byPhone.person.phone).toBe("+12125550101");
     expect(byEmail.person.id).not.toBe(byPhone.person.id);
 
-    let state = appendCandidate(emptyState(NOW), byEmail.person);
-    state = appendCandidate(state, byPhone.person);
-    expect(state.people).toHaveLength(2);
+    const people = mergeCandidate(mergeCandidate([], byEmail.person), byPhone.person);
+    expect(people).toHaveLength(2);
   });
 
   test("an existing contact is exists, and a new contact is available", () => {
@@ -109,10 +107,10 @@ describe("referral signup contact", () => {
     expect(first.action).toBe("create");
     expect(second).toEqual({ action: "duplicate" });
     if (first.action !== "create") return;
-    const once = appendCandidate(emptyState(NOW), first.person);
-    const twice = appendCandidate(once, first.person);
-    expect(twice.people).toHaveLength(1);
-    expect(twice.people).toEqual(once.people);
+    const once = mergeCandidate([], first.person);
+    const twice = mergeCandidate(once, first.person);
+    expect(twice).toHaveLength(1);
+    expect(twice).toEqual(once);
   });
 
   test("a member cannot refer their own email or phone", () => {
@@ -141,6 +139,11 @@ describe("referral signup profile", () => {
       ok: false,
       error: "Add a resume or a LinkedIn or X profile.",
     });
+    expect(plan({ draft: { ...withoutResume, linkedin: "", x: "" } })).toEqual({
+      action: "rejected",
+      error: "Add a resume or a LinkedIn or X profile.",
+    });
+    expect(read("apps/club/convex/referral.ts")).toContain("planSignup({");
 
     const linkedin = normalizeProfile({
       ...withoutResume,
@@ -183,7 +186,7 @@ describe("referral signup profile", () => {
     });
     expect(created.action).toBe("create");
     if (created.action !== "create") return;
-    const state = reviveState(appendCandidate(emptyState(NOW), created.person));
+    const state = reviveState({ ...emptyState(NOW), people: [created.person] });
     expect(state.people[0]?.email).toBe("ada@example.com");
     expect(state.people[0]?.github).toBe("https://github.com/ada-example");
     expect(state.people[0]?.website).toBe("https://ada.example.com/");
@@ -209,16 +212,19 @@ describe("referral status token", () => {
     expect(issued.hash).toHaveLength(64);
     expect(issued.hash).not.toBe(issued.token);
 
-    const found = await readStatus({ tokenHash: issued.hash, createdAt: NOW }, issued.token);
-    expect(found).toEqual({ line: "Referred on September 27, 2026, under review" });
-    expect(statusLine(NOW)).toBe("Referred on September 27, 2026, under review");
-    expect(JSON.stringify(found)).not.toContain("example.com");
-    expect(JSON.stringify(found)).not.toContain("member");
+    expect(await hashStatusToken("guessed-token")).not.toBe(issued.hash);
+    const schema = read("apps/club/convex/schema.ts");
+    const table = schema.slice(schema.indexOf("memberReferrals: defineTable"));
+    expect(table).toContain("tokenHash: v.string()");
+    expect(table).not.toMatch(/\btoken: v\./);
+    expect(read("apps/club/app/status/[token]/page.tsx")).toContain(
+      "robots: { index: false, follow: false }",
+    );
 
-    expect(
-      await readStatus({ tokenHash: issued.hash, createdAt: NOW }, "guessed-token"),
-    ).toBeNull();
-    expect(await readStatus(null, issued.token)).toBeNull();
+    const line = statusLine(NOW);
+    expect(line).toBe("Referred on September 27, 2026, under review");
+    expect(line).not.toContain("example.com");
+    expect(line).not.toContain("Ada");
   });
 });
 

@@ -10,7 +10,7 @@ import {
   parseContact,
   planSignup,
   profileExistsInPeople,
-  readStatus,
+  statusLine,
 } from "../lib/referralSignup.ts";
 import type { ClubPerson } from "../lib/types.ts";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -18,21 +18,6 @@ import { mutation, query } from "./_generated/server";
 import { authComponent } from "./auth";
 
 const ORG_SCAN = 20;
-
-type Actor = { email?: string; phone?: string };
-
-function actorFrom(user: { email?: string | null }): Actor {
-  const extra = user as {
-    email?: string | null;
-    phone?: string | null;
-    phoneNumber?: string | null;
-  };
-  const actor: Actor = {};
-  if (typeof extra.email === "string" && extra.email.trim()) actor.email = extra.email;
-  const phone = typeof extra.phoneNumber === "string" ? extra.phoneNumber : extra.phone;
-  if (typeof phone === "string" && phone.trim()) actor.phone = phone;
-  return actor;
-}
 
 async function profileExists(ctx: QueryCtx | MutationCtx, contact: NormalizedContact) {
   const indexed = await ctx.db
@@ -66,7 +51,7 @@ export const lookupReferralContact = query({
   handler: async (ctx, args): Promise<LookupDecision | null> => {
     const user = await authComponent.safeGetAuthUser(ctx);
     if (!user) return null;
-    const actor = actorFrom(user);
+    const actor = { email: user.email };
     const parsed = parseContact(args.contact);
     const exists =
       parsed.ok && !isSelfContact(actor, parsed.contact)
@@ -84,10 +69,7 @@ export const referralStatus = query({
       .query("memberReferrals")
       .withIndex("by_token_hash", (q) => q.eq("tokenHash", tokenHash))
       .unique();
-    return await readStatus(
-      row ? { tokenHash: row.tokenHash, createdAt: row.createdAt } : null,
-      args.token,
-    );
+    return row ? { line: statusLine(row.createdAt) } : null;
   },
 });
 
@@ -114,10 +96,10 @@ export const submitReferralSignup = mutation({
   handler: async (ctx, args) => {
     const user = await authComponent.getAuthUser(ctx);
     if (!user) throw new Error("Sign in required.");
-    const actor = actorFrom(user);
+    const actor = { email: user.email };
     let resumeUrl: string | undefined;
     if (args.resumeStorageId) {
-      const meta = await ctx.storage.getMetadata(args.resumeStorageId);
+      const meta = await ctx.db.system.get("_storage", args.resumeStorageId);
       if (!meta?.contentType?.startsWith("application/pdf")) {
         return { status: "rejected" as const, error: "Resume must be a PDF." };
       }

@@ -1,5 +1,5 @@
 import { defaultReviewStatus } from "./review.ts";
-import type { ClubPerson, ClubState } from "./types.ts";
+import type { ClubPerson } from "./types.ts";
 
 export type NormalizedContact = { kind: "email"; value: string } | { kind: "phone"; value: string };
 
@@ -20,7 +20,7 @@ export type LookupDecision =
   | { decision: "exists" }
   | { decision: "available" };
 
-export type SignupPlan =
+type SignupPlan =
   | { action: "rejected"; error: string }
   | { action: "exists" }
   | { action: "duplicate" }
@@ -51,7 +51,7 @@ const MONTHS = [
 
 const SELF_ERROR = "You can't refer yourself.";
 
-export function normalizePhone(raw: string): string | null {
+function normalizePhone(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed || /[a-z]/i.test(trimmed)) return null;
   const digits = trimmed.replace(/\D/g, "");
@@ -95,7 +95,7 @@ export function isSelfContact(
   return normalizePhone(actor.phone) === contact.value;
 }
 
-export function personHasContact(person: ClubPerson, contact: NormalizedContact): boolean {
+function personHasContact(person: ClubPerson, contact: NormalizedContact): boolean {
   if (contact.kind === "email") return person.email === contact.value;
   if (!person.phone) return false;
   return normalizePhone(person.phone) === contact.value;
@@ -122,7 +122,7 @@ export function lookupDecision(input: {
   return { decision: "available" };
 }
 
-export function normalizeHttpUrl(raw: string): string | null {
+function normalizeHttpUrl(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
@@ -255,10 +255,6 @@ export function mergeCandidate(people: readonly ClubPerson[], person: ClubPerson
   return [...people, person];
 }
 
-export function appendCandidate(state: ClubState, person: ClubPerson): ClubState {
-  return { ...state, people: mergeCandidate(state.people, person) };
-}
-
 export function statusLine(createdAtIso: string): string {
   const date = new Date(createdAtIso);
   if (Number.isNaN(date.getTime())) return "Referred, under review";
@@ -278,23 +274,4 @@ export async function newStatusToken(): Promise<{ token: string; hash: string }>
   for (const byte of bytes) binary += String.fromCharCode(byte);
   const token = btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
   return { token, hash: await hashStatusToken(token) };
-}
-
-function hashEquals(left: string, right: string): boolean {
-  if (left.length !== right.length) return false;
-  let diff = 0;
-  for (let i = 0; i < left.length; i++) {
-    diff |= left.charCodeAt(i) ^ right.charCodeAt(i);
-  }
-  return diff === 0;
-}
-
-export async function readStatus(
-  stored: { tokenHash: string; createdAt: string } | null,
-  token: string,
-): Promise<{ line: string } | null> {
-  if (!stored || token.length === 0) return null;
-  const hash = await hashStatusToken(token);
-  if (!hashEquals(stored.tokenHash, hash)) return null;
-  return { line: statusLine(stored.createdAt) };
 }

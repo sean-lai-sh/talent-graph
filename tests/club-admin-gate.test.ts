@@ -100,7 +100,7 @@ describe("admin council data is closed to members", () => {
 
 /**
  * The candidate is not a club account. `referralStatus` takes a token,
- * compares a hash, and returns one status line. It is not member-open
+ * looks up its hash, and returns one status line. It is not member-open
  * and not admin-only.
  */
 const PUBLIC_TOKEN_QUERIES = ["referralStatus"] as const;
@@ -116,6 +116,7 @@ describe("referral signup access", () => {
       new Set([...MEMBER_OPEN_QUERIES, ...PUBLIC_TOKEN_QUERIES]),
     );
     expect(new Set(names(referral, "mutation"))).toEqual(new Set(MEMBER_OPEN_MUTATIONS));
+    expect(referral).not.toMatch(/= (action|httpAction|internal\w+)\(/);
 
     for (const name of MEMBER_OPEN_QUERIES) {
       const body = handler(referral, name, "query");
@@ -133,7 +134,9 @@ describe("referral signup access", () => {
     const status = handler(referral, "referralStatus", "query");
     expect(status).toContain("token: v.string()");
     expect(status).toContain("hashStatusToken");
-    expect(status).toContain("readStatus");
+    expect(status).toContain('withIndex("by_token_hash"');
+    expect(status).toContain("statusLine(row.createdAt)");
+    expect(status).not.toContain("normalizedContact");
     expect(status).not.toContain("getAuthUser");
     expect(status).not.toContain("safeGetAuthUser");
     expect(status).not.toContain("requireAdmin");
