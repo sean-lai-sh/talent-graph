@@ -10,7 +10,11 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createJevJudgmentService } from "../apps/club/lib/longitudinal/jev.ts";
+import {
+  claimStepInput,
+  claimWireState,
+  createJevJudgmentService,
+} from "../apps/club/lib/longitudinal/jev.ts";
 import { CAREER_EVIDENCE_DIMENSIONS } from "../src/longitudinal/dimensions.ts";
 import type { CanonicalIdentity, GrokEvidenceItem } from "../src/longitudinal/types.ts";
 import { CAREER_EVENT_KINDS } from "../src/longitudinal/types.ts";
@@ -93,6 +97,53 @@ describe("CareerEvidenceSpec: the adapter builds its questions from the spec", (
       expect(cq[dimension]?.criteria).toEqual([...spec.levels[dimension]]);
     }
     expect(Object.keys(cq)).toEqual(["event_kind", ...CAREER_EVIDENCE_DIMENSIONS]);
+  });
+
+  test("facts ride on the claim input and stay off the 1.0.0 request", async () => {
+    const rich: GrokEvidenceItem = {
+      ...evidence,
+      sourceId: "item-rich",
+      statement:
+        "Built the routing service for Harborline Transit; selected as 1 of 400 applicants.",
+      quotedText:
+        "Built the routing service for Harborline Transit; selected as 1 of 400 applicants.",
+    };
+    const input = claimStepInput(rich);
+    expect(input.claims.map((claim) => claim.id)).toEqual(["item-rich#0", "item-rich#1"]);
+    expect(input.claims[0]?.facts.ownership).toBe("built");
+    expect(input.claims[1]?.facts.selections).toEqual([
+      { kind: "ratio", selected: 1, pool: 400, rate: 1 / 400, poolLowerBound: false },
+    ]);
+
+    const wire = claimWireState(input);
+    expect(wire).toEqual({
+      source: rich.source,
+      publisher: rich.publisher,
+      published_at: rich.publishedAt,
+      source_url: rich.url,
+      statement: rich.statement,
+      quoted_evidence: rich.quotedText,
+    });
+    expect(Object.keys(wire)).toEqual([
+      "source",
+      "publisher",
+      "published_at",
+      "source_url",
+      "statement",
+      "quoted_evidence",
+    ]);
+
+    const requests: unknown[] = [];
+    const service = createJevJudgmentService(recordingClient(requests));
+    await service.assessClaim(rich, identity.personId);
+    expect(requests).toHaveLength(1);
+    const sent = requests[0] as { state: unknown; questions: unknown };
+    expect(sent.state).toEqual(wire);
+
+    const recorded = JSON.parse(
+      readFileSync(join(ROOT, "tests/fixtures/longitudinal-jev-request.json"), "utf8"),
+    ) as { claim: { questions: unknown } };
+    expect(sent.questions).toEqual(recorded.claim.questions);
   });
 
   test("the requests are byte-identical to the ones captured before the refactor", async () => {
