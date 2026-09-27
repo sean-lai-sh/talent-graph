@@ -164,6 +164,9 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
     expect(convexConfigured("https://x.convex.cloud", "https://x.convex.site")).toBe(true);
     expect(convexConfigured("https://x.convex.cloud", "https://x.convex.cloud")).toBe(false);
     expect(convexConfigured("", "https://x.convex.site")).toBe(false);
+    expect(convexConfigured("http://127.0.0.1:3210", "http://127.0.0.1:3211")).toBe(true);
+    expect(convexConfigured("https://x.convex.cloud", "http://127.0.0.1:3211")).toBe(false);
+    expect(convexConfigured("http://127.0.0.1:3210", "https://example.test")).toBe(false);
     const shell = read("apps/club/app/club/ClubShell.tsx");
     expect(shell).toContain("convexConfigured()");
     expect(shell).not.toContain("Boolean(process.env.NEXT_PUBLIC_CONVEX_URL)");

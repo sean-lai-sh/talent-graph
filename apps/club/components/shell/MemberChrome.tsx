@@ -30,6 +30,8 @@ export function MemberChrome({
   onSignOut,
   council,
   referral,
+  feedback,
+  feedbackCount = 0,
 }: {
   clubRole?: ClubRole;
   posts: ForumPost[];
@@ -41,11 +43,15 @@ export function MemberChrome({
   onSignOut?: () => void;
   council?: ReactNode;
   referral: ReactNode;
+  feedback: ReactNode;
+  feedbackCount?: number;
 }) {
   const [pane, setPane] = useState<ShellPane>(clubRole === "admin" ? "council" : "forum");
-  const items = navForRole(clubRole).map((item) =>
-    item.id === "members" ? { ...item, count: members.length } : item,
-  );
+  const items = navForRole(clubRole).map((item) => {
+    if (item.id === "members") return { ...item, count: members.length };
+    if (item.id === "evaluations") return { ...item, count: feedbackCount };
+    return item;
+  });
   const title = pane === "council" ? "Council" : TITLES[pane];
 
   return (
@@ -63,13 +69,7 @@ export function MemberChrome({
       ) : null}
       {pane === "referral" ? referral : null}
       {pane === "members" ? <MemberList members={members} loading={membersLoading} /> : null}
-      {pane === "evaluations" ? (
-        <div className="px-6 py-16">
-          <EmptyState title="No evaluations waiting.">
-            Asked responses will show a count on Evaluations.
-          </EmptyState>
-        </div>
-      ) : null}
+      {pane === "evaluations" ? feedback : null}
       {pane === "events" ? (
         <div className="px-6 py-16">
           <EmptyState title="No upcoming events.">Club events will list here.</EmptyState>
