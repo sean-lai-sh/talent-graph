@@ -76,9 +76,9 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
     const schema = read("apps/club/convex/schema.ts");
     const club = read("apps/club/convex/club.ts");
     expect(schema).toContain("defineSchema");
-    expect(schema).toContain("people");
-    expect(schema).toContain("referrals");
-    expect(schema).toContain("snapshots");
+    expect(schema).toContain("clubPeople");
+    expect(schema).toContain("clubReferrals");
+    expect(schema).toContain("clubSnapshots");
     expect(schema).not.toContain("bradleyTerry");
     expect(schema).not.toContain("computeAllReferralSignals");
     expect(schema).not.toContain("referralStrength");
@@ -164,6 +164,9 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
     expect(convexConfigured("https://x.convex.cloud", "https://x.convex.site")).toBe(true);
     expect(convexConfigured("https://x.convex.cloud", "https://x.convex.cloud")).toBe(false);
     expect(convexConfigured("", "https://x.convex.site")).toBe(false);
+    expect(convexConfigured("http://127.0.0.1:3210", "http://127.0.0.1:3211")).toBe(true);
+    expect(convexConfigured("https://x.convex.cloud", "http://127.0.0.1:3211")).toBe(false);
+    expect(convexConfigured("http://127.0.0.1:3210", "https://example.test")).toBe(false);
     const shell = read("apps/club/app/club/ClubShell.tsx");
     expect(shell).toContain("convexConfigured()");
     expect(shell).not.toContain("Boolean(process.env.NEXT_PUBLIC_CONVEX_URL)");

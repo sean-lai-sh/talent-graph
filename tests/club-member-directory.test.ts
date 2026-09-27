@@ -50,6 +50,7 @@ describe("member directory", () => {
 
   test("member chrome is a table, not cards; compose box has a floor", () => {
     const chrome = readFileSync(join(root, "apps/club/components/shell/MemberChrome.tsx"), "utf8");
+    const nav = readFileSync(join(root, "apps/club/lib/shellNav.ts"), "utf8");
     const list = readFileSync(join(root, "apps/club/components/members/MemberList.tsx"), "utf8");
     const css = readFileSync(join(root, "apps/club/app/globals.css"), "utf8");
     const club = readFileSync(join(root, "apps/club/convex/club.ts"), "utf8");
@@ -57,7 +58,8 @@ describe("member directory", () => {
       join(root, "apps/club/app/demo/home/MemberHomePreview.tsx"),
       "utf8",
     );
-    expect(chrome).toContain('label: "Member List"');
+    expect(nav).toContain('label: "Member List"');
+    expect(chrome).toContain("navForRole");
     expect(list).toContain("<table");
     expect(list).toContain("Name");
     expect(list).toContain("LinkedIn");
