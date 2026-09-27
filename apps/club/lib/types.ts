@@ -28,8 +28,13 @@ export interface ClubPerson {
   affiliation?: string;
   /** Display metadata (spec page 1/2). No function in src/ reads these. */
   phone?: string;
+  email?: string;
   linkedin?: string;
   resume?: string;
+  resumeStorageId?: string;
+  x?: string;
+  github?: string;
+  website?: string;
   status: PersonStatus;
   /** Optional so documents written before the council page stay valid. */
   reviewStatus?: ReviewStatus;
