@@ -1,9 +1,3 @@
-/**
- * `claim_value@1.2.0` for a career_evidence@1.2.0 claim.
- *
- * The claims are synthetic. No sentence here is resume text.
- */
-
 import { describe, expect, test } from "bun:test";
 import {
   CLAIM_VALUE_V1_1_0,

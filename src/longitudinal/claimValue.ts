@@ -1,23 +1,3 @@
-/**
- * One number for a career-evidence claim, and the slope over those numbers.
- *
- * `v(k) = (k / maxLevel) ^ p` is applied to each level, then the expectation
- * is the sum of `P(k) * v(k)`. The product of class value, role or ownership,
- * and backing is clamped to [0, 1].
- *
- * `claim_value@1.1.0` scores `career_evidence@1.1.0`. Selection uses curved
- * selectivity. Output uses the geometric mean of curved difficulty and curved
- * generalized impact, then ownership.
- *
- * `claim_value@1.2.0` scores `career_evidence@1.2.0`. Selection uses the
- * geometric mean of curved selectivity and curved pool strength after the
- * company-evidence transform. Output uses curved difficulty and curved scale,
- * then role. Selection claims are not role-discounted.
- *
- * `careerEventsToLongitudinalRecords` and `residualSlope` stay on the 1.0.0
- * path. This module does not rank-normalize, and a selection is an outcome.
- */
-
 import type { Outcome } from "../domain/types.ts";
 import { deepFreeze } from "../models/freeze.ts";
 import { hashInputs } from "../provenance/hash.ts";
@@ -84,9 +64,7 @@ export interface ClaimValueV12Config {
     minor_part: number;
   };
   backing: Record<EvidenceTier, number>;
-  /** `companyEvidenceConfigHash()`, not a copied digest. */
   companyEvidenceConfigHash: string;
-  /** `companySeedHash()`, not a copied digest. A fund-tier edit moves this. */
   companySeedHash: string;
 }
 
@@ -110,7 +88,6 @@ export const CLAIM_VALUE_V1_2_0: ClaimValueV12Config = deepFreeze({
   companySeedHash: companySeedHash(),
 });
 
-/** A named person vouching for one claim. The note corroborates. It has no score. */
 export interface ReferrerNote {
   claimId: string;
   referrerName: string;
