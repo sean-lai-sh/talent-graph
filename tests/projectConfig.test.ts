@@ -141,4 +141,42 @@ describe("config.yml", () => {
       /person_rollup hash [0-9a-f]+ does not match pinned hash/,
     );
   });
+
+  test("editing a consensus cut fails the person_rollup pin", () => {
+    const text = readFileSync(projectConfigPath(), "utf8").replace(
+      "consensusCuts: [0.0625, 0.25, 0.5625]",
+      "consensusCuts: [0.07, 0.25, 0.5625]",
+    );
+    expect(() => checkConfigText(text)).toThrow(
+      /person_rollup hash [0-9a-f]+ does not match pinned hash/,
+    );
+  });
+
+  test("editing weightSumTolerance fails the person_rollup pin", () => {
+    const text = readFileSync(projectConfigPath(), "utf8").replace(
+      "weightSumTolerance: 1.0e-9",
+      "weightSumTolerance: 1.0e-8",
+    );
+    expect(() => checkConfigText(text)).toThrow(
+      /person_rollup hash [0-9a-f]+ does not match pinned hash/,
+    );
+  });
+
+  test("non-increasing consensus cuts fail", () => {
+    expect(() => checkConfigText(fixture("person-rollup-cuts.yml"))).toThrow(
+      /consensusCuts\[1\]: must be strictly increasing/,
+    );
+  });
+
+  test("a consensus cut outside [0, 1] fails", () => {
+    expect(() => checkConfigText(fixture("person-rollup-cut-range.yml"))).toThrow(
+      /consensusCuts\[0\]: must be a finite number in \[0, 1\]/,
+    );
+  });
+
+  test("a weight-sum tolerance outside (0, 1e-6] fails", () => {
+    expect(() => checkConfigText(fixture("person-rollup-tolerance.yml"))).toThrow(
+      /weightSumTolerance: must be a finite number in \(0, 1e-6\]/,
+    );
+  });
 });

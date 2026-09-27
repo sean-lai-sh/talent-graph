@@ -7,15 +7,11 @@ import {
   parsePersonRollup,
 } from "../projectConfig/load.ts";
 import { hashInputs } from "../provenance/hash.ts";
-import { CLAIM_VALUE_V1_2_0 } from "./claimValue.ts";
 
 export type { PersonRollupConfig } from "../projectConfig/load.ts";
 export { PINNED_PERSON_ROLLUP_HASH } from "../projectConfig/personRollupPin.ts";
 
 export const PERSON_ROLLUP: PersonRollupConfig = deepFreeze(loadProjectConfig().person_rollup);
-
-/** Not part of `personRollupHash`. `person_rollup` has no bucket-cut keys. */
-export const CONSENSUS_BUCKET_EDGES: readonly number[] = Object.freeze(consensusBucketEdges());
 
 export type RollupClaimStatus = "accepted" | "review" | "no_work_described";
 
@@ -242,15 +238,6 @@ export function alphaSlopes(input: AlphaSlopeInput): Map<string, AlphaSlope> {
   return rows;
 }
 
-function consensusBucketEdges(): number[] {
-  const { curvePower, maxLevel } = CLAIM_VALUE_V1_2_0;
-  const edges: number[] = [];
-  for (let level = 1; level < maxLevel; level++) {
-    edges.push((level / maxLevel) ** curvePower);
-  }
-  return edges;
-}
-
 function fitAlphas(
   fitted: readonly FittedPerson[],
   config: PersonRollupConfig,
@@ -272,7 +259,7 @@ function fitAlphas(
   const bucketValues = new Map<number, number[]>();
   const bucketOf = new Map<string, number>();
   for (const person of ordered) {
-    const bucket = opportunityBucket(person.consensus, CONSENSUS_BUCKET_EDGES);
+    const bucket = opportunityBucket(person.consensus, config.consensusCuts);
     bucketOf.set(person.personId, bucket);
     const list = bucketValues.get(bucket);
     if (list) list.push(person.substance);

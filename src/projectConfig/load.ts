@@ -22,8 +22,6 @@ const SECTIONS = {
   person_rollup: parsePersonRollup,
 } as const;
 
-export const PERSON_ROLLUP_WEIGHT_SUM_TOLERANCE = 1e-9;
-
 export interface PersonRollupConfig {
   wTrend: number;
   wSubstance: number;
@@ -31,6 +29,8 @@ export interface PersonRollupConfig {
   topN: number;
   minCohortSize: number;
   minBucketSize: number;
+  consensusCuts: readonly number[];
+  weightSumTolerance: number;
 }
 
 export class ConfigError extends Error {
@@ -125,14 +125,24 @@ export function parsePersonRollup(
   if (!isRecord(value)) fail(where, "must be a map");
   requireKeys(
     value,
-    ["wTrend", "wSubstance", "wConsensus", "topN", "minCohortSize", "minBucketSize"],
+    [
+      "wTrend",
+      "wSubstance",
+      "wConsensus",
+      "topN",
+      "minCohortSize",
+      "minBucketSize",
+      "consensusCuts",
+      "weightSumTolerance",
+    ],
     where,
   );
   const wTrend = weight(value.wTrend, `${where}.wTrend`);
   const wSubstance = weight(value.wSubstance, `${where}.wSubstance`);
   const wConsensus = weight(value.wConsensus, `${where}.wConsensus`);
+  const weightSumTolerance = smallPositive(value.weightSumTolerance, `${where}.weightSumTolerance`);
   const sum = wSubstance + wConsensus;
-  if (Math.abs(sum - 1) > PERSON_ROLLUP_WEIGHT_SUM_TOLERANCE) {
+  if (Math.abs(sum - 1) > weightSumTolerance) {
     fail(where, `wSubstance and wConsensus must sum to 1 (got ${sum})`);
   }
   return {
@@ -142,6 +152,8 @@ export function parsePersonRollup(
     topN: positiveInteger(value.topN, `${where}.topN`, 1),
     minCohortSize: positiveInteger(value.minCohortSize, `${where}.minCohortSize`, 2),
     minBucketSize: positiveInteger(value.minBucketSize, `${where}.minBucketSize`, 1),
+    consensusCuts: consensusCuts(value.consensusCuts, `${where}.consensusCuts`),
+    weightSumTolerance,
   };
 }
 
@@ -149,6 +161,32 @@ function weight(value: unknown, where: string): number {
   if (value === undefined) fail(where, "missing field");
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
     fail(where, "must be a finite number in [0, 1]");
+  }
+  return value;
+}
+
+function consensusCuts(value: unknown, where: string): number[] {
+  if (value === undefined) fail(where, "missing field");
+  if (!Array.isArray(value)) fail(where, "must be a list");
+  const cuts: number[] = [];
+  for (let index = 0; index < value.length; index++) {
+    const item = value[index];
+    if (typeof item !== "number" || !Number.isFinite(item) || item < 0 || item > 1) {
+      fail(`${where}[${index}]`, "must be a finite number in [0, 1]");
+    }
+    const previous = cuts[index - 1];
+    if (previous !== undefined && item <= previous) {
+      fail(`${where}[${index}]`, "must be strictly increasing");
+    }
+    cuts.push(item);
+  }
+  return cuts;
+}
+
+function smallPositive(value: unknown, where: string): number {
+  if (value === undefined) fail(where, "missing field");
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 1e-6) {
+    fail(where, "must be a finite number in (0, 1e-6]");
   }
   return value;
 }

@@ -289,9 +289,12 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   Below `minCohortSize` 30, Alpha is null with state `not_enough_cohort`.
   A person with no output evidence keeps state `no_output_evidence`.
   `alphaSlopes` differences that percentile across two cutoffs and uses the
-  `residualSlope` state names. The config section is `person_rollup` in
-  `config.yml`. Its stamp is
-  `c5c2adaa5b3186798c7c9454ac1dfeb4364d7fb15947a99edb98216d00f54a67`.
+  `residualSlope` state names. Consensus bucket edges are `consensusCuts`
+  `[0.0625, 0.25, 0.5625]`, and `wSubstance + wConsensus` may miss 1 by at most
+  `weightSumTolerance` `1e-9`. Both live in `person_rollup`, so editing either
+  moves the stamp. The config section is `person_rollup` in `config.yml`.
+  Its stamp is
+  `35a1b965b63e251f71c85be0a9ca43504584a800328bb4c73f59665ae5527efb`.
   `company_seed` stays
   `2229a5fe852c86e6c9988dcca0b56045b2525c54113f16cf429f0b6f7afd88e7`.
   `claim_value@1.2.0` stays

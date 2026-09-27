@@ -6,11 +6,10 @@ import type {
   RoleDistribution,
 } from "../src/longitudinal/claimRubricV12.ts";
 import type { EvidenceTier } from "../src/longitudinal/claimValue.ts";
-import { scoreClaimValueV12 } from "../src/longitudinal/claimValue.ts";
+import { CLAIM_VALUE_V1_2_0, scoreClaimValueV12 } from "../src/longitudinal/claimValue.ts";
 import {
   type AlphaSlope,
   alphaSlopes,
-  CONSENSUS_BUCKET_EDGES,
   PERSON_ROLLUP,
   type PersonRollup,
   PINNED_PERSON_ROLLUP_HASH,
@@ -359,7 +358,30 @@ describe("person roll-up", () => {
   });
 
   test("consensus cuts follow the claim-value curve", () => {
-    expect(CONSENSUS_BUCKET_EDGES).toEqual([0.0625, 0.25, 0.5625]);
+    const { curvePower, maxLevel } = CLAIM_VALUE_V1_2_0;
+    const curve: number[] = [];
+    for (let level = 1; level < maxLevel; level++) curve.push((level / maxLevel) ** curvePower);
+    expect(PERSON_ROLLUP.consensusCuts).toEqual(curve);
+    expect(PERSON_ROLLUP.consensusCuts).toEqual([0.0625, 0.25, 0.5625]);
+  });
+
+  test("consensus cuts from config change the bucket and the stamp", () => {
+    const claims = [
+      row("hi", "hi-o", { claimClass: "output", claimValue: 0.5 }),
+      row("hi", "hi-s", HIRE),
+      row("lo", "lo-o", { claimClass: "output", claimValue: 0.5 }),
+    ];
+    const wide = personRollups({
+      claims,
+      config: { ...PERSON_ROLLUP, minCohortSize: 2, consensusCuts: [0.9] },
+    });
+    const split = personRollups({
+      claims,
+      config: { ...PERSON_ROLLUP, minCohortSize: 2 },
+    });
+    expect(defined(wide.get("hi")).alpha.bucket).toBe(0);
+    expect(defined(split.get("hi")).alpha.bucket).toBe(3);
+    expect(wide.get("hi")?.personRollupHash).not.toBe(split.get("hi")?.personRollupHash);
   });
 
   test("minBucketSize matches the V2 judge residual", () => {

@@ -92,3 +92,7 @@ person_rollup:
   minCohortSize: 30
   # minBucketSize: people required before a Consensus-bucket mean is used. Count of people. 2 is JUDGE_RELIABILITY_V2_0_0.minBucketSize.
   minBucketSize: 2
+  # consensusCuts: Consensus bucket edges, walked with >=. Unitless scores in [0, 1], strictly increasing.
+  consensusCuts: [0.0625, 0.25, 0.5625]
+  # weightSumTolerance: allowed gap of wSubstance + wConsensus from 1. Unitless, in (0, 1e-6].
+  weightSumTolerance: 1.0e-9
