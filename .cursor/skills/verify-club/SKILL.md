@@ -23,7 +23,7 @@ Cloud agents run `.cursor/environment.json`. Its `install` command, from the rep
 
 The version is the exact `agent-browser` entry in the root `package.json`. Do not `npm install -g` and do not install a floating version.
 
-`install` runs when a Cloud Agent Build is created, then the disk is snapshotted. A later agent boots from that snapshot and does not run `install` again. Recurring builds clone `main`, so a snapshot taken before this pin (or from `main` before the pin is merged) has no `agent-browser`. `start` runs on every boot and repeats those three steps only when `agent-browser --version` fails, so the next boot still gets the pinned CLI.
+`install` runs when a Cloud Agent Build is created, after that build checks out the revision, then the disk is snapshotted. A later agent boots from that snapshot and does not run `install` again. Snapshot boots use `reuse_then_checkout`: `start` runs while the on-disk tree is still the snapshot, and the branch checkout happens after `start`. Until this pin is on `main`, that snapshot `package.json` does not list `agent-browser`, so `bun install` during `start` does not create `node_modules/.bin/agent-browser`. `start` runs only when `agent-browser --version` fails. It runs `bun install`, then if that binary is still missing it installs pinned `agent-browser@0.38.1` (the same version as the root `package.json` devDependency) into `$HOME/.local/share/agent-browser-0.38.1`, runs `agent-browser install --with-deps`, and symlinks that binary to `/usr/local/bin/agent-browser`. When the workspace binary is already executable, `start` uses that one. Keep the `0.38.1` in `.cursor/environment.json` equal to the `package.json` pin.
 
 On a machine that is not a cloud agent, from the repo root:
 

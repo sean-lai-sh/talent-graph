@@ -1,5 +1,5 @@
 {
   "name": "talent-graph",
   "install": "bun install && DEBIAN_FRONTEND=noninteractive node_modules/.bin/agent-browser install --with-deps && sudo ln -sfn \"$PWD/node_modules/.bin/agent-browser\" /usr/local/bin/agent-browser",
-  "start": "if ! agent-browser --version >/dev/null 2>&1; then bun install && DEBIAN_FRONTEND=noninteractive node_modules/.bin/agent-browser install --with-deps && sudo ln -sfn \"$PWD/node_modules/.bin/agent-browser\" /usr/local/bin/agent-browser; fi"
+  "start": "if ! agent-browser --version >/dev/null 2>&1; then\n  bun install &&\n  bin=\"$PWD/node_modules/.bin/agent-browser\" &&\n  if [ ! -x \"$bin\" ]; then\n    dir=\"$HOME/.local/share/agent-browser-0.38.1\" &&\n    mkdir -p \"$dir\" &&\n    printf '%s\\n' '{\"private\":true,\"dependencies\":{\"agent-browser\":\"0.38.1\"},\"trustedDependencies\":[\"agent-browser\"]}' > \"$dir/package.json\" &&\n    bun install --cwd \"$dir\" &&\n    bin=\"$dir/node_modules/.bin/agent-browser\"\n  fi &&\n  DEBIAN_FRONTEND=noninteractive \"$bin\" install --with-deps &&\n  sudo ln -sfn \"$bin\" /usr/local/bin/agent-browser\nfi"
 }
