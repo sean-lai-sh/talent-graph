@@ -359,39 +359,51 @@ describe("class scoring", () => {
     expect(claims.map((claim) => claim.reviewReasons)).toEqual([[], []]);
   });
 
-  test("both role-at-org wordings keep the win rate on the sentence after the colon", () => {
+  test("a win in the body keeps its rate on the win clause", () => {
     const title = "Project builder at Northwind project (widget)";
-    const winBody =
-      "Won 1st place (1 of 400+) in the Northwind Design Competition for best product pitch and MVP execution";
-    const workBody =
-      "Led market research, pitch deck creation, and speaking prep to win Northwind design competition (1 out of 400)";
-    for (const body of [winBody, workBody]) {
-      const statement = `${title}: ${body}`;
-      const rates: { text: string; rate: number | null }[] = [];
-      const claims = score(statement, (request) => {
-        rates.push({ text: request.state.text, rate: request.state.selection_rate });
-        if (request.state.text === statement) {
-          return answer({
-            choice: "both",
-            classConfidence: 0.35,
-            probabilities: { selection: 0.3, output: 0.35, both: 0.35 },
-          });
-        }
-        if (request.state.text === title) {
-          return answer({ choice: "selection", classConfidence: 0.91 });
-        }
-        if (request.state.text === body) {
-          return answer({ choice: "output", classConfidence: 0.9, ownershipChoice: "led" });
-        }
-        throw new Error(`unexpected text ${request.state.text}`);
-      });
-      expect(rates).toEqual([
-        { text: statement, rate: 1 / 400 },
-        { text: title, rate: null },
-        { text: body, rate: 1 / 400 },
-      ]);
-      expect(claims.map((claim) => claim.status)).toEqual(["accepted", "accepted"]);
-    }
+    const winStatement = `${title}: Won 1st place (1 of 400+) in the Northwind Design Competition for best product pitch and MVP execution`;
+    const workStatement = `${title}: Led market research, pitch deck creation, and speaking prep to win Northwind design competition (1 out of 400)`;
+    const winClause = "win Northwind design competition (1 out of 400)";
+    const workClause = `${title}: Led market research, pitch deck creation, and speaking prep`;
+    const reviewed = score(winStatement, () =>
+      answer({
+        choice: "both",
+        classConfidence: 0.35,
+        probabilities: { selection: 0.3, output: 0.35, both: 0.35 },
+      }),
+    );
+    expect(reviewed.map((claim) => claim.text)).toEqual([winStatement, winStatement]);
+    expect(reviewed.map((claim) => claim.reviewReasons)).toEqual([
+      ["class_low_confidence"],
+      ["class_low_confidence"],
+    ]);
+    const rates: { text: string; rate: number | null }[] = [];
+    const scored = score(workStatement, (request) => {
+      rates.push({ text: request.state.text, rate: request.state.selection_rate });
+      if (request.state.text === workStatement) {
+        return answer({
+          choice: "both",
+          classConfidence: 0.35,
+          probabilities: { selection: 0.3, output: 0.35, both: 0.35 },
+        });
+      }
+      if (request.state.text === winClause) {
+        return answer({ choice: "selection", classConfidence: 0.91 });
+      }
+      if (request.state.text === workClause) {
+        return answer({ choice: "output", classConfidence: 0.9, ownershipChoice: "led" });
+      }
+      throw new Error(`unexpected text ${request.state.text}`);
+    });
+    expect(rates).toEqual([
+      { text: workStatement, rate: 1 / 400 },
+      { text: winClause, rate: 1 / 400 },
+      { text: workClause, rate: null },
+    ]);
+    expect(scored.map((claim) => [claim.claimClass, claim.text, claim.status])).toEqual([
+      ["selection", winClause, "accepted"],
+      ["output", workClause, "accepted"],
+    ]);
   });
 
   test("both below the class cutoff splits into halves and scores each half", () => {

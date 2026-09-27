@@ -454,14 +454,33 @@ describe("splitting", () => {
     const workFirst = `${title}: Led market research, pitch deck creation, and speaking prep to win Northwind design competition (1 out of 400)`;
     expect(preprocessClaims(winFirst, "autogo-a").map((claim) => claim.text)).toEqual([winFirst]);
     expect(preprocessClaims(workFirst, "autogo-b").map((claim) => claim.text)).toEqual([workFirst]);
-    expect(selectionOutputHalves(winFirst)).toEqual([
-      title,
-      "Won 1st place (1 of 400+) in the Northwind Design Competition for best product pitch and MVP execution",
-    ]);
+    expect(selectionOutputHalves(winFirst)).toBeNull();
     expect(selectionOutputHalves(workFirst)).toEqual([
-      title,
-      "Led market research, pitch deck creation, and speaking prep to win Northwind design competition (1 out of 400)",
+      "win Northwind design competition (1 out of 400)",
+      `${title}: Led market research, pitch deck creation, and speaking prep`,
     ]);
+  });
+
+  test("a role prefix still splits a built clause from a selection clause", () => {
+    const statement =
+      "Engineer at Northwind: Built the routing service; selected as 1 of 400 applicants.";
+    const claims = preprocessClaims(statement, "engineer");
+    expect(claims.map((claim) => claim.text)).toEqual([
+      "Engineer at Northwind: Built the routing service",
+      "selected as 1 of 400 applicants.",
+    ]);
+    expect(claims[0]?.facts.ownership).toBe("built");
+    expect(claims[1]?.facts.selections).toEqual([
+      { kind: "ratio", selected: 1, pool: 400, rate: 1 / 400, poolLowerBound: false },
+    ]);
+  });
+
+  test("a win in the body is not labeled as the role title", () => {
+    expect(
+      selectionOutputHalves(
+        "Builder at Pylon: Won 1st place (1 of 400+) in the Lumen Design Competition for best pitch and demo",
+      ),
+    ).toBeNull();
   });
 
   test("a bare noun phrase is not an output half", () => {
