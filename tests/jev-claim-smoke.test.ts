@@ -3,6 +3,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JevClient } from "../apps/club/lib/longitudinal/jev.ts";
+import { claimQuestionsFor } from "../apps/club/lib/longitudinal/jevClient.ts";
 import {
   liveJudgmentService,
   main,
@@ -15,6 +16,7 @@ import {
   toEvidence,
   UNLINKED_PERSON_ID,
 } from "../scripts/jev-claim-smoke.ts";
+import { runV11ClaimSmoke, type V11JevClient } from "../scripts/jev-claim-smoke-v11.ts";
 import type {
   ClaimAssessment,
   JevJudgment,
@@ -265,6 +267,16 @@ test("the claim smoke reads the fixture, skips identity, and writes the cutoff t
   expect(first.respondedModel).toBe("jev-test");
   expect(first.judgment.record.kind).toBe("claim");
   expect(first.judgment.record.answers.event_kind.choice).toBe("shipped_product");
+  expect(Object.keys(first).sort()).toEqual([
+    "id",
+    "judgment",
+    "outcome",
+    "pair",
+    "respondedModel",
+    "resume",
+    "rubricHash",
+    "rubricId",
+  ]);
 });
 
 test("a transport failure is judgment_unavailable and an invariant failure exits 1", async () => {
@@ -425,7 +437,7 @@ test("a pair with one resume is reported missing", async () => {
 
 test("main rejects a missing flag and an unknown rubric", async () => {
   await expect(main(["--items", "only.json"])).rejects.toThrow(
-    "usage: bun run scripts/jev-claim-smoke.ts --items <path> --jsonl <path> --summary <path> [--spec career_evidence@1.0.0]",
+    "usage: bun run scripts/jev-claim-smoke.ts --items <path> (--jsonl <path> --summary <path> | --out <dir>) [--spec career_evidence@1.0.0] [--rubric career_evidence@1.0.0|career_evidence@1.1.0]",
   );
   await expect(
     main([
@@ -479,3 +491,463 @@ test("a passed spec stamps its id and hash and supplies the cutoff", async () =>
   const evidence = toEvidence(firstItem);
   expect(baseline.claimFingerprint(evidence)).not.toBe(later.claimFingerprint(evidence));
 });
+
+test("career_evidence@1.0.0 keeps the default output and the claim wire state", async () => {
+  const leftDir = await tempDir();
+  const rightDir = await tempDir();
+  const left = stubService(() => {
+    throw new Error("identity was called");
+  });
+  const right = stubService(() => {
+    throw new Error("identity was called");
+  });
+  const flags = ["--items", fixturePath] as const;
+  await main(
+    [...flags, "--jsonl", join(leftDir, "claims.jsonl"), "--summary", join(leftDir, "summary.md")],
+    left.service,
+  );
+  await main(
+    [
+      ...flags,
+      "--rubric",
+      "career_evidence@1.0.0",
+      "--jsonl",
+      join(rightDir, "claims.jsonl"),
+      "--summary",
+      join(rightDir, "summary.md"),
+    ],
+    right.service,
+  );
+  expect(await readFile(join(rightDir, "claims.jsonl"), "utf8")).toBe(
+    await readFile(join(leftDir, "claims.jsonl"), "utf8"),
+  );
+  expect(await readFile(join(rightDir, "summary.md"), "utf8")).toBe(
+    await readFile(join(leftDir, "summary.md"), "utf8"),
+  );
+  expect(right.seen[0]).toEqual(left.seen[0]);
+
+  let request: { state: Record<string, unknown>; questions: Record<string, unknown> } | undefined;
+  const client: JevClient = {
+    systemOne(body) {
+      request = body as { state: Record<string, unknown>; questions: Record<string, unknown> };
+      return {
+        withResponse: async () => {
+          throw new Error("stop after capture");
+        },
+      };
+    },
+  };
+  const items = parseSmokeItems(JSON.parse(await readFile(fixturePath, "utf8"))).slice(0, 1);
+  await runClaimSmoke(items, liveJudgmentService(CAREER_EVIDENCE_V1_0_0, client));
+  const state = {
+    source: "resume",
+    publisher: "Example Lab",
+    published_at: "2024-05-31T00:00:00.000Z",
+    source_url: SOURCE_URL_PLACEHOLDER,
+    statement: "Example Role at Example Lab: synthetic bullet alpha",
+    quoted_evidence: "Example Role at Example Lab: synthetic bullet alpha",
+  };
+  expect(JSON.stringify(request)).toBe(
+    JSON.stringify({ state, questions: claimQuestionsFor(CAREER_EVIDENCE_V1_0_0) }),
+  );
+});
+
+const RUBRIC_HASH_V11 = "60dadea6eae5cd8e3a0a552941ab30ef5cc12bde0f1346ab4d65ed6a78ab689c";
+const CONFIG_ID_V11 = "claim_value@1.1.0:8f66391a";
+const CONFIG_HASH_V11 = "8f66391ae3488a303bc8135936840cd739d0b808642b27293a1a906e1ae76adf";
+
+test("career_evidence@1.1.0 preprocesses, scores, and diffs pairs without a live call", async () => {
+  const split = "Built the example routing service; selected as 1 of 400 applicants.";
+  const pure = "Built the example widget.";
+  const mixed = "Won 1 of 400 for building the example widget.";
+  const unowned = "Shipped the example widget.";
+  const rosterA = "Built the example roster alpha.";
+  const rosterB = "Built the example roster beta.";
+  const down = "Helped the example crew file notes.";
+  const items: SmokeItem[] = [
+    item("split-bullet", "A", split, null),
+    item("pure-output", "A", pure, null),
+    item("mixed-win", "A", mixed, null),
+    item("null-ownership", "A", unowned, null),
+    item("roster-a", "A", rosterA, "roster"),
+    item("roster-b", "B", rosterB, "roster"),
+    item("down-item", "A", down, null),
+  ];
+  const dir = await tempDir();
+  const itemsPath = join(dir, "items.json");
+  await writeFile(itemsPath, JSON.stringify(items));
+  const seen: {
+    text: string;
+    selection_rate: number | null;
+    ownership_seed: string | null;
+    keys: string[];
+  }[] = [];
+  const client: V11JevClient = {
+    systemOne(request) {
+      seen.push({
+        text: request.state.text,
+        selection_rate: request.state.selection_rate,
+        ownership_seed: request.state.ownership_seed,
+        keys: Object.keys(request.questions),
+      });
+      return {
+        async withResponse() {
+          if (request.state.text === down) throw new Error("socket down");
+          return { data: { model: "smoke-v11", answers: answerFor(request.state.text) } };
+        },
+      };
+    },
+  };
+  const v10: JevJudgmentService = {
+    identityFingerprint() {
+      throw new Error("identity");
+    },
+    claimFingerprint() {
+      throw new Error("fingerprint");
+    },
+    async assessIdentity() {
+      throw new Error("identity");
+    },
+    async assessClaim() {
+      throw new Error("1.0.0 assessClaim was called");
+    },
+  };
+  const code = await main(
+    ["--items", itemsPath, "--rubric", "career_evidence@1.1.0", "--out", dir],
+    v10,
+    client,
+  );
+  expect(code).toBe(0);
+  expect(seen).toHaveLength(8);
+  expect(
+    seen.every((call) => call.keys.includes("claim_class") && !call.keys.includes("event_kind")),
+  ).toBe(true);
+  const roleAt = seen.findIndex((call) => call.text === "Built the example routing service");
+  const selectionAt = seen.findIndex((call) => call.text === "selected as 1 of 400 applicants.");
+  expect(roleAt).toBeGreaterThanOrEqual(0);
+  expect(selectionAt).toBeGreaterThan(roleAt);
+  expect(seen[roleAt]?.selection_rate).toBeNull();
+  expect(seen[roleAt]?.ownership_seed).toBe("core_contributor");
+  expect(seen[selectionAt]?.selection_rate).toBe(0.0025);
+  expect(seen.filter((call) => call.text === mixed)).toHaveLength(1);
+
+  const jsonl = await readFile(join(dir, "claims.jsonl"), "utf8");
+  const summary = await readFile(join(dir, "summary.md"), "utf8");
+  for (const statement of [split, pure, mixed, unowned, rosterA, rosterB, down, "Example Lab"]) {
+    expect(jsonl).not.toContain(statement);
+    expect(summary).not.toContain(statement);
+  }
+  const rows = jsonl
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as V11Line);
+  expect(rows).toHaveLength(9);
+  for (const row of rows) {
+    expect(row.rubricId).toBe("career_evidence@1.1.0");
+    expect(row.rubricHash).toBe(RUBRIC_HASH_V11);
+    expect(row.configId).toBe(CONFIG_ID_V11);
+    expect(row.configHash).toBe(CONFIG_HASH_V11);
+  }
+
+  const role = rowById(rows, "split-bullet#0");
+  const picked = rowById(rows, "split-bullet#1");
+  expect(role).toMatchObject({
+    sourceId: "split-bullet",
+    parentId: "split-bullet",
+    childId: "split-bullet#0",
+    claimClass: "output",
+    curvedDifficulty: 0.25,
+    curvedGeneralizedImpact: 1,
+    classValue: 0.5,
+    ownershipMultiplier: 0.8,
+    ownershipNullFallback: false,
+    backingTier: "self_reported",
+    backingMultiplier: 0.6,
+    claimValue: 0.24,
+    status: "accepted",
+    reviewReasons: [],
+    selectionRate: null,
+    selectivity: null,
+    respondedModel: "smoke-v11",
+  });
+  expect(picked).toMatchObject({
+    sourceId: "split-bullet",
+    parentId: "split-bullet",
+    childId: "split-bullet#1",
+    claimClass: "selection",
+    selectionRate: 0.0025,
+    curvedSelectivity: 1,
+    classValue: 1,
+    ownershipMultiplier: 1,
+    claimValue: 0.6,
+    status: "accepted",
+    difficulty: null,
+    generalizedImpact: null,
+  });
+  expect(picked.selectivity?.probabilities).toEqual([0, 0, 0, 0, 1]);
+
+  const output = rowById(rows, "pure-output");
+  expect(output).toMatchObject({
+    claimClass: "output",
+    status: "review",
+    reviewReasons: ["dimension_low_confidence"],
+    claimValue: 0.24,
+    childId: "pure-output",
+    parentId: "pure-output",
+  });
+
+  const linkedSelection = rowById(rows, "mixed-win#selection");
+  const linkedOutput = rowById(rows, "mixed-win#output");
+  expect(linkedSelection).toMatchObject({
+    sourceId: "mixed-win",
+    parentId: "mixed-win",
+    claimClass: "selection",
+    classConfidence: 0.88,
+    classProbabilities: { selection: 0.2, output: 0.1, both: 0.7 },
+    selectionRate: 0.0025,
+    claimValue: 0.48,
+    ownershipNullFallback: false,
+    ownershipMultiplier: 0.8,
+    status: "accepted",
+  });
+  expect(linkedOutput).toMatchObject({
+    claimClass: "output",
+    classConfidence: 0.88,
+    selectionRate: null,
+    selectivity: null,
+    curvedDifficulty: 0.25,
+    curvedGeneralizedImpact: 1,
+    claimValue: 0.24,
+    ownership: { choice: "core_contributor" },
+  });
+
+  const missing = rowById(rows, "null-ownership");
+  expect(missing).toMatchObject({
+    claimClass: "output",
+    ownership: null,
+    ownershipNullFallback: true,
+    ownershipMultiplier: 0.8,
+    classValue: 0.25,
+    claimValue: 0.12,
+    backingTier: "self_reported",
+    status: "accepted",
+  });
+
+  const alpha = rowById(rows, "roster-a");
+  const beta = rowById(rows, "roster-b");
+  expect(alpha.difficulty?.score).toBe(3);
+  expect(beta.difficulty?.score).toBe(1);
+  expect(alpha.generalizedImpact?.score).toBe(1);
+  expect(beta.generalizedImpact?.score).toBe(2.5);
+  expect(alpha.curvedDifficulty).toBe(0);
+  expect(beta.curvedDifficulty).toBe(0);
+
+  const failed = rows.find((row) => row.childId === "down-item");
+  expect(failed).toMatchObject({
+    outcome: "unavailable",
+    sourceId: "down-item",
+    parentId: "down-item",
+    respondedModel: null,
+    error: "socket down",
+  });
+
+  expect(summary).toContain("Claims accepted 7. Review 1. Rejected 0.");
+  expect(summary).toContain("Calls 8. Answered 7. judgment_unavailable 1. Invariant failures 0.");
+  expect(summary).toContain("### roster");
+  expect(summary).toContain("selectivity n/a");
+  expect(summary).toContain("difficulty 2.0000");
+  expect(summary).toContain("generalized_impact 1.5000");
+  expect(summary).toContain("respondedModel smoke-v11.");
+});
+
+test("a failed clause stays unavailable and its sibling still scores", async () => {
+  const statement = "Built the example routing service; selected as 1 of 400 applicants.";
+  const client: V11JevClient = {
+    systemOne(request) {
+      return {
+        async withResponse() {
+          if (request.state.text.startsWith("selected")) throw new Error("clause down");
+          return {
+            data: {
+              model: "smoke-v11",
+              answers: answerFor("Built the example routing service"),
+            },
+          };
+        },
+      };
+    },
+  };
+  const report = await runV11ClaimSmoke([item("split-bullet", "A", statement, null)], client);
+  expect(report.calls).toBe(2);
+  expect(report.answered).toBe(1);
+  expect(report.unavailable).toBe(1);
+  expect(report.rows.map((row) => row.childId)).toEqual(["split-bullet#0", "split-bullet#1"]);
+  const scored = report.rows[0];
+  const failed = report.rows[1];
+  if (scored === undefined || failed === undefined) throw new Error("missing rows");
+  expect(scored.outcome).toBe("answered");
+  if (scored.outcome === "answered") expect(scored.claimValue).toBe(0.24);
+  expect(failed.outcome).toBe("unavailable");
+  if (failed.outcome !== "answered") expect(failed.error).toBe("clause down");
+});
+
+test("the private items directory stays gitignored", async () => {
+  const ignore = await readFile(join(import.meta.dir, "../.gitignore"), "utf8");
+  expect(ignore.split("\n")).toContain("/sea-35-private/");
+});
+
+interface V11Line {
+  outcome: string;
+  rubricId: string;
+  rubricHash: string;
+  configId: string;
+  configHash: string;
+  sourceId: string;
+  parentId: string;
+  childId: string;
+  respondedModel: string | null;
+  error?: string;
+  claimClass?: string;
+  classConfidence?: number;
+  classProbabilities?: { selection: number; output: number; both: number };
+  selectionRate?: number | null;
+  selectivity?: { score: number; probabilities: number[] } | null;
+  difficulty?: { score: number } | null;
+  generalizedImpact?: { score: number } | null;
+  curvedSelectivity?: number | null;
+  curvedDifficulty?: number | null;
+  curvedGeneralizedImpact?: number | null;
+  ownership?: { choice: string } | null;
+  ownershipMultiplier?: number;
+  ownershipNullFallback?: boolean;
+  backingTier?: string;
+  backingMultiplier?: number;
+  classValue?: number;
+  claimValue?: number;
+  status?: string;
+  reviewReasons?: string[];
+}
+
+function rowById(rows: readonly V11Line[], childId: string): V11Line {
+  const found = rows.find((row) => row.childId === childId);
+  if (found === undefined) throw new Error(`missing row ${childId}`);
+  return found;
+}
+
+function item(id: string, resume: "A" | "B", statement: string, pair: string | null): SmokeItem {
+  return {
+    id,
+    resume,
+    org: "Example Lab",
+    role: "Example Role",
+    dates: "2024",
+    statement,
+    pair,
+    publishedAt: "2024-01-01T00:00:00.000Z",
+  };
+}
+
+function level(score: number, confidence: number, mass: number) {
+  return {
+    score,
+    confidence,
+    probabilities: {
+      0: mass === 0 ? 1 : 0,
+      1: mass === 1 ? 1 : 0,
+      2: mass === 2 ? 1 : 0,
+      3: mass === 3 ? 1 : 0,
+      4: mass === 4 ? 1 : 0,
+    },
+  };
+}
+
+function owned(choice: "led" | "core_contributor" | null) {
+  if (choice === null) return null;
+  return {
+    choice,
+    confidence: 0.9,
+    probabilities: {
+      led: choice === "led" ? 1 : 0,
+      core_contributor: choice === "core_contributor" ? 1 : 0,
+      supporting: 0,
+    },
+  };
+}
+
+function answerFor(text: string) {
+  if (text === "Built the example routing service") {
+    return body(
+      "output",
+      0.92,
+      level(0, 1, 0),
+      level(2, 0.9, 2),
+      level(4, 0.9, 4),
+      owned("core_contributor"),
+    );
+  }
+  if (text === "selected as 1 of 400 applicants.") {
+    return body("selection", 0.92, level(4, 0.9, 4), level(0, 1, 0), level(0, 1, 0), owned("led"));
+  }
+  if (text === "Built the example widget.") {
+    return body(
+      "output",
+      0.92,
+      level(0, 1, 0),
+      level(2, 0.4, 2),
+      level(4, 0.95, 4),
+      owned("core_contributor"),
+    );
+  }
+  if (text === "Won 1 of 400 for building the example widget.") {
+    return {
+      ...body(
+        "both",
+        0.88,
+        level(4, 0.9, 4),
+        level(2, 0.9, 2),
+        level(4, 0.9, 4),
+        owned("core_contributor"),
+      ),
+      claim_class: {
+        choice: "both",
+        confidence: 0.88,
+        probabilities: { selection: 0.2, output: 0.1, both: 0.7 },
+      },
+    };
+  }
+  if (text === "Shipped the example widget.") {
+    return body("output", 0.9, level(0, 1, 0), level(2, 0.9, 2), level(2, 0.9, 2), null);
+  }
+  if (text === "Built the example roster alpha.") {
+    return body("output", 0.92, level(0, 1, 0), level(3, 0.9, 0), level(1, 0.9, 0), owned("led"));
+  }
+  if (text === "Built the example roster beta.") {
+    return body("output", 0.92, level(0, 1, 0), level(1, 0.9, 0), level(2.5, 0.9, 0), owned("led"));
+  }
+  throw new Error(`unexpected claim text ${text}`);
+}
+
+function body(
+  choice: "selection" | "output" | "both",
+  confidence: number,
+  selectivity: ReturnType<typeof level>,
+  difficulty: ReturnType<typeof level>,
+  impact: ReturnType<typeof level>,
+  ownership: ReturnType<typeof owned>,
+) {
+  return {
+    claim_class: {
+      choice,
+      confidence,
+      probabilities: {
+        selection: choice === "selection" ? 1 : 0,
+        output: choice === "output" ? 1 : 0,
+        both: choice === "both" ? 1 : 0,
+      },
+    },
+    selectivity,
+    difficulty,
+    generalized_impact: impact,
+    ownership,
+  };
+}
