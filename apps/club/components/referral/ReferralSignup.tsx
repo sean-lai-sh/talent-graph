@@ -106,11 +106,6 @@ export function ReferralSignup({
           void (async () => {
             let resumeStorageId: string | undefined;
             if (file) {
-              if (file.type && file.type !== "application/pdf") {
-                setError("Resume must be a PDF.");
-                setBusy(false);
-                return;
-              }
               const uploaded = await uploadResume(file);
               if ("error" in uploaded) {
                 setError(uploaded.error);
@@ -309,7 +304,16 @@ function ResumePicker({
             {file.name}
           </span>
           <span className="shrink-0 text-xs text-muted tabular-nums">{fileSize(file.size)}</span>
-          <Button variant="ghost" size="sm" className="ml-auto" onClick={() => onChange(null)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto"
+            onClick={(event) => {
+              // Inside Field's <label>: never let this click reach the file input.
+              event.preventDefault();
+              onChange(null);
+            }}
+          >
             Remove
           </Button>
         </>
