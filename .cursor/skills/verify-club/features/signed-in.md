@@ -30,7 +30,7 @@ Preconditions:
 - **Sign out.** Click `Sign out`. The page is the sign-in form again.
 - **Member sign-in.** Fill `member@example.com` and `MEMBER_PASSWORD`. Click `Sign in`. Wait until the URL contains `/members`. The page shows heading `Forum` and nav `Submit Referral`. It does not show a `Council` nav item. Snapshot and screenshot.
 - **Referral contact.** Click `Submit Referral`. The heading becomes `Submit Referral`. The form shows textbox `Email or phone` (hint: lookup uses this contact, never a name) and button `Continue`. Do not type a contact and do not click `Continue`. Snapshot and screenshot.
-- **Feedback inbox.** Click the nav button `Evaluations`. The heading becomes `Evaluations`. The inbox shows `No feedback requests waiting.` when the member has no asks, or a list named `Feedback requests` when it does. Do not fill a response and do not click `Submit response`. Snapshot and screenshot.
+- **Feedback inbox.** Click the nav button whose accessible name is `Evaluations` plus the waiting count (`Evaluations 0` when nothing is waiting; the count is inside the button). The heading becomes `Evaluations`. An empty inbox shows `No feedback requests waiting.` and an empty list named `Feedback requests`. Do not fill a response and do not click `Submit response`. Snapshot and screenshot.
 - **Close.** `agent-browser --session verify-club close`.
 - **Proof.** Save snapshots and screenshots of (1) the login form, (2) the admin council board, (3) sign-out back on the form, (4) the member portal, (5) the referral contact step, (6) the feedback inbox. Put them in `evidence/<run-id>/signed-in/`. The step table in `notes.md` records each result. Do not put passwords in that file.
 
