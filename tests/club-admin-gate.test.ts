@@ -97,3 +97,61 @@ describe("admin council data is closed to members", () => {
     expect(auth).toContain("ADMIN_PROVISION_SECRET");
   });
 });
+
+/**
+ * The candidate is not a club account. `referralStatus` takes a token,
+ * looks up its hash, and returns one status line. It is not member-open
+ * and not admin-only.
+ */
+const PUBLIC_TOKEN_QUERIES = ["referralStatus"] as const;
+
+const MEMBER_OPEN_QUERIES = ["lookupReferralContact"] as const;
+
+const MEMBER_OPEN_MUTATIONS = [
+  "generateResumeUploadUrl",
+  "registerResumeUpload",
+  "submitReferralSignup",
+] as const;
+
+describe("referral signup access", () => {
+  test("every referral function is member-open or public-token", () => {
+    const referral = read("apps/club/convex/referral.ts");
+    expect(new Set(names(referral, "query"))).toEqual(
+      new Set([...MEMBER_OPEN_QUERIES, ...PUBLIC_TOKEN_QUERIES]),
+    );
+    expect(new Set(names(referral, "mutation"))).toEqual(new Set(MEMBER_OPEN_MUTATIONS));
+    expect(referral).not.toMatch(/= (action|httpAction|internal\w+)\(/);
+
+    for (const name of MEMBER_OPEN_QUERIES) {
+      const body = handler(referral, name, "query");
+      expect(body).toContain("safeGetAuthUser");
+      expect(body).not.toContain("loadOrgForSession");
+      expect(body).not.toContain("personId");
+      expect(body).not.toContain("referrerUserId");
+    }
+    for (const name of MEMBER_OPEN_MUTATIONS) {
+      const body = handler(referral, name, "mutation");
+      expect(body).toContain("getAuthUser");
+      expect(body).not.toContain("requireAdmin");
+      expect(body).not.toContain("applyEngine");
+    }
+    expect(handler(referral, "generateResumeUploadUrl", "mutation")).toContain("uploadUrlAllowed(");
+    expect(handler(referral, "registerResumeUpload", "mutation")).toContain("deleteIfNotResume(");
+    const submit = handler(referral, "submitReferralSignup", "mutation");
+    expect(submit).toContain("resumeClaimError(upload, user._id)");
+    expect(submit).toContain("deleteIfNotResume(");
+    const status = handler(referral, "referralStatus", "query");
+    expect(status).toContain("token: v.string()");
+    expect(status).toContain("hashStatusToken");
+    expect(status).toContain('withIndex("by_token_hash"');
+    expect(status).toContain("statusLine(row.createdAt)");
+    expect(status).not.toContain("normalizedContact");
+    expect(status).not.toContain("getAuthUser");
+    expect(status).not.toContain("safeGetAuthUser");
+    expect(status).not.toContain("requireAdmin");
+    expect(status).not.toContain("personId");
+    expect(status).not.toContain("referrerUserId");
+    expect(status).not.toContain("email");
+    expect(status).not.toContain("contact:");
+  });
+});

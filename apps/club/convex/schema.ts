@@ -65,8 +65,13 @@ const clubPerson = v.object({
   affiliation: v.optional(v.string()),
   // Display metadata for the council page. Never read by src/.
   phone: v.optional(v.string()),
+  email: v.optional(v.string()),
   linkedin: v.optional(v.string()),
   resume: v.optional(v.string()),
+  resumeStorageId: v.optional(v.string()),
+  x: v.optional(v.string()),
+  github: v.optional(v.string()),
+  website: v.optional(v.string()),
   status: personStatus,
   // Council workflow state; optional so older documents stay valid.
   reviewStatus: v.optional(reviewStatus),
@@ -212,4 +217,28 @@ export default defineSchema({
     // Legacy per-org notes. The live member feed is `clubPosts`.
     posts: v.optional(v.array(clubPost)),
   }).index("by_owner", ["ownerUserId"]),
+  // People live inside clubOrgs, which cannot index a nested contact.
+  referralContacts: defineTable({
+    normalizedContact: v.string(),
+    kind: v.union(v.literal("email"), v.literal("phone")),
+    personId: v.string(),
+  }).index("by_contact", ["normalizedContact"]),
+  memberReferrals: defineTable({
+    referrerUserId: v.string(),
+    normalizedContact: v.string(),
+    personId: v.string(),
+    createdAt: v.string(),
+    tokenHash: v.string(),
+  })
+    .index("by_referrer_and_contact", ["referrerUserId", "normalizedContact"])
+    .index("by_token_hash", ["tokenHash"]),
+  // One row per issued upload URL. `storageId` is set when the uploader registers the file.
+  referralUploads: defineTable({
+    uploaderUserId: v.string(),
+    createdAt: v.number(),
+    storageId: v.optional(v.id("_storage")),
+    usedAt: v.optional(v.number()),
+  })
+    .index("by_uploader", ["uploaderUserId", "createdAt"])
+    .index("by_storage", ["storageId"]),
 });
