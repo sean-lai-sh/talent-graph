@@ -144,7 +144,7 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   combined here.
 - **Drift:** n/a (rubric-only kind; `CURRENT_SPECS` did not move, and this
   spec produces no pipeline number)
-- **PR:** stacked on SEA-36.
+- **PR:** #85, stacked on SEA-36 (PR #84).
 
 ## Run id format
 
