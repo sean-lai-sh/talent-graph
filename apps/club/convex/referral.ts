@@ -1,10 +1,10 @@
 import { v } from "convex/values";
+import { loadClub } from "../lib/clubStore.ts";
 import {
   hashStatusToken,
   isSelfContact,
   type LookupDecision,
   lookupDecision,
-  mergeCandidate,
   type NormalizedContact,
   newStatusToken,
   parseContact,
@@ -16,32 +16,49 @@ import {
   UPLOAD_URL_LIMIT,
   uploadUrlAllowed,
 } from "../lib/referralSignup.ts";
-import { loadClub } from "../lib/theClub.ts";
-import type { ClubPerson } from "../lib/types.ts";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { authComponent } from "./auth";
 
-async function profileExists(ctx: QueryCtx | MutationCtx, contact: NormalizedContact) {
+async function profileExists(
+  ctx: QueryCtx | MutationCtx,
+  clubId: Id<"clubs">,
+  contact: NormalizedContact,
+) {
   const indexed = await ctx.db
     .query("referralContacts")
-    .withIndex("by_contact", (q) => q.eq("normalizedContact", contact.value))
+    .withIndex("by_club_and_contact", (q) =>
+      q.eq("clubId", clubId).eq("normalizedContact", contact.value),
+    )
     .unique();
   if (indexed) return true;
-  const club = await loadClub(ctx.db);
-  return profileExistsInPeople(club?.people ?? [], contact);
+  if (contact.kind === "email") {
+    const person = await ctx.db
+      .query("clubPeople")
+      .withIndex("by_club_and_email", (q) => q.eq("clubId", clubId).eq("email", contact.value))
+      .first();
+    return person !== null;
+  }
+  // Council-entered phones are stored as typed, so an exact index hit can miss
+  // them; compare every phone-bearing row under the same normalization.
+  const withPhone = await ctx.db
+    .query("clubPeople")
+    .withIndex("by_club_and_phone", (q) => q.eq("clubId", clubId).gte("phone", ""))
+    .collect();
+  return profileExistsInPeople(withPhone, contact);
 }
 
 async function referrerAlreadyLinked(
   ctx: QueryCtx | MutationCtx,
+  clubId: Id<"clubs">,
   userId: string,
   contact: NormalizedContact,
 ) {
   const row = await ctx.db
     .query("memberReferrals")
-    .withIndex("by_referrer_and_contact", (q) =>
-      q.eq("referrerUserId", userId).eq("normalizedContact", contact.value),
+    .withIndex("by_club_referrer_and_contact", (q) =>
+      q.eq("clubId", clubId).eq("referrerUserId", userId).eq("normalizedContact", contact.value),
     )
     .unique();
   return row !== null;
@@ -54,10 +71,8 @@ export const lookupReferralContact = query({
     if (!user) return null;
     const actor = { email: user.email };
     const parsed = parseContact(args.contact);
-    const exists =
-      parsed.ok && !isSelfContact(actor, parsed.contact)
-        ? await profileExists(ctx, parsed.contact)
-        : false;
+    const club = parsed.ok && !isSelfContact(actor, parsed.contact) ? await loadClub(ctx.db) : null;
+    const exists = club && parsed.ok ? await profileExists(ctx, club._id, parsed.contact) : false;
     return lookupDecision({ raw: args.contact, actor, profileExists: exists });
   },
 });
@@ -157,11 +172,15 @@ export const submitReferralSignup = mutation({
       resumeUrl = (await ctx.storage.getUrl(args.resumeStorageId)) ?? undefined;
     }
 
+    const club = await loadClub(ctx.db);
     const parsed = parseContact(args.contact);
     const self = parsed.ok && isSelfContact(actor, parsed.contact);
-    const exists = parsed.ok && !self ? await profileExists(ctx, parsed.contact) : false;
+    const exists =
+      club && parsed.ok && !self ? await profileExists(ctx, club._id, parsed.contact) : false;
     const linked =
-      parsed.ok && !self ? await referrerAlreadyLinked(ctx, user._id, parsed.contact) : false;
+      club && parsed.ok && !self
+        ? await referrerAlreadyLinked(ctx, club._id, user._id, parsed.contact)
+        : false;
     const issued = await newStatusToken();
     const plan = planSignup({
       rawContact: args.contact,
@@ -187,17 +206,19 @@ export const submitReferralSignup = mutation({
     if (plan.action === "duplicate") return { status: "duplicate" as const };
     if (plan.action === "exists") return { status: "exists" as const };
 
-    const club = await loadClub(ctx.db);
     if (!club) {
       return { status: "rejected" as const, error: "Club is not set up yet." };
     }
 
+    await ctx.db.insert("clubPeople", { clubId: club._id, ...plan.person });
     await ctx.db.insert("referralContacts", {
+      clubId: club._id,
       normalizedContact: plan.contact.value,
       kind: plan.contact.kind,
       personId: plan.person.id,
     });
     await ctx.db.insert("memberReferrals", {
+      clubId: club._id,
       referrerUserId: plan.referrerUserId,
       normalizedContact: plan.contact.value,
       personId: plan.person.id,
@@ -205,10 +226,6 @@ export const submitReferralSignup = mutation({
       tokenHash: plan.tokenHash,
     });
     if (upload) await ctx.db.patch(upload._id, { usedAt: Date.now() });
-    const people = mergeCandidate(club.people as ClubPerson[], plan.person);
-    if (people.length !== club.people.length) {
-      await ctx.db.patch(club._id, { people });
-    }
     return { status: "created" as const, token: issued.token };
   },
 });

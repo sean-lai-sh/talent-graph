@@ -76,9 +76,9 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
     const schema = read("apps/club/convex/schema.ts");
     const club = read("apps/club/convex/club.ts");
     expect(schema).toContain("defineSchema");
-    expect(schema).toContain("people");
-    expect(schema).toContain("referrals");
-    expect(schema).toContain("snapshots");
+    expect(schema).toContain("clubPeople");
+    expect(schema).toContain("clubReferrals");
+    expect(schema).toContain("clubSnapshots");
     expect(schema).not.toContain("bradleyTerry");
     expect(schema).not.toContain("computeAllReferralSignals");
     expect(schema).not.toContain("referralStrength");

@@ -69,13 +69,12 @@ describe("SEA-12 Better Auth gate on /club", () => {
     expect(club).toContain('from "./auth"');
     expect(club).toContain("authComponent.getAuthUser");
     expect(club).toContain("authComponent.safeGetAuthUser");
-    expect(club).toContain("ownerUserId: user._id");
-    expect(schema).toContain("ownerUserId: v.optional(v.string())");
-    expect(schema).not.toContain("by_owner");
-    expect(club).not.toContain("by_owner");
+    expect(club).toContain("ensureClub(ctx.db, user._id");
+    expect(schema).toContain("createdByUserId: v.string()");
+    expect(schema).not.toContain("clubOrgs");
     const referral = read("apps/club/convex/referral.ts");
     for (const source of [club, referral]) {
-      expect(source).not.toContain('query("clubOrgs")');
+      expect(source).not.toContain("clubOrgs");
       expect(source).toContain("loadClub(ctx.db)");
     }
   });

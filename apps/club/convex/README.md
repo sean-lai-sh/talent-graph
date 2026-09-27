@@ -6,27 +6,31 @@ This folder is the official `@convex-dev/better-auth` component setup for
 disabled; provision owners with `auth:provisionUser` (see
 `scripts/provision-user.ts`).
 
-**Persisted:** `clubOrgs` domain inputs — people, referrals, comparisons,
-evaluations, outcomes, opportunities, snapshots, and clock `now` (wall
-time for new orgs; not `EXAMPLE_T_*`). Snapshot `values.referralSignal`
-is accept/archive provenance only.
+**Persisted:** domain inputs, one row per record. `clubs` holds the club's
+name, clock `now` (wall time; not `EXAMPLE_T_*`) and review config.
+`clubPeople`, `clubReferrals`, `clubComparisons`, `clubEvaluations`,
+`clubOutcomes`, `clubOpportunities`, `clubSnapshots` and
+`clubFeedbackRequests` each hold one engine record per row, with `clubId`
+and the engine's domain `id`. `lib/clubStore.ts` is the only reader and
+writer of those tables: `loadState` rebuilds the engine's `ClubState`, and
+`saveState` writes back only the rows a transition changed
+(`lib/clubWrites.ts`). No document grows with the club; each read is bounded
+by Convex's per-transaction limits (16 MiB, 32,000 documents). Snapshot
+`values.referralSignal` is accept/archive provenance only.
 
 **Auth (SEA-12):** board reads and all mutations require a Better Auth
 session via `authComponent.safeGetAuthUser` / `getAuthUser` and a marked
 admin role (`clubAccounts.role`, else `chips@techatnyu.org` /
-`CLUB_ADMIN_EMAILS`). Every admin shares one club: the oldest `clubOrgs`
-document (`lib/theClub.ts`), created by the first admin to open `/club`.
-`ownerUserId` records who created it. Later `clubOrgs` documents (one per
-admin, from before SEA-55) are ignored. One club per deployment, not a
+`CLUB_ADMIN_EMAILS`). Every admin shares one club: the oldest `clubs` row
+(`lib/clubStore.ts`), created by the first admin to open `/club`.
+`createdByUserId` records who created it. One club per deployment, not a
 membership / invite model. Accounts that are not marked admin land on `/members`.
 The member forum is `clubPosts` — any signed-in user can post.
 The member directory is `listMembers` (name, LinkedIn, email).
 
-**Before deploying SEA-55 over existing data:** run `npx convex data clubOrgs`
-against the target deployment. If it lists more than one document, only the
-oldest becomes the club. The people, referrals, and open feedback requests on
-the others stop showing on the board, in the member directory, and in member
-inboxes. They are not deleted. Merge or pick the club before you deploy.
+**Before deploying SEA-56:** the schema no longer has `clubOrgs`. Check
+`npx convex data clubOrgs` on the target deployment and clear any leftover
+test documents first. There is no migration; production had no club data.
 
 **Computed:** every mutation and `getBoard` call `computeView` / `addPerson`
 / `setStatus` / `addReferral` / … from `lib/engine.ts`, which imports
