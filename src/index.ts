@@ -38,6 +38,7 @@ export * from "./longitudinal/judge.ts";
 export * from "./longitudinal/judgments.ts";
 export * from "./longitudinal/monitor.ts";
 export * from "./longitudinal/outcomes.ts";
+export * from "./longitudinal/personRollup.ts";
 export * from "./longitudinal/pipeline.ts";
 export * from "./longitudinal/policy.ts";
 export * from "./longitudinal/projections.ts";

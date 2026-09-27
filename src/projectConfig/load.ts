@@ -13,12 +13,25 @@ import {
 } from "../longitudinal/companySeedShape.ts";
 import { hashInputs } from "../provenance/hash.ts";
 import { PINNED_COMPANY_SEED_HASH } from "./companySeedPin.ts";
+import { PINNED_PERSON_ROLLUP_HASH } from "./personRollupPin.ts";
 
 const DOCUMENT = "config.yml";
 
 const SECTIONS = {
   company_seed: parseCompanySeed,
+  person_rollup: parsePersonRollup,
 } as const;
+
+export interface PersonRollupConfig {
+  wTrend: number;
+  wSubstance: number;
+  wConsensus: number;
+  topN: number;
+  minCohortSize: number;
+  minBucketSize: number;
+  consensusCuts: readonly number[];
+  weightSumTolerance: number;
+}
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -29,6 +42,7 @@ export class ConfigError extends Error {
 
 export interface ProjectConfig {
   company_seed: CompanySeed;
+  person_rollup: PersonRollupConfig;
 }
 
 export function projectConfigPath(): string {
@@ -39,7 +53,7 @@ export function loadProjectConfig(path = projectConfigPath()): ProjectConfig {
   return parseProjectConfig(readConfigText(path));
 }
 
-/** Schema-check every registered section, then pin `company_seed`. */
+/** Returns the `company_seed` hash after pinning `company_seed` and `person_rollup`. */
 export function checkConfigText(text: string): string {
   const config = parseProjectConfig(text);
   const hash = hashInputs(config.company_seed);
@@ -47,6 +61,13 @@ export function checkConfigText(text: string): string {
     fail(
       DOCUMENT,
       `company_seed hash ${hash} does not match pinned hash ${PINNED_COMPANY_SEED_HASH}`,
+    );
+  }
+  const rollupHash = hashInputs(config.person_rollup);
+  if (rollupHash !== PINNED_PERSON_ROLLUP_HASH) {
+    fail(
+      DOCUMENT,
+      `person_rollup hash ${rollupHash} does not match pinned hash ${PINNED_PERSON_ROLLUP_HASH}`,
     );
   }
   return hash;
@@ -75,6 +96,7 @@ export function parseProjectConfig(text: string): ProjectConfig {
   }
   return {
     company_seed: SECTIONS.company_seed(raw.company_seed),
+    person_rollup: SECTIONS.person_rollup(raw.person_rollup),
   };
 }
 
@@ -94,6 +116,87 @@ function parseYaml(text: string): unknown {
     const detail = error instanceof Error ? error.message : String(error);
     throw new ConfigError(`${DOCUMENT}: invalid YAML: ${detail}`);
   }
+}
+
+export function parsePersonRollup(
+  value: unknown,
+  where = `${DOCUMENT}: person_rollup`,
+): PersonRollupConfig {
+  if (!isRecord(value)) fail(where, "must be a map");
+  requireKeys(
+    value,
+    [
+      "wTrend",
+      "wSubstance",
+      "wConsensus",
+      "topN",
+      "minCohortSize",
+      "minBucketSize",
+      "consensusCuts",
+      "weightSumTolerance",
+    ],
+    where,
+  );
+  const wTrend = weight(value.wTrend, `${where}.wTrend`);
+  const wSubstance = weight(value.wSubstance, `${where}.wSubstance`);
+  const wConsensus = weight(value.wConsensus, `${where}.wConsensus`);
+  const weightSumTolerance = smallPositive(value.weightSumTolerance, `${where}.weightSumTolerance`);
+  const sum = wSubstance + wConsensus;
+  if (Math.abs(sum - 1) > weightSumTolerance) {
+    fail(where, `wSubstance and wConsensus must sum to 1 (got ${sum})`);
+  }
+  return {
+    wTrend,
+    wSubstance,
+    wConsensus,
+    topN: positiveInteger(value.topN, `${where}.topN`, 1),
+    minCohortSize: positiveInteger(value.minCohortSize, `${where}.minCohortSize`, 2),
+    minBucketSize: positiveInteger(value.minBucketSize, `${where}.minBucketSize`, 1),
+    consensusCuts: consensusCuts(value.consensusCuts, `${where}.consensusCuts`),
+    weightSumTolerance,
+  };
+}
+
+function weight(value: unknown, where: string): number {
+  if (value === undefined) fail(where, "missing field");
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
+    fail(where, "must be a finite number in [0, 1]");
+  }
+  return value;
+}
+
+function consensusCuts(value: unknown, where: string): number[] {
+  if (value === undefined) fail(where, "missing field");
+  if (!Array.isArray(value)) fail(where, "must be a list");
+  const cuts: number[] = [];
+  for (let index = 0; index < value.length; index++) {
+    const item = value[index];
+    if (typeof item !== "number" || !Number.isFinite(item) || item < 0 || item > 1) {
+      fail(`${where}[${index}]`, "must be a finite number in [0, 1]");
+    }
+    const previous = cuts[index - 1];
+    if (previous !== undefined && item <= previous) {
+      fail(`${where}[${index}]`, "must be strictly increasing");
+    }
+    cuts.push(item);
+  }
+  return cuts;
+}
+
+function smallPositive(value: unknown, where: string): number {
+  if (value === undefined) fail(where, "missing field");
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 1e-6) {
+    fail(where, "must be a finite number in (0, 1e-6]");
+  }
+  return value;
+}
+
+function positiveInteger(value: unknown, where: string, minimum: number): number {
+  if (value === undefined) fail(where, "missing field");
+  if (typeof value !== "number" || !Number.isInteger(value) || value < minimum) {
+    fail(where, `must be an integer ≥ ${minimum}`);
+  }
+  return value;
 }
 
 function parseCompanySeed(value: unknown): CompanySeed {

@@ -226,10 +226,13 @@ export function buildOutcomeCohort(
   for (const [b, values] of bucketValues) {
     bucketMeans.set(b, { mean: mean(values), size: values.length });
   }
-  const expectedFor = (opportunityCount: number): number => {
-    const b = bucketMeans.get(opportunityBucket(opportunityCount, spec.opportunityBuckets));
-    return b && b.size >= spec.minBucketSize ? b.mean : globalMean;
-  };
+  const expectedFor = (opportunityCount: number): number =>
+    expectedFromBucketMeans(
+      bucketMeans,
+      opportunityBucket(opportunityCount, spec.opportunityBuckets),
+      globalMean,
+      spec.minBucketSize,
+    ).expected;
 
   // 4. Snapshot residuals and their percentiles.
   const residuals = partials.map((p) => ({
@@ -266,12 +269,27 @@ export function buildOutcomeCohort(
   };
 }
 
+export function expectedFromBucketMeans(
+  bucketMeans: ReadonlyMap<number, { mean: number; size: number }>,
+  bucket: number,
+  globalMean: number,
+  minBucketSize: number,
+): { expected: number; from: "bucket" | "global" } {
+  const found = bucketMeans.get(bucket);
+  if (found !== undefined && found.size >= minBucketSize) {
+    return { expected: found.mean, from: "bucket" };
+  }
+  return { expected: globalMean, from: "global" };
+}
+
 /** E[R | O] for an opportunity count under the cohort's bucket means. */
 export function expectedForCount(cohort: OutcomeCohort, opportunityCount: number): number {
-  const b = cohort.bucketMeans.get(
+  return expectedFromBucketMeans(
+    cohort.bucketMeans,
     opportunityBucket(opportunityCount, cohort.spec.opportunityBuckets),
-  );
-  return b && b.size >= cohort.spec.minBucketSize ? b.mean : cohort.globalMean;
+    cohort.globalMean,
+    cohort.spec.minBucketSize,
+  ).expected;
 }
 
 /**
