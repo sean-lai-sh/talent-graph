@@ -23,6 +23,7 @@ export * from "./inference/percentile.ts";
 export * from "./judges/outcomes.ts";
 export * from "./judges/reliability.ts";
 export * from "./judges/trackRecord.ts";
+export * from "./longitudinal/claimValue.ts";
 export * from "./longitudinal/checkpoints.ts";
 // Named, not `export *`: #54 T8 split `./longitudinal/pipeline.ts` into
 // orchestration (`pipeline.ts`), shared judgments (`coalescing.ts`), the
