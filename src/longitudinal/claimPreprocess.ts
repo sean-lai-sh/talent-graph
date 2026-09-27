@@ -505,11 +505,20 @@ function hasClauseVerb(clause: string): boolean {
   return OUTPUT_VERB.test(clause) || hasSelectionWording(clause) || CLAUSE_VERB.test(clause);
 }
 
+function isRoleAtColon(statement: string): boolean {
+  return /^.+?\sat\s+[^:]+:\s+\S/.test(statement);
+}
+
+function carriesSelectionFact(text: string): boolean {
+  return extractFacts(text).selections.length > 0 || hasAwardCue(text);
+}
+
 function roleColonHalves(statement: string): readonly [string, string] | null {
   const match = /^(.+?\sat\s+[^:]+):\s+(\S[\s\S]*)$/.exec(statement);
   const title = match?.[1]?.trim() ?? "";
   const body = match?.[2]?.trim() ?? "";
   if (title.length === 0 || body.length === 0 || !hasClauseVerb(body)) return null;
+  if (carriesSelectionFact(body) && !carriesSelectionFact(title)) return null;
   return [title, body];
 }
 
@@ -621,13 +630,17 @@ function glueOthers(statement: string, parts: readonly string[]): string[] | nul
 
 function conjunctionParts(statement: string): string[] | null {
   const pattern = /\s+and\s+|\s+to\s+(?=win\b|place\b|earn\b)/gi;
+  const roleColon = isRoleAtColon(statement);
   const matches = [...statement.matchAll(pattern)];
   for (let index = matches.length - 1; index >= 0; index--) {
     const match = matches[index];
     if (match?.index === undefined) continue;
+    const boundary = match[0];
+    if (roleColon && /^\s+to\s+/i.test(boundary)) continue;
     const left = statement.slice(0, match.index).trim();
-    const right = statement.slice(match.index + match[0].length).trim();
+    const right = statement.slice(match.index + boundary.length).trim();
     if (left.length === 0 || right.length === 0) continue;
+    if (roleColon && /\sto\s+(?:win|place|earn)\b/i.test(right)) continue;
     if (canSplit([left, right])) return [left, right];
   }
   return null;
@@ -657,7 +670,6 @@ export function selectionOutputHalves(statement: string): readonly [string, stri
 }
 
 function splitStatement(statement: string): string[] {
-  if (roleColonHalves(statement)) return [statement];
   const sentences = sentenceParts(statement);
   if (sentences) {
     const glued = glueOthers(statement, sentences);
