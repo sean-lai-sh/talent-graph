@@ -38,7 +38,7 @@ import {
 } from "./jev-claim-smoke-v11.ts";
 import {
   liveV12Client,
-  renderV12JobsFromJsonl,
+  renderV12Jobs,
   renderV12Jsonl,
   renderV12Summary,
   runV12ClaimSmoke,
@@ -562,15 +562,7 @@ function rubricFor(name: string | undefined): CareerEvidenceSpec {
 const USAGE =
   "usage: bun run scripts/jev-claim-smoke.ts --items <path> (--jsonl <path> --summary <path> | --out <dir>) [--spec career_evidence@1.0.0] [--rubric career_evidence@1.0.0|career_evidence@1.1.0|career_evidence@1.2.0]";
 
-const FLAGS = new Set<string>([
-  "--items",
-  "--jsonl",
-  "--summary",
-  "--spec",
-  "--rubric",
-  "--out",
-  "--jobs-from-jsonl",
-]);
+const FLAGS = new Set<string>(["--items", "--jsonl", "--summary", "--spec", "--rubric", "--out"]);
 
 function parseArgs(argv: readonly string[]): {
   items: string;
@@ -578,11 +570,16 @@ function parseArgs(argv: readonly string[]): {
   summary: string;
   spec: string | undefined;
   rubric: string | undefined;
-  jobsFromJsonl: string | undefined;
+  jobsOnly: boolean;
 } {
   const values = new Map<string, string>();
+  let jobsOnly = false;
   for (let index = 0; index < argv.length; index++) {
     const flag = argv[index];
+    if (flag === "--jobs-only") {
+      jobsOnly = true;
+      continue;
+    }
     if (flag === undefined || !FLAGS.has(flag)) {
       throw new Error(`unknown argument ${flag ?? ""}`);
     }
@@ -591,18 +588,18 @@ function parseArgs(argv: readonly string[]): {
     values.set(flag, value);
     index += 1;
   }
-  const jobsFromJsonl = values.get("--jobs-from-jsonl");
-  if (jobsFromJsonl !== undefined) {
+  const items = values.get("--items");
+  if (jobsOnly) {
+    if (items === undefined) throw new Error("missing --items for --jobs-only");
     return {
-      items: "",
+      items,
       jsonl: "",
       summary: "",
       spec: values.get("--spec"),
       rubric: values.get("--rubric"),
-      jobsFromJsonl,
+      jobsOnly: true,
     };
   }
-  const items = values.get("--items");
   const out = values.get("--out");
   const jsonl =
     values.get("--jsonl") ?? (out === undefined ? undefined : join(out, V11_JSONL_NAME));
@@ -615,7 +612,7 @@ function parseArgs(argv: readonly string[]): {
     summary,
     spec: values.get("--spec"),
     rubric: values.get("--rubric"),
-    jobsFromJsonl: undefined,
+    jobsOnly: false,
   };
 }
 
@@ -653,8 +650,11 @@ export async function main(
   v12Client?: V12JevClient,
 ): Promise<number> {
   const args = parseArgs(argv);
-  if (args.jobsFromJsonl !== undefined) {
-    console.log(renderV12JobsFromJsonl(await readFile(args.jobsFromJsonl, "utf8")));
+  if (args.jobsOnly) {
+    const raw: unknown = JSON.parse(await readFile(args.items, "utf8"));
+    const items = parseSmokeItems(raw);
+    if (items.length === 0) throw new Error("items file is empty");
+    console.log(renderV12Jobs(items));
     return 0;
   }
   const mode = rubricMode(args.spec, args.rubric);

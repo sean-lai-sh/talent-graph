@@ -287,8 +287,7 @@ export function renderV12Summary(report: V12SmokeReport): string {
     "",
     "## Jobs",
     "",
-    "The 1.2.0 split yields one hire claim for each non-founder job.",
-    "A founder job yields one funding claim, or none.",
+    ...JOB_PROSE,
     "",
     ...report.resumes.flatMap((resume) => jobLines(resume)),
     ...distribution("Pool strength", "level", LEVELS, poolCounts(report.rows)),
@@ -326,11 +325,7 @@ async function scoreResume(
   invariant: number;
   models: string[];
 }> {
-  const lines: JobClaimLine[] = items.map((item) => ({
-    id: item.id,
-    statement: item.statement,
-    publishedAt: item.publishedAt,
-  }));
+  const lines = claimLines(items);
   const jobs = jobStats(lines);
   const itemsById = new Map(items.map((item) => [item.id, item]));
   const cache = new Map<string, { model: string; answers: unknown }>();
@@ -469,11 +464,34 @@ interface FundingClaim {
   org: string;
 }
 
+const JOB_PROSE = [
+  "The 1.2.0 split yields one hire claim for each non-founder job.",
+  "A founder job yields one funding claim, or none.",
+] as const;
+
+function claimLines(items: readonly SmokeItem[]): JobClaimLine[] {
+  return items.map((item) => ({
+    id: item.id,
+    statement: item.statement,
+    publishedAt: item.publishedAt,
+  }));
+}
+
 function jobStats(lines: readonly JobClaimLine[]): JobStats {
   return tallySplitClaims(
     preprocessJobClaims(lines, { version: "1.2.0" }),
     lines.map((line) => line.id),
   );
+}
+
+export function renderV12Jobs(items: readonly SmokeItem[]): string {
+  const lines = ["## Jobs", "", ...JOB_PROSE, ""];
+  for (const resume of RESUMES) {
+    const group = items.filter((item) => item.resume === resume);
+    if (group.length === 0) continue;
+    lines.push(`### ${resume}`, "", ...formatJobStats(jobStats(claimLines(group))), "");
+  }
+  return lines.join("\n");
 }
 
 export function v12JobCheckText(claims: readonly SplitClaim[], itemIds: readonly string[]): string {
@@ -585,74 +603,6 @@ function finishJobs(jobs: Iterable<OpenJobCount>): JobStats {
     fundingClaims,
     foundersWithoutFunding,
   };
-}
-
-export function renderV12JobsFromJsonl(jsonl: string): string {
-  const byResume = new Map<string, JsonlClaim[]>();
-  const extras: string[] = [];
-  for (const line of jsonl.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
-    const row = JSON.parse(trimmed) as JsonlClaim;
-    if (typeof row.resume !== "string" || typeof row.claimId !== "string") {
-      throw new Error("claims.jsonl row needs resume and claimId");
-    }
-    const itemId = typeof row.itemId === "string" ? row.itemId : row.claimId;
-    const bucket = byResume.get(row.resume) ?? [];
-    bucket.push({ ...row, itemId });
-    byResume.set(row.resume, bucket);
-    if (row.resume !== "A" && row.resume !== "B" && !extras.includes(row.resume)) {
-      extras.push(row.resume);
-    }
-  }
-  const order = [...RESUMES.filter((resume) => byResume.has(resume)), ...extras];
-  const lines = [
-    "## Jobs",
-    "",
-    "The 1.2.0 split yields one hire claim for each non-founder job.",
-    "A founder job yields one funding claim, or none.",
-    "",
-  ];
-  for (const resume of order) {
-    const rows = byResume.get(resume) ?? [];
-    lines.push(`### ${resume}`, "", ...formatJobStats(tallyJsonlClaims(rows)), "");
-  }
-  return lines.join("\n");
-}
-
-interface JsonlClaim {
-  resume?: string;
-  itemId?: string;
-  claimId?: string;
-  class?: string;
-  claimClass?: string;
-}
-
-function tallyJsonlClaims(rows: readonly JsonlClaim[]): JobStats {
-  const jobs = new Map<string, OpenJobCount>();
-  for (const row of rows) {
-    const claimId = row.claimId ?? "";
-    const itemId = row.itemId ?? claimId;
-    if (claimId.endsWith("#hire")) {
-      openJob(jobs, itemId).designated += 1;
-      continue;
-    }
-    if (claimId.endsWith("#funding") || row.class === "funding") {
-      const job = openJob(jobs, itemId);
-      job.founder = true;
-      job.designated += 1;
-      job.funding += 1;
-      continue;
-    }
-    const selection = row.claimClass === "selection" || row.class === "selection";
-    if (!selection) continue;
-    if (claimId === itemId) {
-      openJob(jobs, `bare\0${itemId}`).designated += 1;
-      continue;
-    }
-    noteAward(openJob(jobs, itemId), itemId);
-  }
-  return finishJobs(jobs.values());
 }
 
 function formatJobStats(stats: JobStats): string[] {
