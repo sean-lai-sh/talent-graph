@@ -149,6 +149,51 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   spec produces no pipeline number)
 - **PR:** #85, stacked on SEA-36 (PR #84).
 
+## career_evidence@1.2.0 — pool strength, scale, and role
+
+- **What:** A third career-evidence rubric, `CAREER_EVIDENCE_V1_2_0`, registered
+  beside `1.0.0` and `1.1.0`. `CURRENT_SPECS.career_evidence` stays `1.0.0`.
+  The 1.0.0 and 1.1.0 question text, wire bytes, fixtures, and hashes are
+  unchanged. `1.1.0` still hashes to
+  `60dadea6eae5cd8e3a0a552941ab30ef5cc12bde0f1346ab4d65ed6a78ab689c`.
+  `claim_value@1.1.0` still hashes to
+  `8f66391ae3488a303bc8135936840cd739d0b808642b27293a1a906e1ae76adf`.
+  Selection keeps the 1.1.0 inclusive rate cuts (`0.01` / `0.05` / `0.20` /
+  `0.50` are levels 4 / 3 / 2 / 1, and a higher rate is 0). No stated rate
+  still uses the qualitative half of those anchors. Selection also asks
+  `pool_strength`, a 0–4 ladder of eligibility breadth. It does not ask role.
+  The pool question says the model never rates a country, city, or region as
+  a stronger or weaker pool. Output asks `difficulty` on new 0–4 anchors and
+  `scale`, which replaces `generalized_impact`. Role is
+  `original_author`, `major_contributor`, `maintainer`, or `minor_part`,
+  which replaces the three-tier `ownership` question. On the 1.2.0 path only,
+  the verb seed maps founded, created, owned, and led to `original_author`,
+  built, developed, and designed to `major_contributor`, maintained to
+  `maintainer`, and contributed, assisted, and helped to `minor_part`.
+  `extractOwnership` is unchanged, so created and maintained still leave the
+  1.1.0 ownership tier null. The job title is sent as `title_hint`. The prompt
+  says titles are not scored and that verbs and scope count more. If the pool
+  or the reach is not stated, the prompt tells the model to give the most
+  likely level with low confidence, not 0. The review gate is the 1.1.0 gate.
+  Class confidence below 0.65, or a scored dimension below 0.5, sends the
+  claim to review. Role confidence does not. `scoreClaimRubricV12` calls
+  `preprocessJobClaims` once, with every line for one person. Each scored
+  claim carries `jobDates` (`startedAt`, `endedAt`, `publishedAt`), `rubricId`
+  `career_evidence@1.2.0`, and `rubricHash`
+  `cd500b05728594c6599e31e8aee5c6db81a2c7814aca61332dbd195b3fc662a6`.
+  `careerEvidenceV12RubricHash` fingerprints the class text, the anchors, the
+  role labels, the cuts, and the model. Thresholds stay outside the hash.
+  `scoreClaimValue`, `runCareerEvidence`, and the v11 smoke command are
+  unchanged.
+- **Why:** 1.1.0 treats impact as a general effect and ownership as three
+  tiers, and it has no separate question for how broad the pool was. 1.2.0
+  splits those into checkable ladders and a four-way role, and it keeps the
+  job split from #89 on the request path. Scoring the new dimensions is a
+  later change.
+- **Drift:** n/a (rubric-only kind; `CURRENT_SPECS` did not move, and this
+  spec produces no pipeline number)
+- **PR:** #90, stacked on #89.
+
 ## claim_value@1.1.0 — square-law claim value
 
 - **What:** `CLAIM_VALUE_V1_1_0` in `src/longitudinal/claimValue.ts`. It is not a

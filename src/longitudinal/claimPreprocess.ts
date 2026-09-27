@@ -53,6 +53,8 @@ export interface DatedClaim extends AtomicClaim {
   startedAt: string | null;
   endedAt: string | null;
   observedAt: string | null;
+  publishedAt: string | null;
+  title: string;
   noWorkDescribed?: true;
 }
 
@@ -1138,6 +1140,7 @@ function datedClaim(input: {
   startedAt: string | null;
   endedAt: string | null;
   publishedAt: string | null;
+  title: string;
   noWorkDescribed?: true;
 }): DatedClaim {
   const observedAt = observedAtForJobClaim(input.claimClass, {
@@ -1155,6 +1158,8 @@ function datedClaim(input: {
     startedAt: input.startedAt,
     endedAt: input.endedAt,
     observedAt,
+    publishedAt: input.publishedAt,
+    title: input.title,
   };
   if (input.noWorkDescribed) claim.noWorkDescribed = true;
   return claim;
@@ -1164,6 +1169,7 @@ function withBulletDates(
   claim: AtomicClaim,
   range: { startedAt: string | null; endedAt: string | null },
   publishedAt: string | null,
+  title: string,
 ): DatedClaim {
   const claimClass = clauseClass(claim.text) === "selection" ? "selection" : "output";
   return {
@@ -1172,6 +1178,8 @@ function withBulletDates(
     startedAt: range.startedAt,
     endedAt: range.endedAt,
     observedAt: observedAtForJobClaim(claimClass, { ...range, publishedAt }),
+    publishedAt,
+    title,
   };
 }
 
@@ -1194,7 +1202,8 @@ function emitJob(job: OpenJob): DatedClaim[] {
         claimClass: "selection",
         startedAt: range.startedAt,
         endedAt: range.endedAt,
-        publishedAt: null,
+        publishedAt: job.publishedAt,
+        title: job.title,
       }),
     );
   } else if (funding?.funding) {
@@ -1207,7 +1216,8 @@ function emitJob(job: OpenJob): DatedClaim[] {
         claimClass: "selection",
         startedAt: funding.funding.observedAt,
         endedAt: null,
-        publishedAt: null,
+        publishedAt: funding.bullet.publishedAt,
+        title: job.title,
       }),
     );
   }
@@ -1219,7 +1229,7 @@ function emitJob(job: OpenJob): DatedClaim[] {
   for (const bullet of job.bullets) {
     if (bullet.id === consumed) continue;
     for (const part of preprocessClaims(bullet.text, bullet.id)) {
-      outputs.push(withBulletDates(part, range, bullet.publishedAt));
+      outputs.push(withBulletDates(part, range, bullet.publishedAt, job.title));
     }
   }
   if (outputs.length === 0) {
@@ -1233,6 +1243,7 @@ function emitJob(job: OpenJob): DatedClaim[] {
         startedAt: range.startedAt,
         endedAt: range.endedAt,
         publishedAt: job.publishedAt,
+        title: job.title,
         noWorkDescribed: true,
       }),
     );
