@@ -44,6 +44,36 @@ export interface AtomicClaim {
   facts: ClaimFacts;
 }
 
+export interface DatedClaim extends AtomicClaim {
+  claimClass: "selection" | "output";
+  /**
+   * `YYYY-MM-DD`. A stated month or year is the first day of that period.
+   * Null when that date is not stated.
+   */
+  startedAt: string | null;
+  endedAt: string | null;
+  observedAt: string | null;
+  noWorkDescribed?: true;
+}
+
+export type SplitClaim = AtomicClaim | DatedClaim;
+
+export interface JobDateFields {
+  startedAt: string | null;
+  endedAt: string | null;
+  publishedAt: string | null;
+}
+
+export interface JobClaimLine {
+  id: string;
+  statement: string;
+  publishedAt?: string | null;
+}
+
+export interface JobSplitOptions {
+  version: "1.2.0";
+}
+
 const DIGITS = String.raw`(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?`;
 const SCALE_WORD = String.raw`\s?(?:thousand|million|billion)\b`;
 // A bare letter scale sticks to the digits ("3M") so "5 ms" stays a duration; a
@@ -697,7 +727,26 @@ function splitStatement(statement: string): string[] {
   return [statement];
 }
 
-export function preprocessClaims(statement: string, parentId: string): AtomicClaim[] {
+export function preprocessClaims(statement: string, parentId: string): AtomicClaim[];
+export function preprocessClaims(
+  statement: string,
+  parentId: string,
+  options: JobSplitOptions & { publishedAt?: string | null },
+  modelClaimClass?: unknown,
+): SplitClaim[];
+export function preprocessClaims(
+  statement: string,
+  parentId: string,
+  options?: JobSplitOptions & { publishedAt?: string | null },
+  modelClaimClass?: unknown,
+): SplitClaim[] {
+  if (options?.version === "1.2.0") {
+    return preprocessJobClaims(
+      [{ id: parentId, statement, publishedAt: options.publishedAt ?? null }],
+      options,
+      modelClaimClass,
+    );
+  }
   const parts = splitStatement(statement);
   const split = parts.length > 1;
   return parts.map((part, index) => {
@@ -710,4 +759,497 @@ export function preprocessClaims(statement: string, parentId: string): AtomicCla
       facts: extractFacts(text),
     };
   });
+}
+
+export function preprocessJobClaims(
+  lines: readonly JobClaimLine[],
+  options: JobSplitOptions,
+  modelClaimClass?: unknown,
+): SplitClaim[] {
+  const version: string = options.version;
+  if (version !== "1.2.0") {
+    throw new Error('preprocessJobClaims requires version "1.2.0"');
+  }
+  void modelClaimClass;
+  return emitJobs(groupJobs(lines));
+}
+
+export function observedAtForJobClaim(
+  claimClass: "selection" | "output",
+  dates: JobDateFields,
+): string | null {
+  if (claimClass === "selection") return dates.startedAt;
+  return dates.endedAt ?? isoDateOnly(dates.publishedAt);
+}
+
+export function countsTowardSubstance(claim: SplitClaim): boolean {
+  return !("noWorkDescribed" in claim && claim.noWorkDescribed === true);
+}
+
+const MONTHS: Readonly<Record<string, string>> = {
+  jan: "01",
+  january: "01",
+  feb: "02",
+  february: "02",
+  mar: "03",
+  march: "03",
+  apr: "04",
+  april: "04",
+  may: "05",
+  jun: "06",
+  june: "06",
+  jul: "07",
+  july: "07",
+  aug: "08",
+  august: "08",
+  sep: "09",
+  sept: "09",
+  september: "09",
+  oct: "10",
+  october: "10",
+  nov: "11",
+  november: "11",
+  dec: "12",
+  december: "12",
+};
+
+const TOP_FUNDS = [
+  "Y Combinator",
+  "Andreessen Horowitz",
+  "Kleiner Perkins",
+  "Founders Fund",
+  "Index Ventures",
+  "General Catalyst",
+  "Lightspeed",
+  "Benchmark",
+  "Sequoia",
+  "Greylock",
+  "Accel",
+  "a16z",
+] as const;
+
+const FUND_NAME = TOP_FUNDS.map((fund) => fund.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+  .sort((a, b) => b.length - a.length)
+  .join("|");
+
+interface PhysicalLine {
+  id: string;
+  text: string;
+  publishedAt: string | null;
+  statement: string;
+  sole: boolean;
+}
+
+interface JobBullet {
+  id: string;
+  text: string;
+  publishedAt: string | null;
+  statement: string;
+}
+
+interface OpenJob {
+  key: string;
+  anchorId: string;
+  title: string;
+  org: string;
+  dateText: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  founder: boolean;
+  publishedAt: string | null;
+  bullets: JobBullet[];
+}
+
+type JobEvent = { kind: "free"; line: PhysicalLine } | { kind: "job"; job: OpenJob };
+
+interface ParsedHeader {
+  title: string;
+  org: string;
+  dateText: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  body: string | null;
+}
+
+function isoDateOnly(value: string | null): string | null {
+  if (value === null) return null;
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(value.trim());
+  return match?.[1] ?? null;
+}
+
+function parseDatePoint(raw: string): string | null {
+  const text = raw.trim().replace(/\.+$/, "");
+  if (!text || /^(?:present|current)$/i.test(text)) return null;
+  const month = /^([A-Za-z]+)\.?\s+(\d{4})$/.exec(text);
+  if (month?.[1] && month[2]) {
+    const mm = MONTHS[month[1].toLowerCase()];
+    if (!mm) return null;
+    return `${month[2]}-${mm}-01`;
+  }
+  const year = /^(\d{4})$/.exec(text);
+  if (year?.[1]) {
+    const value = Number(year[1]);
+    if (value < 1900 || value > 2100) return null;
+    return `${year[1]}-01-01`;
+  }
+  const slash = /^(\d{1,2})\/(\d{4})$/.exec(text);
+  if (slash?.[1] && slash[2]) {
+    const mm = Number(slash[1]);
+    if (mm < 1 || mm > 12) return null;
+    return `${slash[2]}-${String(mm).padStart(2, "0")}-01`;
+  }
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (iso?.[1] && iso[2] && iso[3]) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  return null;
+}
+
+function parseDateRange(raw: string): { startedAt: string | null; endedAt: string | null } | null {
+  const text = raw.trim();
+  if (!text) return null;
+  const ranged = /^(.+?)\s*(?:\u2013|\u2014|-|\bto\b)\s*(.+)$/i.exec(text);
+  if (ranged?.[1] && ranged[2]) {
+    const startedAt = parseDatePoint(ranged[1]);
+    const endText = ranged[2].trim();
+    if (startedAt !== null && /^(?:present|current)$/i.test(endText)) {
+      return { startedAt, endedAt: null };
+    }
+    const endedAt = startedAt === null ? null : parseDatePoint(endText);
+    if (startedAt !== null && endedAt !== null) return { startedAt, endedAt };
+  }
+  const startedAt = parseDatePoint(text);
+  if (startedAt !== null) return { startedAt, endedAt: null };
+  if (/^(?:present|current)$/i.test(text)) return { startedAt: null, endedAt: null };
+  return null;
+}
+
+function dateInText(text: string): string | null {
+  const month =
+    /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+(\d{4})\b/i.exec(
+      text,
+    );
+  if (month?.[1] && month[2]) return parseDatePoint(`${month[1]} ${month[2]}`);
+  const year = /\b((?:19|20)\d{2})\b/.exec(text);
+  if (year?.[1]) return `${year[1]}-01-01`;
+  return null;
+}
+
+function isFounderTitle(title: string): boolean {
+  return /\b(?:co-founder|cofounder|co founder|founder)\b/i.test(title);
+}
+
+function jobKey(title: string, org: string, startedAt: string | null): string {
+  const norm = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();
+  return `${norm(title)}\u0000${norm(org)}\u0000${startedAt ?? ""}`;
+}
+
+function headerFrom(
+  title: string | undefined,
+  org: string | undefined,
+  dateText: string | null,
+  dates: { startedAt: string | null; endedAt: string | null },
+  body: string | undefined,
+): ParsedHeader | null {
+  const cleanTitle = title?.trim() ?? "";
+  const cleanOrg = org?.trim() ?? "";
+  if (!cleanTitle || !cleanOrg) return null;
+  if (clauseClass(cleanTitle) !== "other") return null;
+  const trimmedBody = body?.trim() ?? "";
+  return {
+    title: cleanTitle,
+    org: cleanOrg,
+    dateText: dateText?.trim() ?? null,
+    startedAt: dates.startedAt,
+    endedAt: dates.endedAt,
+    body: trimmedBody.length > 0 ? trimmedBody : null,
+  };
+}
+
+function parseHeader(line: string): ParsedHeader | null {
+  const text = line.trim();
+  if (!text || /^\s*[-*•]/.test(text)) return null;
+  const paren = /^(.+?)\s+at\s+(.+?)\s*\(([^)]*)\)\s*(?::\s*([\s\S]*))?$/.exec(text);
+  if (paren) {
+    const dates = parseDateRange(paren[3] ?? "");
+    if (dates) return headerFrom(paren[1], paren[2], paren[3] ?? null, dates, paren[4]);
+  }
+  const comma = /^(.+?)\s+at\s+(.+?),\s*([^:]+?)(?:\s*:\s*([\s\S]*))?$/.exec(text);
+  if (comma) {
+    const dates = parseDateRange(comma[3] ?? "");
+    if (dates) return headerFrom(comma[1], comma[2], comma[3] ?? null, dates, comma[4]);
+  }
+  const colon = /^(.+?)\s+at\s+([^:]+?)\s*:\s*([\s\S]*)$/.exec(text);
+  if (colon && clauseClass(colon[1]?.trim() ?? "") === "other") {
+    return headerFrom(colon[1], colon[2], null, { startedAt: null, endedAt: null }, colon[3]);
+  }
+  const bare = /^(.+?)\s+at\s+(.+)$/.exec(text);
+  if (bare && !text.includes(":") && clauseClass(text) === "other") {
+    return headerFrom(bare[1], bare[2], null, { startedAt: null, endedAt: null }, undefined);
+  }
+  return null;
+}
+
+function isBullet(text: string): boolean {
+  return /^\s*[-*•]\s+\S/.test(text);
+}
+
+function stripBullet(text: string): string {
+  return text.replace(/^\s*[-*•]\s+/, "").trim();
+}
+
+function expandLines(lines: readonly JobClaimLine[]): PhysicalLine[] {
+  const out: PhysicalLine[] = [];
+  for (const line of lines) {
+    const publishedAt = line.publishedAt ?? null;
+    const parts = line.statement.split(/\r?\n/);
+    if (parts.length === 1) {
+      out.push({
+        id: line.id,
+        text: line.statement,
+        publishedAt,
+        statement: line.statement,
+        sole: true,
+      });
+      continue;
+    }
+    for (let index = 0; index < parts.length; index++) {
+      out.push({
+        id: index === 0 ? line.id : `${line.id}#${index}`,
+        text: parts[index] ?? "",
+        publishedAt,
+        statement: line.statement,
+        sole: false,
+      });
+    }
+  }
+  return out;
+}
+
+function groupJobs(lines: readonly JobClaimLine[]): JobEvent[] {
+  const events: JobEvent[] = [];
+  const jobs = new Map<string, OpenJob>();
+  let open: OpenJob | null = null;
+  for (const line of expandLines(lines)) {
+    if (line.text.trim().length === 0) {
+      open = null;
+      continue;
+    }
+    if (open && isBullet(line.text)) {
+      open.bullets.push({
+        id: line.id,
+        text: stripBullet(line.text),
+        publishedAt: line.publishedAt,
+        statement: stripBullet(line.text),
+      });
+      continue;
+    }
+    const header = parseHeader(line.text);
+    if (header) {
+      const key = jobKey(header.title, header.org, header.startedAt);
+      const existing = jobs.get(key);
+      if (existing) {
+        open = existing;
+        if (header.body) {
+          existing.bullets.push({
+            id: line.id,
+            text: header.body,
+            publishedAt: line.publishedAt,
+            statement: header.body,
+          });
+        }
+        continue;
+      }
+      const job: OpenJob = {
+        key,
+        anchorId: line.id,
+        title: header.title,
+        org: header.org,
+        dateText: header.dateText,
+        startedAt: header.startedAt,
+        endedAt: header.endedAt,
+        founder: isFounderTitle(header.title),
+        publishedAt: line.publishedAt,
+        bullets: [],
+      };
+      if (header.body) {
+        job.bullets.push({
+          id: line.id,
+          text: header.body,
+          publishedAt: line.publishedAt,
+          statement: header.body,
+        });
+      }
+      jobs.set(key, job);
+      events.push({ kind: "job", job });
+      open = job;
+      continue;
+    }
+    open = null;
+    events.push({ kind: "free", line });
+  }
+  return events;
+}
+
+function isFundingSentence(sentence: string): boolean {
+  if (
+    /\bY Combinator\b/i.test(sentence) &&
+    /\b(?:accepted|acceptance|joined|backed|funded|funding|raised)\b/i.test(sentence)
+  ) {
+    return true;
+  }
+  if (/\bYC\s+[WSF]\d{2}\b/.test(sentence)) return true;
+  if (/\baccepted\s+(?:into|to)\s+YC\b/i.test(sentence)) return true;
+  const fund = new RegExp(`\\b(?:${FUND_NAME})\\b`, "i");
+  if (!fund.test(sentence)) return false;
+  if (/\braised\b/i.test(sentence) && /\b(?:from|by)\b/i.test(sentence)) return true;
+  if (/\b(?:backed|funded)\s+by\b/i.test(sentence)) return true;
+  return new RegExp(`\\b(?:${FUND_NAME})\\b\\s+led\\b`, "i").test(sentence);
+}
+
+function sameSentence(left: string, right: string): boolean {
+  const norm = (value: string) =>
+    value
+      .trim()
+      .replace(/[.!;]+$/, "")
+      .replace(/\s+/g, " ");
+  return norm(left) === norm(right);
+}
+
+function fundingIn(text: string): { sentence: string; observedAt: string | null } | null {
+  const sentences = text.split(/(?<=[.!;])\s+/);
+  for (const sentence of sentences) {
+    const trimmed = sentence.trim();
+    if (!trimmed || !isFundingSentence(trimmed)) continue;
+    return { sentence: trimmed, observedAt: dateInText(trimmed) };
+  }
+  return null;
+}
+
+function headerLabel(job: OpenJob): string {
+  if (job.dateText) return `${job.title} at ${job.org} (${job.dateText.trim()})`;
+  return `${job.title} at ${job.org}`;
+}
+
+function datedClaim(input: {
+  id: string;
+  parentId: string;
+  text: string;
+  statement: string;
+  claimClass: "selection" | "output";
+  startedAt: string | null;
+  endedAt: string | null;
+  publishedAt: string | null;
+  noWorkDescribed?: true;
+}): DatedClaim {
+  const observedAt = observedAtForJobClaim(input.claimClass, {
+    startedAt: input.startedAt,
+    endedAt: input.endedAt,
+    publishedAt: input.publishedAt,
+  });
+  const claim: DatedClaim = {
+    id: input.id,
+    parentId: input.parentId,
+    text: input.text,
+    statement: input.statement,
+    facts: extractFacts(input.text),
+    claimClass: input.claimClass,
+    startedAt: input.startedAt,
+    endedAt: input.endedAt,
+    observedAt,
+  };
+  if (input.noWorkDescribed) claim.noWorkDescribed = true;
+  return claim;
+}
+
+function withBulletDates(
+  claim: AtomicClaim,
+  range: { startedAt: string | null; endedAt: string | null },
+  publishedAt: string | null,
+): DatedClaim {
+  const claimClass = clauseClass(claim.text) === "selection" ? "selection" : "output";
+  return {
+    ...claim,
+    claimClass,
+    startedAt: range.startedAt,
+    endedAt: range.endedAt,
+    observedAt: observedAtForJobClaim(claimClass, { ...range, publishedAt }),
+  };
+}
+
+function emitJob(job: OpenJob): DatedClaim[] {
+  const range = { startedAt: job.startedAt, endedAt: job.endedAt };
+  const label = headerLabel(job);
+  const claims: DatedClaim[] = [];
+  const funding = job.founder
+    ? job.bullets
+        .map((bullet) => ({ bullet, funding: fundingIn(bullet.text) }))
+        .find((entry) => entry.funding !== null)
+    : undefined;
+  if (!job.founder) {
+    claims.push(
+      datedClaim({
+        id: `${job.anchorId}#hire`,
+        parentId: job.anchorId,
+        text: label,
+        statement: label,
+        claimClass: "selection",
+        startedAt: range.startedAt,
+        endedAt: range.endedAt,
+        publishedAt: null,
+      }),
+    );
+  } else if (funding?.funding) {
+    claims.push(
+      datedClaim({
+        id: `${job.anchorId}#funding`,
+        parentId: job.anchorId,
+        text: funding.funding.sentence,
+        statement: funding.bullet.text,
+        claimClass: "selection",
+        startedAt: funding.funding.observedAt,
+        endedAt: null,
+        publishedAt: null,
+      }),
+    );
+  }
+  const consumed =
+    funding?.funding && sameSentence(funding.bullet.text, funding.funding.sentence)
+      ? funding.bullet.id
+      : undefined;
+  const outputs: DatedClaim[] = [];
+  for (const bullet of job.bullets) {
+    if (bullet.id === consumed) continue;
+    for (const part of preprocessClaims(bullet.text, bullet.id)) {
+      outputs.push(withBulletDates(part, range, bullet.publishedAt));
+    }
+  }
+  if (outputs.length === 0) {
+    outputs.push(
+      datedClaim({
+        id: `${job.anchorId}#no-work`,
+        parentId: job.anchorId,
+        text: label,
+        statement: label,
+        claimClass: "output",
+        startedAt: range.startedAt,
+        endedAt: range.endedAt,
+        publishedAt: job.publishedAt,
+        noWorkDescribed: true,
+      }),
+    );
+  }
+  claims.push(...outputs);
+  return claims;
+}
+
+function emitJobs(events: readonly JobEvent[]): SplitClaim[] {
+  const claims: SplitClaim[] = [];
+  for (const event of events) {
+    if (event.kind === "free") {
+      const statement = event.line.sole ? event.line.statement : event.line.text.trim();
+      claims.push(...preprocessClaims(statement, event.line.id));
+      continue;
+    }
+    claims.push(...emitJob(event.job));
+  }
+  return claims;
 }

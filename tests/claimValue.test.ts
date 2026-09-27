@@ -303,6 +303,66 @@ describe("1.1.0 slope", () => {
     expect(records.outcomes).toEqual([]);
   });
 
+  test("1.2.0 job dates replace observedAt and a missing date is dropped", () => {
+    const records = claimValuesToLongitudinalRecords([
+      {
+        id: "hire",
+        personId: "p",
+        claimClass: "selection",
+        claimValue: 0.5,
+        status: "accepted",
+        observedAt: day(1),
+        createdAt: day(1),
+        jobDates: {
+          startedAt: "2020-01-01",
+          endedAt: "2021-03-01",
+          publishedAt: "2024-05-31T00:00:00.000Z",
+        },
+      },
+      {
+        id: "work",
+        personId: "p",
+        claimClass: "output",
+        claimValue: 0.25,
+        status: "accepted",
+        observedAt: day(1),
+        createdAt: day(1),
+        jobDates: { startedAt: "2020-01-01", endedAt: "2021-03-01", publishedAt: null },
+      },
+      {
+        id: "open",
+        personId: "p",
+        claimClass: "output",
+        claimValue: 0.25,
+        status: "accepted",
+        observedAt: day(1),
+        createdAt: day(1),
+        jobDates: {
+          startedAt: "2020-01-01",
+          endedAt: null,
+          publishedAt: "2024-05-31T00:00:00.000Z",
+        },
+      },
+      {
+        id: "undated",
+        personId: "p",
+        claimClass: "selection",
+        claimValue: 0.5,
+        status: "accepted",
+        observedAt: day(9),
+        createdAt: day(9),
+        jobDates: { startedAt: null, endedAt: null, publishedAt: "2024-05-31T00:00:00.000Z" },
+      },
+    ]);
+    expect(
+      records.outcomes.map((outcome) => [outcome.id, outcome.observedAt.toISOString()]),
+    ).toEqual([
+      ["outcome-hire", "2020-01-01T00:00:00.000Z"],
+      ["outcome-work", "2021-03-01T00:00:00.000Z"],
+      ["outcome-open", "2024-05-31T00:00:00.000Z"],
+    ]);
+  });
+
   test("a window shorter than the minimum gap has no slope", () => {
     const outcomes: Outcome[] = [
       {
