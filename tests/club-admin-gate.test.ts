@@ -13,7 +13,7 @@ function read(rel: string): string {
 const ADMIN_ONLY_QUERIES = ["getOrganization", "getBoard"] as const;
 
 /** Signed-in members may call these. */
-const MEMBER_QUERIES = ["getMyRole", "listPosts", "listMembers"] as const;
+const MEMBER_QUERIES = ["getMyRole", "listPosts", "listMembers", "listMyFeedback"] as const;
 
 /** Mutations that must go through requireAdmin. */
 const ADMIN_MUTATIONS = [
@@ -28,7 +28,7 @@ const ADMIN_MUTATIONS = [
   "setReviewConfig",
 ] as const;
 
-const MEMBER_MUTATIONS = ["addPost"] as const;
+const MEMBER_MUTATIONS = ["addPost", "respondToFeedback"] as const;
 
 function names(source: string, kind: "query" | "mutation"): string[] {
   return [...source.matchAll(new RegExp(`export const (\\w+) = ${kind}\\(`, "g"))].map(
@@ -90,7 +90,13 @@ describe("admin council data is closed to members", () => {
       const body = handler(club, name, "mutation");
       expect(body.includes("applyEngine") || body.includes("ensureOrg")).toBe(true);
     }
-    expect(handler(club, "addPost", "mutation")).not.toContain("requireAdmin");
+    for (const name of MEMBER_MUTATIONS) {
+      const body = handler(club, name, "mutation");
+      expect(body).not.toContain("requireAdmin");
+      expect(body).toContain("getAuthUser");
+    }
+    expect(handler(club, "respondToFeedback", "mutation")).toContain("prepareMemberResponse");
+    expect(handler(club, "listMyFeedback", "query")).toContain("listOwnFeedbackRequests");
     expect(club).toContain('throw new Error("admin only")');
     expect(names(auth, "query")).toEqual(["getCurrentUser"]);
     expect(names(auth, "mutation")).toEqual(["provisionUser"]);
