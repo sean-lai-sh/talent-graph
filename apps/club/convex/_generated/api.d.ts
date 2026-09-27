@@ -11,6 +11,7 @@
 import type * as auth from "../auth.js";
 import type * as club from "../club.js";
 import type * as http from "../http.js";
+import type * as referral from "../referral.js";
 
 import type {
   ApiFromModules,
@@ -22,6 +23,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   club: typeof club;
   http: typeof http;
+  referral: typeof referral;
 }>;
 
 /**
