@@ -146,6 +146,32 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   spec produces no pipeline number)
 - **PR:** #85, stacked on SEA-36 (PR #84).
 
+## claim_value@1.1.0 — square-law claim value
+
+- **What:** `CLAIM_VALUE_V1_1_0` in `src/longitudinal/claimValue.ts`. It is not a
+  `ModelSpec` and `CURRENT_SPECS` does not move. `curvePower` defaults to 2.
+  `v(k) = (k / 4) ^ p` is applied per level, then the curved dimension is
+  `sum P(k) * v(k)`. Selection uses curved selectivity. Output uses
+  `sqrt(difficulty * generalized impact)`. Ownership multiplies by the
+  expectation of led 1, core_contributor 0.8, and supporting 0.5. A null
+  ownership uses the configured `core_contributor` weight. Backing multiplies
+  by self_reported 0.6, corroborated 0.85, or externally_verified 1. Resume
+  claims stay `self_reported` until retrieval exists. `claimValue` is the
+  product clamped to [0, 1]. The score stamps `configId`
+  `claim_value@1.1.0:8f66391a`, `configVersion` `1.1.0`, and `configHash`
+  `8f66391ae3488a303bc8135936840cd739d0b808642b27293a1a906e1ae76adf`.
+  `claimValuesToLongitudinalRecords` writes accepted selections and outputs
+  as outcomes. `claimValueSlope` differences the mean of those values.
+  `careerEventsToLongitudinalRecords` and `residualSlope` are unchanged, so
+  a 1.0.0 selective role is still an opportunity and 1.0.0 outcomes are still
+  rank-normalized within kind.
+- **Why:** Averaging the five 1.0.0 dimensions and rank-normalizing within
+  kind flattens a rare high level, and dropping `selective_role_transition`
+  removes the strongest resume evidence from the slope.
+- **Drift:** n/a (`CURRENT_SPECS` did not move; 1.0.0 pipeline numbers are
+  unchanged)
+- **PR:** #86, stacked on #85.
+
 ## Run id format
 
 Run ids are not spec versions: this section records changes to the format of
