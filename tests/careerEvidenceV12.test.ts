@@ -5,6 +5,7 @@ import {
   type ClaimRubricV12Request,
   scoreClaimRubricV12,
 } from "../src/longitudinal/claimRubricV12.ts";
+import type { CompanySeed } from "../src/longitudinal/companySeed.ts";
 import { JudgmentInvariantError } from "../src/longitudinal/records.ts";
 import { CAREER_EVIDENCE_V1_1_0 } from "../src/models/careerEvidenceV11.ts";
 import {
@@ -15,6 +16,7 @@ import {
 } from "../src/models/careerEvidenceV12.ts";
 import { CURRENT_SPECS, getSpec, isRegisteredSpec, specVersions } from "../src/models/registry.ts";
 import { type CareerEvidenceV12Spec, validateSpec } from "../src/models/spec.ts";
+import { SYNTHETIC_COMPANY_SEED } from "./fixtures/companySeed.synthetic.ts";
 
 const PINNED_RUBRIC_HASH = "cd500b05728594c6599e31e8aee5c6db81a2c7814aca61332dbd195b3fc662a6";
 
@@ -103,11 +105,13 @@ function answer(
 function scoreLines(
   lines: { id: string; statement: string; publishedAt?: string | null }[],
   options: { poolScore?: number; poolConfidence?: number; scaleConfidence?: number } = {},
+  seed?: CompanySeed,
 ) {
   const seen: ClaimRubricV12Request[] = [];
   const claims = scoreClaimRubricV12({
     lines,
     source: "resume",
+    ...(seed ? { seed } : {}),
     respond: (request) => {
       seen.push(request);
       return answer(request, options);
@@ -384,6 +388,83 @@ describe("request and parse", () => {
     expect(claims).toHaveLength(2);
     expect(claims.map((claim) => claim.claimClass)).toEqual(["selection", "output"]);
     expect(claims.every((claim) => claim.text === statement)).toBe(true);
+  });
+
+  test("a known company rate becomes selection_rate and the evidence stays on the claim", () => {
+    const { seen, claims } = scoreLines(
+      [
+        {
+          id: "job",
+          statement: "Engineer at Harborline (Jan 2020 - Mar 2021)",
+          publishedAt: null,
+        },
+      ],
+      {},
+      SYNTHETIC_COMPANY_SEED,
+    );
+    const request = seen[0];
+    const claim = claims[0];
+    if (!request || claim?.claimClass !== "selection") throw new Error("expected the hire");
+    expect(request.state.selection_rate).toBe(0.04);
+    expect(request.state.selection_rate_upper_bound).toBe(false);
+    expect(request.state.selection_rate_source).toBe("https://example.invalid/harborline-intern");
+    expect(claim.companyEvidence?.knownRate?.rate).toBe(0.04);
+    expect(claim.companyEvidence?.investorTier).toBe(3);
+    expect(claim.companyEvidence?.proxyLift).toBe(0);
+    expect(selectivityLevelForRate(0.04)).toBe(3);
+
+    const plain = scoreLines([
+      {
+        id: "job",
+        statement: "Engineer at Harborline (Jan 2020 - Mar 2021)",
+        publishedAt: null,
+      },
+    ]);
+    expect(plain.seen[0]?.state.selection_rate).toBeNull();
+    expect(plain.seen[0]?.state.selection_rate_source).toBeNull();
+    if (plain.claims[0]?.claimClass !== "selection") throw new Error("expected the plain hire");
+    expect(plain.claims[0].companyEvidence?.knownRate).toBeNull();
+    expect(plain.claims[0].companyEvidence?.proxyLift).toBe(0);
+  });
+
+  test("YC W24 copies the published ceiling, and another batch does not invent a rate", () => {
+    const w24 = scoreLines([
+      {
+        id: "yc",
+        statement:
+          "Founder at Pine Widget (Jan 2024 - Present)\n- Accepted into YC W24\n- Shipped the editor",
+        publishedAt: null,
+      },
+    ]);
+    const request = w24.seen.find((item) => "selectivity" in item.questions);
+    const claim = w24.claims[0];
+    if (!request || claim?.claimClass !== "selection") throw new Error("expected the W24 claim");
+    expect(request.state.selection_rate).toBe(0.01);
+    expect(request.state.selection_rate_upper_bound).toBe(true);
+    expect(request.state.selection_rate_source).toBe(
+      "https://www.ycombinator.com/blog/meet-the-yc-winter-2024-batch/",
+    );
+    expect(claim.companyEvidence?.knownRate).toEqual({
+      rate: 0.01,
+      upperBound: true,
+      source: "https://www.ycombinator.com/blog/meet-the-yc-winter-2024-batch/",
+    });
+    expect(claim.companyEvidence?.proxyLift).toBe(0);
+    expect("companyEvidence" in (w24.claims[1] ?? {})).toBe(false);
+
+    const w23 = scoreLines([
+      {
+        id: "yc23",
+        statement: "Founder at Pine Widget (Jan 2023 - Present)\n- Accepted into YC W23",
+        publishedAt: null,
+      },
+    ]);
+    const older = w23.seen.find((item) => "selectivity" in item.questions);
+    if (!older || w23.claims[0]?.claimClass !== "selection")
+      throw new Error("expected the W23 claim");
+    expect(older.state.selection_rate).toBeNull();
+    expect(older.state.selection_rate_source).toBeNull();
+    expect(w23.claims[0].companyEvidence?.knownRate).toBeNull();
   });
 
   test("a header with no bullets scores the hire and skips the empty output", () => {

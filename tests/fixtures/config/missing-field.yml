@@ -1,0 +1,7 @@
+company_seed:
+  investors:
+    - aliases: []
+      tier: 1
+      source: https://example.invalid/lamp
+      publishedRates: []
+  companies: []

@@ -183,6 +183,17 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   `cd500b05728594c6599e31e8aee5c6db81a2c7814aca61332dbd195b3fc662a6`.
   `careerEvidenceV12RubricHash` fingerprints the class text, the anchors, the
   role labels, the cuts, and the model. Thresholds stay outside the hash.
+  Company selection evidence (PR #92) is not part of that rubric hash. The
+  `company_seed` section of `config.yml` is the investor list and any published
+  rates. `companySeed.ts` loads that section into `COMPANY_SEED`.
+  `companySeedHash` fingerprints the parsed section. `COMPANY_EVIDENCE_CONFIG` caps a
+  proxy lift at +1 and at level 3, and the early-joiner bonus defaults to 0
+  with a max of 0.25. `companyEvidenceConfigHash` fingerprints that config.
+  Neither hash is in `claim_value` yet. When a hired or founder selection
+  claim has a known seed rate and the text states no rate, the 1.2.0 request
+  copies it onto `selection_rate`, `selection_rate_upper_bound`, and
+  `selection_rate_source`. The scored selection claim carries
+  `companyEvidence`. This change does not apply the proxy lift.
   `scoreClaimValue`, `runCareerEvidence`, and the v11 smoke command are
   unchanged.
 - **Why:** 1.1.0 treats impact as a general effect and ownership as three

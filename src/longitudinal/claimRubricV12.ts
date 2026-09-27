@@ -20,6 +20,12 @@ import {
   type SplitClaim,
   selectionOutputHalves,
 } from "./claimPreprocess.ts";
+import {
+  COMPANY_EVIDENCE_CONFIG,
+  type CompanySelectionEvidence,
+  companySelectionEvidence,
+} from "./companyEvidence.ts";
+import { COMPANY_SEED, type CompanySeed } from "./companySeed.ts";
 import { inRange, unit } from "./ranges.ts";
 import { JudgmentInvariantError } from "./records.ts";
 import type { SourceKind } from "./types.ts";
@@ -87,6 +93,7 @@ export type ScoredClaimV12 =
       claimClass: "selection";
       selectivity: LevelDistribution;
       pool_strength: LevelDistribution;
+      companyEvidence: CompanySelectionEvidence | null;
     })
   | (ScoredClaimBase & {
       claimClass: "output";
@@ -122,6 +129,7 @@ interface StateBase {
   text: string;
   selection_rate: number | null;
   selection_rate_upper_bound: boolean;
+  selection_rate_source: string | null;
   title_hint: string | null;
 }
 
@@ -197,14 +205,18 @@ export function claimRubricRequestV12(
   claim: SplitClaim | AtomicClaim,
   source: SourceKind,
   ask: Ask,
+  seed: CompanySeed = COMPANY_SEED,
 ): ClaimRubricV12Request {
   const catalog = claimRubricCatalog(spec);
   const signal = selectionSignal(claim.facts);
+  const evidence = ask === "selection" ? evidenceFor(claim, seed) : null;
+  const seeded = evidence?.knownRate ?? null;
   const state: StateBase = {
     source,
     text: claim.text,
-    selection_rate: signal?.rate ?? null,
-    selection_rate_upper_bound: signal?.upperBound ?? false,
+    selection_rate: signal?.rate ?? seeded?.rate ?? null,
+    selection_rate_upper_bound: signal ? signal.upperBound : (seeded?.upperBound ?? false),
+    selection_rate_source: signal ? null : (seeded?.source ?? null),
     title_hint: titleOf(claim),
   };
   if (ask === "class") return { state, questions: { claim_class: catalog.claim_class } };
@@ -234,20 +246,22 @@ export function scoreClaimRubricV12(
     lines: readonly JobClaimLine[];
     source: SourceKind;
     respond: (request: ClaimRubricV12Request) => unknown;
+    seed?: CompanySeed;
   },
   spec: CareerEvidenceV12Spec = CAREER_EVIDENCE_V1_2_0,
 ): ScoredClaimV12[] {
   assertSpec(spec);
-  const prepared = preprocessJobClaims(input.lines, { version: "1.2.0" });
+  const seed = input.seed ?? COMPANY_SEED;
+  const prepared = preprocessJobClaims(input.lines, { version: "1.2.0", seed });
   const splitParents = parentsAlreadySplit(prepared);
   const scored: ScoredClaimV12[] = [];
   for (const claim of prepared) {
     if (isDated(claim) && claim.noWorkDescribed === true) continue;
     if (isDated(claim)) {
-      scored.push(scoreKnown(spec, input, claim, claim.claimClass));
+      scored.push(scoreKnown(spec, input, claim, claim.claimClass, seed));
       continue;
     }
-    scored.push(...scoreOpen(spec, input, claim, splitParents.has(claim.parentId)));
+    scored.push(...scoreOpen(spec, input, claim, splitParents.has(claim.parentId), seed));
   }
   return scored;
 }
@@ -286,10 +300,11 @@ function scoreOpen(
   },
   claim: AtomicClaim,
   splitterSplit: boolean,
+  seed: CompanySeed,
 ): ScoredClaimV12[] {
   const probed = classDistribution(
     asRecord(
-      input.respond(claimRubricRequestV12(spec, claim, input.source, "class")),
+      input.respond(claimRubricRequestV12(spec, claim, input.source, "class", seed)),
       "claim response",
     ).claim_class,
   );
@@ -299,17 +314,17 @@ function scoreOpen(
       const halves = selectionOutputHalves(claim.text);
       if (halves) {
         return [
-          scoreKnown(spec, input, child(claim, halves[0], "selection"), "selection"),
-          scoreKnown(spec, input, child(claim, halves[1], "output"), "output"),
+          scoreKnown(spec, input, child(claim, halves[0], "selection"), "selection", seed),
+          scoreKnown(spec, input, child(claim, halves[1], "output"), "output", seed),
         ];
       }
     }
     return [
-      scoreKnown(spec, input, child(claim, claim.text, "selection"), "selection"),
-      scoreKnown(spec, input, child(claim, claim.text, "output"), "output"),
+      scoreKnown(spec, input, child(claim, claim.text, "selection"), "selection", seed),
+      scoreKnown(spec, input, child(claim, claim.text, "output"), "output", seed),
     ];
   }
-  return [scoreKnown(spec, input, claim, resolved)];
+  return [scoreKnown(spec, input, claim, resolved, seed)];
 }
 
 function child(claim: AtomicClaim, text: string, role: "selection" | "output"): AtomicClaim {
@@ -330,12 +345,13 @@ function scoreKnown(
   },
   claim: SplitClaim,
   claimClass: "selection" | "output",
+  seed: CompanySeed,
 ): ScoredClaimV12 {
-  const raw = input.respond(claimRubricRequestV12(spec, claim, input.source, claimClass));
+  const raw = input.respond(claimRubricRequestV12(spec, claim, input.source, claimClass, seed));
   if (claimClass === "selection") {
-    return materialize(spec, claim, parseResponse(raw, "selection"), "selection", claim.id);
+    return materialize(spec, claim, parseResponse(raw, "selection"), "selection", claim.id, seed);
   }
-  return materialize(spec, claim, parseResponse(raw, "output"), "output", claim.id);
+  return materialize(spec, claim, parseResponse(raw, "output"), "output", claim.id, seed);
 }
 
 function parseResponse(value: unknown, claimClass: "selection"): ParsedSelection;
@@ -366,6 +382,7 @@ function materialize(
   parsed: ParsedSelection | ParsedOutput,
   claimClass: "selection" | "output",
   id: string,
+  seed: CompanySeed,
 ): ScoredClaimV12 {
   const classConfidence = confidenceFor(parsed.claim_class, claimClass);
   const shared = {
@@ -391,6 +408,7 @@ function materialize(
       claimClass: "selection",
       selectivity: selection.selectivity,
       pool_strength: selection.pool_strength,
+      companyEvidence: evidenceFor(claim, seed),
     };
   }
   if (!("role" in parsed)) {
@@ -426,6 +444,20 @@ function gate(
     reviewReasons.push("dimension_low_confidence");
   }
   return { status: reviewReasons.length === 0 ? "accepted" : "review", reviewReasons };
+}
+
+function evidenceFor(claim: SplitClaim, seed: CompanySeed): CompanySelectionEvidence | null {
+  if (!isDated(claim) || claim.claimClass !== "selection") return null;
+  return companySelectionEvidence(
+    {
+      org: claim.org,
+      startedAt: claim.startedAt,
+      founder: claim.founder,
+      fundingText: claim.founder ? claim.text : null,
+    },
+    seed,
+    COMPANY_EVIDENCE_CONFIG,
+  );
 }
 
 function isDated(claim: SplitClaim): claim is DatedClaim {

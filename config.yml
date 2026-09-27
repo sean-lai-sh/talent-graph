@@ -1,0 +1,80 @@
+# Project config-as-code. CI validates every section (`bun run check:config`).
+# Scoring hyperparameters, time windows, TG_* overrides, and claim-value
+# settings belong in a later change (SEA-51), not here.
+
+company_seed:
+  # investors[].name: unique id.
+  # investors[].aliases: other names that mean the same investor.
+  # investors[].tier: 1 angel or small seed, 2 recognized institutional, 3 top-tier fund or YC.
+  # investors[].source: https page that states the recorded name.
+  # investors[].publishedRates: acceptance rates the source states. Empty when none is published.
+  # publishedRates[].rate: fraction of applicants accepted (0.01 = 1%).
+  # publishedRates[].upperBound: true when the page states a ceiling ("under 1%"), not a point.
+  # publishedRates[].source: https page that states this rate.
+  # publishedRates[].labels: program labels. The rate applies only when the claim text contains one.
+  # companies[].name: unique id.
+  # companies[].aliases: other names that mean the same company.
+  # companies[].source: https page for the company entry.
+  # companies[].currentStage: standing now. pre_seed_seed, series_a_b, growth_late, or public_large.
+  # companies[].rounds: funding rounds.
+  # rounds[].date: round date, YYYY-MM-DD. Used only when it is on or before the hire date.
+  # rounds[].stage: stage at that round. Same four stages as currentStage.
+  # rounds[].investors: investor names on that round.
+  # rounds[].source: https page that states the round.
+  # companies[].publishedRate: a company acceptance rate, or null. Same fields as an investor rate.
+  # companies[].hiringBar: a map with source when a hiring-bar note exists, otherwise null.
+  investors:
+    - name: Y Combinator
+      aliases:
+        - YC
+      tier: 3
+      source: https://www.ycombinator.com/blog/meet-the-yc-winter-2024-batch/
+      publishedRates:
+        - rate: 0.01
+          upperBound: true
+          source: https://www.ycombinator.com/blog/meet-the-yc-winter-2024-batch/
+          labels:
+            - W24
+            - Winter 2024
+    - name: Sequoia
+      aliases: []
+      tier: 3
+      source: https://www.sequoiacap.com/
+      publishedRates: []
+    - name: Andreessen Horowitz
+      aliases: []
+      tier: 3
+      source: https://a16z.com/
+      publishedRates: []
+    - name: Benchmark
+      aliases: []
+      tier: 3
+      source: https://www.benchmark.com/
+      publishedRates: []
+    - name: Accel
+      aliases: []
+      tier: 2
+      source: https://www.accel.com/
+      publishedRates: []
+    - name: Greylock
+      aliases: []
+      tier: 2
+      source: https://greylock.com/
+      publishedRates: []
+    - name: Index Ventures
+      aliases: []
+      tier: 2
+      source: https://www.indexventures.com/
+      publishedRates: []
+    - name: Precursor Ventures
+      aliases:
+        - Precursor VC
+      tier: 1
+      source: https://precursorvc.com/
+      publishedRates: []
+    - name: Hustle Fund
+      aliases: []
+      tier: 1
+      source: https://www.hustlefund.vc/
+      publishedRates: []
+  companies: []

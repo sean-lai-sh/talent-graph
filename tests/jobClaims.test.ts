@@ -6,6 +6,8 @@ import {
   preprocessJobClaims,
   type SplitClaim,
 } from "../src/longitudinal/claimPreprocess.ts";
+import type { CompanySeed } from "../src/longitudinal/companySeed.ts";
+import { SYNTHETIC_COMPANY_SEED } from "./fixtures/companySeed.synthetic.ts";
 
 const V12: JobSplitOptions = { version: "1.2.0" };
 
@@ -419,6 +421,38 @@ describe("career_evidence@1.2.0 job split", () => {
     expect(datedOf(claims[1]).startedAt).toBe("2020-03-01");
     expect(datedOf(claims[1]).endedAt).toBe("2021-12-01");
     expect(claims[1]?.facts.ownership).toBe("built");
+  });
+
+  test("founder funding reads the seed list, and the old fixed list does not", () => {
+    const founder = (bullet: string, seed?: CompanySeed) =>
+      preprocessJobClaims(
+        [
+          {
+            id: "fund",
+            statement: ["Founder at Pine Widget (Mar 2020 - Dec 2021)", `- ${bullet}`].join("\n"),
+            publishedAt: null,
+          },
+        ],
+        seed ? { version: "1.2.0", seed } : V12,
+      );
+
+    const selectionText = (claims: SplitClaim[]) =>
+      claims.find((claim) => jobClass(claim) === "selection")?.text ?? null;
+
+    expect(selectionText(founder("Raised a seed round from Precursor Ventures in Mar 2020"))).toBe(
+      "Raised a seed round from Precursor Ventures in Mar 2020",
+    );
+    expect(selectionText(founder("Raised a seed round from Kleiner Perkins in Mar 2020"))).toBe(
+      null,
+    );
+    expect(selectionText(founder("Raised a seed round from Lamp Fund in Mar 2020"))).toBe(null);
+    expect(
+      selectionText(
+        founder("Raised a seed round from Lamp Fund in Mar 2020", SYNTHETIC_COMPANY_SEED),
+      ),
+    ).toBe("Raised a seed round from Lamp Fund in Mar 2020");
+    expect(selectionText(founder("Accepted into YC W24"))).toBe("Accepted into YC W24");
+    expect(selectionText(founder("Accepted into YC"))).toBe("Accepted into YC");
   });
 
   test("an unfunded founder gets no selection claim", () => {
