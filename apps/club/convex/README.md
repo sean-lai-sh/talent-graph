@@ -22,6 +22,12 @@ membership / invite model. Accounts that are not marked admin land on `/members`
 The member forum is `clubPosts` — any signed-in user can post.
 The member directory is `listMembers` (name, LinkedIn, email).
 
+**Before deploying SEA-55 over existing data:** run `npx convex data clubOrgs`
+against the target deployment. If it lists more than one document, only the
+oldest becomes the club. The people, referrals, and open feedback requests on
+the others stop showing on the board, in the member directory, and in member
+inboxes. They are not deleted. Merge or pick the club before you deploy.
+
 **Computed:** every mutation and `getBoard` call `computeView` / `addPerson`
 / `setStatus` / `addReferral` / … from `lib/engine.ts`, which imports
 `src/`. No scoring formulas live in Convex.

@@ -390,7 +390,7 @@ export const respondToFeedback = mutation({
   handler: async (ctx, args) => {
     const user = await authComponent.getAuthUser(ctx);
     const club = await loadClub(ctx.db);
-    if (!club) return { error: "That request is not yours." };
+    if (!club) return { error: "Club is not set up yet." };
     const plan = prepareMemberResponse({
       orgs: [{ key: club._id, state: orgToState(club) }],
       email: sessionEmail(user),
