@@ -304,7 +304,7 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   reach high levels more easily than output claims.
 - **Drift:** n/a (`CURRENT_SPECS` did not move. Demo and drift do not call the
   roll-up. V2 judge labels and `residualSlope` are unchanged.)
-- **PR:** stacked on #93.
+- **PR:** #95, stacked on #93.
 
 ## Run id format
 
