@@ -183,6 +183,38 @@ describe("percents, counts, team size, and ownership", () => {
     ]);
   });
 
+  test("dollar amounts keep their million and billion magnitude", () => {
+    expect(factsOf("Raised $1.2M for Harborline.").counts).toEqual([
+      { value: 1_200_000, unit: "usd" },
+    ]);
+    expect(factsOf("Raised $1.2 M for Harborline.").counts).toEqual([
+      { value: 1_200_000, unit: "usd" },
+    ]);
+    expect(factsOf("Raised $1.5 million for Harborline.").counts).toEqual([
+      { value: 1_500_000, unit: "usd" },
+    ]);
+    expect(factsOf("Raised $2B for Harborline.").counts).toEqual([
+      { value: 2_000_000_000, unit: "usd" },
+    ]);
+    expect(factsOf("Raised $2 billion for Harborline.").counts).toEqual([
+      { value: 2_000_000_000, unit: "usd" },
+    ]);
+    expect(factsOf("Raised $50k for Harborline.").counts).toEqual([{ value: 50_000, unit: "usd" }]);
+    expect(factsOf("Raised $1,200 for Harborline.").counts).toEqual([{ value: 1200, unit: "usd" }]);
+  });
+
+  test("magnitude suffixes on plain counts", () => {
+    expect(factsOf("Served 3M requests per day at Pylon.").counts).toEqual([
+      { value: 3_000_000, unit: "requests_per_day" },
+    ]);
+    expect(factsOf("Grew to 2 million users at Pylon.").counts).toEqual([
+      { value: 2_000_000, unit: "users" },
+    ]);
+    expect(factsOf("Cut latency from 5 ms to 3 ms.").changes).toEqual([
+      { metric: "latency", unit: "duration", before: 0.005, after: 0.003, relative_change: -0.4 },
+    ]);
+  });
+
   test("team size and the lead ownership verb", () => {
     expect(factsOf("Worked in team of 4 at Pylon Hall.").teamSize).toBe(4);
     expect(factsOf("Worked in a team of 6 at Lumen.").teamSize).toBe(6);

@@ -44,13 +44,27 @@ export interface AtomicClaim {
   facts: ClaimFacts;
 }
 
-const NUM = String.raw`\$?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?[kK]?\+?`;
+const DIGITS = String.raw`(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?`;
+const SCALE_WORD = String.raw`\s?(?:thousand|million|billion)\b`;
+// A bare letter scale sticks to the digits ("3M") so "5 ms" stays a duration; a
+// currency amount may space it ("$1.2 M").
+const USD = String.raw`\$${DIGITS}(?:\s?[kKmMbB]\b|${SCALE_WORD})?`;
+const NUM = String.raw`(?:${USD}|${DIGITS}(?:[kKmMbB]\b|${SCALE_WORD})?)\+?`;
 const NUMBER = String.raw`(?<![\w.])(${NUM})(?![\w])`;
 const TIME_UNIT = "milliseconds?|seconds?|minutes?|hours?|days?|secs?|mins?|hrs?|ms|sec|min|hr|s";
 const QTY = String.raw`(?<![\w.])([+-])?\s*(${NUM})\s*(%|${TIME_UNIT})(?![A-Za-z])`;
 
 const OUTPUT_VERB =
   /\b(?:led|owned|founded|built|developed|designed|contributed|assisted|helped|shipped|launched|created|worked\s+under)\b/i;
+
+const SCALE: Readonly<Record<string, number>> = {
+  k: 1e3,
+  thousand: 1e3,
+  m: 1e6,
+  million: 1e6,
+  b: 1e9,
+  billion: 1e9,
+};
 
 const SECONDS: Readonly<Record<string, number>> = {
   ms: 0.001,
@@ -147,9 +161,12 @@ function parseNumber(raw: string): ParsedNumber | null {
   if (currency) body = body.slice(1);
   if (lowerBound) body = body.slice(0, -1);
   let multiplier = 1;
-  if (/[kK]$/.test(body)) {
-    multiplier = 1000;
-    body = body.slice(0, -1);
+  const scale = /\s?(k|m|b|thousand|million|billion)$/i.exec(body);
+  if (scale?.[1] !== undefined) {
+    const found = SCALE[scale[1].toLowerCase()];
+    if (found === undefined) return null;
+    multiplier = found;
+    body = body.slice(0, scale.index);
   }
   body = body.replaceAll(",", "");
   if (!/^\d+(?:\.\d+)?$/.test(body)) return null;
@@ -427,7 +444,7 @@ function extractCounts(text: string, consumed: Span[]): CountFact[] {
     { unit: "requests", pattern: new RegExp(String.raw`${NUMBER}\s+requests?\b`, "gi") },
     {
       unit: "usd",
-      pattern: /(?<![\w.])(\$(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?[kK]?\+?)(?![\w])/gi,
+      pattern: new RegExp(String.raw`(?<![\w.])(${USD}\+?)(?![\w])`, "gi"),
     },
     { unit: "usd", pattern: new RegExp(String.raw`${NUMBER}\s+dollars?\b`, "gi") },
   ];
