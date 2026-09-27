@@ -12,7 +12,9 @@ The Comparisons sheet lists traits, not opponents. Each collapsed row is the ope
 
 - Open `/demo`, choose `Cleo Marsh`, then choose `View comparisons` on the Breakdown card.
 
-## Driving it with cursor-ide-browser
+## Driving it with agent-browser
+
+Commands are `agent-browser --session verify-club` from the skill Drive section. Snapshot before every click or fill, and use the `@eN` ref from that snapshot.
 
 Preconditions:
 

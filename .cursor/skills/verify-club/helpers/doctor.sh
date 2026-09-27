@@ -113,8 +113,33 @@ if grep -q "Cleo Marsh" "$body"; then
 fi
 
 if [[ "$RUN_PORT" == "3000" ]]; then
-  echo "verify-club: WARNING default port 3000 — confirm this is the verification launch, not a developer session" >&2
+  die "port 3000 is the developer server. Refusing to drive it."
 fi
+
+CONVEX_CLOUD_URL="http://127.0.0.1:3210"
+CONVEX_SITE_URL="http://127.0.0.1:3211"
+
+instance="$(curl -fsS --max-time 3 "${CONVEX_CLOUD_URL}/instance_name" | tr -d '\r\n')"
+[[ "$instance" == "anonymous-agent" ]] || die "backend instance is '${instance:-empty}', not anonymous-agent"
+
+if [[ -f "$REPO_ROOT/apps/club/.env.local" ]] && grep -q 'convex\.cloud' "$REPO_ROOT/apps/club/.env.local"; then
+  die "apps/club/.env.local contains convex.cloud. Refusing to drive."
+fi
+
+[[ -r "/proc/$RUN_PID/environ" ]] || die "cannot read launch process environment"
+env_text="$(tr '\0' '\n' <"/proc/$RUN_PID/environ")"
+if ! grep -qx "NEXT_PUBLIC_CONVEX_SITE_URL=${CONVEX_SITE_URL}" <<<"$env_text"; then
+  die "next is not using the local site URL ${CONVEX_SITE_URL}"
+fi
+if ! grep -qx "NEXT_PUBLIC_CONVEX_URL=${CONVEX_CLOUD_URL}" <<<"$env_text"; then
+  die "next is not using the local convex URL ${CONVEX_CLOUD_URL}"
+fi
+if grep -q 'convex\.cloud' <<<"$env_text"; then
+  die "next environment contains convex.cloud. Refusing to drive."
+fi
+
+site_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "${CONVEX_SITE_URL}/" || true)"
+[[ "$site_code" != "000" ]] || die "local convex site ${CONVEX_SITE_URL} did not respond"
 
 echo "verify-club doctor ok"
 echo "  run     $RUN_ID"
@@ -122,4 +147,6 @@ echo "  pid     $RUN_PID"
 echo "  listen  $listen"
 echo "  url     $RUN_URL"
 echo "  board   hidden public seed (/demo; /example redirects; / is landing; /club → /login)"
+echo "  convex  anonymous-agent at ${CONVEX_CLOUD_URL} (site ${CONVEX_SITE_URL})"
+echo "  users   admin@example.com member@example.com (passwords in runs/${RUN_ID}/local.env)"
 echo "  evidence $EVIDENCE_DIR"

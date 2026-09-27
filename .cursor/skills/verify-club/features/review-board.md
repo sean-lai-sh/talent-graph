@@ -18,7 +18,9 @@ The public council page lists people under consideration, opens one case, and sh
 - Choose `Next applicant` or `Previous applicant` in the top bar.
 - On a narrow viewport, choose `Open applicant list`, then a name. Or choose `← All candidates` on the case to return to the list.
 
-## Driving it with cursor-ide-browser
+## Driving it with agent-browser
+
+Commands are `agent-browser --session verify-club` from the skill Drive section. Snapshot before every click or fill, and use the `@eN` ref from that snapshot.
 
 Preconditions:
 
@@ -42,7 +44,6 @@ Preconditions:
 - Prove `/` is the chips landing, then prove the board on `/demo`. Proving only one leaves the other unverified.
 - On viewports under `lg`, `Applicants` is hidden. Open it with `Open applicant list` or the proof will look empty.
 - The first selected case is whoever sorts first by Referral Signal, not Cleo. Always choose `Cleo Marsh` by name — do not assume the open case is hers.
-- If cursor-ide-browser fails to load `127.0.0.1`, use `helpers/chrome-drive.ts` (see the skill Drive section).
 - Do not treat engine unit tests (`cleo.v2Signal === 7`) as this feature's proof. The number must appear in the browser.
 - Banned product phrases (`Talent Score`, `Capability Score`, …) must not appear on the board.
-- Do not open `/club` to "get a real board." That door is out of scope and shares Convex.
+- Do not open `/club` to prove this seed board. The signed-in council is `signed-in.md`, and only on the anonymous backend.
