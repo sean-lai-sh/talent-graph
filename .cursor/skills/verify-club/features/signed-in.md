@@ -36,4 +36,5 @@ Preconditions:
 - Do not leave the browser open. Cleanup also closes it, but the walk itself ends with `close`.
 - Do not run this recipe in the background. A second walk provisions nothing new but can submit again.
 - `/demo` is a different board (the public seed). This recipe does not prove Cleo's signal.
-- An empty Applicants list is still the council board. `Create club` is only a step when the board has not been created yet.
+- An empty Applicants list is still the council board (`Nobody to review` / `Nobody under consideration`). `Create club` is only a step when that button is the only council content.
+- `wait --text` can match while the page still says `Checking session`. Snapshot again until the heading (`Council` or `Forum`) is in the tree and that line is gone.

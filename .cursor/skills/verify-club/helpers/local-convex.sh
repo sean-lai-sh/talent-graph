@@ -85,7 +85,8 @@ stop_proxy() {
   [[ -f "$dir/proxy.pid" ]] || return 0
   pid="$(cat "$dir/proxy.pid")"
   [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 0
-  if ! pid_alive "$pid"; then
+  # The proxy is root, so kill -0 from this user returns EPERM. ps can still see it.
+  if ! ps -p "$pid" >/dev/null 2>&1; then
     return 0
   fi
   local cmd

@@ -25,5 +25,7 @@
     "agent-browser": "0.38.1",
     "typescript": "^5.9.3"
   },
-  "trustedDependencies": ["agent-browser"]
+  "trustedDependencies": [
+    "agent-browser"
+  ]
 }
