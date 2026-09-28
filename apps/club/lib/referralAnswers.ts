@@ -1,7 +1,7 @@
 import type { EvidenceType, Scale5 } from "../../../src/domain/types.ts";
 import { validateReferral } from "../../../src/domain/validate.ts";
 import { normalizedEmail } from "./memberFeedback.ts";
-import { type NormalizedContact, SELF_ERROR } from "./referralSignup.ts";
+import { type NormalizedContact, type PersonMatch, SELF_ERROR } from "./referralSignup.ts";
 import { clubToReferral } from "./serialize.ts";
 import type { ClubPerson, ClubReferral, IsoDate } from "./types.ts";
 
@@ -12,12 +12,6 @@ export type ReferralAnswers = {
   evidenceType: EvidenceType;
   evidenceText: string;
 };
-
-/** Who the signed-in member is among the member rows, found by their session email. */
-export type ReferrerResolution =
-  | { kind: "person"; personId: string }
-  | { kind: "none" }
-  | { kind: "ambiguous" };
 
 /** A `memberReferrals` row without its `clubId`. */
 export type MemberLink = {
@@ -48,6 +42,8 @@ export const AMBIGUOUS_REFERRER_ERROR =
   "Your account matches more than one person. Ask an admin to merge them.";
 export const UNLINKED_MEMBER_ERROR =
   "Your account isn't linked to a member profile yet. Ask an admin to add your email.";
+export const AMBIGUOUS_CANDIDATE_ERROR =
+  "More than one profile has this contact. Ask an admin to merge them.";
 const UNKNOWN_CANDIDATE_ERROR = "Refer this person first.";
 
 /** Stored emails are as typed, so both sides are normalized before comparing. */
@@ -62,12 +58,6 @@ export function membersWithEmail<P extends Pick<ClubPerson, "status" | "email">>
   );
 }
 
-export function resolveReferrer(people: readonly { id: string }[]): ReferrerResolution {
-  if (people.length > 1) return { kind: "ambiguous" };
-  const person = people[0];
-  return person ? { kind: "person", personId: person.id } : { kind: "none" };
-}
-
 export function newDomainId(prefix: string, nowMs: number): string {
   const bytes = new Uint8Array(8);
   crypto.getRandomValues(bytes);
@@ -77,8 +67,9 @@ export function newDomainId(prefix: string, nowMs: number): string {
 
 export function planReferralAnswers(input: {
   contact: NormalizedContact;
-  candidateId: string | null;
-  referrer: ReferrerResolution;
+  candidate: PersonMatch;
+  /** The signed-in member among the member rows, by session email. */
+  referrer: PersonMatch;
   userId: string;
   existing: ClubReferral | null;
   linked: boolean;
@@ -88,8 +79,12 @@ export function planReferralAnswers(input: {
   referralId: string;
   tokenHash: string;
 }): AnswersPlan {
-  const { candidateId, referrer, now } = input;
-  if (candidateId === null) return { action: "rejected", error: UNKNOWN_CANDIDATE_ERROR };
+  const { candidate, referrer, now } = input;
+  if (candidate.kind === "none") return { action: "rejected", error: UNKNOWN_CANDIDATE_ERROR };
+  if (candidate.kind === "ambiguous") {
+    return { action: "rejected", error: AMBIGUOUS_CANDIDATE_ERROR };
+  }
+  const candidateId = candidate.personId;
   if (referrer.kind === "none") return { action: "rejected", error: UNLINKED_MEMBER_ERROR };
   if (referrer.kind === "ambiguous") return { action: "rejected", error: AMBIGUOUS_REFERRER_ERROR };
   if (referrer.personId === candidateId) {

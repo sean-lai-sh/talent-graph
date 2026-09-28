@@ -1,14 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import {
+  AMBIGUOUS_CANDIDATE_ERROR,
   AMBIGUOUS_REFERRER_ERROR,
   membersWithEmail,
   newDomainId,
   planReferralAnswers,
-  resolveReferrer,
   UNLINKED_MEMBER_ERROR,
 } from "../apps/club/lib/referralAnswers.ts";
-import { SELF_ERROR } from "../apps/club/lib/referralSignup.ts";
-import type { ClubReferral } from "../apps/club/lib/types.ts";
+import {
+  parseContact,
+  peopleWithContact,
+  personMatch,
+  SELF_ERROR,
+} from "../apps/club/lib/referralSignup.ts";
+import type { ClubPerson, ClubReferral } from "../apps/club/lib/types.ts";
 
 const NOW = "2026-09-28T12:00:00.000Z";
 const EARLIER = "2026-09-20T09:00:00.000Z";
@@ -26,7 +31,7 @@ type Input = Parameters<typeof planReferralAnswers>[0];
 function plan(overrides: Partial<Input> = {}) {
   return planReferralAnswers({
     contact: { kind: "email", value: "ada@example.com" },
-    candidateId: "p-ada",
+    candidate: { kind: "person", personId: "p-ada" },
     referrer: { kind: "person", personId: "p-grace" },
     userId: "user-grace",
     existing: null,
@@ -113,7 +118,42 @@ describe("planReferralAnswers", () => {
   });
 
   test("rejects a contact with no person behind it", () => {
-    expect(plan({ candidateId: null }).action).toBe("rejected");
+    expect(plan({ candidate: { kind: "none" } })).toEqual({
+      action: "rejected",
+      error: "Refer this person first.",
+    });
+  });
+
+  test("rejects an email shared by two people and writes nothing", () => {
+    const candidate = personMatch([{ id: "p-ada" }, { id: "p-ada-again" }]);
+    expect(plan({ candidate, linked: false })).toEqual({
+      action: "rejected",
+      error: AMBIGUOUS_CANDIDATE_ERROR,
+    });
+  });
+
+  test("rejects a phone two people carry under different formatting and writes nothing", () => {
+    const person = (id: string, phone: string): ClubPerson => ({
+      id,
+      name: id,
+      phone,
+      status: "candidate",
+      createdAt: EARLIER,
+      updatedAt: EARLIER,
+    });
+    const parsed = parseContact("212-555-0199");
+    if (!parsed.ok) throw new Error(parsed.error);
+    const people = [
+      person("p-ada", "(212) 555-0199"),
+      person("p-other", "+1 646 555 0100"),
+      person("p-ada-again", "+1 212 555 0199"),
+    ];
+    const candidate = personMatch(peopleWithContact(people, parsed.contact));
+    expect(candidate).toEqual({ kind: "ambiguous" });
+    expect(plan({ contact: parsed.contact, candidate, linked: false })).toEqual({
+      action: "rejected",
+      error: AMBIGUOUS_CANDIDATE_ERROR,
+    });
   });
 
   test("rejects an out-of-range slider through validateReferral", () => {
@@ -175,7 +215,7 @@ describe("membersWithEmail", () => {
 
   test("a non-member person with the member's email does not count as the referrer", () => {
     const onlyCandidate = people.filter((p) => p.id === "p-grace-candidate");
-    expect(resolveReferrer(membersWithEmail(onlyCandidate, "grace@example.com"))).toEqual({
+    expect(personMatch(membersWithEmail(onlyCandidate, "grace@example.com"))).toEqual({
       kind: "none",
     });
   });
@@ -185,11 +225,11 @@ describe("membersWithEmail", () => {
   });
 });
 
-describe("resolveReferrer", () => {
-  test("one, none, or several people with the member's email", () => {
-    expect(resolveReferrer([{ id: "p-grace" }])).toEqual({ kind: "person", personId: "p-grace" });
-    expect(resolveReferrer([])).toEqual({ kind: "none" });
-    expect(resolveReferrer([{ id: "p-1" }, { id: "p-2" }])).toEqual({ kind: "ambiguous" });
+describe("personMatch", () => {
+  test("one, none, or several matching people", () => {
+    expect(personMatch([{ id: "p-grace" }])).toEqual({ kind: "person", personId: "p-grace" });
+    expect(personMatch([])).toEqual({ kind: "none" });
+    expect(personMatch([{ id: "p-1" }, { id: "p-2" }])).toEqual({ kind: "ambiguous" });
   });
 });
 

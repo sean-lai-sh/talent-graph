@@ -21,7 +21,7 @@ describe("a member's Section A answers reach Referral Signal", () => {
 
     const plan = planReferralAnswers({
       contact: { kind: "email", value: "candidate@example.com" },
-      candidateId: candidate.id,
+      candidate: { kind: "person", personId: candidate.id },
       referrer: { kind: "person", personId: member.id },
       userId: "user-member",
       existing: null,

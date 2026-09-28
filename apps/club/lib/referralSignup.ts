@@ -101,11 +101,22 @@ function personHasContact(person: ClubPerson, contact: NormalizedContact): boole
   return normalizePhone(person.phone) === contact.value;
 }
 
-export function personWithContact(
+export function peopleWithContact(
   people: readonly ClubPerson[],
   contact: NormalizedContact,
-): ClubPerson | undefined {
-  return people.find((person) => personHasContact(person, contact));
+): ClubPerson[] {
+  return people.filter((person) => personHasContact(person, contact));
+}
+
+export type PersonMatch =
+  | { kind: "person"; personId: string }
+  | { kind: "none" }
+  | { kind: "ambiguous" };
+
+export function personMatch(people: readonly { id: string }[]): PersonMatch {
+  if (people.length > 1) return { kind: "ambiguous" };
+  const person = people[0];
+  return person ? { kind: "person", personId: person.id } : { kind: "none" };
 }
 
 export function lookupDecision(input: {

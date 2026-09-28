@@ -1,11 +1,6 @@
 import { v } from "convex/values";
 import { loadClub } from "../lib/clubStore.ts";
-import {
-  membersWithEmail,
-  newDomainId,
-  planReferralAnswers,
-  resolveReferrer,
-} from "../lib/referralAnswers.ts";
+import { membersWithEmail, newDomainId, planReferralAnswers } from "../lib/referralAnswers.ts";
 import {
   hashStatusToken,
   isSelfContact,
@@ -13,8 +8,10 @@ import {
   lookupDecision,
   type NormalizedContact,
   newStatusToken,
+  type PersonMatch,
   parseContact,
-  personWithContact,
+  peopleWithContact,
+  personMatch,
   planSignup,
   resumeClaimError,
   resumeFileError,
@@ -28,24 +25,25 @@ import { mutation, query } from "./_generated/server";
 import { authComponent } from "./auth";
 import { evidenceType, scale5 } from "./schema";
 
-async function findProfileId(
+async function findProfile(
   ctx: QueryCtx | MutationCtx,
   clubId: Id<"clubs">,
   contact: NormalizedContact,
-): Promise<string | null> {
+): Promise<PersonMatch> {
   const indexed = await ctx.db
     .query("referralContacts")
     .withIndex("by_club_and_contact", (q) =>
       q.eq("clubId", clubId).eq("normalizedContact", contact.value),
     )
     .unique();
-  if (indexed) return indexed.personId;
+  if (indexed) return { kind: "person", personId: indexed.personId };
   if (contact.kind === "email") {
-    const person = await ctx.db
-      .query("clubPeople")
-      .withIndex("by_club_and_email", (q) => q.eq("clubId", clubId).eq("email", contact.value))
-      .first();
-    return person?.id ?? null;
+    return personMatch(
+      await ctx.db
+        .query("clubPeople")
+        .withIndex("by_club_and_email", (q) => q.eq("clubId", clubId).eq("email", contact.value))
+        .take(2),
+    );
   }
   // Council-entered phones are stored as typed, so an exact index hit can miss
   // them; compare every phone-bearing row under the same normalization.
@@ -53,7 +51,7 @@ async function findProfileId(
     .query("clubPeople")
     .withIndex("by_club_and_phone", (q) => q.eq("clubId", clubId).gte("phone", ""))
     .collect();
-  return personWithContact(withPhone, contact)?.id ?? null;
+  return personMatch(peopleWithContact(withPhone, contact));
 }
 
 async function referrerAlreadyLinked(
@@ -80,7 +78,9 @@ export const lookupReferralContact = query({
     const parsed = parseContact(args.contact);
     const club = parsed.ok && !isSelfContact(actor, parsed.contact) ? await loadClub(ctx.db) : null;
     const exists =
-      club && parsed.ok ? (await findProfileId(ctx, club._id, parsed.contact)) !== null : false;
+      club && parsed.ok
+        ? (await findProfile(ctx, club._id, parsed.contact)).kind !== "none"
+        : false;
     return lookupDecision({ raw: args.contact, actor, profileExists: exists });
   },
 });
@@ -185,7 +185,7 @@ export const submitReferralSignup = mutation({
     const self = parsed.ok && isSelfContact(actor, parsed.contact);
     const exists =
       club && parsed.ok && !self
-        ? (await findProfileId(ctx, club._id, parsed.contact)) !== null
+        ? (await findProfile(ctx, club._id, parsed.contact)).kind !== "none"
         : false;
     const linked =
       club && parsed.ok && !self
@@ -258,21 +258,21 @@ export const submitReferralAnswers = mutation({
     const parsed = parseContact(contact);
     if (!parsed.ok) return { status: "rejected" as const, error: parsed.error };
 
-    const candidateId = await findProfileId(ctx, club._id, parsed.contact);
+    const candidate = await findProfile(ctx, club._id, parsed.contact);
     const members = await ctx.db
       .query("clubPeople")
       .withIndex("by_club_and_status", (q) => q.eq("clubId", club._id).eq("status", "member"))
       .collect();
-    const referrer = resolveReferrer(membersWithEmail(members, user.email));
+    const referrer = personMatch(membersWithEmail(members, user.email));
     const existing =
-      referrer.kind === "person" && candidateId !== null
+      referrer.kind === "person" && candidate.kind === "person"
         ? await ctx.db
             .query("clubReferrals")
             .withIndex("by_club_referrer_and_candidate", (q) =>
               q
                 .eq("clubId", club._id)
                 .eq("referrerId", referrer.personId)
-                .eq("candidateId", candidateId),
+                .eq("candidateId", candidate.personId),
             )
             .first()
         : null;
@@ -280,7 +280,7 @@ export const submitReferralAnswers = mutation({
     const nowMs = Date.now();
     const plan = planReferralAnswers({
       contact: parsed.contact,
-      candidateId,
+      candidate,
       referrer,
       userId: user._id,
       existing,
