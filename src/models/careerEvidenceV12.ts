@@ -159,13 +159,16 @@ const NOT_REACH_SENTENCE =
   "Convert a speedup to a percent improvement. " +
   "A before-and-after time, or a multiplier of 2x or more, counts as an improvement of at least 50%, and then use the percent ranges.";
 
+const ONE_LEVEL_WHEN_UNSTATED =
+  "If the text states no quantity, pick the most likely level from who the audience is, and put the probability on that one level. ";
+
 export const CAREER_EVIDENCE_V1_2_3: CareerEvidenceV12Spec = deepFreeze({
   ...CAREER_EVIDENCE_V1_2_2,
   version: "1.2.3",
   selectivity: CAREER_EVIDENCE_V1_2_1.selectivity,
   pool_strength: CAREER_EVIDENCE_V1_2_1.pool_strength,
   scale: {
-    question: `${SCALE_QUESTION_V122} ${NOT_REACH_SENTENCE}`,
+    question: `${SCALE_QUESTION_V122.replace(ONE_LEVEL_WHEN_UNSTATED, "")} ${NOT_REACH_SENTENCE}`,
     levels: CAREER_EVIDENCE_V1_2_2.scale.levels,
   },
 });

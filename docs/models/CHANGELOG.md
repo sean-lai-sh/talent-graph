@@ -292,22 +292,26 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   `1.2.2` keep their question text and their hashes. `1.2.2` stays
   `b644c4c39148e937a8d7cd853a8c2d2232eec04bb1e42a48e9ced8eaeb9b727f`.
   `1.2.3` hashes to
-  `31027fcc7242682d2141b156bed07ad57e8a67af25572fe6a3e9c01fc1d6f7ca`.
+  `8119ac21ca629e156962472eb22e9104c0b47a0d0d508dae2d37df37441145bb`.
   `1.2.3` uses the `1.2.2` question plan. Dated claims still omit
   `claim_class`. Thresholds stay `0.65` and `0.5`. The selectivity and
   pool-strength questions and levels match `1.2.1`. The scale question
-  keeps the `1.2.2` text and levels, and adds that an applicant or
-  acceptance count, an absolute quality percentage, and a data or sample
-  size are not reach. The level comes from the stated or implied audience.
-  A speedup converts to a percent improvement. A before-and-after time, or
-  a multiplier of 2x or more, counts as an improvement of at least 50%, and
-  then the percent ranges apply. `noCompanyEvidence` is unchanged.
+  keeps the `1.2.2` quantity anchors and levels. It drops the sentence that
+  told the model to put the probability on one level when the text states
+  no quantity. It adds that an applicant or acceptance count, an absolute
+  quality percentage, and a data or sample size are not reach. The level
+  comes from the stated or implied audience. A speedup converts to a
+  percent improvement. A before-and-after time, or a multiplier of 2x or
+  more, counts as an improvement of at least 50%, and then the percent
+  ranges apply. `noCompanyEvidence` is unchanged.
   `company_seed` is unchanged. Consensus, substance, value, and alpha are
   unchanged.
 - **Why:** On `1.2.2`, the sentence that company evidence was missing made
   hire selectivity look low and confident. The scale ranges still left
   applicant counts, absolute quality percentages, data sizes, and speedups
-  that are not written as a percent. The dimension threshold stays `0.5`.
+  that are not written as a percent. The sentence that put all the
+  probability on one level when no quantity was stated forced confidence
+  the evidence does not support. The dimension threshold stays `0.5`.
 - **Drift:** n/a (`CURRENT_SPECS` did not move. Demo and drift do not call
   `career_evidence@1.2.3`. `bun run drift -- --kind referral_signal --before 0.1.0 --after 0.1.0`
   stays `Verdict: STABLE`.)
