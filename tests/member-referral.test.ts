@@ -386,6 +386,7 @@ describe("saveMemberReferralAnswers", () => {
     const referral = read("apps/club/convex/referral.ts");
     const body = mutationBody(referral, "saveMemberReferralAnswers");
     expect(body).toContain("getAuthUser");
+    expect(body).toContain("saveOwnedMemberReferral(");
     expect(body).toContain("commitMemberReferral(");
     expect(body).toContain("loadState(ctx.db, club)");
     expect(body).toContain("saveState(ctx.db, club, before, result.state)");

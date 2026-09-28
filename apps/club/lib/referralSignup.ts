@@ -20,7 +20,7 @@ export type LookupDecision =
   | { decision: "exists" }
   | { decision: "available" };
 
-type SignupPlan =
+export type SignupPlan =
   | { action: "rejected"; error: string }
   | { action: "exists" }
   | { action: "duplicate" }
