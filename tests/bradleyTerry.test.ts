@@ -396,4 +396,49 @@ describe("toObservations", () => {
     const [o] = toObservations([cmp("a")], "agency");
     expect(o && "confidence" in o).toBe(false);
   });
+
+  test("an absent weight equals weight 1 exactly", () => {
+    const absent = toObservations([cmp("a"), cmp("tie")], "agency", { tieHandling: "half" });
+    const explicit = toObservations(
+      [
+        { ...cmp("a"), weight: 1 },
+        { ...cmp("tie"), weight: 1 },
+      ],
+      "agency",
+      { tieHandling: "half" },
+    );
+    expect(absent).toEqual([
+      { winnerId: "A", loserId: "B", weight: 1, sourceId: "c-a" },
+      { winnerId: "A", loserId: "B", weight: 0.5, sourceId: "c-tie" },
+      { winnerId: "B", loserId: "A", weight: 0.5, sourceId: "c-tie" },
+    ]);
+    expect(explicit).toEqual(absent);
+    for (const [left, right] of absent.map((row, i) => [row, explicit[i]] as const)) {
+      expect(Object.is(left.weight, right?.weight)).toBe(true);
+    }
+  });
+
+  test("scales a decisive comparison by 0.5 and by 1/3", () => {
+    expect(toObservations([{ ...cmp("a"), weight: 0.5 }], "agency")).toEqual([
+      { winnerId: "A", loserId: "B", weight: 0.5, sourceId: "c-a" },
+    ]);
+    const third = toObservations([{ ...cmp("b"), weight: 1 / 3 }], "agency");
+    expect(third).toEqual([{ winnerId: "B", loserId: "A", weight: 1 / 3, sourceId: "c-b" }]);
+    expect(Object.is(third[0]?.weight, 1 / 3)).toBe(true);
+  });
+
+  test("scales both halves of a tie by the comparison weight", () => {
+    expect(
+      toObservations([{ ...cmp("tie"), weight: 0.5 }], "agency", { tieHandling: "half" }),
+    ).toEqual([
+      { winnerId: "A", loserId: "B", weight: 0.25, sourceId: "c-tie" },
+      { winnerId: "B", loserId: "A", weight: 0.25, sourceId: "c-tie" },
+    ]);
+    const third = toObservations([{ ...cmp("tie"), weight: 1 / 3 }], "agency", {
+      tieHandling: "half",
+    });
+    expect(third.map((row) => row.weight)).toEqual([1 / 6, 1 / 6]);
+    expect(Object.is(third[0]?.weight, 1 / 6)).toBe(true);
+    expect(Object.is(third[1]?.weight, 1 / 6)).toBe(true);
+  });
 });

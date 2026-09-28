@@ -214,6 +214,22 @@ describe("validateComparison", () => {
     const res = validateComparison(comparison({ dimension: "vibes" as never }));
     expect(res.ok).toBe(false);
   });
+
+  test("accepts an absent weight, weight 1, and weight 0.2", () => {
+    expect(validateComparison(comparison()).ok).toBe(true);
+    expect("weight" in comparison()).toBe(false);
+    expect(validateComparison(comparison({ weight: 1 }))).toEqual({ ok: true });
+    expect(validateComparison(comparison({ weight: 0.2 }))).toEqual({ ok: true });
+  });
+
+  test("rejects a weight outside (0, 1] or that is not a finite number", () => {
+    const rejected = [0, -0.1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "1" as never];
+    for (const weight of rejected) {
+      const res = validateComparison(comparison({ weight }));
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.errors).toEqual(["weight must be a finite number in (0, 1]"]);
+    }
+  });
 });
 
 describe("validateOutcome / validateOpportunity", () => {
