@@ -12,6 +12,7 @@ import {
 import {
   CAREER_EVIDENCE_V1_2_0,
   CAREER_EVIDENCE_V1_2_1,
+  careerEvidenceV12Behavior,
   careerEvidenceV12RubricHash,
 } from "../src/models/careerEvidenceV12.ts";
 import { SPEC_HISTORY } from "../src/models/registry.ts";
@@ -21,6 +22,7 @@ import type {
   CareerEvidenceV12Spec,
   ModelSpec,
 } from "../src/models/spec.ts";
+import { hashInputs } from "../src/provenance/hash.ts";
 
 const JOB = [
   "Engineer at Harborline (Jan 2020 - Mar 2021)",
@@ -223,6 +225,28 @@ test("career_evidence@1.2.0 and career_evidence@1.2.1 rubric hashes differ", () 
   expect(careerEvidenceV12RubricHash(CAREER_EVIDENCE_V1_2_0)).not.toBe(
     careerEvidenceV12RubricHash(CAREER_EVIDENCE_V1_2_1),
   );
+});
+
+test("the rubric hash is the serialized ask", () => {
+  for (const spec of [CAREER_EVIDENCE_V1_2_0, CAREER_EVIDENCE_V1_2_1]) {
+    const behavior = careerEvidenceV12Behavior(spec);
+    const observed = v12Plan(spec);
+    expect(careerEvidenceV12RubricHash(spec)).toBe(hashInputs(behavior));
+    expect([...behavior.questionPlan.dated.selection].sort()).toEqual(observed.asks.datedSelection);
+    expect([...behavior.questionPlan.dated.output].sort()).toEqual(observed.asks.datedOutput);
+    expect([...behavior.questionPlan.free.probe].sort()).toEqual(observed.asks.freeProbe);
+    expect([...behavior.questionPlan.free.selection].sort()).toEqual(observed.asks.freeScore);
+    expect(behavior.questionPlan.dated.classHandling).toEqual(
+      observed.classHandling.datedClassConfidence === 1
+        ? { source: "structural", confidence: 1, classGate: "skip" }
+        : { source: "model", classGate: "apply" },
+    );
+    expect(behavior.questionPlan.free.classHandling).toEqual({
+      source: "model",
+      classGate: "apply",
+    });
+    expect(observed.classHandling.freeLowConfidenceReviews).toBe(true);
+  }
 });
 
 test("registered career_evidence versions with different question plans do not share a hash", () => {

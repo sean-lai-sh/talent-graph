@@ -11,7 +11,8 @@ import { JudgmentInvariantError } from "../src/longitudinal/records.ts";
 import { fixtureAnswers, fixtureV12Client } from "./fixtures/jev-claim-smoke-v12-client.ts";
 
 const fixturePath = join(import.meta.dir, "fixtures/jev-claim-smoke-v12.items.json");
-const RUBRIC_HASH = "cd500b05728594c6599e31e8aee5c6db81a2c7814aca61332dbd195b3fc662a6";
+const RUBRIC_HASH_V120 = "bcf23650aa94d7db63cd254cd04d31cfbd77201af887c7b3b4645238f5d9e376";
+const RUBRIC_HASH_V121 = "8170c38a439ccca3130ae2e60979b5b0519a6ba3ef2500ffeaac75b199691e3c";
 const CONFIG_HASH = "6aaa508fff88d6f3dedabf803f3b21ea9b20b6a1dec25911fff495ffe6e697f8";
 const CONFIG_ID = "claim_value@1.2.0:6aaa508f";
 const ROLLUP_HASH = "35a1b965b63e251f71c85be0a9ca43504584a800328bb4c73f59665ae5527efb";
@@ -64,7 +65,7 @@ test("career_evidence@1.2.0 scores claims offline and rolls people up", async ()
     expect(jsonl).not.toContain(phrase);
   }
   expect(summary).toContain("Rubric career_evidence@1.2.0.");
-  expect(summary).toContain(`Rubric hash ${RUBRIC_HASH}.`);
+  expect(summary).toContain(`Rubric hash ${RUBRIC_HASH_V120}.`);
   expect(summary).toContain(`Claim value ${CONFIG_ID}.`);
   expect(summary).toContain(`Claim value hash ${CONFIG_HASH}.`);
   expect(summary).toContain("Claims accepted 13. Review 1. Rejected 0.");
@@ -111,7 +112,7 @@ test("career_evidence@1.2.0 scores claims offline and rolls people up", async ()
     poolStrength: 2,
     role: null,
     claimValue: 0.3,
-    rubricHash: RUBRIC_HASH,
+    rubricHash: RUBRIC_HASH_V120,
     configHash: CONFIG_HASH,
     configId: CONFIG_ID,
   });
@@ -155,7 +156,7 @@ test("career_evidence@1.2.1 omits class on dated claims and keeps the fixture sc
   expect(code).toBe(0);
   const summary = await readFile(join(dir, "summary.md"), "utf8");
   expect(summary).toContain("Rubric career_evidence@1.2.1.");
-  expect(summary).toContain(`Rubric hash ${RUBRIC_HASH}.`);
+  expect(summary).toContain(`Rubric hash ${RUBRIC_HASH_V121}.`);
   expect(summary).toContain(`Claim value hash ${CONFIG_HASH}.`);
   expect(summary).toContain(`Person rollup hash ${ROLLUP_HASH}.`);
   expect(summary).toContain("Claims accepted 13. Review 1. Rejected 0.");
