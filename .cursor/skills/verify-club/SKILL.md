@@ -11,7 +11,7 @@ The algorithm core is a different surface. Do not use this skill to prove Referr
 
 Primary surface: Next.js board at `/demo` (hidden public seed, no sign-in). `/` is the chips landing. `/example` redirects to `/demo`. Out of scope here:
 
-- `/club` — Better Auth + Convex persist. Shares the developer's Convex deployment. Do not sign in or mutate it from verification.
+- `/club` — Better Auth + Convex persist. The default launch shares the developer's Convex deployment. Do not sign in on that launch. Local-backend mode (`VERIFY_CLUB_LOCAL=1`, recipe `features/dev-seed.md`) is the only exception, and only for an `@example.test` account on a loopback Convex URL.
 - Engine CLI and `src/` — verify-engine.
 
 Write this as instructions for an agent that has never seen the app.
@@ -186,6 +186,7 @@ Shared functions live in `helpers/lib.sh` (sourced, not invoked).
 - Example board state is in-memory per server process. Instances do not share candidate data.
 - Isolated `next dev` from `helpers/launch.sh` is the supported path. Launch unsets `TG_*` so Club seed pins stay stable. Do not start another `next dev` yourself, and never attach to a developer session on `:3000`.
 - Refuse to drive a server you did not launch. Doctor enforces this.
-- Never sign in or mutate `/club` persist. Those share the developer's Convex deployment. Stay on `/demo` (`/` only to prove the chips landing; `/info` only to prove login + copy; `/example` only to prove the redirect; `/club` only to prove the `/login` redirect).
+- Never sign in or mutate `/club` persist on the default launch. Those share the developer's Convex deployment. Stay on `/demo` (`/` only to prove the chips landing; `/info` only to prove login + copy; `/example` only to prove the redirect; `/club` only to prove the `/login` redirect).
+- Local-backend mode is opt-in. Set `VERIFY_CLUB_LOCAL=1` and point `NEXT_PUBLIC_CONVEX_URL` plus `NEXT_PUBLIC_CONVEX_SITE_URL` at a local Convex backend (`127.0.0.1` or `localhost`) already seeded with `bun run seed:dev`. Launch still binds `127.0.0.1:43173` and never `:3000`. Doctor reads the recorded URLs and fails if either host is not loopback. Sign in only as an `@example.test` account from that seed (`ada.quill@example.test` for member home, `council.clerk@example.test` for the council board). The password is `SEED_DEV_PASSWORD` in the shell that seeded. Do not print it. Recipe: `features/dev-seed.md`.
 - Present mode exists in `ClubBoard` (`data-present`) but has **no control that turns it on**. Do not invent a Present button.
 - Helpers need `lsof` (port owner) and, when present, `pgrep` (process tree). Doctor and cleanup fail closed if they cannot identify the listener.

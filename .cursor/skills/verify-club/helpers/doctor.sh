@@ -116,10 +116,28 @@ if [[ "$RUN_PORT" == "3000" ]]; then
   echo "verify-club: WARNING default port 3000 — confirm this is the verification launch, not a developer session" >&2
 fi
 
+meta_dir="$(run_dir)"
+mode=""
+if [[ -f "$meta_dir/mode" ]]; then
+  mode="$(cat "$meta_dir/mode")"
+fi
+if [[ "$mode" == "local-backend" ]]; then
+  convex_url=""
+  site_url=""
+  [[ -f "$meta_dir/convex_url" ]] && convex_url="$(cat "$meta_dir/convex_url")"
+  [[ -f "$meta_dir/convex_site_url" ]] && site_url="$(cat "$meta_dir/convex_site_url")"
+  assert_local_backend_convex_url "$convex_url"
+  assert_local_backend_convex_url "$site_url"
+fi
+
 echo "verify-club doctor ok"
 echo "  run     $RUN_ID"
 echo "  pid     $RUN_PID"
 echo "  listen  $listen"
 echo "  url     $RUN_URL"
-echo "  board   hidden public seed (/demo; /example redirects; / is landing; /club → /login)"
+if [[ "$mode" == "local-backend" ]]; then
+  echo "  board   local-backend mode (sign in only as @example.test; Convex $convex_url)"
+else
+  echo "  board   hidden public seed (/demo; /example redirects; / is landing; /club → /login)"
+fi
 echo "  evidence $EVIDENCE_DIR"
