@@ -1,6 +1,12 @@
 import { v } from "convex/values";
 import { loadClub } from "../lib/clubStore.ts";
 import {
+  membersWithEmail,
+  newDomainId,
+  planReferralAnswers,
+  resolveReferrer,
+} from "../lib/referralAnswers.ts";
+import {
   hashStatusToken,
   isSelfContact,
   type LookupDecision,
@@ -20,6 +26,7 @@ import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { authComponent } from "./auth";
+import { evidenceType, scale5 } from "./schema";
 
 async function findProfileId(
   ctx: QueryCtx | MutationCtx,
@@ -230,5 +237,72 @@ export const submitReferralSignup = mutation({
     });
     if (upload) await ctx.db.patch(upload._id, { usedAt: Date.now() });
     return { status: "created" as const, token: issued.token };
+  },
+});
+
+export const submitReferralAnswers = mutation({
+  args: {
+    contact: v.string(),
+    conviction: scale5,
+    confidence: scale5,
+    relationshipDepth: scale5,
+    evidenceType,
+    evidenceText: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await authComponent.getAuthUser(ctx);
+    if (!user) throw new Error("Sign in required.");
+    const club = await loadClub(ctx.db);
+    if (!club) return { status: "rejected" as const, error: "Club is not set up yet." };
+    const { contact, ...answers } = args;
+    const parsed = parseContact(contact);
+    if (!parsed.ok) return { status: "rejected" as const, error: parsed.error };
+
+    const candidateId = await findProfileId(ctx, club._id, parsed.contact);
+    const members = await ctx.db
+      .query("clubPeople")
+      .withIndex("by_club_and_status", (q) => q.eq("clubId", club._id).eq("status", "member"))
+      .collect();
+    const referrer = resolveReferrer(membersWithEmail(members, user.email));
+    const existing =
+      referrer.kind === "person" && candidateId !== null
+        ? await ctx.db
+            .query("clubReferrals")
+            .withIndex("by_club_referrer_and_candidate", (q) =>
+              q
+                .eq("clubId", club._id)
+                .eq("referrerId", referrer.personId)
+                .eq("candidateId", candidateId),
+            )
+            .first()
+        : null;
+    const issued = await newStatusToken();
+    const nowMs = Date.now();
+    const plan = planReferralAnswers({
+      contact: parsed.contact,
+      candidateId,
+      referrer,
+      userId: user._id,
+      existing,
+      linked: await referrerAlreadyLinked(ctx, club._id, user._id, parsed.contact),
+      answers,
+      now: new Date(nowMs).toISOString(),
+      clubNow: club.now,
+      referralId: newDomainId("ref", nowMs),
+      tokenHash: issued.hash,
+    });
+    if (plan.action === "rejected") return { status: "rejected" as const, error: plan.error };
+
+    if (plan.action === "update") {
+      if (!existing) throw new Error("submitReferralAnswers: update planned without a referral");
+      await ctx.db.patch(existing._id, plan.patch);
+    } else {
+      await ctx.db.insert("clubReferrals", { clubId: club._id, ...plan.referral });
+    }
+    if (plan.link) await ctx.db.insert("memberReferrals", { clubId: club._id, ...plan.link });
+    if (plan.clubNow) await ctx.db.patch(club._id, { now: plan.clubNow });
+    return plan.link
+      ? { status: "saved" as const, token: issued.token }
+      : { status: "saved" as const };
   },
 });

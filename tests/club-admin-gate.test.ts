@@ -117,6 +117,7 @@ const MEMBER_OPEN_MUTATIONS = [
   "generateResumeUploadUrl",
   "registerResumeUpload",
   "submitReferralSignup",
+  "submitReferralAnswers",
 ] as const;
 
 describe("referral signup access", () => {
@@ -148,6 +149,12 @@ describe("referral signup access", () => {
     expect(submit).toContain("deleteIfNotResume(");
     expect(submit).toContain("const club = await loadClub(ctx.db)");
     expect(submit).not.toMatch(/for \(const \w+ of/);
+    const answers = handler(referral, "submitReferralAnswers", "mutation");
+    expect(answers).toContain("const club = await loadClub(ctx.db)");
+    expect(answers).toContain("planReferralAnswers(");
+    expect(answers).toContain('withIndex("by_club_referrer_and_candidate"');
+    expect(answers).not.toContain("loadState");
+    expect(answers).not.toMatch(/for \(const \w+ of/);
     expect(referral).not.toContain("ORG_SCAN");
     const status = handler(referral, "referralStatus", "query");
     expect(status).toContain("token: v.string()");
