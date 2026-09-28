@@ -1,5 +1,11 @@
 import { v } from "convex/values";
-import { loadClub } from "../lib/clubStore.ts";
+import { loadClub, loadState, saveState } from "../lib/clubStore.ts";
+import {
+  ANSWERS_REJECTED_ERROR,
+  commitMemberReferral,
+  NOT_YOUR_REFERRAL_ERROR,
+  memberReferralAnswers as parseMemberReferralAnswers,
+} from "../lib/memberReferral.ts";
 import {
   hashStatusToken,
   isSelfContact,
@@ -16,6 +22,14 @@ import {
   UPLOAD_URL_LIMIT,
   uploadUrlAllowed,
 } from "../lib/referralSignup.ts";
+import {
+  REFERRAL_Q1_CONTEXTS,
+  REFERRAL_Q1_LENGTHS,
+  REFERRAL_Q1_STAKES,
+  REFERRAL_Q2_ROLES,
+  REFERRAL_Q3_GROUP_SIZES,
+  REFERRAL_Q3_RANKS,
+} from "../lib/types.ts";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
@@ -227,5 +241,62 @@ export const submitReferralSignup = mutation({
     });
     if (upload) await ctx.db.patch(upload._id, { usedAt: Date.now() });
     return { status: "created" as const, token: issued.token };
+  },
+});
+
+function oneOf<const T extends readonly [string, string, ...string[]]>(values: T) {
+  const [first, second, ...rest] = values;
+  return v.union(v.literal(first), v.literal(second), ...rest.map((value) => v.literal(value)));
+}
+
+const memberReferralAnswers = v.object({
+  context: oneOf(REFERRAL_Q1_CONTEXTS),
+  length: oneOf(REFERRAL_Q1_LENGTHS),
+  stakes: v.array(oneOf(REFERRAL_Q1_STAKES)),
+  what: v.string(),
+  hard: v.string(),
+  distinct: v.string(),
+  role: oneOf(REFERRAL_Q2_ROLES),
+  rank: oneOf(REFERRAL_Q3_RANKS),
+  groupSize: oneOf(REFERRAL_Q3_GROUP_SIZES),
+});
+
+/**
+ * A signed-in member records Q1–Q3 for someone they already referred.
+ * The engine referral is `addReferral` inside `commitMemberReferral`,
+ * persisted with `loadState` / `saveState`. Members do not go through
+ * the council admin gate.
+ */
+export const saveMemberReferralAnswers = mutation({
+  args: {
+    personId: v.string(),
+    answers: memberReferralAnswers,
+  },
+  handler: async (ctx, args) => {
+    const user = await authComponent.getAuthUser(ctx);
+    if (!user) throw new Error("Sign in required.");
+    const club = await loadClub(ctx.db);
+    if (!club) return { error: "Club is not set up yet." };
+    const owned = await ctx.db
+      .query("memberReferrals")
+      .withIndex("by_club_referrer_and_contact", (q) =>
+        q.eq("clubId", club._id).eq("referrerUserId", user._id),
+      )
+      .filter((q) => q.eq(q.field("personId"), args.personId))
+      .first();
+    if (!owned) return { error: NOT_YOUR_REFERRAL_ERROR };
+    const answers = parseMemberReferralAnswers(args.answers);
+    if (!answers) return { error: ANSWERS_REJECTED_ERROR };
+    const before = await loadState(ctx.db, club);
+    const result = commitMemberReferral({
+      state: { ...before, now: new Date().toISOString() },
+      email: typeof user.email === "string" ? user.email : "",
+      candidateId: args.personId,
+      referredByUser: true,
+      answers,
+    });
+    if (!result.ok) return { error: result.error };
+    await saveState(ctx.db, club, before, result.state);
+    return { ok: true as const };
   },
 });

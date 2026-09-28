@@ -7,6 +7,7 @@
 import type { Dimension, RubricScore, Scale5 } from "../../../src/domain/types.ts";
 import { recordFeedback } from "./engine.ts";
 import { hoursLabel } from "./format.ts";
+import { resolveMemberPersonId } from "./memberIdentity.ts";
 import { feedbackState, hoursUntil } from "./review.ts";
 import { reviveState } from "./serialize.ts";
 import type { ClubState, IsoDate } from "./types.ts";
@@ -41,20 +42,6 @@ export type MemberResponseDraft = {
 
 export type MemberResponsePlan = { key: string; state: ClubState } | { key: null; error: string };
 
-function normalizedEmail(email: string | undefined): string {
-  return email?.trim().toLowerCase() ?? "";
-}
-
-function personIdsForEmail(state: ClubState, email: string): Set<string> {
-  const value = normalizedEmail(email);
-  if (!value) return new Set();
-  return new Set(
-    state.people
-      .filter((person) => normalizedEmail(person.email) === value)
-      .map((person) => person.id),
-  );
-}
-
 /** Open requests whose member row email is the signed-in account. */
 export function listOwnFeedbackRequests(input: {
   orgs: readonly FeedbackOrg[];
@@ -63,11 +50,11 @@ export function listOwnFeedbackRequests(input: {
 }): FeedbackInboxItem[] {
   const items: FeedbackInboxItem[] = [];
   for (const org of input.orgs) {
-    const ids = personIdsForEmail(org.state, input.email);
-    if (ids.size === 0) continue;
+    const link = resolveMemberPersonId(org.state, input.email);
+    if (link.status !== "linked") continue;
     const names = new Map(org.state.people.map((person) => [person.id, person.name]));
     for (const request of org.state.feedbackRequests) {
-      if (request.respondedAt !== null || !ids.has(request.memberId)) continue;
+      if (request.respondedAt !== null || request.memberId !== link.personId) continue;
       const state = feedbackState(request, input.clock);
       if (state === "responded") continue;
       items.push({
@@ -109,10 +96,10 @@ export function prepareMemberResponse(input: {
 }): MemberResponsePlan {
   let sawSomeoneElse = false;
   for (const org of input.orgs) {
-    const ids = personIdsForEmail(org.state, input.email);
+    const link = resolveMemberPersonId(org.state, input.email);
     const request = org.state.feedbackRequests.find((row) => row.id === input.response.requestId);
     if (!request) continue;
-    if (!ids.has(request.memberId)) {
+    if (link.status !== "linked" || request.memberId !== link.personId) {
       sawSomeoneElse = true;
       continue;
     }

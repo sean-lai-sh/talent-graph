@@ -117,6 +117,7 @@ const MEMBER_OPEN_MUTATIONS = [
   "generateResumeUploadUrl",
   "registerResumeUpload",
   "submitReferralSignup",
+  "saveMemberReferralAnswers",
 ] as const;
 
 describe("referral signup access", () => {
