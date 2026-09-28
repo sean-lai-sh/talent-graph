@@ -20,6 +20,7 @@ import { fixtureV12Client } from "./fixtures/jev-claim-smoke-v12-client.ts";
 const RUBRIC_HASH_V120 = "bcf23650aa94d7db63cd254cd04d31cfbd77201af887c7b3b4645238f5d9e376";
 const RUBRIC_HASH_V121 = "8170c38a439ccca3130ae2e60979b5b0519a6ba3ef2500ffeaac75b199691e3c";
 const RUBRIC_HASH_V122 = "b644c4c39148e937a8d7cd853a8c2d2232eec04bb1e42a48e9ced8eaeb9b727f";
+const RUBRIC_HASH_V123 = "31027fcc7242682d2141b156bed07ad57e8a67af25572fe6a3e9c01fc1d6f7ca";
 const NOT_REACH =
   "An applicant or acceptance count, an absolute quality percentage, and a data or sample size are not reach. " +
   "Set the level from the stated or implied audience instead. " +
@@ -50,6 +51,7 @@ test("career_evidence@1.2.3 restores the 1.2.1 selection prompt and classifies t
   );
 
   const hash = careerEvidenceV12RubricHash(spec);
+  expect(hash).toBe(RUBRIC_HASH_V123);
   expect(hash).not.toBe(RUBRIC_HASH_V120);
   expect(hash).not.toBe(RUBRIC_HASH_V121);
   expect(hash).not.toBe(RUBRIC_HASH_V122);
@@ -66,6 +68,7 @@ test("career_evidence@1.2.3 smoke still emits noCompanyEvidence", async () => {
   expect(code).toBe(0);
   const summary = await readFile(join(dir, "summary.md"), "utf8");
   expect(summary).toContain("Rubric career_evidence@1.2.3.");
+  expect(summary).toContain(`Rubric hash ${RUBRIC_HASH_V123}.`);
   expect(summary).not.toContain(`Rubric hash ${RUBRIC_HASH_V122}.`);
   expect(summary).toContain("Claims accepted 13. Review 1. Rejected 0.");
   expect(summary).toContain("Calls 16. Answered 16. judgment_unavailable 0. Invariant failures 0.");

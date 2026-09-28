@@ -285,6 +285,34 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   stays `Verdict: STABLE`.)
 - **PR:** #103.
 
+## career_evidence@1.2.3 numbers that are not reach
+
+- **What:** `CAREER_EVIDENCE_V1_2_3` is registered beside `1.2.2`.
+  `CURRENT_SPECS.career_evidence` stays `1.0.0`. Versions `1.0.0` through
+  `1.2.2` keep their question text and their hashes. `1.2.2` stays
+  `b644c4c39148e937a8d7cd853a8c2d2232eec04bb1e42a48e9ced8eaeb9b727f`.
+  `1.2.3` hashes to
+  `31027fcc7242682d2141b156bed07ad57e8a67af25572fe6a3e9c01fc1d6f7ca`.
+  `1.2.3` uses the `1.2.2` question plan. Dated claims still omit
+  `claim_class`. Thresholds stay `0.65` and `0.5`. The selectivity and
+  pool-strength questions and levels match `1.2.1`. The scale question
+  keeps the `1.2.2` text and levels, and adds that an applicant or
+  acceptance count, an absolute quality percentage, and a data or sample
+  size are not reach. The level comes from the stated or implied audience.
+  A speedup converts to a percent improvement. A before-and-after time, or
+  a multiplier of 2x or more, counts as an improvement of at least 50%, and
+  then the percent ranges apply. `noCompanyEvidence` is unchanged.
+  `company_seed` is unchanged. Consensus, substance, value, and alpha are
+  unchanged.
+- **Why:** On `1.2.2`, the sentence that company evidence was missing made
+  hire selectivity look low and confident. The scale ranges still left
+  applicant counts, absolute quality percentages, data sizes, and speedups
+  that are not written as a percent. The dimension threshold stays `0.5`.
+- **Drift:** n/a (`CURRENT_SPECS` did not move. Demo and drift do not call
+  `career_evidence@1.2.3`. `bun run drift -- --kind referral_signal --before 0.1.0 --after 0.1.0`
+  stays `Verdict: STABLE`.)
+- **PR:** #103.
+
 ## claim_value@1.1.0 — square-law claim value
 
 - **What:** `CLAIM_VALUE_V1_1_0` in `src/longitudinal/claimValue.ts`. It is not a

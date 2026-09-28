@@ -90,7 +90,14 @@ describe("career_evidence@1.1.0 registration", () => {
   test("1.1.0 is registered and 1.0.0 stays current", () => {
     expect(validateSpec(spec)).toEqual({ ok: true });
     expect(isRegisteredSpec(spec)).toBe(true);
-    expect(specVersions("career_evidence")).toEqual(["1.0.0", "1.1.0", "1.2.0", "1.2.1", "1.2.2"]);
+    expect(specVersions("career_evidence")).toEqual([
+      "1.0.0",
+      "1.1.0",
+      "1.2.0",
+      "1.2.1",
+      "1.2.2",
+      "1.2.3",
+    ]);
     expect(getSpec("career_evidence", "1.0.0").version).toBe("1.0.0");
     expect(getSpec("career_evidence", "1.1.0").version).toBe("1.1.0");
     expect(CURRENT_SPECS.career_evidence.version).toBe("1.0.0");

@@ -153,6 +153,23 @@ export const CAREER_EVIDENCE_V1_2_2: CareerEvidenceV12Spec = deepFreeze({
   },
 });
 
+const NOT_REACH_SENTENCE =
+  "An applicant or acceptance count, an absolute quality percentage, and a data or sample size are not reach. " +
+  "Set the level from the stated or implied audience instead. " +
+  "Convert a speedup to a percent improvement. " +
+  "A before-and-after time, or a multiplier of 2x or more, counts as an improvement of at least 50%, and then use the percent ranges.";
+
+export const CAREER_EVIDENCE_V1_2_3: CareerEvidenceV12Spec = deepFreeze({
+  ...CAREER_EVIDENCE_V1_2_2,
+  version: "1.2.3",
+  selectivity: CAREER_EVIDENCE_V1_2_1.selectivity,
+  pool_strength: CAREER_EVIDENCE_V1_2_1.pool_strength,
+  scale: {
+    question: `${SCALE_QUESTION_V122} ${NOT_REACH_SENTENCE}`,
+    levels: CAREER_EVIDENCE_V1_2_2.scale.levels,
+  },
+});
+
 export function selectivityLevelForRate(
   rate: number,
   spec: CareerEvidenceV12Spec = CAREER_EVIDENCE_V1_2_0,
@@ -226,6 +243,14 @@ const QUESTION_PLANS = {
     free: FREE_ASK,
   },
   "1.2.2": {
+    dated: {
+      selection: ["selectivity", "pool_strength"],
+      output: ["difficulty", "scale", "role"],
+      classHandling: STRUCTURAL_CLASS,
+    },
+    free: FREE_ASK,
+  },
+  "1.2.3": {
     dated: {
       selection: ["selectivity", "pool_strength"],
       output: ["difficulty", "scale", "role"],

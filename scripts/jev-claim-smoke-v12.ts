@@ -28,6 +28,7 @@ import {
   CAREER_EVIDENCE_V1_2_0,
   CAREER_EVIDENCE_V1_2_1,
   CAREER_EVIDENCE_V1_2_2,
+  CAREER_EVIDENCE_V1_2_3,
   careerEvidenceV12RubricHash,
 } from "../src/models/careerEvidenceV12.ts";
 import { type CareerEvidenceV12Spec, specId } from "../src/models/spec.ts";
@@ -184,6 +185,9 @@ export function liveV12Client(spec: CareerEvidenceV12Spec = CAREER_EVIDENCE_V1_2
 }
 
 export function v12SpecFor(rubric: string | undefined): CareerEvidenceV12Spec {
+  if (rubric === specId(CAREER_EVIDENCE_V1_2_3) || rubric === "CAREER_EVIDENCE_V1_2_3") {
+    return CAREER_EVIDENCE_V1_2_3;
+  }
   if (rubric === specId(CAREER_EVIDENCE_V1_2_2) || rubric === "CAREER_EVIDENCE_V1_2_2") {
     return CAREER_EVIDENCE_V1_2_2;
   }

@@ -15,6 +15,7 @@ import {
   CAREER_EVIDENCE_V1_2_0,
   CAREER_EVIDENCE_V1_2_1,
   CAREER_EVIDENCE_V1_2_2,
+  CAREER_EVIDENCE_V1_2_3,
 } from "./careerEvidenceV12.ts";
 import { deepFreeze } from "./freeze.ts";
 import {
@@ -90,6 +91,7 @@ export const SPEC_HISTORY: readonly ModelSpec[] = deepFreeze([
   CAREER_EVIDENCE_V1_2_0,
   CAREER_EVIDENCE_V1_2_1,
   CAREER_EVIDENCE_V1_2_2,
+  CAREER_EVIDENCE_V1_2_3,
 ]);
 
 /** The version used when a caller does not pass a spec explicitly. */

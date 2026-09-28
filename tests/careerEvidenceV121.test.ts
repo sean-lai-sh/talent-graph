@@ -72,7 +72,14 @@ const JOB = [
 ].join("\n");
 
 test("1.2.1 is registered beside 1.2.0 and keeps the same question text", () => {
-  expect(specVersions("career_evidence")).toEqual(["1.0.0", "1.1.0", "1.2.0", "1.2.1", "1.2.2"]);
+  expect(specVersions("career_evidence")).toEqual([
+    "1.0.0",
+    "1.1.0",
+    "1.2.0",
+    "1.2.1",
+    "1.2.2",
+    "1.2.3",
+  ]);
   expect(getSpec("career_evidence", "1.2.1").version).toBe("1.2.1");
   expect(CAREER_EVIDENCE_V1_2_1.claimClass).toEqual(CAREER_EVIDENCE_V1_2_0.claimClass);
   expect(CAREER_EVIDENCE_V1_2_1.selectivity).toEqual(CAREER_EVIDENCE_V1_2_0.selectivity);

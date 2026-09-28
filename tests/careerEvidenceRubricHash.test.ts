@@ -13,6 +13,7 @@ import {
   CAREER_EVIDENCE_V1_2_0,
   CAREER_EVIDENCE_V1_2_1,
   CAREER_EVIDENCE_V1_2_2,
+  CAREER_EVIDENCE_V1_2_3,
   careerEvidenceV12Behavior,
   careerEvidenceV12RubricHash,
 } from "../src/models/careerEvidenceV12.ts";
@@ -229,7 +230,12 @@ test("career_evidence@1.2.0 and career_evidence@1.2.1 rubric hashes differ", () 
 });
 
 test("the rubric hash is the serialized ask", () => {
-  for (const spec of [CAREER_EVIDENCE_V1_2_0, CAREER_EVIDENCE_V1_2_1, CAREER_EVIDENCE_V1_2_2]) {
+  for (const spec of [
+    CAREER_EVIDENCE_V1_2_0,
+    CAREER_EVIDENCE_V1_2_1,
+    CAREER_EVIDENCE_V1_2_2,
+    CAREER_EVIDENCE_V1_2_3,
+  ]) {
     const behavior = careerEvidenceV12Behavior(spec);
     const observed = v12Plan(spec);
     expect(careerEvidenceV12RubricHash(spec)).toBe(hashInputs(behavior));
@@ -253,7 +259,14 @@ test("the rubric hash is the serialized ask", () => {
 
 test("registered career_evidence versions with different question plans do not share a hash", () => {
   const specs = SPEC_HISTORY.filter((spec) => spec.kind === "career_evidence");
-  expect(specs.map((spec) => spec.version)).toEqual(["1.0.0", "1.1.0", "1.2.0", "1.2.1", "1.2.2"]);
+  expect(specs.map((spec) => spec.version)).toEqual([
+    "1.0.0",
+    "1.1.0",
+    "1.2.0",
+    "1.2.1",
+    "1.2.2",
+    "1.2.3",
+  ]);
   expect(questionPlan(CAREER_EVIDENCE_V1_2_0)).not.toEqual(questionPlan(CAREER_EVIDENCE_V1_2_1));
   expect(questionPlan(CAREER_EVIDENCE_V1_0_0)).not.toEqual(questionPlan(CAREER_EVIDENCE_V1_1_0));
 
