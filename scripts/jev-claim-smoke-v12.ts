@@ -27,6 +27,7 @@ import { JudgmentInvariantError } from "../src/longitudinal/records.ts";
 import {
   CAREER_EVIDENCE_V1_2_0,
   CAREER_EVIDENCE_V1_2_1,
+  CAREER_EVIDENCE_V1_2_2,
   careerEvidenceV12RubricHash,
 } from "../src/models/careerEvidenceV12.ts";
 import { type CareerEvidenceV12Spec, specId } from "../src/models/spec.ts";
@@ -182,6 +183,9 @@ export function liveV12Client(spec: CareerEvidenceV12Spec = CAREER_EVIDENCE_V1_2
 }
 
 export function v12SpecFor(rubric: string | undefined): CareerEvidenceV12Spec {
+  if (rubric === specId(CAREER_EVIDENCE_V1_2_2) || rubric === "CAREER_EVIDENCE_V1_2_2") {
+    return CAREER_EVIDENCE_V1_2_2;
+  }
   if (rubric === specId(CAREER_EVIDENCE_V1_2_1) || rubric === "CAREER_EVIDENCE_V1_2_1") {
     return CAREER_EVIDENCE_V1_2_1;
   }

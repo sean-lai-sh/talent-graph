@@ -113,6 +113,74 @@ export const CAREER_EVIDENCE_V1_2_1: CareerEvidenceV12Spec = deepFreeze({
   version: "1.2.1",
 });
 
+const SELECTIVITY_QUESTION_V122 =
+  "Using only `text`, how selective was this choice from a pool? " +
+  "When `selection_rate` is present, map it to the anchor band that contains it. " +
+  "A rate of at most 0.01 is level 4, at most 0.05 is level 3, at most 0.20 is level 2, " +
+  "at most 0.50 is level 1, and any higher rate is level 0. Each bound is inclusive. " +
+  "When `selection_rate_upper_bound` is true, the rate is a ceiling because the pool was at least that large, " +
+  "so do not assign a less selective level than the band for that ceiling. " +
+  "When `selection_rate` is absent, this claim has no company evidence. " +
+  "Judge from the job title and the kind of organization named in the text, using the no-evidence half of each anchor. " +
+  "Pick one level and put the probability on that level. " +
+  "Do not spread probability across adjacent levels because the evidence is thin.";
+
+const POOL_QUESTION_V122 =
+  "Using only `text`, how broad was the pool this person was chosen from? " +
+  "Never rate a country, city, or region as a stronger or weaker pool. " +
+  "Only breadth of eligibility counts: one school, a national open pool, or an international pool. " +
+  "Breadth of eligibility is a fact about the rules. Whether a region is strong is not asked. " +
+  "When the text does not say what the pool was and `selection_rate` is absent, this claim has no company evidence. " +
+  "Judge breadth from the job title and the kind of organization, using the no-evidence half of each anchor. " +
+  "Pick one level and put the probability on that level. " +
+  "Do not spread probability across adjacent levels because the evidence is thin. " +
+  "Do not answer 0 only because the pool was not stated.";
+
+const SCALE_QUESTION_V122 =
+  "Using only `text`, how far does this work reach beyond the people who made it? " +
+  "When the text states a quantity, map that number onto exactly one level using the ranges in the anchors. " +
+  "A stated number is mapped, not hedged. Do not split probability between adjacent levels. " +
+  "The lower end of a range is inclusive and belongs to that level. " +
+  "If the text states both an audience and a percent, the audience sets the level. " +
+  "If the text states only a percent, map that percent with the percent ranges and still pick one level. " +
+  "If the text states no quantity, pick the most likely level from who the audience is, and put the probability on that one level. " +
+  "Do not answer 0 only because reach was not stated.";
+
+export const CAREER_EVIDENCE_V1_2_2: CareerEvidenceV12Spec = deepFreeze({
+  ...CAREER_EVIDENCE_V1_2_1,
+  version: "1.2.2",
+  selectivity: {
+    question: SELECTIVITY_QUESTION_V122,
+    levels: [
+      "More than 50% of the pool was chosen, or the evidence does not show a selective choice. With no company evidence, a student club, an informal group, or a title that is not a screened role.",
+      "At most 50% of the pool was chosen, and more than 20%. A modest screen. With no company evidence, an unknown startup or a university lab hiring into an ordinary role.",
+      "At most 20% of the pool was chosen, and more than 5%. A real competitive screen. With no company evidence, a well-known large employer hiring into a standard role.",
+      "At most 5% of the pool was chosen, and more than 1%. A highly selective screen. With no company evidence, a fellow or principal title at a well-known institution. Do not use this level for an ordinary title at a large employer.",
+      "At most 1% of the pool was chosen. A rare fellowship, award, admission, or competitive role. Do not assign level 4 from a title and an organization type alone.",
+    ],
+  },
+  pool_strength: {
+    question: POOL_QUESTION_V122,
+    levels: [
+      "No competitive pool is shown. Everyone who applied got in, or the pool was a handful of people picked informally. Example: selected as team note-taker, or an open-enrollment course certificate. With no company evidence, a student club role or an informal pick among people who already belonged.",
+      "One class, one team, one school, or one company's internal pool, with no pre-filter beyond membership. Example: a single school's design competition, 1 in 400 from one school, or a course's best-project award. With no company evidence, an unknown startup, a university lab, or one team at one organization.",
+      "Campus-wide at a selective school, with a published admission rate at or below about 20%, or a pool open to several schools or companies whose entrants had already passed one screen. Example: a university-wide research fellowship at a selective school, or an inter-college hackathon with an application round. With no company evidence, a well-known large employer. The pool is that employer's applicants, not a national open program.",
+      "A national open pool, where anyone in the country in the eligible group can enter and the entrant count is large or published. Example: a national olympiad qualifier, or a national fellowship with a published applicant count. Do not assign this level from an employer name alone. The text has to say the pool is national.",
+      "An international or elite pre-filtered pool, where entrants are already among the strongest in the field. Example: an IMO team, top Putnam ranks, an international olympiad, or a top global fellowship. Do not assign this level from an employer name alone. The text has to say the pool is international or already elite.",
+    ],
+  },
+  scale: {
+    question: SCALE_QUESTION_V122,
+    levels: [
+      "No users beyond the makers. Example: a class project that was graded and shelved, or a personal demo. Do not put a stated quantity here unless the text says nobody else used the work.",
+      "A small named audience. Users 1 to 99. Requests, events, or downloads under 1,000. One team, or a team of at most 15 people. Money under $10,000. A percent improvement under 20% when no audience is stated. Example: a club attendance app used by 40 members, or an internal script used by the author's own team.",
+      "A bounded audience outside the team. Users 100 to 9,999. Requests, events, or downloads from 1,000 to 999,999. Several teams, or a team of 16 to 200 people. Money from $10,000 to under $1,000,000. A percent improvement from 20% to under 50% when no audience is stated. Open source with hundreds of stars or thousands of weekly downloads. Example: an internal tool adopted by three teams at a company, or an npm package with about 5k weekly downloads.",
+      "Broad adoption. Users from 10,000 to 999,999. Requests, events, or downloads from 1,000,000 to 99,999,999. Company-wide, or more than 200 people. Money from $1,000,000 to under $100,000,000. A percent improvement of 50% or more when no audience is stated. Open source at 10,000 or more stars, or millions of monthly downloads. Example: an intern's service that became company-wide core infrastructure, or a library that major frameworks depend on.",
+      "Used globally and field-defining. Users 1,000,000 or more. Requests, events, or downloads 100,000,000 or more. Money $100,000,000 or more. Do not assign level 4 from a percent alone. Example: CUDA, ChatGPT, PyTorch, React, or a Linux kernel subsystem.",
+    ],
+  },
+});
+
 export function selectivityLevelForRate(
   rate: number,
   spec: CareerEvidenceV12Spec = CAREER_EVIDENCE_V1_2_0,
@@ -178,6 +246,14 @@ const QUESTION_PLANS = {
     free: FREE_ASK,
   },
   "1.2.1": {
+    dated: {
+      selection: ["selectivity", "pool_strength"],
+      output: ["difficulty", "scale", "role"],
+      classHandling: STRUCTURAL_CLASS,
+    },
+    free: FREE_ASK,
+  },
+  "1.2.2": {
     dated: {
       selection: ["selectivity", "pool_strength"],
       output: ["difficulty", "scale", "role"],

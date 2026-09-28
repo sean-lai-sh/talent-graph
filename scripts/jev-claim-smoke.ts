@@ -25,7 +25,11 @@ import { decideStatus } from "../src/longitudinal/stages.ts";
 import type { ClaimStatus, GrokEvidenceItem, ReviewReason } from "../src/longitudinal/types.ts";
 import { CAREER_EVIDENCE_V1_0_0, careerEvidenceRubricHash } from "../src/models/careerEvidence.ts";
 import { CAREER_EVIDENCE_V1_1_0 } from "../src/models/careerEvidenceV11.ts";
-import { CAREER_EVIDENCE_V1_2_0, CAREER_EVIDENCE_V1_2_1 } from "../src/models/careerEvidenceV12.ts";
+import {
+  CAREER_EVIDENCE_V1_2_0,
+  CAREER_EVIDENCE_V1_2_1,
+  CAREER_EVIDENCE_V1_2_2,
+} from "../src/models/careerEvidenceV12.ts";
 import { type CareerEvidenceSpec, specId } from "../src/models/spec.ts";
 import {
   liveV11Client,
@@ -561,7 +565,7 @@ function rubricFor(name: string | undefined): CareerEvidenceSpec {
 }
 
 const USAGE =
-  "usage: bun run scripts/jev-claim-smoke.ts --items <path> (--jsonl <path> --summary <path> | --out <dir>) [--spec career_evidence@1.0.0] [--rubric career_evidence@1.0.0|career_evidence@1.1.0|career_evidence@1.2.0|career_evidence@1.2.1]";
+  "usage: bun run scripts/jev-claim-smoke.ts --items <path> (--jsonl <path> --summary <path> | --out <dir>) [--spec career_evidence@1.0.0] [--rubric career_evidence@1.0.0|career_evidence@1.1.0|career_evidence@1.2.0|career_evidence@1.2.1|career_evidence@1.2.2]";
 
 const FLAGS = new Set<string>(["--items", "--jsonl", "--summary", "--spec", "--rubric", "--out"]);
 
@@ -629,7 +633,9 @@ function rubricMode(
     rubricFlag === specId(CAREER_EVIDENCE_V1_2_0) ||
     rubricFlag === "CAREER_EVIDENCE_V1_2_0" ||
     rubricFlag === specId(CAREER_EVIDENCE_V1_2_1) ||
-    rubricFlag === "CAREER_EVIDENCE_V1_2_1";
+    rubricFlag === "CAREER_EVIDENCE_V1_2_1" ||
+    rubricFlag === specId(CAREER_EVIDENCE_V1_2_2) ||
+    rubricFlag === "CAREER_EVIDENCE_V1_2_2";
   const v11 =
     rubricFlag === specId(CAREER_EVIDENCE_V1_1_0) || rubricFlag === "CAREER_EVIDENCE_V1_1_0";
   const v10 =
@@ -641,9 +647,7 @@ function rubricMode(
   }
   const selected = v12 ? v12SpecFor(rubricFlag) : CAREER_EVIDENCE_V1_1_0;
   const constantName = v12
-    ? selected.version === "1.2.1"
-      ? "CAREER_EVIDENCE_V1_2_1"
-      : "CAREER_EVIDENCE_V1_2_0"
+    ? `CAREER_EVIDENCE_V${selected.version.replaceAll(".", "_")}`
     : "CAREER_EVIDENCE_V1_1_0";
   if (specFlag !== undefined && specFlag !== specId(selected) && specFlag !== constantName) {
     throw new Error(`rubric flags disagree: --spec ${specFlag} and --rubric ${rubricFlag}`);

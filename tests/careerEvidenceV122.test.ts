@@ -53,7 +53,9 @@ test("career_evidence@1.2.1 prompt and hash stay, and 1.2.2 states the thin-evid
   expect(scale).toContain("at most 15");
   expect(scale).toContain("under $10,000");
 
-  expect(careerEvidenceV12RubricHash(spec)).not.toBe(RUBRIC_HASH_V121);
+  expect(careerEvidenceV12RubricHash(spec)).toBe(
+    "842d40ab0e280f7270450fd03ac5fb3fe020e00a5ce8229b5a916a3110ede6cc",
+  );
   expect(careerEvidenceV12QuestionPlan(spec)).toEqual(
     careerEvidenceV12QuestionPlan(CAREER_EVIDENCE_V1_2_1),
   );
