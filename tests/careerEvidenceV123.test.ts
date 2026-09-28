@@ -20,7 +20,9 @@ import { fixtureV12Client } from "./fixtures/jev-claim-smoke-v12-client.ts";
 const RUBRIC_HASH_V120 = "bcf23650aa94d7db63cd254cd04d31cfbd77201af887c7b3b4645238f5d9e376";
 const RUBRIC_HASH_V121 = "8170c38a439ccca3130ae2e60979b5b0519a6ba3ef2500ffeaac75b199691e3c";
 const RUBRIC_HASH_V122 = "b644c4c39148e937a8d7cd853a8c2d2232eec04bb1e42a48e9ced8eaeb9b727f";
-const RUBRIC_HASH_V123 = "31027fcc7242682d2141b156bed07ad57e8a67af25572fe6a3e9c01fc1d6f7ca";
+const PREVIOUS_V123_HASH = "31027fcc7242682d2141b156bed07ad57e8a67af25572fe6a3e9c01fc1d6f7ca";
+const ONE_LEVEL_WHEN_UNSTATED =
+  "If the text states no quantity, pick the most likely level from who the audience is, and put the probability on that one level.";
 const NOT_REACH =
   "An applicant or acceptance count, an absolute quality percentage, and a data or sample size are not reach. " +
   "Set the level from the stated or implied audience instead. " +
@@ -34,6 +36,7 @@ test("career_evidence@1.2.3 restores the 1.2.1 selection prompt and classifies t
   expect(careerEvidenceV12RubricHash(CAREER_EVIDENCE_V1_2_2)).toBe(RUBRIC_HASH_V122);
   expect(CAREER_EVIDENCE_V1_2_2.selectivity.question).toContain("no company evidence");
   expect(CAREER_EVIDENCE_V1_2_2.scale.question).not.toContain("are not reach");
+  expect(CAREER_EVIDENCE_V1_2_2.scale.question).toContain(ONE_LEVEL_WHEN_UNSTATED);
 
   const spec = getSpec("career_evidence", "1.2.3");
   if (!("pool_strength" in spec) || !("scale" in spec)) throw new Error("expected a 1.2 spec");
@@ -41,7 +44,13 @@ test("career_evidence@1.2.3 restores the 1.2.1 selection prompt and classifies t
   expect(spec.selectivity).toEqual(CAREER_EVIDENCE_V1_2_1.selectivity);
   expect(spec.pool_strength).toEqual(CAREER_EVIDENCE_V1_2_1.pool_strength);
   expect(spec.selectivity.question).not.toContain("no company evidence");
-  expect(spec.scale.question).toBe(`${CAREER_EVIDENCE_V1_2_2.scale.question} ${NOT_REACH}`);
+  expect(spec.scale.question).toBe(
+    `${CAREER_EVIDENCE_V1_2_2.scale.question.replace(`${ONE_LEVEL_WHEN_UNSTATED} `, "")} ${NOT_REACH}`,
+  );
+  expect(spec.scale.question).not.toContain(ONE_LEVEL_WHEN_UNSTATED);
+  expect(spec.scale.question).not.toContain("put the probability on that one level");
+  expect(spec.scale.question).toContain("still pick one level");
+  expect(spec.scale.question).toContain("A stated number is mapped, not hedged.");
   expect(spec.scale.levels).toEqual(CAREER_EVIDENCE_V1_2_2.scale.levels);
   expect(spec.difficulty).toEqual(CAREER_EVIDENCE_V1_2_2.difficulty);
   expect(spec.role).toEqual(CAREER_EVIDENCE_V1_2_2.role);
@@ -51,7 +60,7 @@ test("career_evidence@1.2.3 restores the 1.2.1 selection prompt and classifies t
   );
 
   const hash = careerEvidenceV12RubricHash(spec);
-  expect(hash).toBe(RUBRIC_HASH_V123);
+  expect(hash).not.toBe(PREVIOUS_V123_HASH);
   expect(hash).not.toBe(RUBRIC_HASH_V120);
   expect(hash).not.toBe(RUBRIC_HASH_V121);
   expect(hash).not.toBe(RUBRIC_HASH_V122);
@@ -68,7 +77,7 @@ test("career_evidence@1.2.3 smoke still emits noCompanyEvidence", async () => {
   expect(code).toBe(0);
   const summary = await readFile(join(dir, "summary.md"), "utf8");
   expect(summary).toContain("Rubric career_evidence@1.2.3.");
-  expect(summary).toContain(`Rubric hash ${RUBRIC_HASH_V123}.`);
+  expect(summary).not.toContain(`Rubric hash ${PREVIOUS_V123_HASH}.`);
   expect(summary).not.toContain(`Rubric hash ${RUBRIC_HASH_V122}.`);
   expect(summary).toContain("Claims accepted 13. Review 1. Rejected 0.");
   expect(summary).toContain("Calls 16. Answered 16. judgment_unavailable 0. Invariant failures 0.");
