@@ -228,7 +228,7 @@ export const submitReferralSignup = mutation({
 
     await insertSignupRecords(ctx.db, club._id, plan);
     if (upload) await ctx.db.patch(upload._id, { usedAt: Date.now() });
-    return { status: "created" as const, token: issued.token };
+    return { status: "created" as const, token: issued.token, personId: plan.person.id };
   },
 });
 
