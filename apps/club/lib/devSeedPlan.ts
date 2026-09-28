@@ -14,23 +14,16 @@ export const EXAMPLE_NOW = "2026-01-15T15:00:00.000Z";
 export const EXAMPLE_AFFILIATION = "Example data";
 export const EXAMPLE_CLUB_NAME = "Example club (dev)";
 
-export type ExampleRole = "member" | "admin";
 export type ReferralStrength = "strong" | "medium" | "weak";
 
 export type ExampleLogin = {
   email: string;
   name: string;
-  role: ExampleRole;
+  role: "member";
 };
 
 type ExampleMember = { id: string; name: string; email: string };
 type ExampleApplicant = ExampleMember & { strength: ReferralStrength | "none" };
-
-export const EXAMPLE_ADMIN: ExampleLogin = {
-  email: "council.clerk@example.test",
-  name: "Council Clerk",
-  role: "admin",
-};
 
 export const EXAMPLE_REFERRERS: readonly ExampleMember[] = [
   { id: "ex-ada-referrer", name: "Ada Quill", email: "ada.quill@example.test" },
@@ -186,14 +179,11 @@ export function answersForStrength(strength: ReferralStrength): MemberReferralAn
 }
 
 export function exampleLoginAccounts(): ExampleLogin[] {
-  return [
-    ...EXAMPLE_REFERRERS.map((person) => ({
-      email: person.email,
-      name: person.name,
-      role: "member" as const,
-    })),
-    EXAMPLE_ADMIN,
-  ];
+  return EXAMPLE_REFERRERS.map((person) => ({
+    email: person.email,
+    name: person.name,
+    role: "member" as const,
+  }));
 }
 
 export function devSeedEnvError(env: { CLUB_DEV_SEED?: string }): string | null {

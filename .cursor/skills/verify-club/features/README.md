@@ -51,4 +51,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Login door](./login-door.md) covers the chips `/login` form, the `/club` redirect, `/info` login, and that `/` and `/demo` stay public.
 - [Comparisons](./comparisons.md) covers the per-trait record sheet on a case.
 - [Info](./info.md) covers the underlined `info` on `/` and the `/info` note.
-- [Dev seed local backend](./dev-seed.md) covers signing in as an `@example.test` account against a local Convex backend seeded with `bun run seed:dev`. Doctor refuses this mode when the Convex URL is not local.
+- [Dev seed local backend](./dev-seed.md) covers signing in as an `@example.test` account against a local Convex backend seeded with `bun run seed:dev`. The seed creates member referrers only. `helpers/provision-local-admin.sh` creates the council admin after the loopback check. Doctor refuses this mode when the Convex URL is not local.

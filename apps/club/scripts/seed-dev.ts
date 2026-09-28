@@ -45,7 +45,6 @@ function printReport(value: unknown): void {
   const report = value as {
     counts?: Record<string, number>;
     referrerEmails?: string[];
-    adminEmail?: string;
   } | null;
   if (!report?.counts) return;
   for (const [table, count] of Object.entries(report.counts)) {
@@ -55,7 +54,6 @@ function printReport(value: unknown): void {
     console.log("referrer logins:");
     for (const email of report.referrerEmails) console.log(`  ${email}`);
   }
-  if (report.adminEmail) console.log(`admin login: ${report.adminEmail}`);
 }
 
 export async function main(

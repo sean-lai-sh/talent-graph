@@ -1,18 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   answersForStrength,
   applyExampleAnswers,
   deploymentLabel,
   devSeedEnvError,
-  EXAMPLE_ADMIN,
   EXAMPLE_AFFILIATION,
   EXAMPLE_ANCHORS,
   EXAMPLE_APPLICANTS,
   EXAMPLE_REFERRERS,
   emptyExampleState,
+  exampleLoginAccounts,
   isDuplicateReferral,
   isExampleEmail,
   isExamplePersonId,
@@ -308,8 +309,19 @@ describe("example workload", () => {
       evaluations: reset.evaluations.length,
       feedbackRequests: reset.feedbackRequests.length,
     }).toEqual(before);
-    expect(EXAMPLE_ADMIN.email).toBe("council.clerk@example.test");
-    expect(isExampleEmail(EXAMPLE_ADMIN.email)).toBe(true);
+  });
+
+  test("the seed plan has no admin account and the report does not name one", () => {
+    const accounts = exampleLoginAccounts();
+    expect(accounts.length).toBe(EXAMPLE_REFERRERS.length);
+    for (const account of accounts) expect(account.role).toBe("member");
+    const plan = read("apps/club/lib/devSeedPlan.ts");
+    const devSeed = read("apps/club/convex/devSeed.ts");
+    const script = read("apps/club/scripts/seed-dev.ts");
+    expect(plan).not.toContain('role: "admin"');
+    expect(devSeed).not.toContain("adminEmail");
+    expect(script).not.toContain("adminEmail");
+    expect(script).not.toContain("admin login");
   });
 });
 
@@ -335,5 +347,35 @@ describe("verify-club local backend", () => {
     expect(read(".cursor/skills/verify-club/helpers/doctor.sh")).toContain(
       "assert_local_backend_convex_url",
     );
+  });
+
+  test("the local admin step refuses a cloud Convex URL and does not provision", () => {
+    const dir = mkdtempSync(join(tmpdir(), "verify-club-admin-"));
+    const invoked = join(dir, "invoked");
+    writeFileSync(
+      join(dir, "bun"),
+      `#!/bin/sh\nprintf '%s\\n' invoked >> ${JSON.stringify(invoked)}\nexit 0\n`,
+      { mode: 0o755 },
+    );
+    const refused = spawnSync(
+      "bash",
+      [".cursor/skills/verify-club/helpers/provision-local-admin.sh"],
+      {
+        cwd: root,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${dir}:${process.env.PATH ?? ""}`,
+          NEXT_PUBLIC_CONVEX_URL: "https://happy-animal-123.convex.cloud",
+          NEXT_PUBLIC_CONVEX_SITE_URL: "https://happy-animal-123.convex.site",
+          SEED_DEV_PASSWORD: "should-not-print",
+          ADMIN_PROVISION_SECRET: "should-not-print",
+        },
+      },
+    );
+    expect(refused.status).not.toBe(0);
+    expect(refused.stderr).toContain("local-backend mode refuses a non-local Convex URL");
+    expect(refused.stdout + refused.stderr).not.toContain("should-not-print");
+    expect(existsSync(invoked)).toBe(false);
   });
 });

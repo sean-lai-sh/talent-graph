@@ -6,14 +6,16 @@
 
 - `local-doctor` refuses the mode unless both Convex URLs are `127.0.0.1` or `localhost`.
 - `member-home` signs in as referrer `ada.quill@example.test` and shows the member home (Forum).
-- `council-board` signs in as admin `council.clerk@example.test` and lists example applicants with a Referral Signal, including Insufficient Evidence.
+- `local-admin` provisions `council.clerk@example.test` with role admin through `apps/club/scripts/provision-user.ts`, and only after both Convex URLs pass `assert_local_backend_convex_url`. `seed:dev` does not create this account.
+- `council-board` signs in as that locally provisioned admin and lists example applicants with a Referral Signal, including Insufficient Evidence.
 
 ## How to get to it (user POV)
 
-- Start a local Convex backend and run `bun run seed:dev` from `apps/club` with `CLUB_DEV_SEED=1` and `SEED_DEV_PASSWORD` set in the shell.
+- Start a local Convex backend and run `bun run seed:dev` from `apps/club` with `CLUB_DEV_SEED=1` and `SEED_DEV_PASSWORD` set in the shell. That seed creates member referrers only.
 - Launch with `VERIFY_CLUB_LOCAL=1`, `NEXT_PUBLIC_CONVEX_URL` and `NEXT_PUBLIC_CONVEX_SITE_URL` on that local backend.
+- After doctor prints local-backend mode, run `helpers/provision-local-admin.sh` with the same two Convex URLs, `SEED_DEV_PASSWORD`, and `ADMIN_PROVISION_SECRET`. It creates `council.clerk@example.test` as admin. A cloud URL exits before `provision-user.ts` runs.
 - Open `/login`, sign in as the example referrer, and land on `/members`.
-- Sign out, sign in as the example admin, and open `/club`.
+- Sign out, sign in as `council.clerk@example.test`, and open `/club`.
 
 ## Driving it with cursor-ide-browser
 
@@ -25,6 +27,7 @@ Preconditions:
 - The password is the shell's `SEED_DEV_PASSWORD`. Do not write it into notes, snapshots, or the pull request.
 
 - **Member home.** Navigate to `/login`. Fill Email `ada.quill@example.test` and Password from `SEED_DEV_PASSWORD`. Activate `Sign in`. The browser lands on `/members`. The nav is `Member`. The heading is `Forum`. Snapshot and screenshot.
+- **Local admin.** Run `helpers/provision-local-admin.sh` only after doctor has printed a loopback Convex URL. It calls `provision-user.ts` with `ACCOUNT_ROLE=admin` for `council.clerk@example.test`. The password is `SEED_DEV_PASSWORD`. Do not print it.
 - **Council board.** Activate `Sign out`. Navigate to `/login`. Fill Email `council.clerk@example.test` and the same password. Activate `Sign in`. The browser lands on `/club`. Region `Applicants` lists example names such as `Edd Pike` and `Ash Plover`. Open `Edd Pike`. The case shows a numeric Referral Signal. Open `Ash Plover`. The case shows `Insufficient Evidence`. Snapshot and screenshot the list and both cases.
 
 ## Gotchas

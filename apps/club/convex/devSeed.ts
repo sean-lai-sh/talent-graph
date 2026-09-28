@@ -3,7 +3,6 @@ import { ensureClub, loadClub, loadState, saveState } from "../lib/clubStore.ts"
 import {
   deploymentLabel,
   devSeedEnvError,
-  EXAMPLE_ADMIN,
   EXAMPLE_CLUB_NAME,
   EXAMPLE_REFERRERS,
   exampleLoginAccounts,
@@ -168,7 +167,6 @@ export const seed = internalMutation({
       target: deploymentLabel(process.env.CONVEX_DEPLOYMENT),
       counts: await counts(ctx, club._id),
       referrerEmails: EXAMPLE_REFERRERS.map((person) => person.email),
-      adminEmail: EXAMPLE_ADMIN.email,
     };
   },
 });
