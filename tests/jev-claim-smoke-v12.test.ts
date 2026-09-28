@@ -8,6 +8,11 @@ import { type V12JevClient, v12JobCheckText } from "../scripts/jev-claim-smoke-v
 import { preprocessJobClaims } from "../src/longitudinal/claimPreprocess.ts";
 import type { JevJudgmentService } from "../src/longitudinal/judgments.ts";
 import { JudgmentInvariantError } from "../src/longitudinal/records.ts";
+import {
+  CAREER_EVIDENCE_V1_2_0,
+  CAREER_EVIDENCE_V1_2_1,
+  careerEvidenceV12RubricHash,
+} from "../src/models/careerEvidenceV12.ts";
 import { fixtureAnswers, fixtureV12Client } from "./fixtures/jev-claim-smoke-v12-client.ts";
 
 const fixturePath = join(import.meta.dir, "fixtures/jev-claim-smoke-v12.items.json");
@@ -195,6 +200,86 @@ test("career_evidence@1.2.1 omits class on dated claims and keeps the fixture sc
     status: "review",
     reviewReasons: ["dimension_low_confidence"],
   });
+});
+
+test("1.2.x smoke records dimension confidence and leaves the rubric hashes", async () => {
+  expect(careerEvidenceV12RubricHash(CAREER_EVIDENCE_V1_2_0)).toBe(RUBRIC_HASH_V120);
+  expect(careerEvidenceV12RubricHash(CAREER_EVIDENCE_V1_2_1)).toBe(RUBRIC_HASH_V121);
+
+  const dir = await mkdtemp(join(tmpdir(), "jev-v121-confidence-"));
+  const code = await main(
+    ["--items", fixturePath, "--rubric", "career_evidence@1.2.1", "--out", dir],
+    throwingV10(),
+    throwingV11(),
+    fixtureV12Client(),
+  );
+  expect(code).toBe(0);
+  const summary = await readFile(join(dir, "summary.md"), "utf8");
+  expect(summary).toContain(`Rubric hash ${RUBRIC_HASH_V121}.`);
+  expect(summary).toContain(`Claim value hash ${CONFIG_HASH}.`);
+  expect(summary).toContain(`Person rollup hash ${ROLLUP_HASH}.`);
+  expect(summary).toContain("Claims accepted 13. Review 1. Rejected 0.");
+  expect(summary).toContain("Calls 16. Answered 16. judgment_unavailable 0. Invariant failures 0.");
+  expect(summary).toContain("## Dimension confidence");
+  expect(summary).toContain("| hire | selectivity | 0 | 0.9000 | 0.9000 | 0.9000 | 4 |");
+  expect(summary).toContain("| hire | pool_strength | 0 | 0.9000 | 0.9000 | 0.9000 | 4 |");
+  expect(summary).toContain("| award | selectivity | 0 | 0.9000 | 0.9000 | 0.9000 | 3 |");
+  expect(summary).toContain("| award | pool_strength | 0 | 0.9000 | 0.9000 | 0.9000 | 3 |");
+  expect(summary).toContain("| output | difficulty | 0 | 0.9000 | 0.9000 | 0.9000 | 7 |");
+  expect(summary).toContain("| output | scale | 1 | 0.2000 | 0.9000 | 0.9000 | 7 |");
+  for (const phrase of PRIVATE) {
+    expect(summary).not.toContain(phrase);
+  }
+
+  const rows = (await readFile(join(dir, "claims.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+  expect(rows).toHaveLength(14);
+  expect(rows.every((row) => row.rubricHash === RUBRIC_HASH_V121)).toBe(true);
+  expect(rows.find((row) => row.claimId === "a-harbor#hire")).toMatchObject({
+    status: "accepted",
+    selectivity: 4,
+    selectivityConfidence: 0.9,
+    selectivityProbabilities: [0, 0, 0, 0, 1],
+    poolStrength: 2,
+    poolStrengthConfidence: 0.9,
+    poolStrengthProbabilities: [0, 0, 1, 0, 0],
+    difficultyConfidence: null,
+    scaleConfidence: null,
+    lowDimensions: [],
+    stageAtHirePresent: false,
+    investorTierPresent: false,
+    acceptanceRatePresent: false,
+  });
+  expect(rows.find((row) => row.claimId === "a-harbor#2")).toMatchObject({
+    status: "review",
+    reviewReasons: ["dimension_low_confidence"],
+    difficulty: 2,
+    difficultyConfidence: 0.9,
+    scale: 1,
+    scaleConfidence: 0.2,
+    scaleProbabilities: [0, 1, 0, 0, 0],
+    lowDimensions: ["scale"],
+    stageAtHirePresent: false,
+    investorTierPresent: false,
+    acceptanceRatePresent: false,
+  });
+  expect(rows.find((row) => row.claimId === "a-pine#funding")).toMatchObject({
+    acceptanceRatePresent: true,
+    stageAtHirePresent: false,
+    investorTierPresent: false,
+    lowDimensions: [],
+  });
+  expect(rows.find((row) => row.claimId === "a-north")).toMatchObject({
+    acceptanceRatePresent: true,
+    stageAtHirePresent: false,
+    investorTierPresent: false,
+    poolStrength: 1,
+    poolStrengthProbabilities: [0, 1, 0, 0, 0],
+  });
+  const jsonl = rows.map((row) => JSON.stringify(row)).join("\n");
+  for (const phrase of PRIVATE) expect(jsonl).not.toContain(phrase);
 });
 
 test("a transport failure stays on its claim and an invariant exits 1", async () => {
