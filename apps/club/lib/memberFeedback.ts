@@ -41,7 +41,7 @@ export type MemberResponseDraft = {
 
 export type MemberResponsePlan = { key: string; state: ClubState } | { key: null; error: string };
 
-function normalizedEmail(email: string | undefined): string {
+export function normalizedEmail(email: string | undefined): string {
   return email?.trim().toLowerCase() ?? "";
 }
 
