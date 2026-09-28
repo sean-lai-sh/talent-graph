@@ -17,6 +17,7 @@ import { getSpec, specVersions } from "../src/models/registry.ts";
 import { fixtureV12Client } from "./fixtures/jev-claim-smoke-v12-client.ts";
 
 const RUBRIC_HASH_V121 = "8170c38a439ccca3130ae2e60979b5b0519a6ba3ef2500ffeaac75b199691e3c";
+const RUBRIC_HASH_V122 = "b644c4c39148e937a8d7cd853a8c2d2232eec04bb1e42a48e9ced8eaeb9b727f";
 const PREVIOUS_V122_HASH = "842d40ab0e280f7270450fd03ac5fb3fe020e00a5ce8229b5a916a3110ede6cc";
 const NO_COMPANY_EVIDENCE = "When `selection_rate` is absent, no company evidence is available.";
 const fixturePath = join(import.meta.dir, "fixtures/jev-claim-smoke-v12.items.json");
@@ -69,8 +70,9 @@ test("career_evidence@1.2.2 keeps scale ranges and only states that company evid
   expect(scale).toContain("at most 15");
   expect(scale).toContain("under $10,000");
 
-  expect(careerEvidenceV12RubricHash(spec)).not.toBe(RUBRIC_HASH_V121);
-  expect(careerEvidenceV12RubricHash(spec)).not.toBe(PREVIOUS_V122_HASH);
+  expect(careerEvidenceV12RubricHash(spec)).toBe(RUBRIC_HASH_V122);
+  expect(RUBRIC_HASH_V122).not.toBe(RUBRIC_HASH_V121);
+  expect(RUBRIC_HASH_V122).not.toBe(PREVIOUS_V122_HASH);
   expect(careerEvidenceV12QuestionPlan(spec)).toEqual(
     careerEvidenceV12QuestionPlan(CAREER_EVIDENCE_V1_2_1),
   );
@@ -90,6 +92,7 @@ test("career_evidence@1.2.2 smoke runs on the synthetic fixture", async () => {
   expect(code).toBe(0);
   const summary = await readFile(join(dir, "summary.md"), "utf8");
   expect(summary).toContain("Rubric career_evidence@1.2.2.");
+  expect(summary).toContain(`Rubric hash ${RUBRIC_HASH_V122}.`);
   expect(summary).not.toContain(`Rubric hash ${RUBRIC_HASH_V121}.`);
   expect(summary).toContain("Claims accepted 13. Review 1. Rejected 0.");
   expect(summary).toContain("Calls 16. Answered 16. judgment_unavailable 0. Invariant failures 0.");

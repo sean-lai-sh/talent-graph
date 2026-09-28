@@ -113,28 +113,12 @@ export const CAREER_EVIDENCE_V1_2_1: CareerEvidenceV12Spec = deepFreeze({
   version: "1.2.1",
 });
 
-const SELECTIVITY_QUESTION_V122 =
-  "Using only `text`, how selective was this choice from a pool? " +
-  "When `selection_rate` is present, map it to the anchor band that contains it. " +
-  "A rate of at most 0.01 is level 4, at most 0.05 is level 3, at most 0.20 is level 2, " +
-  "at most 0.50 is level 1, and any higher rate is level 0. Each bound is inclusive. " +
-  "When `selection_rate_upper_bound` is true, the rate is a ceiling because the pool was at least that large, " +
-  "so do not assign a less selective level than the band for that ceiling. " +
-  "When `selection_rate` is absent, this claim has no company evidence. " +
-  "Judge from the job title and the kind of organization named in the text, using the no-evidence half of each anchor. " +
-  "Pick one level and put the probability on that level. " +
-  "Do not spread probability across adjacent levels because the evidence is thin.";
+const NO_COMPANY_EVIDENCE_SENTENCE =
+  "When `selection_rate` is absent, no company evidence is available.";
 
-const POOL_QUESTION_V122 =
-  "Using only `text`, how broad was the pool this person was chosen from? " +
-  "Never rate a country, city, or region as a stronger or weaker pool. " +
-  "Only breadth of eligibility counts: one school, a national open pool, or an international pool. " +
-  "Breadth of eligibility is a fact about the rules. Whether a region is strong is not asked. " +
-  "When the text does not say what the pool was and `selection_rate` is absent, this claim has no company evidence. " +
-  "Judge breadth from the job title and the kind of organization, using the no-evidence half of each anchor. " +
-  "Pick one level and put the probability on that level. " +
-  "Do not spread probability across adjacent levels because the evidence is thin. " +
-  "Do not answer 0 only because the pool was not stated.";
+const SELECTIVITY_QUESTION_V122 = `${SELECTIVITY_QUESTION} ${NO_COMPANY_EVIDENCE_SENTENCE}`;
+
+const POOL_QUESTION_V122 = `${POOL_QUESTION} ${NO_COMPANY_EVIDENCE_SENTENCE}`;
 
 const SCALE_QUESTION_V122 =
   "Using only `text`, how far does this work reach beyond the people who made it? " +
@@ -151,23 +135,11 @@ export const CAREER_EVIDENCE_V1_2_2: CareerEvidenceV12Spec = deepFreeze({
   version: "1.2.2",
   selectivity: {
     question: SELECTIVITY_QUESTION_V122,
-    levels: [
-      "More than 50% of the pool was chosen, or the evidence does not show a selective choice. With no company evidence, a student club, an informal group, or a title that is not a screened role.",
-      "At most 50% of the pool was chosen, and more than 20%. A modest screen. With no company evidence, an unknown startup or a university lab hiring into an ordinary role.",
-      "At most 20% of the pool was chosen, and more than 5%. A real competitive screen. With no company evidence, a well-known large employer hiring into a standard role.",
-      "At most 5% of the pool was chosen, and more than 1%. A highly selective screen. With no company evidence, a fellow or principal title at a well-known institution. Do not use this level for an ordinary title at a large employer.",
-      "At most 1% of the pool was chosen. A rare fellowship, award, admission, or competitive role. Do not assign level 4 from a title and an organization type alone.",
-    ],
+    levels: CAREER_EVIDENCE_V1_2_1.selectivity.levels,
   },
   pool_strength: {
     question: POOL_QUESTION_V122,
-    levels: [
-      "No competitive pool is shown. Everyone who applied got in, or the pool was a handful of people picked informally. Example: selected as team note-taker, or an open-enrollment course certificate. With no company evidence, a student club role or an informal pick among people who already belonged.",
-      "One class, one team, one school, or one company's internal pool, with no pre-filter beyond membership. Example: a single school's design competition, 1 in 400 from one school, or a course's best-project award. With no company evidence, an unknown startup, a university lab, or one team at one organization.",
-      "Campus-wide at a selective school, with a published admission rate at or below about 20%, or a pool open to several schools or companies whose entrants had already passed one screen. Example: a university-wide research fellowship at a selective school, or an inter-college hackathon with an application round. With no company evidence, a well-known large employer. The pool is that employer's applicants, not a national open program.",
-      "A national open pool, where anyone in the country in the eligible group can enter and the entrant count is large or published. Example: a national olympiad qualifier, or a national fellowship with a published applicant count. Do not assign this level from an employer name alone. The text has to say the pool is national.",
-      "An international or elite pre-filtered pool, where entrants are already among the strongest in the field. Example: an IMO team, top Putnam ranks, an international olympiad, or a top global fellowship. Do not assign this level from an employer name alone. The text has to say the pool is international or already elite.",
-    ],
+    levels: CAREER_EVIDENCE_V1_2_1.pool_strength.levels,
   },
   scale: {
     question: SCALE_QUESTION_V122,

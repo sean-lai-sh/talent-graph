@@ -77,6 +77,7 @@ interface AnsweredV12Row extends Stamp {
   stageAtHirePresent: boolean;
   investorTierPresent: boolean;
   acceptanceRatePresent: boolean;
+  noCompanyEvidence: boolean;
   role: string | null;
   claimValue: number;
   observedAt: string;
@@ -291,6 +292,7 @@ export function renderV12Jsonl(report: V12SmokeReport): string {
         stageAtHirePresent: row.stageAtHirePresent,
         investorTierPresent: row.investorTierPresent,
         acceptanceRatePresent: row.acceptanceRatePresent,
+        noCompanyEvidence: row.noCompanyEvidence,
         respondedModel: row.respondedModel,
       });
     })
@@ -820,6 +822,7 @@ function answeredRow(
     stageAtHirePresent: evidence?.stageAtHire != null,
     investorTierPresent: evidence?.investorTier != null,
     acceptanceRatePresent,
+    noCompanyEvidence: claim.noCompanyEvidence,
     role: output ? output.role.choice : null,
     claimValue: value.claimValue,
     observedAt: observedInstant(claim, located.publishedAt),

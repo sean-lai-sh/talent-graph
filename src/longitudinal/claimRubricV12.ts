@@ -90,6 +90,7 @@ interface ScoredClaimBase {
   rubricHash: string;
   titleHint: string | null;
   jobDates: JobDateFields;
+  noCompanyEvidence: boolean;
 }
 
 export type ScoredClaimV12 =
@@ -522,13 +523,15 @@ function materialize(
       throw new JudgmentInvariantError("selection response did not include pool_strength");
     }
     const selection = parsed;
+    const companyEvidence = evidenceFor(claim, seed);
     return {
       ...shared,
       ...gate(classConfidence, [selection.selectivity, selection.pool_strength], spec, handling),
       claimClass: "selection",
       selectivity: selection.selectivity,
       pool_strength: selection.pool_strength,
-      companyEvidence: evidenceFor(claim, seed),
+      companyEvidence,
+      noCompanyEvidence: lacksCompanyEvidence(claim, companyEvidence),
     };
   }
   if (!("role" in parsed)) {
@@ -543,7 +546,19 @@ function materialize(
     scale: output.scale,
     role: output.role,
     roleSeed: roleSeedFor(claim.text),
+    noCompanyEvidence: false,
   };
+}
+
+function lacksCompanyEvidence(
+  claim: SplitClaim,
+  evidence: CompanySelectionEvidence | null,
+): boolean {
+  if (evidence?.stageAtHire != null) return false;
+  if (evidence?.investorTier != null) return false;
+  if (selectionSignal(claim.facts) !== null) return false;
+  if (evidence?.knownRate != null) return false;
+  return true;
 }
 
 function confidenceFor(parsed: ClassDistribution, resolved: "selection" | "output"): number {

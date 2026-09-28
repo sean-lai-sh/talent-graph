@@ -254,27 +254,32 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   stays `Verdict: STABLE`.)
 - **PR:** stacked on #98.
 
-## career_evidence@1.2.2 thin evidence picks one level
+## career_evidence@1.2.2 scale ranges and a missing-evidence tag
 
 - **What:** `CAREER_EVIDENCE_V1_2_2` is registered beside `1.2.1`.
   `CURRENT_SPECS.career_evidence` stays `1.0.0`. Versions `1.0.0` through
-  `1.2.1` keep their question text and their hashes. `1.2.1` stays
+  `1.2.1` keep their question text and their hashes. `1.2.0` stays
+  `bcf23650aa94d7db63cd254cd04d31cfbd77201af887c7b3b4645238f5d9e376`.
+  `1.2.1` stays
   `8170c38a439ccca3130ae2e60979b5b0519a6ba3ef2500ffeaac75b199691e3c`.
   `1.2.2` hashes to
-  `842d40ab0e280f7270450fd03ac5fb3fe020e00a5ce8229b5a916a3110ede6cc`.
+  `b644c4c39148e937a8d7cd853a8c2d2232eec04bb1e42a48e9ced8eaeb9b727f`.
   `1.2.2` uses the `1.2.1` question plan. Dated claims still omit
   `claim_class`. Thresholds stay `0.65` and `0.5`. The selectivity and
-  pool-strength questions say that a claim with no `selection_rate` has no
-  company evidence, and they give title and organization anchors for a
-  student club, an unknown startup, a university lab, and a well-known large
-  employer. Thin evidence picks one level. It does not spread probability.
-  The scale question maps a stated quantity onto one level, with ranges for
-  users, requests, a percent, team size, and money. A stated number is
-  mapped, not hedged. `company_seed` is unchanged.
-- **Why:** On `1.2.1`, hire claims had no company evidence, and the pool
-  question told the model to answer a missing pool with low confidence.
-  Scale flags clustered on bullets that stated a number, because the anchors
-  did not place that number on one level.
+  pool-strength questions are the `1.2.1` questions plus one sentence.
+  When `selection_rate` is absent, no company evidence is available. Their
+  levels stay the `1.2.1` levels. The scale question maps a stated quantity
+  onto one level, with ranges for users, requests, a percent, team size, and
+  money. A stated number is mapped, not hedged. A scored claim carries
+  `noCompanyEvidence`. It is true when a selection claim has no stage at
+  hire, no investor tier, and no acceptance rate. An output claim is false.
+  The smoke `claims.jsonl` emits the same field. Consensus, substance,
+  value, and alpha are unchanged. `company_seed` is unchanged.
+- **Why:** Hire claims have no company evidence. That uncertainty stays in
+  the answer. The tag lets a later score weigh those claims less. Scale
+  flags clustered on bullets that stated a number, because the anchors did
+  not place that number on one level. The dimension threshold stays `0.5`,
+  because those flags were spread across levels.
 - **Drift:** n/a (`CURRENT_SPECS` did not move. Demo and drift do not call
   `career_evidence@1.2.2`. `bun run drift -- --kind referral_signal --before 0.1.0 --after 0.1.0`
   stays `Verdict: STABLE`.)
