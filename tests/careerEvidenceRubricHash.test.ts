@@ -232,10 +232,11 @@ test("the rubric hash is the serialized ask", () => {
     const behavior = careerEvidenceV12Behavior(spec);
     const observed = v12Plan(spec);
     expect(careerEvidenceV12RubricHash(spec)).toBe(hashInputs(behavior));
-    expect([...behavior.questionPlan.dated.selection].sort()).toEqual(observed.asks.datedSelection);
-    expect([...behavior.questionPlan.dated.output].sort()).toEqual(observed.asks.datedOutput);
-    expect([...behavior.questionPlan.free.probe].sort()).toEqual(observed.asks.freeProbe);
-    expect([...behavior.questionPlan.free.selection].sort()).toEqual(observed.asks.freeScore);
+    const asked = (keys: readonly string[]) => [...keys].sort();
+    expect(asked(behavior.questionPlan.dated.selection)).toEqual(observed.asks.datedSelection);
+    expect(asked(behavior.questionPlan.dated.output)).toEqual(observed.asks.datedOutput);
+    expect(asked(behavior.questionPlan.free.probe)).toEqual(observed.asks.freeProbe);
+    expect(asked(behavior.questionPlan.free.selection)).toEqual(observed.asks.freeScore);
     expect(behavior.questionPlan.dated.classHandling).toEqual(
       observed.classHandling.datedClassConfidence === 1
         ? { source: "structural", confidence: 1, classGate: "skip" }
