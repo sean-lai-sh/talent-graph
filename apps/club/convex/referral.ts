@@ -8,8 +8,8 @@ import {
   type NormalizedContact,
   newStatusToken,
   parseContact,
+  personWithContact,
   planSignup,
-  profileExistsInPeople,
   resumeClaimError,
   resumeFileError,
   statusLine,
@@ -21,24 +21,24 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { authComponent } from "./auth";
 
-async function profileExists(
+async function findProfileId(
   ctx: QueryCtx | MutationCtx,
   clubId: Id<"clubs">,
   contact: NormalizedContact,
-) {
+): Promise<string | null> {
   const indexed = await ctx.db
     .query("referralContacts")
     .withIndex("by_club_and_contact", (q) =>
       q.eq("clubId", clubId).eq("normalizedContact", contact.value),
     )
     .unique();
-  if (indexed) return true;
+  if (indexed) return indexed.personId;
   if (contact.kind === "email") {
     const person = await ctx.db
       .query("clubPeople")
       .withIndex("by_club_and_email", (q) => q.eq("clubId", clubId).eq("email", contact.value))
       .first();
-    return person !== null;
+    return person?.id ?? null;
   }
   // Council-entered phones are stored as typed, so an exact index hit can miss
   // them; compare every phone-bearing row under the same normalization.
@@ -46,7 +46,7 @@ async function profileExists(
     .query("clubPeople")
     .withIndex("by_club_and_phone", (q) => q.eq("clubId", clubId).gte("phone", ""))
     .collect();
-  return profileExistsInPeople(withPhone, contact);
+  return personWithContact(withPhone, contact)?.id ?? null;
 }
 
 async function referrerAlreadyLinked(
@@ -72,7 +72,8 @@ export const lookupReferralContact = query({
     const actor = { email: user.email };
     const parsed = parseContact(args.contact);
     const club = parsed.ok && !isSelfContact(actor, parsed.contact) ? await loadClub(ctx.db) : null;
-    const exists = club && parsed.ok ? await profileExists(ctx, club._id, parsed.contact) : false;
+    const exists =
+      club && parsed.ok ? (await findProfileId(ctx, club._id, parsed.contact)) !== null : false;
     return lookupDecision({ raw: args.contact, actor, profileExists: exists });
   },
 });
@@ -176,7 +177,9 @@ export const submitReferralSignup = mutation({
     const parsed = parseContact(args.contact);
     const self = parsed.ok && isSelfContact(actor, parsed.contact);
     const exists =
-      club && parsed.ok && !self ? await profileExists(ctx, club._id, parsed.contact) : false;
+      club && parsed.ok && !self
+        ? (await findProfileId(ctx, club._id, parsed.contact)) !== null
+        : false;
     const linked =
       club && parsed.ok && !self
         ? await referrerAlreadyLinked(ctx, club._id, user._id, parsed.contact)

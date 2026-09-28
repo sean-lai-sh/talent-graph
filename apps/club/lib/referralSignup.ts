@@ -49,7 +49,7 @@ const MONTHS = [
   "December",
 ] as const;
 
-const SELF_ERROR = "You can't refer yourself.";
+export const SELF_ERROR = "You can't refer yourself.";
 
 function normalizePhone(raw: string): string | null {
   const trimmed = raw.trim();
@@ -101,11 +101,11 @@ function personHasContact(person: ClubPerson, contact: NormalizedContact): boole
   return normalizePhone(person.phone) === contact.value;
 }
 
-export function profileExistsInPeople(
+export function personWithContact(
   people: readonly ClubPerson[],
   contact: NormalizedContact,
-): boolean {
-  return people.some((person) => personHasContact(person, contact));
+): ClubPerson | undefined {
+  return people.find((person) => personHasContact(person, contact));
 }
 
 export function lookupDecision(input: {
