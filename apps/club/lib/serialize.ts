@@ -74,6 +74,7 @@ export function comparisonToClub(c: Comparison): ClubComparison {
     createdAt: iso(c.createdAt),
   };
   if (c.evidenceText !== undefined) row.evidenceText = c.evidenceText;
+  if (c.weight !== undefined) row.weight = c.weight;
   return row;
 }
 
@@ -156,6 +157,7 @@ export function clubToComparison(c: ClubComparison): Comparison {
     createdAt: asDate(c.createdAt),
   };
   if (c.evidenceText !== undefined) row.evidenceText = c.evidenceText;
+  if (c.weight !== undefined) row.weight = c.weight;
   return row;
 }
 

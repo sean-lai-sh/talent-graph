@@ -101,6 +101,7 @@ const clubComparisonFields = {
   winnerId: v.union(v.string(), v.null()),
   confidence: v.union(scale5, v.null()),
   evidenceText: v.optional(v.string()),
+  weight: v.optional(v.number()),
   createdAt: v.string(),
 };
 
