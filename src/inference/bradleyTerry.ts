@@ -44,7 +44,6 @@
  * a warm start reproduces the plain fit to within solver tolerance.
  *
  * Confidence on a comparison is stored but **not** used here (V1).
- * `comparison.weight`, when set, scales the observation weight. Absent means 1.
  */
 
 import type { Comparison, Dimension } from "../domain/types.ts";
@@ -144,14 +143,6 @@ export interface ToObservationsOptions {
   tieHandling?: "ignore" | "half";
 }
 
-/**
- * Observation weight for one comparison.
- *
- * The base is 1 for a decisive outcome and 0.5 for each half of a tie. A
- * comparison with no `weight` returns that base unchanged, so the observation
- * is bit-identical to one built before weights existed. A present weight
- * multiplies the base, including both halves of a tie.
- */
 function scaledObservationWeight(base: number, comparisonWeight: number | undefined): number {
   return comparisonWeight === undefined ? base : base * comparisonWeight;
 }

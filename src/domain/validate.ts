@@ -98,7 +98,6 @@ export interface ValidateComparisonOptions {
   allowSelfEvaluation?: boolean;
 }
 
-/** A present comparison weight is a finite number in (0, 1]. Absent is valid. */
 function isComparisonWeight(weight: unknown): boolean {
   return typeof weight === "number" && Number.isFinite(weight) && weight > 0 && weight <= 1;
 }

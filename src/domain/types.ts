@@ -83,10 +83,6 @@ export interface Comparison {
   winnerId: string | null;
   /** Stored but ignored by the V1 likelihood. */
   confidence: Scale5 | null;
-  /**
-   * Share of one judgment this row contributes, in (0, 1].
-   * Absent means 1, so an unweighted row is the same observation as before.
-   */
   weight?: number;
   evidenceText?: string;
   createdAt: Date;

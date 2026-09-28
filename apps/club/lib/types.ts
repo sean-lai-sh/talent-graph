@@ -64,7 +64,6 @@ export interface ClubComparison {
   outcome: ComparisonOutcome;
   winnerId: string | null;
   confidence: Scale5 | null;
-  /** Share of one judgment, in (0, 1]. Omitted when the comparison has no weight. */
   weight?: number;
   evidenceText?: string;
   createdAt: IsoDate;
