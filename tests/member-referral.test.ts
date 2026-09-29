@@ -459,6 +459,22 @@ describe("saveMemberReferralAnswers", () => {
     expect(AMBIGUOUS_CONTACT_ERROR).not.toBe(NO_CONTACT_ERROR);
   });
 
+  test("a contact stored in mixed case still counts as shared and writes nothing", () => {
+    const twins = club([
+      member,
+      person("p-ada", "Ada Example", "candidate", "Ada@Example.test"),
+      person("p-ada2", "Ada Two", "candidate", "ada@example.test"),
+    ]);
+    for (const candidateId of ["p-ada", "p-ada2"]) {
+      expect(save(twins, { referredByUser: false, candidateId })).toEqual({
+        ok: false,
+        error: AMBIGUOUS_CONTACT_ERROR,
+        state: twins,
+      });
+    }
+    expect(twins.referrals).toHaveLength(0);
+  });
+
   test("an unlinked account and an email on two members get different errors", () => {
     const none = linkedState();
     none.people = [person("p-mina", "Mina Example", "candidate", MINA), applicant];

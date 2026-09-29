@@ -9,6 +9,7 @@ import {
   newStatusToken,
   normalizeProfile,
   parseContact,
+  peopleWithContact,
   personMatch,
   planSignup,
   RESUME_MAX_BYTES,
@@ -296,5 +297,26 @@ describe("personMatch", () => {
     expect(personMatch([{ id: "p-grace" }])).toEqual({ kind: "person", personId: "p-grace" });
     expect(personMatch([])).toEqual({ kind: "none" });
     expect(personMatch([{ id: "p-1" }, { id: "p-2" }])).toEqual({ kind: "ambiguous" });
+  });
+});
+
+describe("peopleWithContact", () => {
+  test("a stored email matches the lowercase contact whatever its case or spacing", () => {
+    const parsed = parseContact("ada@example.test");
+    if (!parsed.ok) throw new Error(parsed.error);
+    const person = (id: string, email: string) => ({
+      id,
+      name: id,
+      email,
+      status: "candidate" as const,
+      createdAt: "2026-09-28T12:00:00.000Z",
+      updatedAt: "2026-09-28T12:00:00.000Z",
+    });
+    expect(
+      peopleWithContact(
+        [person("p-ada", " Ada@Example.test "), person("p-other", "other@example.test")],
+        parsed.contact,
+      ).map((row) => row.id),
+    ).toEqual(["p-ada"]);
   });
 });
