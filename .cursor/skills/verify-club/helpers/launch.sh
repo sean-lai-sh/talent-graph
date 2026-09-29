@@ -45,6 +45,17 @@ echo "$RUN_ID" >"$CURRENT_FILE"
 # Isolated distDir so we do not share apps/club/.next with developer next dev.
 # next start + typed routes fails typecheck on a custom distDir; next dev works.
 # WATCHPACK_POLLING avoids EMFILE when another Next is already watching the repo.
+extra_env=""
+if [[ "${VERIFY_CLUB_LOCAL:-}" == "1" ]]; then
+  assert_local_backend_convex_url "${NEXT_PUBLIC_CONVEX_URL:-}"
+  assert_local_backend_convex_url "${NEXT_PUBLIC_CONVEX_SITE_URL:-}"
+  printf '%s\n' "local-backend" >"$RUN_DIR/mode"
+  printf '%s\n' "$NEXT_PUBLIC_CONVEX_URL" >"$RUN_DIR/convex_url"
+  printf '%s\n' "$NEXT_PUBLIC_CONVEX_SITE_URL" >"$RUN_DIR/convex_site_url"
+  extra_env="NEXT_PUBLIC_CONVEX_URL=$(printf '%q' "$NEXT_PUBLIC_CONVEX_URL") NEXT_PUBLIC_CONVEX_SITE_URL=$(printf '%q' "$NEXT_PUBLIC_CONVEX_SITE_URL") NEXT_PUBLIC_SITE_URL=$(printf '%q' "$URL")"
+  echo "verify-club: local-backend mode, Convex $NEXT_PUBLIC_CONVEX_URL" >&2
+fi
+
 echo "verify-club: next dev on $URL (dist $DIST_DIR)" >&2
 # nohup: survive launch.sh exiting (otherwise the process group gets SIGHUP).
 # Unset TG_* so Club loadSpecs() matches documented seed pins (same as verify-engine).
@@ -53,6 +64,7 @@ nohup bash -c "
   unset TG_BT_REGULARIZATION TG_BT_MAX_ITERATIONS TG_BT_TOLERANCE \
     TG_MIN_COMPARISONS TG_MIN_OPPONENTS TG_TOP_K_REFERRALS &&
   exec env NEXT_DIST_DIR=\"$DIST_DIR\" WATCHPACK_POLLING=true CHOKIDAR_USEPOLLING=true \
+    $extra_env \
     bun run dev -- -p \"$VERIFY_CLUB_PORT\"
 " >"$RUN_DIR/log" 2>&1 &
 echo $! >"$RUN_DIR/pid"

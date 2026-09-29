@@ -96,6 +96,25 @@ kill_ours() {
   kill_tree "$pid"
 }
 
+# Local-backend mode may sign in only against a loopback Convex URL.
+convex_url_is_local() {
+  local url="${1:-}"
+  local rest host
+  rest="${url#*://}"
+  if [[ -z "$url" || "$rest" == "$url" ]]; then
+    return 1
+  fi
+  host="${rest%%[:/]*}"
+  [[ "$host" == "127.0.0.1" || "$host" == "localhost" || "$host" == "[::1]" ]]
+}
+
+assert_local_backend_convex_url() {
+  local url="${1:-}"
+  if ! convex_url_is_local "$url"; then
+    die "local-backend mode refuses a non-local Convex URL (${url:-unset}). Use 127.0.0.1 or localhost."
+  fi
+}
+
 kill_tree() {
   local pid="$1"
   local child

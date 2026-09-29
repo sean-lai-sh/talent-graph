@@ -9,7 +9,7 @@ import { api } from "../../convex/_generated/api";
 /**
  * Real-org council page. Inputs live in Convex; views come from lib/engine.ts → src/.
  * Only mount this under <Authenticated> after convexConfigured() is true.
- * Org is keyed by the Better Auth owner — not a membership / invite model.
+ * Every admin shares one club per deployment. Not a membership / invite model.
  *
  * `api.club.setStatus` and `api.club.addReferral` exist for other pages; the
  * council page decides through `api.club.decide`.
