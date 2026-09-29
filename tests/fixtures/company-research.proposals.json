@@ -1,0 +1,27 @@
+[
+  {
+    "name": "Quarry",
+    "aliases": ["Quarry Inc"],
+    "source": "https://example.invalid/quarry",
+    "currentStage": "public_large",
+    "rounds": [
+      {
+        "date": "2008-03-01",
+        "stage": "series_a_b",
+        "investors": ["Sequoia", "Quarry Angels"],
+        "source": "https://example.invalid/quarry-series-a"
+      },
+      {
+        "date": "2012-05-01",
+        "stage": "public_large",
+        "investors": [],
+        "source": "https://example.invalid/quarry-ipo"
+      }
+    ],
+    "publishedRate": null,
+    "hiringBar": {
+      "note": "Quarry runs a five-round loop with a hiring committee.",
+      "source": "https://example.invalid/quarry-bar"
+    }
+  }
+]

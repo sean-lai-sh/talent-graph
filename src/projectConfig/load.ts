@@ -238,14 +238,14 @@ function parseCompanies(value: unknown, where: string): SeedCompany[] {
   if (!Array.isArray(value)) fail(where, "must be a list");
   const seen = new Set<string>();
   return value.map((entry, index) => {
-    const company = parseCompany(entry, `${where}[${index}]`);
+    const company = parseSeedCompany(entry, `${where}[${index}]`);
     if (seen.has(company.name)) fail(`${where}[${index}]`, `duplicate id "${company.name}"`);
     seen.add(company.name);
     return company;
   });
 }
 
-function parseCompany(value: unknown, where: string): SeedCompany {
+export function parseSeedCompany(value: unknown, where: string): SeedCompany {
   if (!isRecord(value)) fail(where, "must be a map");
   requireKeys(
     value,
