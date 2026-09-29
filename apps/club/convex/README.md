@@ -69,3 +69,6 @@ from `SEED_DEV_PASSWORD` and are never printed. Example person ids start
 with `ex-`, affiliation is `Example data`, and emails end in
 `@example.test`. Reset deletes those rows and the matching login
 accounts. It does not delete the `clubs` row or anyone else.
+The seed sets `club.now` to the later of its fixed date (`EXAMPLE_NOW`)
+and the current clock, so it never moves the clock back. Reset does not
+write `club.now`.

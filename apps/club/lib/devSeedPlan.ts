@@ -8,7 +8,13 @@ import type { Dimension } from "../../../src/domain/types.ts";
 import { addComparison, EXAMPLE_REQUIRED_DIMENSIONS, emptyState } from "./engine.ts";
 import { commitMemberReferral } from "./memberReferral.ts";
 import { planSignup } from "./referralSignup.ts";
-import type { ClubComparison, ClubPerson, ClubState, MemberReferralAnswers } from "./types.ts";
+import type {
+  ClubComparison,
+  ClubPerson,
+  ClubState,
+  IsoDate,
+  MemberReferralAnswers,
+} from "./types.ts";
 
 export const EXAMPLE_NOW = "2026-01-15T15:00:00.000Z";
 export const EXAMPLE_AFFILIATION = "Example data";
@@ -227,6 +233,11 @@ export function emptyExampleState(): ClubState {
   return state;
 }
 
+/** The seed never moves the club clock back; an unset or unparsable clock takes the seed date. */
+export function seedClock(current: IsoDate): IsoDate {
+  return Date.parse(current) > Date.parse(EXAMPLE_NOW) ? current : EXAMPLE_NOW;
+}
+
 export function planExampleSeed(input: {
   state: ClubState;
   userIdByEmail: Readonly<Record<string, string>>;
@@ -300,7 +311,7 @@ export function planExampleSeed(input: {
   }
 
   state = addAnchorComparisons(state);
-  return { state, contacts, links, jobs };
+  return { state: { ...state, now: seedClock(input.state.now) }, contacts, links, jobs };
 }
 
 export function applyAnswerJob(
@@ -315,7 +326,7 @@ export function applyAnswerJob(
     candidateId: job.candidateId,
     referredByUser: true,
     answers: job.answers,
-    submittedAt: state.now,
+    submittedAt: EXAMPLE_NOW,
   });
   if (result.ok) return { ok: true, state: result.state, already: false };
   if (isDuplicateReferral(result.error)) return { ok: true, state, already: true };

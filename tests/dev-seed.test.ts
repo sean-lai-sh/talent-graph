@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { planWrites } from "../apps/club/lib/clubWrites.ts";
 import {
   answersForStrength,
   applyExampleAnswers,
@@ -11,6 +12,7 @@ import {
   EXAMPLE_AFFILIATION,
   EXAMPLE_ANCHORS,
   EXAMPLE_APPLICANTS,
+  EXAMPLE_NOW,
   EXAMPLE_REFERRERS,
   emptyExampleState,
   exampleLoginAccounts,
@@ -21,10 +23,11 @@ import {
   planExampleSeed,
   resetExampleState,
   scriptTargetError,
+  seedClock,
 } from "../apps/club/lib/devSeedPlan.ts";
 import { computeView } from "../apps/club/lib/engine.ts";
 import { signalText } from "../apps/club/lib/format.ts";
-import { referralAnswersToEngine } from "../apps/club/lib/memberReferral.ts";
+import { commitMemberReferral, referralAnswersToEngine } from "../apps/club/lib/memberReferral.ts";
 import { clubToComparison, clubToPerson } from "../apps/club/lib/serialize.ts";
 import type { ClubPerson, ClubState } from "../apps/club/lib/types.ts";
 import { computeCapabilityVectors } from "../src/inference/capabilityVector.ts";
@@ -206,7 +209,7 @@ describe("example workload", () => {
     const devSeed = read("apps/club/convex/devSeed.ts");
     expect(devSeed).not.toMatch(/insert\(\s*["']clubReferrals["']/);
     expect(devSeed).toContain("saveOwnedMemberReferral(");
-    expect(devSeed).toContain("now: plan.state.now");
+    expect(devSeed).toContain("now: EXAMPLE_NOW");
     expect(devSeed).toContain("insertMemberReferralLink(");
     expect(devSeed).toContain("internalMutation(");
     expect(devSeed).not.toMatch(/export const seed = mutation\(/);
@@ -309,6 +312,73 @@ describe("example workload", () => {
       evaluations: reset.evaluations.length,
       feedbackRequests: reset.feedbackRequests.length,
     }).toEqual(before);
+  });
+
+  function seedOnce(state: ClubState, linked = new Set<string>(), contacts = new Set<string>()) {
+    const plan = planExampleSeed({ state, userIdByEmail: userIds(), linked, contacts });
+    return {
+      state: applyExampleAnswers(plan.state, plan.jobs),
+      linked: new Set([
+        ...linked,
+        ...plan.links.map((link) => linkKey(link.referrerUserId, link.personId)),
+      ]),
+      contacts: new Set([...contacts, ...plan.contacts.map((row) => row.normalizedContact)]),
+    };
+  }
+
+  test("the seed on a club whose clock is later than the seed date leaves club.now alone", () => {
+    const start = emptyExampleState();
+    start.now = "2026-09-28T12:00:00.000Z";
+    const { state } = seedOnce(start);
+    expect(state.now).toBe("2026-09-28T12:00:00.000Z");
+    expect(planWrites(start, state).club).toEqual({});
+    for (const referral of state.referrals) expect(referral.createdAt).toBe(EXAMPLE_NOW);
+    for (const comparison of state.comparisons) expect(comparison.createdAt).toBe(EXAMPLE_NOW);
+  });
+
+  test("the seed on an earlier or empty clock sets club.now to the seed date", () => {
+    expect(seedClock("2025-06-01T00:00:00.000Z")).toBe(EXAMPLE_NOW);
+    expect(seedClock("")).toBe(EXAMPLE_NOW);
+    expect(seedClock(EXAMPLE_NOW)).toBe(EXAMPLE_NOW);
+    expect(seedClock("2026-09-28T12:00:00.000Z")).toBe("2026-09-28T12:00:00.000Z");
+
+    const earlier = emptyExampleState();
+    earlier.now = "2025-06-01T00:00:00.000Z";
+    expect(seedOnce(earlier).state.now).toBe(EXAMPLE_NOW);
+    const empty = emptyExampleState();
+    empty.now = "";
+    expect(seedOnce(empty).state.now).toBe(EXAMPLE_NOW);
+  });
+
+  test("a real member referral saved after seeding still counts after a second seed run", () => {
+    const start = emptyExampleState();
+    start.people = [
+      keeper(),
+      { ...keeper(), id: "p-real", name: "Real Member", email: "real@club.test", status: "member" },
+    ];
+    const first = seedOnce(start);
+    expect(first.state.now).toBe(EXAMPLE_NOW);
+
+    const savedAt = "2026-09-28T12:00:00.000Z";
+    const saved = commitMemberReferral({
+      state: first.state,
+      email: "real@club.test",
+      candidateId: "p-keep",
+      referredByUser: true,
+      answers: answersForStrength("strong"),
+      submittedAt: savedAt,
+    });
+    if (!saved.ok) throw new Error(saved.error);
+    expect(saved.state.now).toBe(savedAt);
+
+    const second = seedOnce(saved.state, first.linked, first.contacts);
+    expect(second.state.now).toBe(savedAt);
+    expect(second.state.referrals).toHaveLength(saved.state.referrals.length);
+    const real = second.state.referrals.find((row) => row.referrerId === "p-real");
+    expect(real?.createdAt).toBe(savedAt);
+    const keep = computeView(second.state).people.find((person) => person.id === "p-keep");
+    expect(keep?.incomingCount).toBe(1);
+    expect(keep?.v0Signal).toBeGreaterThan(0);
   });
 
   test("the seed plan has no admin account and the report does not name one", () => {
