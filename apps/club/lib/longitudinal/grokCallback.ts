@@ -24,8 +24,7 @@ export async function grokCallbackToken(
     false,
     ["sign"],
   );
-  const message = purpose === "post" ? runId : `read:${runId}`;
-  const mac = await crypto.subtle.sign("HMAC", key, encoder.encode(message));
+  const mac = await crypto.subtle.sign("HMAC", key, encoder.encode(`${purpose}:${runId}`));
   return [...new Uint8Array(mac)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
@@ -38,11 +37,34 @@ export async function checkGrokCallbackToken(
   if (masterKey.length === 0 || presented === null) return false;
   const expected = await grokCallbackToken(masterKey, runId, purpose);
   if (presented.length !== expected.length) return false;
+  // node:crypto's timingSafeEqual is unavailable in the Convex default runtime.
   let diff = 0;
   for (let i = 0; i < expected.length; i++) {
     diff |= expected.charCodeAt(i) ^ presented.charCodeAt(i);
   }
   return diff === 0;
+}
+
+export type GrokCallbackAuth =
+  | { ok: true; runId: string }
+  | { ok: false; status: 400 | 401 | 500; reason: string; runId: string | null };
+
+/** The route's decision for a request to `GROK_CALLBACK_PATH`, before any body is read. */
+export async function authorizeGrokCallback(
+  requestUrl: string,
+  presented: string | null,
+  masterKey: string,
+  purpose: GrokTokenPurpose,
+): Promise<GrokCallbackAuth> {
+  const runId = new URL(requestUrl).searchParams.get("runId");
+  if (!runId) return { ok: false, status: 400, reason: "missing runId", runId: null };
+  if (masterKey.length === 0) {
+    return { ok: false, status: 500, reason: "callback master key is not set", runId };
+  }
+  if (!(await checkGrokCallbackToken(masterKey, runId, purpose, presented))) {
+    return { ok: false, status: 401, reason: "bad callback token", runId };
+  }
+  return { ok: true, runId };
 }
 
 export function grokCallbackUrl(siteUrl: string, runId: string): string {

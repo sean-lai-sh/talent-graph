@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import {
-  checkGrokCallbackToken,
+  authorizeGrokCallback,
   GROK_CALLBACK_MAX_BYTES,
   GROK_CALLBACK_TOKEN_HEADER,
 } from "../lib/longitudinal/grokCallback.ts";
@@ -32,7 +32,7 @@ export const reply = internalQuery({
 });
 
 function reject(status: number, reason: string, runId: string | null): Response {
-  console.warn(`grok company research ${status} runId=${runId ?? "-"}: ${reason}`);
+  console.warn(`grok company research ${status} runId=${JSON.stringify(runId)}: ${reason}`);
   return new Response(reason, { status });
 }
 
@@ -40,20 +40,19 @@ async function authorizedRunId(
   request: Request,
   purpose: "post" | "read",
 ): Promise<{ runId: string } | Response> {
-  const runId = new URL(request.url).searchParams.get("runId");
-  if (!runId) return reject(400, "missing runId", null);
-  const masterKey = process.env.GROK_CALLBACK_MASTER_KEY ?? "";
-  if (masterKey.length === 0) return reject(500, "callback master key is not set", runId);
-  const presented = request.headers.get(GROK_CALLBACK_TOKEN_HEADER);
-  if (!(await checkGrokCallbackToken(masterKey, runId, purpose, presented))) {
-    return reject(401, "bad callback token", runId);
-  }
-  return { runId };
+  const auth = await authorizeGrokCallback(
+    request.url,
+    request.headers.get(GROK_CALLBACK_TOKEN_HEADER),
+    process.env.GROK_CALLBACK_MASTER_KEY ?? "",
+    purpose,
+  );
+  return auth.ok ? { runId: auth.runId } : reject(auth.status, auth.reason, auth.runId);
 }
 
 export const post = httpAction(async (ctx, request) => {
   const auth = await authorizedRunId(request, "post");
   if (auth instanceof Response) return auth;
+  // A chunked body is buffered before this check; Convex's own request limit bounds it.
   const declared = Number(request.headers.get("Content-Length") ?? 0);
   if (declared > GROK_CALLBACK_MAX_BYTES) return reject(413, "body too large", auth.runId);
   const body = await request.text();

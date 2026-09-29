@@ -60,7 +60,7 @@ doppler secrets --only-names --project talent-graph --config dev | grep GROK_ROU
 
 The last command must list both names. Never paste the key into chat, a ticket, or git.
 
-The routine posts its result to the club Convex deployment at `POST /grok/company-research?runId=<runId>` (`apps/club/convex/grokCompanyResearch.ts`), and `--research` reads it back from `GET` on the same path. Both check a token derived from `GROK_CALLBACK_MASTER_KEY` and the runId: `HMAC-SHA256(key, runId)` to post, `HMAC-SHA256(key, "read:" + runId)` to read. The same key must be in Doppler and in the deployment env. To set or rotate it without printing it:
+The routine posts its result to the club Convex deployment at `POST /grok/company-research?runId=<runId>` (`apps/club/convex/grokCompanyResearch.ts`), and `--research` reads it back from `GET` on the same path. Both check a token derived from `GROK_CALLBACK_MASTER_KEY` and the runId: `HMAC-SHA256(key, "post:" + runId)` to post, `HMAC-SHA256(key, "read:" + runId)` to read. The same key must be in Doppler and in the deployment env. To set or rotate it without printing it:
 
 ```sh
 KEY=$(openssl rand -hex 32)
@@ -94,7 +94,7 @@ Keep `<items.json>` and `<proposals.json>` under the gitignored `sea-35-private/
 
 ## The routine runs asynchronously
 
-The webhook answers at once with only `{ "success": true, "runUuid": "…" }`. No documented API returns a run's output by `runUuid`, so `--research` sends each batch a `callbackUrl` and a per-run `callbackToken`, then polls the callback every 20 seconds for up to 30 minutes. The trigger body also carries a `delivery` field with the POST instruction, so the routine posts back even if its saved text predates the callback. A probe on 2026-09-29 (Grok run `610a2442-fb11-4a28-ad1b-152cffee8a1b`, synthetic Stripe intern entry) posted a valid reply 101 seconds after the trigger.
+The webhook answers at once with only `{ "success": true, "runUuid": "…" }`. No documented API returns a run's output by `runUuid`, so `--research` sends each batch a `callbackUrl` and a per-run `callbackToken`, then polls the callback every 20 seconds for up to 30 minutes. A failed read or an unparseable body is retried until then, because the route keeps the routine's last POST. A rejected token stops the batch at once. The trigger body also carries a `delivery` field with the POST instruction, so the routine posts back even if its saved text predates the callback. A probe on 2026-09-29 (Grok run `610a2442-fb11-4a28-ad1b-152cffee8a1b`, synthetic Stripe intern entry) posted a valid reply 101 seconds after the trigger.
 
 If a batch times out, the reply may still be in the Bot's chat. Save it and validate it offline:
 

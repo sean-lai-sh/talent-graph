@@ -78,7 +78,7 @@ function fakeGrok(
       calls.push(call);
       const { runId, callbackToken } = call.body;
       const answer = reply(call);
-      if (answer === undefined) return Response.json({ success: true });
+      if (answer === undefined) return Response.json({ success: true, runUuid: `uuid-${runId}` });
       if (
         !(await checkGrokCallbackToken(ENV.GROK_CALLBACK_MASTER_KEY, runId, "post", callbackToken))
       ) {
@@ -112,17 +112,19 @@ function fakeGrok(
 }
 
 describe("Grok company research", () => {
-  test("a missing routine variable fails by name before any network call", async () => {
-    const { deps, calls } = fakeGrok(() => ({}));
-    const ws = await workspace();
-    await expect(
-      main(["--research", ITEMS, "--out", join(ws.dir, "p.json")], ws, undefined, {
-        ...deps,
-        env: { ...ENV, GROK_ROUTINE_KEY: undefined, GROK_CALLBACK_MASTER_KEY: "" },
-      }),
-    ).rejects.toThrow("set GROK_ROUTINE_KEY and GROK_CALLBACK_MASTER_KEY");
-    expect(calls).toHaveLength(0);
-  });
+  for (const name of Object.keys(ENV)) {
+    test(`a missing ${name} fails by name before any network call`, async () => {
+      const { deps, calls } = fakeGrok(() => ({}));
+      const ws = await workspace();
+      await expect(
+        main(["--research", ITEMS, "--out", join(ws.dir, "p.json")], ws, undefined, {
+          ...deps,
+          env: { ...ENV, [name]: "" },
+        }),
+      ).rejects.toThrow(`set ${name} (Doppler talent-graph/dev)`);
+      expect(calls).toHaveLength(0);
+    });
+  }
 
   test("a valid reply becomes a proposals file that --apply merges and check:config accepts", async () => {
     const company = await quarry();
@@ -293,10 +295,65 @@ describe("Grok company research", () => {
     const ws = await workspace();
     const out = join(ws.dir, "p.json");
     await expect(main(["--research", ITEMS, "--out", out], ws, undefined, deps)).rejects.toThrow(
-      "stopped at batch 1: no reply for run run-1 after 30 min",
+      "stopped at batch 1: no reply for run run-1 (Grok run uuid-run-1) after 30 min (nothing posted)",
     );
     expect(reads.at(-1)).toBeLessThanOrEqual(30 * 60_000);
     expect(JSON.parse(await readFile(out, "utf8"))).toEqual([]);
+  });
+
+  test("a trigger the routine does not accept fails at once instead of polling", async () => {
+    const fake = fakeGrok(() => undefined);
+    const deps: ResearchDeps = {
+      ...fake.deps,
+      fetcher: (async () => Response.json({ success: false })) as unknown as typeof fetch,
+    };
+    const ws = await workspace();
+    await expect(
+      main(["--research", ITEMS, "--out", join(ws.dir, "p.json")], ws, undefined, deps),
+    ).rejects.toThrow("stopped at batch 1: Grok routine did not start a run");
+    expect(fake.reads).toHaveLength(0);
+  });
+
+  test("failed reads and an unparseable body are retried until the real reply", async () => {
+    const company = await quarry();
+    const fake = fakeGrok((call) => ({
+      runId: call.body.runId,
+      companies: [company],
+      investors: [],
+      unresolved: [],
+    }));
+    const glitches: (() => Promise<Response>)[] = [
+      async () => {
+        throw new Error("getaddrinfo ENOTFOUND");
+      },
+      async () => new Response("upstream", { status: 502 }),
+      async () => new Response("{ half a reply"),
+    ];
+    const deps: ResearchDeps = {
+      ...fake.deps,
+      fetcher: (async (url: string, init?: RequestInit) => {
+        const glitch = url === ENV.GROK_ROUTINE_WEBHOOK_URL ? undefined : glitches.shift();
+        return glitch ? glitch() : fake.deps.fetcher(url, init);
+      }) as unknown as typeof fetch,
+    };
+    const ws = await workspace();
+    const out = join(ws.dir, "p.json");
+    await main(["--research", ITEMS, "--out", out], ws, undefined, deps);
+    const written = JSON.parse(await readFile(out, "utf8")) as { name: string }[];
+    expect(written.map((entry) => entry.name)).toEqual(["Quarry"]);
+  });
+
+  test("a rejected read token stops the batch instead of polling for 30 minutes", async () => {
+    const fake = fakeGrok(() => undefined);
+    const deps: ResearchDeps = {
+      ...fake.deps,
+      env: { ...ENV, GROK_CALLBACK_MASTER_KEY: "wrong" },
+    };
+    const ws = await workspace();
+    await expect(
+      main(["--research", ITEMS, "--out", join(ws.dir, "p.json")], ws, undefined, deps),
+    ).rejects.toThrow("stopped at batch 1: callback read rejected: 401");
+    expect(fake.reads).toHaveLength(1);
   });
 
   test("a worklist org no returned company names is reported as unmatched", async () => {

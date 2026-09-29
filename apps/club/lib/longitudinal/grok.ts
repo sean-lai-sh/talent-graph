@@ -69,19 +69,19 @@ export interface GrokCompanyResearchRequest {
   callbackUrl: string;
   /** Per-run token the routine echoes in `X-Grok-Callback-Token`. */
   callbackToken: string;
-  delivery: typeof GROK_COMPANY_RESEARCH_DELIVERY;
+  delivery: string;
 }
 
 /**
- * Trigger a saved Grok Bot routine. HTTP 200 means accepted, not completed;
- * completion arrives separately at the callback.
+ * Trigger a saved Grok Bot routine and return its run UUID. HTTP 200 means
+ * accepted, not completed; completion arrives separately at the callback.
  */
 export async function triggerGrokRoutine(
   webhookUrl: string,
   bearerKey: string,
   request: GrokRoutineRequest | GrokCompanyResearchRequest,
   fetcher: typeof fetch = fetch,
-): Promise<void> {
+): Promise<string> {
   const response = await fetcher(webhookUrl, {
     method: "POST",
     headers: {
@@ -93,6 +93,14 @@ export async function triggerGrokRoutine(
   if (!response.ok) {
     throw new Error(`Grok routine rejected: ${response.status}`);
   }
+  const accepted = (await response.json().catch(() => null)) as {
+    success?: unknown;
+    runUuid?: unknown;
+  } | null;
+  if (accepted?.success !== true || typeof accepted.runUuid !== "string") {
+    throw new Error(`Grok routine did not start a run: ${JSON.stringify(accepted)}`);
+  }
+  return accepted.runUuid;
 }
 
 export interface GrokCallbackEnvelope {
