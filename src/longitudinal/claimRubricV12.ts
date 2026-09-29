@@ -616,6 +616,7 @@ function evidenceFor(claim: SplitClaim, seed: CompanySeed): CompanySelectionEvid
       startedAt: claim.startedAt,
       founder: claim.founder,
       fundingText: claim.founder ? claim.text : null,
+      title: claim.title,
     },
     seed,
     COMPANY_EVIDENCE_CONFIG,

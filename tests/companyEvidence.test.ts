@@ -204,3 +204,67 @@ describe("company selection evidence", () => {
     expect(otherBatch.proxyLift).toBe(1);
   });
 });
+
+describe("research-fed seed entries", () => {
+  const labeled: SeedCompany = {
+    name: "Lantern",
+    aliases: [],
+    source: "https://example.invalid/lantern",
+    currentStage: "public_large",
+    rounds: [
+      {
+        date: "2015-05-01",
+        stage: "public_large",
+        investors: [],
+        source: "https://example.invalid/lantern-ipo",
+      },
+    ],
+    publishedRate: {
+      rate: 0.02,
+      upperBound: true,
+      labels: ["Intern"],
+      source: "https://example.invalid/lantern-intern",
+    },
+    hiringBar: null,
+  };
+  const seed: CompanySeed = { ...SEED, companies: [...SEED.companies, labeled] };
+  const hire = (title: string): CompanySelectionQuery => ({
+    org: "Lantern",
+    startedAt: "2023-06-01",
+    founder: false,
+    title,
+  });
+
+  test("a labeled company rate reaches a hire whose title carries the label", () => {
+    expect(companySelectionEvidence(hire("Software Engineer Intern"), seed).knownRate).toEqual({
+      rate: 0.02,
+      upperBound: true,
+      source: "https://example.invalid/lantern-intern",
+    });
+    expect(companySelectionEvidence(hire("Software Engineer"), seed).knownRate).toBeNull();
+  });
+
+  test("a round investor matches its seed entry whatever the case or punctuation", () => {
+    const round: SeedRound = {
+      date: "2022-01-01",
+      stage: "series_a_b",
+      investors: ["FERRY CAPITAL."],
+      source: "https://example.invalid/kiln-a",
+    };
+    const kiln: SeedCompany = {
+      name: "Kiln",
+      aliases: [],
+      source: "https://example.invalid/kiln",
+      currentStage: "series_a_b",
+      rounds: [round],
+      publishedRate: null,
+      hiringBar: null,
+    };
+    const evidence = companySelectionEvidence(
+      { org: "Kiln", startedAt: "2023-01-01", founder: false, title: "Engineer" },
+      { ...SEED, companies: [...SEED.companies, kiln] },
+    );
+    expect(evidence.investorTier).toBe(3);
+    expect(evidence.topInvestor).toBe("Ferry Capital");
+  });
+});

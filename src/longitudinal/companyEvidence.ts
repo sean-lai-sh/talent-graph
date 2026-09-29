@@ -7,6 +7,7 @@ import {
   companyByOrg,
   type HiringBar,
   mentionedInvestors,
+  normalizeOrgName,
   type PublishedRate,
   type SeedCompany,
   type SeedInvestor,
@@ -19,6 +20,8 @@ export interface CompanySelectionQuery {
   startedAt: string | null;
   founder: boolean;
   fundingText?: string | null;
+  /** Job title. A company rate's labels are matched against it for a non-founder hire. */
+  title?: string | null;
 }
 
 export interface KnownSelectionRate {
@@ -75,7 +78,8 @@ export function companySelectionEvidence(
   const company = query.org ? companyByOrg(query.org, seed) : undefined;
   const fundingText = query.fundingText ?? "";
   const named = query.founder ? mentionedInvestors(fundingText, seed) : [];
-  const known = knownRateFor(query.founder, fundingText, named, company);
+  const labelText = query.founder ? fundingText : (query.title ?? "");
+  const known = knownRateFor(query.founder, labelText, named, company);
   const observed = observedAtHire(query.startedAt, company, named, seed);
   const joinedEarly = isJoinedEarly(observed.stage, company?.currentStage ?? null);
   const hiringBar = isLate(observed.stage) ? (company?.hiringBar ?? null) : null;
@@ -110,16 +114,16 @@ export function applyProxyLift(
 
 function knownRateFor(
   founder: boolean,
-  fundingText: string,
+  labelText: string,
   named: readonly SeedInvestor[],
   company: SeedCompany | undefined,
 ): PublishedRate | null {
   if (founder)
     return tightest(
-      named.flatMap((investor) => matchingRates(investor.publishedRates, fundingText)),
+      named.flatMap((investor) => matchingRates(investor.publishedRates, labelText)),
     );
   return (
-    matchingRates(company?.publishedRate ? [company.publishedRate] : [], fundingText)[0] ?? null
+    matchingRates(company?.publishedRate ? [company.publishedRate] : [], labelText)[0] ?? null
   );
 }
 
@@ -164,7 +168,10 @@ function latestRound(rounds: readonly SeedRound[]): SeedRound | null {
 }
 
 function seededInvestor(name: string, seed: CompanySeed): SeedInvestor[] {
-  const investor = seed.investors.find((item) => item.name === name || item.aliases.includes(name));
+  const key = normalizeOrgName(name);
+  const investor = seed.investors.find((item) =>
+    [item.name, ...item.aliases].some((known) => normalizeOrgName(known) === key),
+  );
   return investor ? [investor] : [];
 }
 

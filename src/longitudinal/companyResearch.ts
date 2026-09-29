@@ -183,6 +183,7 @@ export function companyWorklist(
           startedAt: earliest.startedAt,
           founder: earliest.founder,
           fundingText: earliest.founder ? earliest.text : null,
+          title: earliest.title,
         },
         seed,
         COMPANY_EVIDENCE_CONFIG,
