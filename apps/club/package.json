@@ -12,7 +12,9 @@
     "convex:dev": "convex dev",
     "convex:doppler": "doppler run -- convex dev",
     "convex:deploy": "doppler run -- convex deploy",
-    "provision-user": "bun scripts/provision-user.ts"
+    "provision-user": "bun scripts/provision-user.ts",
+    "seed:dev": "bun scripts/seed-dev.ts",
+    "seed:dev:reset": "bun scripts/seed-dev.ts --reset"
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.12.5",

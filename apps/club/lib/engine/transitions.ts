@@ -112,11 +112,8 @@ function knownPerson(state: ClubState, id: string): ClubPerson | undefined {
  * record is worse than a large record.
  *
  * It is not free: a snapshot is ~580 bytes once it carries four run ids and
- * three spec versions, so roughly 1,800 of them reach Convex's 1 MiB document
- * limit — a limit shared with every observation the same `clubOrgs` document
- * holds, which is why the ceiling is nearer than the number suggests. The
- * follow-up when an org approaches it is a dedicated snapshots table, not a
- * smaller window.
+ * three spec versions. Each is its own `clubSnapshots` row, so the cost is
+ * read volume when the club state loads, not a document size limit.
  */
 function recordSnapshot(
   next: ClubState,
@@ -272,6 +269,7 @@ export function addComparison(state: ClubState, input: AddComparisonInput): Engi
     confidence: informative ? (input.confidence ?? null) : null,
     createdAt: new Date(next.now),
   };
+  if (input.weight !== undefined) comparison.weight = input.weight;
   const note = input.evidenceText?.trim();
   if (note) comparison.evidenceText = note;
   const check = validateComparison(comparison);

@@ -98,10 +98,15 @@ export interface ValidateComparisonOptions {
   allowSelfEvaluation?: boolean;
 }
 
+function isComparisonWeight(weight: unknown): boolean {
+  return typeof weight === "number" && Number.isFinite(weight) && weight > 0 && weight <= 1;
+}
+
 /**
  * A comparison is valid when it compares two distinct people on a known
  * dimension, the winner matches the outcome, and the evaluator is not one of
- * the two people being compared.
+ * the two people being compared. An absent `weight` is valid. A present
+ * `weight` must be a finite number in (0, 1].
  */
 export function validateComparison(
   c: Comparison,
@@ -132,6 +137,10 @@ export function validateComparison(
 
   if (c.confidence !== null && !isScale5(c.confidence)) {
     errors.push("confidence must be null or an integer in 1..5");
+  }
+
+  if (c.weight !== undefined && !isComparisonWeight(c.weight)) {
+    errors.push("weight must be a finite number in (0, 1]");
   }
 
   if (

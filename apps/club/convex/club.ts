@@ -1,21 +1,21 @@
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
-import { type ClubRole, extraAdminEmailsFromEnv, resolveRole } from "../lib/clubRole.ts";
+import { adminRead, type ClubRole, extraAdminEmailsFromEnv, resolveRole } from "../lib/clubRole.ts";
+import { type Club, ensureClub, loadClub, loadState, saveState } from "../lib/clubStore.ts";
 import {
   addPerson as addPersonEngine,
   addReferral as addReferralEngine,
   computeView,
   decide as decideEngine,
-  emptyState,
   recordFeedback as recordFeedbackEngine,
   requestFeedback as requestFeedbackEngine,
   setReviewConfig as setReviewConfigEngine,
   setStatus as setStatusEngine,
 } from "../lib/engine.ts";
 import { toDirectoryMembers } from "../lib/memberDirectory.ts";
-import { reviveState } from "../lib/serialize.ts";
+import { listOwnFeedbackRequests, prepareMemberResponse } from "../lib/memberFeedback.ts";
 import type { ClubState, EngineResult } from "../lib/types.ts";
-import type { DataModel, Doc, Id } from "./_generated/dataModel";
+import type { DataModel, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { authComponent } from "./auth";
 import {
@@ -33,8 +33,8 @@ import {
  *
  * SEA-12: writes and board reads require a Better Auth session
  * (`authComponent.getAuthUser` / `safeGetAuthUser`) and a marked admin
- * role. Each signed-in admin gets a `clubOrgs` row keyed by `ownerUserId`.
- * Owner-keyed club, not a membership / invite model.
+ * role. Every admin shares one club, the oldest `clubs` row
+ * (`lib/clubStore.ts`). One club per deployment, not a membership / invite model.
  *
  * Clock: the engine never reads a clock. Each mutation stamps `now` with
  * wall time before running so referrals, decisions, and the 48-hour
@@ -46,46 +46,6 @@ type MutationCtx = GenericMutationCtx<DataModel>;
 
 const optionalName = v.optional(v.string());
 const nullableScale5 = v.union(scale5, v.null());
-
-function orgToState(org: Doc<"clubOrgs">): ClubState {
-  return reviveState({
-    people: org.people,
-    referrals: org.referrals,
-    comparisons: org.comparisons,
-    evaluations: org.evaluations,
-    outcomes: org.outcomes,
-    opportunities: org.opportunities,
-    snapshots: org.snapshots,
-    feedbackRequests: org.feedbackRequests ?? [],
-    config: org.config ?? { requiredDimensions: [] },
-    now: org.now,
-  } as ClubState);
-}
-
-function stateFields(state: ClubState) {
-  return {
-    now: state.now,
-    people: state.people,
-    referrals: state.referrals,
-    comparisons: state.comparisons,
-    evaluations: state.evaluations,
-    outcomes: state.outcomes,
-    opportunities: state.opportunities,
-    snapshots: state.snapshots,
-    feedbackRequests: state.feedbackRequests,
-    config: state.config,
-  };
-}
-
-async function loadOwnedOrg(
-  ctx: QueryCtx | MutationCtx,
-  ownerUserId: string,
-): Promise<Doc<"clubOrgs"> | null> {
-  return await ctx.db
-    .query("clubOrgs")
-    .withIndex("by_owner", (q) => q.eq("ownerUserId", ownerUserId))
-    .first();
-}
 
 type AuthUser = { _id: string; email?: string; name?: string };
 
@@ -110,11 +70,12 @@ async function roleForUser(ctx: QueryCtx | MutationCtx, user: AuthUser): Promise
 }
 
 /** Board reads: missing session or a non-admin → no org. Mutations throw. */
-async function loadOrgForSession(ctx: QueryCtx | MutationCtx): Promise<Doc<"clubOrgs"> | null> {
+async function loadOrgForSession(ctx: QueryCtx | MutationCtx): Promise<Club | null> {
   const user = await authComponent.safeGetAuthUser(ctx);
   if (!user) return null;
-  if ((await roleForUser(ctx, user)) !== "admin") return null;
-  return await loadOwnedOrg(ctx, user._id);
+  const role = await roleForUser(ctx, user);
+  const org = role === "admin" ? await loadClub(ctx.db) : null;
+  return adminRead(role, org);
 }
 
 async function requireAdmin(ctx: MutationCtx): Promise<AuthUser> {
@@ -126,27 +87,17 @@ async function requireAdmin(ctx: MutationCtx): Promise<AuthUser> {
 }
 
 /**
- * The caller's org, created on first use. No view: `applyEngine` is about to
- * run a transition that computes one, and a council click may not pay for two
- * passes of the engine over every observation.
+ * The club, created by the first admin to use it. No view: `applyEngine` is
+ * about to run a transition that computes one, and a council click may not pay
+ * for two passes of the engine over every observation.
  */
 async function ensureOrgDoc(
   ctx: MutationCtx,
   name?: string,
-): Promise<{ orgId: Id<"clubOrgs">; name: string; state: ClubState }> {
+): Promise<{ club: Club; orgId: Id<"clubs">; name: string; state: ClubState }> {
   const user = await requireAdmin(ctx);
-  const existing = await loadOwnedOrg(ctx, user._id);
-  if (existing) {
-    return { orgId: existing._id, name: existing.name, state: orgToState(existing) };
-  }
-  const state = emptyState();
-  const orgName = name?.trim() || "Club";
-  const orgId = await ctx.db.insert("clubOrgs", {
-    ownerUserId: user._id,
-    name: orgName,
-    ...stateFields(state),
-  });
-  return { orgId, name: orgName, state };
+  const club = await ensureClub(ctx.db, user._id, name);
+  return { club, orgId: club._id, name: club.name, state: await loadState(ctx.db, club) };
 }
 
 /** The same, for the mutations whose answer *is* the org and its view. */
@@ -154,30 +105,24 @@ async function ensureOrg(
   ctx: MutationCtx,
   name?: string,
 ): Promise<{
-  orgId: Id<"clubOrgs">;
+  orgId: Id<"clubs">;
   name: string;
   state: ClubState;
   view: ReturnType<typeof computeView>;
 }> {
-  const ensured = await ensureOrgDoc(ctx, name);
-  return { ...ensured, view: computeView(ensured.state) };
+  const { orgId, name: clubName, state } = await ensureOrgDoc(ctx, name);
+  return { orgId, name: clubName, state, view: computeView(state) };
 }
 
 async function applyEngine(
   ctx: MutationCtx,
   fn: (state: ClubState) => EngineResult,
 ): Promise<EngineResult> {
-  const ensured = await ensureOrgDoc(ctx);
-  const org = await ctx.db.get(ensured.orgId);
-  if (!org) {
-    const state = emptyState();
-    return { state, view: computeView(state), error: "no organization" };
-  }
-  const state = orgToState(org);
-  state.now = new Date().toISOString();
-  const result = fn(state);
+  const { club, state: before } = await ensureOrgDoc(ctx);
+  // `saveState` diffs against `before`, so the transition runs on a copy.
+  const result = fn({ ...before, now: new Date().toISOString() });
   if (!result.error) {
-    await ctx.db.patch(org._id, stateFields(result.state));
+    await saveState(ctx.db, club, before, result.state);
   }
   return result;
 }
@@ -187,13 +132,14 @@ export const getOrganization = query({
   handler: async (ctx) => {
     const org = await loadOrgForSession(ctx);
     if (!org) return null;
+    const state = await loadState(ctx.db, org);
     return {
       id: org._id,
       name: org.name,
       now: org.now,
-      people: org.people.length,
-      referrals: org.referrals.length,
-      members: org.people.filter((p) => p.status === "member").length,
+      people: state.people.length,
+      referrals: state.referrals.length,
+      members: state.people.filter((p) => p.status === "member").length,
     };
   },
 });
@@ -203,7 +149,7 @@ export const getBoard = query({
   handler: async (ctx) => {
     const org = await loadOrgForSession(ctx);
     if (!org) return null;
-    const state = orgToState(org);
+    const state = await loadState(ctx.db, org);
     return { state, view: computeView(state) } satisfies EngineResult;
   },
 });
@@ -329,7 +275,13 @@ export const listPosts = query({
   handler: async (ctx) => {
     const user = await authComponent.safeGetAuthUser(ctx);
     if (!user) return null;
-    const rows = await ctx.db.query("clubPosts").withIndex("by_created").order("desc").take(100);
+    const club = await loadClub(ctx.db);
+    if (!club) return [];
+    const rows = await ctx.db
+      .query("clubPosts")
+      .withIndex("by_club_and_created", (q) => q.eq("clubId", club._id))
+      .order("desc")
+      .take(100);
     return rows.map((row) => ({
       id: row._id,
       body: row.body,
@@ -345,11 +297,15 @@ export const addPost = mutation({
     const user = await authComponent.getAuthUser(ctx);
     const body = args.body.trim();
     if (body.length === 0) return;
+    // Posts belong to the club; before an admin creates it there is no forum to post to.
+    const club = await loadClub(ctx.db);
+    if (!club) return;
     const authorName =
       (typeof user.name === "string" && user.name.trim()) ||
       (typeof user.email === "string" && user.email.trim()) ||
       "Member";
     await ctx.db.insert("clubPosts", {
+      clubId: club._id,
       body,
       authorName,
       authorUserId: user._id,
@@ -364,16 +320,61 @@ export const listMembers = query({
   handler: async (ctx) => {
     const user = await authComponent.safeGetAuthUser(ctx);
     if (!user) return null;
-    const orgs = await ctx.db.query("clubOrgs").take(20);
-    const seen = new Set<string>();
-    const people = orgs
-      .flatMap((org) => org.people)
-      .filter((person) => {
-        if (seen.has(person.id)) return false;
-        seen.add(person.id);
-        return true;
-      });
-    return toDirectoryMembers(people);
+    const club = await loadClub(ctx.db);
+    if (!club) return [];
+    const members = await ctx.db
+      .query("clubPeople")
+      .withIndex("by_club_and_status", (q) => q.eq("clubId", club._id).eq("status", "member"))
+      .collect();
+    return toDirectoryMembers(members);
+  },
+});
+
+function sessionEmail(user: { email?: string }): string {
+  return typeof user.email === "string" ? user.email : "";
+}
+
+/** Open feedback asks for the signed-in member. Other people's requests stay out. */
+export const listMyFeedback = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await authComponent.safeGetAuthUser(ctx);
+    if (!user) return null;
+    const club = await loadClub(ctx.db);
+    return listOwnFeedbackRequests({
+      orgs: club ? [{ key: club._id, state: await loadState(ctx.db, club) }] : [],
+      email: sessionEmail(user),
+      clock: new Date().toISOString(),
+    });
+  },
+});
+
+/**
+ * Member answer. Same `recordFeedback` evaluation the council records.
+ * Ownership, a closed request, and an empty observation are rejected here.
+ */
+export const respondToFeedback = mutation({
+  args: {
+    requestId: v.string(),
+    dimension,
+    score: rubricScore,
+    confidence: nullableScale5,
+    evidenceText: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await authComponent.getAuthUser(ctx);
+    const club = await loadClub(ctx.db);
+    if (!club) return { error: "Club is not set up yet." };
+    const before = await loadState(ctx.db, club);
+    const plan = prepareMemberResponse({
+      orgs: [{ key: club._id, state: before }],
+      email: sessionEmail(user),
+      response: args,
+      now: new Date().toISOString(),
+    });
+    if (plan.key === null) return { error: plan.error };
+    await saveState(ctx.db, club, before, plan.state);
+    return { ok: true as const };
   },
 });
 

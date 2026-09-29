@@ -8,8 +8,8 @@ import { clubLoginHref } from "@/lib/loginReturnPath.ts";
 import { api } from "../../convex/_generated/api";
 
 /**
- * Already-signed-in visitors: admins keep `/club`, everyone else
- * lands on the member forum.
+ * Fallback when `/login` could not read a role on the server.
+ * Admins keep `/club`; everyone else lands on the member forum.
  */
 export function RoleHomeRedirect({ nextHref }: { nextHref: string }) {
   const router = useRouter();
