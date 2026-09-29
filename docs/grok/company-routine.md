@@ -81,15 +81,17 @@ The research step prints each rejected org with the reason (for example a fact w
 
 Keep `<items.json>` and `<proposals.json>` under the gitignored `sea-35-private/` path until the proposals are reviewed.
 
-## If the routine does not answer with JSON
+## The routine runs asynchronously
 
-The research step expects the routine's JSON in the webhook response. If the routine only accepts the job, or calls a URL back instead, the research step fails with a message saying so. In that case, run the routine by hand with the worklist, save its JSON reply, and validate it offline:
+Tested on 2026-09-29: the webhook answers at once with only `{ "success": true, "runUuid": "…" }`, and the result appears in the Bot's chat. No documented API returns a run's output by `runUuid`. So `--research` cannot read results from the webhook reply today. It stops with "runId undefined is not this run's …" and writes nothing.
+
+Until the callback endpoint in SEA-75 exists, run the routine, copy its JSON reply from the Bot's chat, and validate it offline:
 
 ```sh
 bun run scripts/jev-company-worklist.ts --from <grok-reply.json> --out <proposals.json>
 ```
 
-Then report which response mode the routine uses (callback URL or polling) so the research step can be adapted.
+SEA-75 plans a Convex HTTP route the routine POSTs its result to, with a per-run token, and a query `--research` polls. When it lands, the routine text above changes from "return the JSON as the response" to "POST the JSON to callbackUrl".
 
 ## Then test
 
