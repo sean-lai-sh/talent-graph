@@ -528,6 +528,77 @@ export interface SetReviewConfigInput {
   requiredDimensions: Dimension[];
 }
 
+/**
+ * Q1–Q3 answers from a member referral. The chips are the questionnaire's
+ * words. `referralAnswersToEngine` is the only place they become engine fields.
+ */
+export const REFERRAL_Q1_CONTEXTS = [
+  "Built something together with a deadline",
+  "Same team at work, internship, or research",
+  "Class project",
+  "Same club or org, different projects",
+  "Friends, haven't worked together",
+  "Know their work online",
+  "Heard about them from others",
+] as const;
+
+export type ReferralQ1Context = (typeof REFERRAL_Q1_CONTEXTS)[number];
+
+export const REFERRAL_Q1_LENGTHS = [
+  "under 3 months",
+  "3 to 12 months",
+  "1 to 2 years",
+  "2+ years",
+] as const;
+
+export type ReferralQ1Length = (typeof REFERRAL_Q1_LENGTHS)[number];
+
+export const REFERRAL_Q1_STAKES = [
+  "Grade",
+  "Money",
+  "Real users",
+  "A ship date or competition",
+  "No",
+] as const;
+
+export type ReferralQ1Stake = (typeof REFERRAL_Q1_STAKES)[number];
+
+export const REFERRAL_Q2_ROLES = [
+  "Led it or started it",
+  "Major contributor",
+  "Kept it running",
+  "One of several",
+  "I only heard about it",
+] as const;
+
+export type ReferralQ2Role = (typeof REFERRAL_Q2_ROLES)[number];
+
+export const REFERRAL_Q3_RANKS = [
+  "The best of them",
+  "Top 5%",
+  "Top 20%",
+  "Top half",
+  "Hard to say",
+] as const;
+
+export type ReferralQ3Rank = (typeof REFERRAL_Q3_RANKS)[number];
+
+export const REFERRAL_Q3_GROUP_SIZES = ["under 10", "10 to 30", "30 to 100", "100+"] as const;
+
+export type ReferralQ3GroupSize = (typeof REFERRAL_Q3_GROUP_SIZES)[number];
+
+export interface MemberReferralAnswers {
+  context: ReferralQ1Context;
+  length: ReferralQ1Length;
+  stakes: readonly ReferralQ1Stake[];
+  what: string;
+  hard: string;
+  distinct: string;
+  role: ReferralQ2Role;
+  rank: ReferralQ3Rank;
+  groupSize: ReferralQ3GroupSize;
+}
+
 /** Persistence overrides for ClubBoard. Example uses server actions. */
 export interface ClubBoardActions {
   decide: (state: ClubState, personId: string, decision: Decision) => Promise<EngineResult>;

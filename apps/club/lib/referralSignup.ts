@@ -96,7 +96,7 @@ export function isSelfContact(
 }
 
 function personHasContact(person: ClubPerson, contact: NormalizedContact): boolean {
-  if (contact.kind === "email") return person.email === contact.value;
+  if (contact.kind === "email") return person.email?.trim().toLowerCase() === contact.value;
   if (!person.phone) return false;
   return normalizePhone(person.phone) === contact.value;
 }

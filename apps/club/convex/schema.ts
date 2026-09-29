@@ -204,8 +204,7 @@ export default defineSchema({
     .index("by_club_and_status", ["clubId", "status"]),
   clubReferrals: defineTable({ clubId, ...clubReferralFields })
     .index("by_club", ["clubId"])
-    .index("by_club_and_domain_id", ["clubId", "id"])
-    .index("by_club_referrer_and_candidate", ["clubId", "referrerId", "candidateId"]),
+    .index("by_club_and_domain_id", ["clubId", "id"]),
   clubComparisons: defineTable({ clubId, ...clubComparisonFields })
     .index("by_club", ["clubId"])
     .index("by_club_and_domain_id", ["clubId", "id"]),
