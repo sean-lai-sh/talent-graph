@@ -58,23 +58,27 @@ export const rubricScore = v.union(
   v.null(),
 );
 
-const clubPerson = v.object({
+const clubPersonFields = {
   id: v.string(),
   name: v.string(),
   bio: v.optional(v.string()),
   affiliation: v.optional(v.string()),
   // Display metadata for the council page. Never read by src/.
   phone: v.optional(v.string()),
+  email: v.optional(v.string()),
   linkedin: v.optional(v.string()),
   resume: v.optional(v.string()),
+  resumeStorageId: v.optional(v.string()),
+  x: v.optional(v.string()),
+  github: v.optional(v.string()),
+  website: v.optional(v.string()),
   status: personStatus,
-  // Council workflow state; optional so older documents stay valid.
   reviewStatus: v.optional(reviewStatus),
   createdAt: v.string(),
   updatedAt: v.string(),
-});
+};
 
-const clubReferral = v.object({
+const clubReferralFields = {
   id: v.string(),
   referrerId: v.string(),
   candidateId: v.string(),
@@ -85,9 +89,9 @@ const clubReferral = v.object({
   evidenceText: v.string(),
   createdAt: v.string(),
   updatedAt: v.string(),
-});
+};
 
-const clubComparison = v.object({
+const clubComparisonFields = {
   id: v.string(),
   evaluatorId: v.string(),
   personAId: v.string(),
@@ -97,10 +101,11 @@ const clubComparison = v.object({
   winnerId: v.union(v.string(), v.null()),
   confidence: v.union(scale5, v.null()),
   evidenceText: v.optional(v.string()),
+  weight: v.optional(v.number()),
   createdAt: v.string(),
-});
+};
 
-const clubEvaluation = v.object({
+const clubEvaluationFields = {
   id: v.string(),
   evaluatorId: v.string(),
   candidateId: v.string(),
@@ -110,9 +115,9 @@ const clubEvaluation = v.object({
   evidenceText: v.string(),
   createdAt: v.string(),
   updatedAt: v.string(),
-});
+};
 
-const clubOutcome = v.object({
+const clubOutcomeFields = {
   id: v.string(),
   personId: v.string(),
   opportunityId: v.union(v.string(), v.null()),
@@ -120,9 +125,9 @@ const clubOutcome = v.object({
   value: v.union(v.number(), v.null()),
   observedAt: v.string(),
   createdAt: v.string(),
-});
+};
 
-const clubOpportunity = v.object({
+const clubOpportunityFields = {
   id: v.string(),
   personId: v.string(),
   kind: v.string(),
@@ -130,23 +135,22 @@ const clubOpportunity = v.object({
   startedAt: v.string(),
   endedAt: v.union(v.string(), v.null()),
   createdAt: v.string(),
-});
+};
 
-const clubSnapshot = v.object({
+const clubSnapshotFields = {
   id: v.string(),
   personId: v.string(),
   personName: v.string(),
   decision: v.string(),
   values: v.object({
     // Provenance at accept/archive — not a stored score. Do not add
-    // referralSignal to clubPerson / clubOrgs source-of-truth fields.
+    // referralSignal to clubPeople source-of-truth fields.
     referralSignal: v.union(v.number(), v.null()),
     incomingCount: v.number(),
   }),
   createdAt: v.string(),
   // Provenance of the pass the decision was taken on, recorded from #55 T5.
-  // Optional so snapshots written before it still load — the same precedent
-  // as `feedbackRequests` / `config` on `clubOrgs` below.
+  // Optional: `ClubSnapshot` keeps a snapshot without it valid.
   modelRunIds: v.optional(v.array(v.string())),
   specVersions: v.optional(
     v.object({
@@ -155,9 +159,9 @@ const clubSnapshot = v.object({
       judge_reliability: v.string(),
     }),
   ),
-});
+};
 
-const clubFeedbackRequest = v.object({
+const clubFeedbackRequestFields = {
   id: v.string(),
   candidateId: v.string(),
   memberId: v.string(),
@@ -166,20 +170,15 @@ const clubFeedbackRequest = v.object({
   note: v.string(),
   respondedAt: v.union(v.string(), v.null()),
   evaluationId: v.union(v.string(), v.null()),
-});
+};
 
 const clubReviewConfig = v.object({
   requiredDimensions: v.array(dimension),
 });
 
-const clubPost = v.object({
-  id: v.string(),
-  body: v.string(),
-  authorName: v.string(),
-  createdAt: v.string(),
-});
-
 export const clubRole = v.union(v.literal("admin"), v.literal("member"));
+
+const clubId = v.id("clubs");
 
 export default defineSchema({
   clubAccounts: defineTable({
@@ -189,27 +188,73 @@ export default defineSchema({
   })
     .index("by_user", ["userId"])
     .index("by_email", ["email"]),
+  // One club per deployment: the oldest row (`lib/clubStore.ts`). Each engine
+  // record below is its own row with `clubId` and the engine's domain `id`;
+  // `lib/clubStore.ts` rebuilds `ClubState` and writes back only changes.
+  clubs: defineTable({
+    name: v.string(),
+    now: v.string(),
+    config: clubReviewConfig,
+    createdByUserId: v.string(),
+  }),
+  clubPeople: defineTable({ clubId, ...clubPersonFields })
+    .index("by_club", ["clubId"])
+    .index("by_club_and_domain_id", ["clubId", "id"])
+    .index("by_club_and_email", ["clubId", "email"])
+    .index("by_club_and_phone", ["clubId", "phone"])
+    .index("by_club_and_status", ["clubId", "status"]),
+  clubReferrals: defineTable({ clubId, ...clubReferralFields })
+    .index("by_club", ["clubId"])
+    .index("by_club_and_domain_id", ["clubId", "id"]),
+  clubComparisons: defineTable({ clubId, ...clubComparisonFields })
+    .index("by_club", ["clubId"])
+    .index("by_club_and_domain_id", ["clubId", "id"]),
+  clubEvaluations: defineTable({ clubId, ...clubEvaluationFields })
+    .index("by_club", ["clubId"])
+    .index("by_club_and_domain_id", ["clubId", "id"]),
+  clubOutcomes: defineTable({ clubId, ...clubOutcomeFields })
+    .index("by_club", ["clubId"])
+    .index("by_club_and_domain_id", ["clubId", "id"]),
+  clubOpportunities: defineTable({ clubId, ...clubOpportunityFields })
+    .index("by_club", ["clubId"])
+    .index("by_club_and_domain_id", ["clubId", "id"]),
+  clubSnapshots: defineTable({ clubId, ...clubSnapshotFields })
+    .index("by_club", ["clubId"])
+    .index("by_club_and_domain_id", ["clubId", "id"]),
+  clubFeedbackRequests: defineTable({ clubId, ...clubFeedbackRequestFields })
+    .index("by_club", ["clubId"])
+    .index("by_club_and_domain_id", ["clubId", "id"]),
   clubPosts: defineTable({
+    clubId,
     body: v.string(),
     authorName: v.string(),
     authorUserId: v.string(),
     createdAt: v.string(),
-  }).index("by_created", ["createdAt"]),
-  clubOrgs: defineTable({
-    ownerUserId: v.string(),
-    name: v.string(),
-    now: v.string(),
-    people: v.array(clubPerson),
-    referrals: v.array(clubReferral),
-    comparisons: v.array(clubComparison),
-    evaluations: v.array(clubEvaluation),
-    outcomes: v.array(clubOutcome),
-    opportunities: v.array(clubOpportunity),
-    snapshots: v.array(clubSnapshot),
-    // Council layer, added after the first orgs: optional so old docs load.
-    feedbackRequests: v.optional(v.array(clubFeedbackRequest)),
-    config: v.optional(clubReviewConfig),
-    // Legacy per-org notes. The live member feed is `clubPosts`.
-    posts: v.optional(v.array(clubPost)),
-  }).index("by_owner", ["ownerUserId"]),
+  }).index("by_club_and_created", ["clubId", "createdAt"]),
+  // Contact → person, so signup checks a contact without loading every person.
+  referralContacts: defineTable({
+    clubId,
+    normalizedContact: v.string(),
+    kind: v.union(v.literal("email"), v.literal("phone")),
+    personId: v.string(),
+  }).index("by_club_and_contact", ["clubId", "normalizedContact"]),
+  memberReferrals: defineTable({
+    clubId,
+    referrerUserId: v.string(),
+    normalizedContact: v.string(),
+    personId: v.string(),
+    createdAt: v.string(),
+    tokenHash: v.string(),
+  })
+    .index("by_club_referrer_and_contact", ["clubId", "referrerUserId", "normalizedContact"])
+    .index("by_token_hash", ["tokenHash"]),
+  // One row per issued upload URL. `storageId` is set when the uploader registers the file.
+  referralUploads: defineTable({
+    uploaderUserId: v.string(),
+    createdAt: v.number(),
+    storageId: v.optional(v.id("_storage")),
+    usedAt: v.optional(v.number()),
+  })
+    .index("by_uploader", ["uploaderUserId", "createdAt"])
+    .index("by_storage", ["storageId"]),
 });

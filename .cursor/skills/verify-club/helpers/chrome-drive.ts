@@ -5,8 +5,13 @@
  *   helpers/chrome-drive.ts goto <url>
  *   helpers/chrome-drive.ts screenshot <png>
  *   helpers/chrome-drive.ts click-name <accessible or visible name>
+ *   helpers/chrome-drive.ts type-label <label>
+ *   helpers/chrome-drive.ts wait-name <accessible name>
  *   helpers/chrome-drive.ts text <outfile>
  *   helpers/chrome-drive.ts aria <outfile>
+ *
+ * type-label reads the value from VERIFY_CLUB_TYPE_VALUE so a password
+ * never appears on the command line.
  */
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -211,6 +216,10 @@ type AxNode = {
 
 function flattenAx(nodes: AxNode[]): string {
   const byId = new Map(nodes.map((n) => [n.nodeId ?? "", n]));
+  const referenced = new Set<string>();
+  for (const node of nodes) {
+    for (const child of node.childIds ?? []) referenced.add(child);
+  }
   const lines: string[] = [];
   const walk = (id: string, depth: number) => {
     const n = byId.get(id);
@@ -220,14 +229,24 @@ function flattenAx(nodes: AxNode[]): string {
     if (role || name) lines.push(`${"  ".repeat(depth)}${role}${name ? ` "${name}"` : ""}`);
     for (const child of n.childIds ?? []) walk(child, depth + 1);
   };
-  const root = nodes[0];
-  if (root?.nodeId) walk(root.nodeId, 0);
+  const roots = nodes.filter((node) => node.nodeId && !referenced.has(node.nodeId));
+  for (const root of roots) walk(root.nodeId ?? "", 0);
+  if (lines.length < 3) {
+    for (const node of nodes) {
+      if (node.ignored) continue;
+      const role = node.role?.value ?? "";
+      const name = node.name?.value ?? "";
+      if (role || name) lines.push(`${role}${name ? ` "${name}"` : ""}`);
+    }
+  }
   return `${lines.join("\n")}\n`;
 }
 
 const [cmd, arg] = process.argv.slice(2);
 if (!cmd) {
-  console.error("usage: chrome-drive.ts goto|screenshot|click-name|text|aria …");
+  console.error(
+    "usage: chrome-drive.ts goto|screenshot|click-name|type-label|wait-name|text|aria …",
+  );
   process.exit(2);
 }
 
@@ -262,7 +281,8 @@ if (cmd === "goto") {
         const name = n.name?.value ?? "";
         const role = n.role?.value ?? "";
         let score = 0;
-        if (name === arg) score = interactive.has(role) ? 400 : 300;
+        if (name === arg) score = interactive.has(role) ? 400 : 280;
+        else if (name.startsWith(arg)) score = interactive.has(role) ? 360 : 140;
         else if (name.includes(arg)) score = interactive.has(role) ? 200 : 100;
         return { n, score };
       })
@@ -289,7 +309,8 @@ if (cmd === "goto") {
           const aria = n.getAttribute("aria-label") || "";
           const text = (n.textContent || "").replace(/\\s+/g, " ").trim();
           if (aria === needle) return 400;
-          if (text === needle) return 300;
+          if (text === needle) return 280;
+          if (aria.startsWith(needle) || text.startsWith(needle)) return 360;
           if (aria.includes(needle)) return 200;
           if (text.includes(needle)) return 100;
           return 0;
@@ -312,6 +333,53 @@ if (cmd === "goto") {
   }
   await Bun.sleep(400);
   console.log(`verify-club chrome: clicked ${arg}`);
+} else if (cmd === "type-label") {
+  if (!arg) throw new Error("type-label needs a label");
+  const value = process.env.VERIFY_CLUB_TYPE_VALUE ?? "";
+  if (!value) throw new Error("type-label needs VERIFY_CLUB_TYPE_VALUE");
+  const typed = await withCdp(meta.ws, async (send) => {
+    const result = await send<{ result: { value: boolean } }>("Runtime.evaluate", {
+      expression: `(() => {
+        const labelText = ${JSON.stringify(arg)};
+        const value = ${JSON.stringify(value)};
+        const labels = [...document.querySelectorAll("label")];
+        const label = labels.find((node) =>
+          (node.textContent || "").replace(/\\s+/g, " ").trim().startsWith(labelText),
+        );
+        const input = label?.querySelector("input, textarea");
+        if (!input) return false;
+        const proto = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+        proto?.set?.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        return input.value === value;
+      })()`,
+      returnByValue: true,
+    });
+    return result.result.value;
+  });
+  if (!typed) {
+    console.error(`verify-club chrome: no field labeled ${arg}`);
+    process.exit(1);
+  }
+  console.log(`verify-club chrome: typed into ${arg}`);
+} else if (cmd === "wait-name") {
+  if (!arg) throw new Error("wait-name needs an accessible name");
+  let found = false;
+  for (let i = 0; i < 40; i++) {
+    found = await withCdp(meta.ws, async (send) => {
+      await send("Accessibility.enable");
+      const tree = await send<{ nodes: AxNode[] }>("Accessibility.getFullAXTree");
+      return (tree.nodes ?? []).some((node) => (node.name?.value ?? "").includes(arg));
+    });
+    if (found) break;
+    await Bun.sleep(500);
+  }
+  if (!found) {
+    console.error(`verify-club chrome: timed out waiting for ${arg}`);
+    process.exit(1);
+  }
+  console.log(`verify-club chrome: saw ${arg}`);
 } else if (cmd === "text") {
   if (!arg) throw new Error("text needs an outfile");
   const result = await withCdp(meta.ws, (send) =>

@@ -6,19 +6,40 @@ This folder is the official `@convex-dev/better-auth` component setup for
 disabled; provision owners with `auth:provisionUser` (see
 `scripts/provision-user.ts`).
 
-**Persisted:** `clubOrgs` domain inputs — people, referrals, comparisons,
-evaluations, outcomes, opportunities, snapshots, and clock `now` (wall
-time for new orgs; not `EXAMPLE_T_*`). Snapshot `values.referralSignal`
-is accept/archive provenance only.
+**Persisted:** domain inputs, one row per record. `clubs` holds the club's
+name, clock `now` (wall time; not `EXAMPLE_T_*`) and review config.
+`clubPeople`, `clubReferrals`, `clubComparisons`, `clubEvaluations`,
+`clubOutcomes`, `clubOpportunities`, `clubSnapshots` and
+`clubFeedbackRequests` each hold one engine record per row, with `clubId`
+and the engine's domain `id`. `lib/clubStore.ts` is the only reader and
+writer of those tables: `loadState` rebuilds the engine's `ClubState`, and
+`saveState` writes back only the rows a transition changed
+(`lib/clubWrites.ts`). No document grows with the club; each read is bounded
+by Convex's per-transaction limits (16 MiB, 32,000 documents). Snapshot
+`values.referralSignal` is accept/archive provenance only.
+
+Anything that grows with the club gets its own table, one row per record,
+never a list inside a document. `tests/club-schema-bounds.test.ts` fails on
+any new list field. When Jev judgments are persisted, they follow the same
+rule: a `JevJudgmentStore` (`src/longitudinal/store.ts`) backed by its own
+table, read by record id, and not part of `ClubState`.
 
 **Auth (SEA-12):** board reads and all mutations require a Better Auth
 session via `authComponent.safeGetAuthUser` / `getAuthUser` and a marked
 admin role (`clubAccounts.role`, else `chips@techatnyu.org` /
-`CLUB_ADMIN_EMAILS`). Each signed-in admin gets a `clubOrgs` row keyed by
-`ownerUserId` (index `by_owner`). Owner-keyed club, not a membership /
-invite model. Accounts that are not marked admin land on `/members`.
+`CLUB_ADMIN_EMAILS`). Every admin shares one club: the oldest `clubs` row
+(`lib/clubStore.ts`), created by the first admin to open `/club`.
+`createdByUserId` records who created it. One club per deployment, not a
+membership / invite model. Accounts that are not marked admin land on `/members`.
 The member forum is `clubPosts` — any signed-in user can post.
 The member directory is `listMembers` (name, LinkedIn, email).
+
+**Before deploying SEA-56:** there is no migration; production had no club
+data. On the target deployment, check each of these with
+`npx convex data <table>` and clear leftover test rows first. `clubOrgs` is
+gone from the schema, and the other three now require a `clubId` that old
+rows lack, so the schema push fails while they hold data:
+`clubOrgs`, `clubPosts`, `referralContacts`, `memberReferrals`.
 
 **Computed:** every mutation and `getBoard` call `computeView` / `addPerson`
 / `setStatus` / `addReferral` / … from `lib/engine.ts`, which imports
@@ -38,3 +59,16 @@ npx convex env set SITE_URL http://127.0.0.1:3000
 into `.env.local`. Also set `BETTER_AUTH_SECRET` and `SITE_URL` on the
 Convex deployment (see `apps/club/.env.example`). Without a live
 deployment, `/club` redirects to `/login`; it does not open the seed board.
+
+**Dev seed.** `bun run seed:dev` and `bun run seed:dev:reset` (from
+`apps/club`) fill or clear a dev deployment with example people. Both
+commands refuse `--prod` and a `CONVEX_DEPLOYMENT` that starts with
+`prod:`. The mutations are internal and throw unless the deployment has
+`CLUB_DEV_SEED=1` (`npx convex env set CLUB_DEV_SEED 1`). Passwords come
+from `SEED_DEV_PASSWORD` and are never printed. Example person ids start
+with `ex-`, affiliation is `Example data`, and emails end in
+`@example.test`. Reset deletes those rows and the matching login
+accounts. It does not delete the `clubs` row or anyone else.
+The seed sets `club.now` to the later of its fixed date (`EXAMPLE_NOW`)
+and the current clock, so it never moves the clock back. Reset does not
+write `club.now`.

@@ -11,7 +11,7 @@ The algorithm core is a different surface. Do not use this skill to prove Referr
 
 Primary surface: Next.js board at `/demo` (hidden public seed, no sign-in). `/` is the chips landing. `/example` redirects to `/demo`. Out of scope here:
 
-- `/club` — Better Auth + Convex persist. Shares the developer's Convex deployment. Do not sign in or mutate it from verification.
+- `/club` — Better Auth + Convex persist. The default launch shares the developer's Convex deployment. Do not sign in on that launch. Local-backend mode (`VERIFY_CLUB_LOCAL=1`, recipe `features/dev-seed.md`) is the only exception, and only for an `@example.test` account on a loopback Convex URL.
 - Engine CLI and `src/` — verify-engine.
 
 Write this as instructions for an agent that has never seen the app.
@@ -176,7 +176,8 @@ All scripts are executable. Run them from any cwd; they resolve the repo root th
 | `helpers/launch.sh` | Install if needed, start isolated Next, doctor, print URL |
 | `helpers/doctor.sh` | Read-only health + identity of the current run |
 | `helpers/cleanup.sh` | Kill what launch started; keep evidence |
-| `helpers/chrome-drive.ts` | Host Chrome CDP fallback (`goto`, `click-name`, `aria`, `screenshot`) |
+| `helpers/provision-local-admin.sh` | Local-backend only: provision `council.clerk@example.test` as admin after the loopback URL check |
+| `helpers/chrome-drive.ts` | Host Chrome CDP fallback (`goto`, `click-name`, `type-label`, `wait-name`, `aria`, `screenshot`) |
 
 Shared functions live in `helpers/lib.sh` (sourced, not invoked).
 
@@ -186,6 +187,7 @@ Shared functions live in `helpers/lib.sh` (sourced, not invoked).
 - Example board state is in-memory per server process. Instances do not share candidate data.
 - Isolated `next dev` from `helpers/launch.sh` is the supported path. Launch unsets `TG_*` so Club seed pins stay stable. Do not start another `next dev` yourself, and never attach to a developer session on `:3000`.
 - Refuse to drive a server you did not launch. Doctor enforces this.
-- Never sign in or mutate `/club` persist. Those share the developer's Convex deployment. Stay on `/demo` (`/` only to prove the chips landing; `/info` only to prove login + copy; `/example` only to prove the redirect; `/club` only to prove the `/login` redirect).
+- Never sign in or mutate `/club` persist on the default launch. Those share the developer's Convex deployment. Stay on `/demo` (`/` only to prove the chips landing; `/info` only to prove login + copy; `/example` only to prove the redirect; `/club` only to prove the `/login` redirect).
+- Local-backend mode is opt-in. Set `VERIFY_CLUB_LOCAL=1` and point `NEXT_PUBLIC_CONVEX_URL` plus `NEXT_PUBLIC_CONVEX_SITE_URL` at a local Convex backend (`127.0.0.1` or `localhost`) already seeded with `bun run seed:dev`. Launch still binds `127.0.0.1:43173` and never `:3000`. Doctor reads the recorded URLs and fails if either host is not loopback. `seed:dev` creates member referrers only. After doctor passes, `helpers/provision-local-admin.sh` creates `council.clerk@example.test` with role admin through `apps/club/scripts/provision-user.ts`. That helper runs `assert_local_backend_convex_url` on both URLs and exits before `provision-user` when either host is not loopback. Sign in only as an `@example.test` account (`ada.quill@example.test` for member home, the provisioned admin for the council board). The password is `SEED_DEV_PASSWORD` in the shell. Do not print it. Recipe: `features/dev-seed.md`.
 - Present mode exists in `ClubBoard` (`data-present`) but has **no control that turns it on**. Do not invent a Present button.
 - Helpers need `lsof` (port owner) and, when present, `pgrep` (process tree). Doctor and cleanup fail closed if they cannot identify the listener.
