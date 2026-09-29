@@ -9,6 +9,7 @@ import {
   newStatusToken,
   normalizeProfile,
   parseContact,
+  personMatch,
   planSignup,
   RESUME_MAX_BYTES,
   resumeClaimError,
@@ -287,5 +288,13 @@ describe("referral signup surface", () => {
     expect(read("apps/club/app/status/[token]/page.tsx")).toContain("Not found.");
     expect(read("apps/club/convex/referral.ts")).not.toContain("src/");
     expect(read("apps/club/lib/referralSignup.ts")).not.toContain("src/");
+  });
+});
+
+describe("personMatch", () => {
+  test("one, none, or several matching people", () => {
+    expect(personMatch([{ id: "p-grace" }])).toEqual({ kind: "person", personId: "p-grace" });
+    expect(personMatch([])).toEqual({ kind: "none" });
+    expect(personMatch([{ id: "p-1" }, { id: "p-2" }])).toEqual({ kind: "ambiguous" });
   });
 });
