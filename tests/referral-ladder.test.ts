@@ -301,6 +301,7 @@ describe("ladder placement", () => {
       candidateId: applicant.id,
       referredByUser: true,
       answers: answers(),
+      submittedAt: state.now,
     });
     expect(saved.ok).toBe(true);
     if (!saved.ok) return;
