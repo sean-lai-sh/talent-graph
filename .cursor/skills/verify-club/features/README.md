@@ -11,7 +11,7 @@ Scoring, dashboard text, and spec drift are not this map. Use `.cursor/skills/ve
 - Drive only that URL. Never attach to `http://127.0.0.1:3000` unless doctor says this run owns it.
 - Viewport width ≥ 1280 so the `Applicants` region is visible.
 - Start from the seed: refresh `/demo` or choose `Reset to seed` after any mutation. Doctor must have already proven `/demo` is the seed board.
-- Do not sign in. `/club` is in scope only as a redirect to `/login`.
+- Do not sign in. `/club` is in scope only as a redirect to `/login`, unless the run is local-backend mode (`features/dev-seed.md`).
 
 ## Driving conventions
 
@@ -51,3 +51,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Login door](./login-door.md) covers the chips `/login` form, the `/club` redirect, `/info` login, and that `/` and `/demo` stay public.
 - [Comparisons](./comparisons.md) covers the per-trait record sheet on a case.
 - [Info](./info.md) covers the underlined `info` on `/` and the `/info` note.
+- [Dev seed local backend](./dev-seed.md) covers signing in as an `@example.test` account against a local Convex backend seeded with `bun run seed:dev`. The seed creates member referrers only. `helpers/provision-local-admin.sh` creates the council admin after the loopback check. Doctor refuses this mode when the Convex URL is not local.

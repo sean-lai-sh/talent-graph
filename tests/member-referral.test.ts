@@ -520,13 +520,14 @@ describe("saveMemberReferralAnswers", () => {
     const referral = read("apps/club/convex/referral.ts");
     const body = mutationBody(referral, "saveMemberReferralAnswers");
     expect(body).toContain("getAuthUser");
+    expect(body).toContain("saveOwnedMemberReferral(");
     expect(body).toContain("commitMemberReferral(");
     expect(body).toContain("loadState(ctx.db, club)");
     expect(body).toContain("saveState(ctx.db, club, before, result.state)");
     expect(body).toContain('withIndex("by_club_referrer_and_contact"');
     expect(body).toContain("result.link?.normalizedContact");
     expect(body).toContain("newStatusToken()");
-    expect(body).toContain('ctx.db.insert("memberReferrals"');
+    expect(body).toContain("insertMemberReferralLink(ctx.db, club._id");
     expect(body).toContain("token: issued.token");
     expect(body).not.toContain("new Date().toISOString() },");
     expect(body).not.toContain("requireAdmin");

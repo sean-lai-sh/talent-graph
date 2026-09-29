@@ -59,3 +59,16 @@ npx convex env set SITE_URL http://127.0.0.1:3000
 into `.env.local`. Also set `BETTER_AUTH_SECRET` and `SITE_URL` on the
 Convex deployment (see `apps/club/.env.example`). Without a live
 deployment, `/club` redirects to `/login`; it does not open the seed board.
+
+**Dev seed.** `bun run seed:dev` and `bun run seed:dev:reset` (from
+`apps/club`) fill or clear a dev deployment with example people. Both
+commands refuse `--prod` and a `CONVEX_DEPLOYMENT` that starts with
+`prod:`. The mutations are internal and throw unless the deployment has
+`CLUB_DEV_SEED=1` (`npx convex env set CLUB_DEV_SEED 1`). Passwords come
+from `SEED_DEV_PASSWORD` and are never printed. Example person ids start
+with `ex-`, affiliation is `Example data`, and emails end in
+`@example.test`. Reset deletes those rows and the matching login
+accounts. It does not delete the `clubs` row or anyone else.
+The seed sets `club.now` to the later of its fixed date (`EXAMPLE_NOW`)
+and the current clock, so it never moves the clock back. Reset does not
+write `club.now`.

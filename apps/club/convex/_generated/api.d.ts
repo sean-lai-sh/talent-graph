@@ -10,6 +10,7 @@
 
 import type * as auth from "../auth.js";
 import type * as club from "../club.js";
+import type * as devSeed from "../devSeed.js";
 import type * as http from "../http.js";
 import type * as referral from "../referral.js";
 
@@ -22,6 +23,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   club: typeof club;
+  devSeed: typeof devSeed;
   http: typeof http;
   referral: typeof referral;
 }>;

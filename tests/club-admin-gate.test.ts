@@ -41,7 +41,16 @@ function handler(source: string, name: string, kind: "query" | "mutation"): stri
   const start = source.indexOf(marker);
   if (start < 0) throw new Error(`missing ${kind} ${name}`);
   const rest = source.slice(start + marker.length);
-  const next = rest.search(/\nexport const /);
+  const next = rest.search(/\nexport /);
+  return next < 0 ? rest : rest.slice(0, next);
+}
+
+function exportedFunction(source: string, name: string): string {
+  const marker = `export async function ${name}(`;
+  const start = source.indexOf(marker);
+  if (start < 0) throw new Error(`missing function ${name}`);
+  const rest = source.slice(start + marker.length);
+  const next = rest.search(/\nexport /);
   return next < 0 ? rest : rest.slice(0, next);
 }
 
@@ -151,12 +160,19 @@ describe("referral signup access", () => {
     expect(submit).not.toMatch(/for \(const \w+ of/);
     const answers = handler(referral, "saveMemberReferralAnswers", "mutation");
     expect(answers).toContain("const club = await loadClub(ctx.db)");
-    expect(answers).toContain("const before = await loadState(ctx.db, club)");
-    expect(answers).toContain("await saveState(ctx.db, club, before, result.state)");
-    expect(answers).toContain('await ctx.db.insert("memberReferrals", {');
-    expect(answers).not.toContain('ctx.db.insert("clubReferrals"');
-    expect(answers).not.toContain("ctx.db.patch(");
-    expect(answers).not.toMatch(/for \(const \w+ of/);
+    expect(answers).toContain("saveOwnedMemberReferral(ctx, club, {");
+    const save = exportedFunction(referral, "saveOwnedMemberReferral");
+    expect(save).toContain("const before = await loadState(ctx.db, club)");
+    expect(save).toContain("await saveState(ctx.db, club, before, result.state)");
+    expect(save).toContain("await insertMemberReferralLink(ctx.db, club._id, {");
+    expect(exportedFunction(referral, "insertMemberReferralLink")).toContain(
+      'db.insert("memberReferrals", { clubId, ...link })',
+    );
+    for (const body of [answers, save]) {
+      expect(body).not.toContain('insert("clubReferrals"');
+      expect(body).not.toContain(".patch(");
+      expect(body).not.toMatch(/for \(const \w+ of/);
+    }
     expect(referral).not.toContain("ORG_SCAN");
     const status = handler(referral, "referralStatus", "query");
     expect(status).toContain("token: v.string()");

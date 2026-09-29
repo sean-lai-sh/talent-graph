@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { loadClub, loadState, saveState } from "../lib/clubStore.ts";
+import { type Club, loadClub, loadState, saveState } from "../lib/clubStore.ts";
 import {
   ANSWERS_REJECTED_ERROR,
   commitMemberReferral,
@@ -19,10 +19,12 @@ import {
   planSignup,
   resumeClaimError,
   resumeFileError,
+  type SignupPlan,
   statusLine,
   UPLOAD_URL_LIMIT,
   uploadUrlAllowed,
 } from "../lib/referralSignup.ts";
+import type { MemberReferralAnswers } from "../lib/types.ts";
 import {
   REFERRAL_Q1_CONTEXTS,
   REFERRAL_Q1_LENGTHS,
@@ -231,21 +233,7 @@ export const submitReferralSignup = mutation({
       return { status: "rejected" as const, error: "Club is not set up yet." };
     }
 
-    await ctx.db.insert("clubPeople", { clubId: club._id, ...plan.person });
-    await ctx.db.insert("referralContacts", {
-      clubId: club._id,
-      normalizedContact: plan.contact.value,
-      kind: plan.contact.kind,
-      personId: plan.person.id,
-    });
-    await ctx.db.insert("memberReferrals", {
-      clubId: club._id,
-      referrerUserId: plan.referrerUserId,
-      normalizedContact: plan.contact.value,
-      personId: plan.person.id,
-      createdAt: plan.createdAt,
-      tokenHash: plan.tokenHash,
-    });
+    await insertSignupRecords(ctx.db, club._id, plan);
     if (upload) await ctx.db.patch(upload._id, { usedAt: Date.now() });
     return { status: "created" as const, token: issued.token };
   },
@@ -285,45 +273,111 @@ export const saveMemberReferralAnswers = mutation({
     if (!user) throw new Error("Sign in required.");
     const club = await loadClub(ctx.db);
     if (!club) return { error: "Club is not set up yet." };
-    const owned = await ctx.db
-      .query("memberReferrals")
-      .withIndex("by_club_referrer_and_contact", (q) =>
-        q.eq("clubId", club._id).eq("referrerUserId", user._id),
-      )
-      .filter((q) => q.eq(q.field("personId"), args.personId))
-      .first();
     const answers = parseMemberReferralAnswers(args.answers);
     if (!answers) return { error: ANSWERS_REJECTED_ERROR };
-    const before = await loadState(ctx.db, club);
-    const submittedAt = new Date().toISOString();
-    const result = commitMemberReferral({
-      state: before,
-      email: typeof user.email === "string" ? user.email : "",
-      candidateId: args.personId,
-      referredByUser: owned !== null,
-      answers,
-      submittedAt,
-    });
-    if (!result.ok) return { error: result.error };
-    await saveState(ctx.db, club, before, result.state);
-    const contact = result.link?.normalizedContact;
-    if (contact === undefined) return { ok: true as const };
-    const linkedByContact = await ctx.db
-      .query("memberReferrals")
-      .withIndex("by_club_referrer_and_contact", (q) =>
-        q.eq("clubId", club._id).eq("referrerUserId", user._id).eq("normalizedContact", contact),
-      )
-      .first();
-    if (linkedByContact) return { ok: true as const };
-    const issued = await newStatusToken();
-    await ctx.db.insert("memberReferrals", {
-      clubId: club._id,
+    return await saveOwnedMemberReferral(ctx, club, {
       referrerUserId: user._id,
-      normalizedContact: contact,
+      email: typeof user.email === "string" ? user.email : "",
       personId: args.personId,
-      createdAt: submittedAt,
-      tokenHash: issued.hash,
+      answers,
     });
-    return { ok: true as const, token: issued.token };
   },
 });
+
+type SignupCreate = Extract<SignupPlan, { action: "create" }>;
+
+export async function insertReferralContact(
+  db: MutationCtx["db"],
+  clubId: Id<"clubs">,
+  contact: { normalizedContact: string; kind: "email" | "phone"; personId: string },
+): Promise<void> {
+  await db.insert("referralContacts", { clubId, ...contact });
+}
+
+export async function insertMemberReferralLink(
+  db: MutationCtx["db"],
+  clubId: Id<"clubs">,
+  link: {
+    referrerUserId: string;
+    normalizedContact: string;
+    personId: string;
+    createdAt: string;
+    tokenHash: string;
+  },
+): Promise<void> {
+  await db.insert("memberReferrals", { clubId, ...link });
+}
+
+export async function insertSignupRecords(
+  db: MutationCtx["db"],
+  clubId: Id<"clubs">,
+  plan: SignupCreate,
+): Promise<void> {
+  await db.insert("clubPeople", { clubId, ...plan.person });
+  await insertReferralContact(db, clubId, {
+    normalizedContact: plan.contact.value,
+    kind: plan.contact.kind,
+    personId: plan.person.id,
+  });
+  await insertMemberReferralLink(db, clubId, {
+    referrerUserId: plan.referrerUserId,
+    normalizedContact: plan.contact.value,
+    personId: plan.person.id,
+    createdAt: plan.createdAt,
+    tokenHash: plan.tokenHash,
+  });
+}
+
+export async function saveOwnedMemberReferral(
+  ctx: MutationCtx,
+  club: Club,
+  input: {
+    referrerUserId: string;
+    email: string;
+    personId: string;
+    answers: MemberReferralAnswers;
+    /** Club clock for the referral. The public mutation leaves this unset and uses wall time. */
+    now?: string;
+  },
+): Promise<{ ok: true; token?: string } | { error: string }> {
+  const owned = await ctx.db
+    .query("memberReferrals")
+    .withIndex("by_club_referrer_and_contact", (q) =>
+      q.eq("clubId", club._id).eq("referrerUserId", input.referrerUserId),
+    )
+    .filter((q) => q.eq(q.field("personId"), input.personId))
+    .first();
+  const before = await loadState(ctx.db, club);
+  const submittedAt = input.now ?? new Date().toISOString();
+  const result = commitMemberReferral({
+    state: before,
+    email: input.email,
+    candidateId: input.personId,
+    referredByUser: owned !== null,
+    answers: input.answers,
+    submittedAt,
+  });
+  if (!result.ok) return { error: result.error };
+  await saveState(ctx.db, club, before, result.state);
+  const contact = result.link?.normalizedContact;
+  if (contact === undefined) return { ok: true };
+  const linkedByContact = await ctx.db
+    .query("memberReferrals")
+    .withIndex("by_club_referrer_and_contact", (q) =>
+      q
+        .eq("clubId", club._id)
+        .eq("referrerUserId", input.referrerUserId)
+        .eq("normalizedContact", contact),
+    )
+    .first();
+  if (linkedByContact) return { ok: true };
+  const issued = await newStatusToken();
+  await insertMemberReferralLink(ctx.db, club._id, {
+    referrerUserId: input.referrerUserId,
+    normalizedContact: contact,
+    personId: input.personId,
+    createdAt: submittedAt,
+    tokenHash: issued.hash,
+  });
+  return { ok: true, token: issued.token };
+}
