@@ -3,7 +3,6 @@ import { type Club, loadClub, loadState, saveState } from "../lib/clubStore.ts";
 import {
   ANSWERS_REJECTED_ERROR,
   commitMemberReferral,
-  NOT_YOUR_REFERRAL_ERROR,
   memberReferralAnswers as parseMemberReferralAnswers,
 } from "../lib/memberReferral.ts";
 import {
@@ -250,10 +249,11 @@ const memberReferralAnswers = v.object({
 });
 
 /**
- * A signed-in member records Q1–Q3 for someone they already referred.
- * The engine referral is `addReferral` inside `commitMemberReferral`,
- * persisted with `loadState` / `saveState`. Members do not go through
- * the council admin gate.
+ * A signed-in member records Q1–Q3 for a person in the club. The engine
+ * referral is `addReferral` inside `commitMemberReferral`, persisted with
+ * `loadState` / `saveState`. A person the member had not referred yet also
+ * gets their `memberReferrals` row and a status token. Members do not go
+ * through the council admin gate.
  */
 export const saveMemberReferralAnswers = mutation({
   args: {
@@ -331,7 +331,7 @@ export async function saveOwnedMemberReferral(
     /** Club clock for the referral. The public mutation leaves this unset and uses wall time. */
     now?: string;
   },
-): Promise<{ ok: true } | { error: string }> {
+): Promise<{ ok: true; token?: string } | { error: string }> {
   const owned = await ctx.db
     .query("memberReferrals")
     .withIndex("by_club_referrer_and_contact", (q) =>
@@ -339,16 +339,37 @@ export async function saveOwnedMemberReferral(
     )
     .filter((q) => q.eq(q.field("personId"), input.personId))
     .first();
-  if (!owned) return { error: NOT_YOUR_REFERRAL_ERROR };
   const before = await loadState(ctx.db, club);
+  const submittedAt = input.now ?? new Date().toISOString();
   const result = commitMemberReferral({
-    state: { ...before, now: input.now ?? new Date().toISOString() },
+    state: before,
     email: input.email,
     candidateId: input.personId,
-    referredByUser: true,
+    referredByUser: owned !== null,
     answers: input.answers,
+    submittedAt,
   });
   if (!result.ok) return { error: result.error };
   await saveState(ctx.db, club, before, result.state);
-  return { ok: true };
+  const contact = result.link?.normalizedContact;
+  if (contact === undefined) return { ok: true };
+  const linkedByContact = await ctx.db
+    .query("memberReferrals")
+    .withIndex("by_club_referrer_and_contact", (q) =>
+      q
+        .eq("clubId", club._id)
+        .eq("referrerUserId", input.referrerUserId)
+        .eq("normalizedContact", contact),
+    )
+    .first();
+  if (linkedByContact) return { ok: true };
+  const issued = await newStatusToken();
+  await insertMemberReferralLink(ctx.db, club._id, {
+    referrerUserId: input.referrerUserId,
+    normalizedContact: contact,
+    personId: input.personId,
+    createdAt: submittedAt,
+    tokenHash: issued.hash,
+  });
+  return { ok: true, token: issued.token };
 }
