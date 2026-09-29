@@ -494,6 +494,42 @@ describe("council page engine: referrals and compares still validate", () => {
     expect(skipped.state.comparisons[skipped.state.comparisons.length - 1]?.confidence).toBeNull();
   });
 
+  test("addComparison stores a weight and leaves an unweighted row without one", () => {
+    const start = loadClub();
+    const weighted = addComparison(start.state, {
+      personAId: "p-cleo",
+      personBId: "p-bram",
+      dimension: "output",
+      outcome: "a",
+      weight: 1 / 3,
+    });
+    expect(weighted.error).toBeUndefined();
+    const stored = weighted.state.comparisons[weighted.state.comparisons.length - 1];
+    expect(stored?.weight).toBe(1 / 3);
+    expect(stored?.winnerId).toBe("p-cleo");
+
+    const plain = addComparison(start.state, {
+      personAId: "p-cleo",
+      personBId: "p-bram",
+      dimension: "agency",
+      outcome: "b",
+    });
+    expect(plain.error).toBeUndefined();
+    const unweighted = plain.state.comparisons[plain.state.comparisons.length - 1];
+    expect(unweighted && "weight" in unweighted).toBe(false);
+    expect(unweighted?.winnerId).toBe("p-bram");
+
+    const rejected = addComparison(start.state, {
+      personAId: "p-cleo",
+      personBId: "p-bram",
+      dimension: "agency",
+      outcome: "a",
+      weight: 1.5,
+    });
+    expect(rejected.error).toContain("weight must be a finite number in (0, 1]");
+    expect(rejected.state.comparisons).toHaveLength(start.state.comparisons.length);
+  });
+
   test("addPerson stores contact metadata and starts a case as new", () => {
     const start = loadClub();
     const added = addPerson(start.state, {

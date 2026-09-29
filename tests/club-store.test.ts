@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Club } from "../apps/club/lib/clubStore.ts";
 import { ensureClub, loadClub, loadState, saveState } from "../apps/club/lib/clubStore.ts";
-import { decide, emptyState, initialState } from "../apps/club/lib/engine.ts";
+import { addComparison, decide, emptyState, initialState } from "../apps/club/lib/engine.ts";
 import { reviveState } from "../apps/club/lib/serialize.ts";
 import type { ClubState } from "../apps/club/lib/types.ts";
 
@@ -209,6 +209,47 @@ describe("club state round trip", () => {
     const loaded = await loadState(db, club);
     expect(loaded.people.map((p) => p.id)).not.toContain("p-stranger");
     expect(loaded.people).toHaveLength(initialState().people.length);
+  });
+
+  test("a comparison weight round-trips, and a row without one stays without one", async () => {
+    const { db, raw } = fakeDb();
+    let club = await ensureClub(db, "user-ada");
+    const seeded = initialState();
+    await saveState(db, club, stateOf(club), seeded);
+    club = await reload(db, club);
+    const before = await loadState(db, club);
+    const weighted = addComparison(before, {
+      personAId: "p-cleo",
+      personBId: "p-bram",
+      dimension: "output",
+      outcome: "a",
+      weight: 0.25,
+    });
+    expect(weighted.error).toBeUndefined();
+    const plain = addComparison(weighted.state, {
+      personAId: "p-cleo",
+      personBId: "p-alice",
+      dimension: "agency",
+      outcome: "tie",
+    });
+    expect(plain.error).toBeUndefined();
+    const beforeIds = new Set(before.comparisons.map((c) => c.id));
+    const added = plain.state.comparisons.filter((c) => !beforeIds.has(c.id));
+    expect(added).toHaveLength(2);
+    await saveState(db, club, before, plain.state);
+    club = await reload(db, club);
+    const loaded = await loadState(db, club);
+    expect(loaded).toEqual(reviveState(plain.state));
+    const loadedAdded = loaded.comparisons.filter((c) => !beforeIds.has(c.id));
+    const withWeight = loadedAdded.find((c) => c.outcome === "a");
+    const withoutWeight = loadedAdded.find((c) => c.outcome === "tie");
+    expect(withWeight?.weight).toBe(0.25);
+    expect(withoutWeight && "weight" in withoutWeight).toBe(false);
+    const stored = await raw.query("clubComparisons").collect();
+    const storedAdded = stored.filter((row) => !beforeIds.has(String(row.id)));
+    expect(storedAdded.find((row) => row.outcome === "a")?.weight).toBe(0.25);
+    const storedPlain = storedAdded.find((row) => row.outcome === "tie");
+    expect(storedPlain && "weight" in storedPlain).toBe(false);
   });
 
   test("replacing a row that is not stored is an error naming the table and id", async () => {

@@ -269,6 +269,7 @@ export function addComparison(state: ClubState, input: AddComparisonInput): Engi
     confidence: informative ? (input.confidence ?? null) : null,
     createdAt: new Date(next.now),
   };
+  if (input.weight !== undefined) comparison.weight = input.weight;
   const note = input.evidenceText?.trim();
   if (note) comparison.evidenceText = note;
   const check = validateComparison(comparison);

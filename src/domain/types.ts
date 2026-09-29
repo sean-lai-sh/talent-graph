@@ -83,6 +83,7 @@ export interface Comparison {
   winnerId: string | null;
   /** Stored but ignored by the V1 likelihood. */
   confidence: Scale5 | null;
+  weight?: number;
   evidenceText?: string;
   createdAt: Date;
 }

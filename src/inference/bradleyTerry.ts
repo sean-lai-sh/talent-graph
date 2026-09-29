@@ -143,10 +143,15 @@ export interface ToObservationsOptions {
   tieHandling?: "ignore" | "half";
 }
 
+function scaledObservationWeight(base: number, comparisonWeight: number | undefined): number {
+  return comparisonWeight === undefined ? base : base * comparisonWeight;
+}
+
 /**
  * Only outcomes "a" / "b" become observations. A tie becomes two half-weight
  * observations when `tieHandling` is "half", nothing when "ignore". `skip` and
- * `insufficient_observation` are never observations.
+ * `insufficient_observation` are never observations. Each emitted weight is
+ * that base times `comparison.weight` when the comparison carries one.
  */
 export function toObservations(
   comparisons: readonly Comparison[],
@@ -158,13 +163,24 @@ export function toObservations(
   for (const c of comparisons) {
     if (c.dimension !== dimension) continue;
     if (c.outcome === "a") {
-      out.push({ winnerId: c.personAId, loserId: c.personBId, weight: 1, sourceId: c.id });
+      out.push({
+        winnerId: c.personAId,
+        loserId: c.personBId,
+        weight: scaledObservationWeight(1, c.weight),
+        sourceId: c.id,
+      });
     } else if (c.outcome === "b") {
-      out.push({ winnerId: c.personBId, loserId: c.personAId, weight: 1, sourceId: c.id });
+      out.push({
+        winnerId: c.personBId,
+        loserId: c.personAId,
+        weight: scaledObservationWeight(1, c.weight),
+        sourceId: c.id,
+      });
     } else if (c.outcome === "tie" && tieHandling === "half") {
       // Both halves share the comparison id, so a tie is one comparison per side.
-      out.push({ winnerId: c.personAId, loserId: c.personBId, weight: 0.5, sourceId: c.id });
-      out.push({ winnerId: c.personBId, loserId: c.personAId, weight: 0.5, sourceId: c.id });
+      const half = scaledObservationWeight(0.5, c.weight);
+      out.push({ winnerId: c.personAId, loserId: c.personBId, weight: half, sourceId: c.id });
+      out.push({ winnerId: c.personBId, loserId: c.personAId, weight: half, sourceId: c.id });
     }
   }
   return out;

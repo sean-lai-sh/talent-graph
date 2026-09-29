@@ -64,6 +64,7 @@ export interface ClubComparison {
   outcome: ComparisonOutcome;
   winnerId: string | null;
   confidence: Scale5 | null;
+  weight?: number;
   evidenceText?: string;
   createdAt: IsoDate;
 }
@@ -503,6 +504,8 @@ export interface AddComparisonInput {
   confidence?: Scale5 | null;
   evidenceText?: string;
   evaluatorId?: string;
+  /** Share of one judgment, in (0, 1]. Omitted means the stored row has no weight. */
+  weight?: number;
 }
 
 export interface AddEvaluationInput {
