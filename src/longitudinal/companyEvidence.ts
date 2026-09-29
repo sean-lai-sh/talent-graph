@@ -119,12 +119,8 @@ function knownRateFor(
   company: SeedCompany | undefined,
 ): PublishedRate | null {
   if (founder)
-    return tightest(
-      named.flatMap((investor) => matchingRates(investor.publishedRates, labelText)),
-    );
-  return (
-    matchingRates(company?.publishedRate ? [company.publishedRate] : [], labelText)[0] ?? null
-  );
+    return tightest(named.flatMap((investor) => matchingRates(investor.publishedRates, labelText)));
+  return matchingRates(company?.publishedRate ? [company.publishedRate] : [], labelText)[0] ?? null;
 }
 
 function matchingRates(rates: readonly PublishedRate[], text: string): PublishedRate[] {
