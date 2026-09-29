@@ -6,6 +6,7 @@ import { computeView, emptyState } from "../apps/club/lib/engine.ts";
 import { signalText } from "../apps/club/lib/format.ts";
 import { resolveMemberPersonId } from "../apps/club/lib/memberIdentity.ts";
 import {
+  AMBIGUOUS_CONTACT_ERROR,
   AMBIGUOUS_MEMBER_ERROR,
   commitMemberReferral,
   EMPTY_OBSERVATION_ERROR,
@@ -424,6 +425,38 @@ describe("saveMemberReferralAnswers", () => {
       error: NO_CONTACT_ERROR,
       state: bare,
     });
+  });
+
+  test("a contact that several people carry is rejected and writes nothing", () => {
+    const twinEmail = club([
+      member,
+      applicant,
+      person("p-ada-again", "Ada Again", "candidate", "ada@example.test"),
+    ]);
+    expect(save(twinEmail, { referredByUser: false })).toEqual({
+      ok: false,
+      error: AMBIGUOUS_CONTACT_ERROR,
+      state: twinEmail,
+    });
+
+    const withPhone = (id: string, phone: string): ClubPerson => ({
+      ...person(id, id, "candidate"),
+      phone,
+    });
+    const twinPhone = club([
+      member,
+      withPhone("p-ada", "(212) 555-0199"),
+      withPhone("p-other", "+1 646 555 0100"),
+      withPhone("p-ada-again", "+1 212 555 0199"),
+    ]);
+    expect(save(twinPhone, { referredByUser: false, candidateId: "p-ada" })).toEqual({
+      ok: false,
+      error: AMBIGUOUS_CONTACT_ERROR,
+      state: twinPhone,
+    });
+    const lone = save(twinPhone, { referredByUser: false, candidateId: "p-other" });
+    expect(lone.ok && lone.link).toEqual({ normalizedContact: "+16465550100" });
+    expect(AMBIGUOUS_CONTACT_ERROR).not.toBe(NO_CONTACT_ERROR);
   });
 
   test("an unlinked account and an email on two members get different errors", () => {
