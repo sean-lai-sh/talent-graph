@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { copyFile, mkdtemp, readFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parseDocument } from "yaml";
 import { main } from "../scripts/jev-company-worklist.ts";
 import { CLAIM_VALUE_V1_2_0, claimValueV12ConfigHash } from "../src/longitudinal/claimValue.ts";
 import {
@@ -136,11 +137,18 @@ describe("company worklist", () => {
   });
 });
 
+/** The real config.yml with no companies, so these tests do not depend on what is seeded. */
+async function configWithoutCompanies(): Promise<string> {
+  const doc = parseDocument(await readFile(projectConfigPath(), "utf8"));
+  doc.setIn(["company_seed", "companies"], doc.createNode([]));
+  return String(doc);
+}
+
 describe("applying proposals", () => {
   test("merges into company_seed, keeps comments, rewrites the pin, and is idempotent", async () => {
     const dir = await mkdtemp(join(tmpdir(), "company-apply-"));
     const paths = { config: join(dir, "config.yml"), pin: join(dir, "companySeedPin.ts") };
-    await copyFile(projectConfigPath(), paths.config);
+    await writeFile(paths.config, await configWithoutCompanies());
     await copyFile(PIN, paths.pin);
 
     const out = await main(["--apply", PROPOSALS], paths);
@@ -161,7 +169,7 @@ describe("applying proposals", () => {
   });
 
   test("an update replaces the entry by name, and an alias another company owns fails", async () => {
-    const base = await readFile(projectConfigPath(), "utf8");
+    const base = await configWithoutCompanies();
     const [quarry] = parseCompanyResearchProposals(await proposals());
     if (!quarry) throw new Error("expected Quarry");
     const once = mergeSeedCompanies(base, [quarry]).text;

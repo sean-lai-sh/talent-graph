@@ -30,7 +30,9 @@ import { SYNTHETIC_COMPANY_SEED } from "./fixtures/companySeed.synthetic.ts";
 // The pin changes when the company_seed section of config.yml changes.
 // companySeedHash() fingerprints that section, so a fund-tier edit moves this
 // stamp and scores from two lists are not compared.
-const PINNED_V12_CONFIG_HASH = "6aaa508fff88d6f3dedabf803f3b21ea9b20b6a1dec25911fff495ffe6e697f8";
+// Pinned against a fixed seed hash so seeding real companies does not move it.
+const FIXED_SEED_HASH = "0".repeat(64);
+const PINNED_V12_CONFIG_HASH = "a264404c24f4f66ed552ef1e0cf3632ef21dd9b8b4f95ed708e4982c2d1233cc";
 const PINNED_V11_CONFIG_HASH = "8f66391ae3488a303bc8135936840cd739d0b808642b27293a1a906e1ae76adf";
 
 type SignalKey = "referralSignal" | "signal" | "score";
@@ -356,13 +358,16 @@ describe("config stamp", () => {
   test("the 1.2.0 hash includes the imported seed and company-evidence hashes", () => {
     expect(CLAIM_VALUE_V1_2_0.companySeedHash).toBe(companySeedHash());
     expect(CLAIM_VALUE_V1_2_0.companyEvidenceConfigHash).toBe(companyEvidenceConfigHash());
-    expect(claimValueV12ConfigHash(CLAIM_VALUE_V1_2_0)).toBe(PINNED_V12_CONFIG_HASH);
-    expect(claimValueV12ConfigId(CLAIM_VALUE_V1_2_0)).toBe("claim_value@1.2.0:6aaa508f");
+    expect(
+      claimValueV12ConfigHash({ ...CLAIM_VALUE_V1_2_0, companySeedHash: FIXED_SEED_HASH }),
+    ).toBe(PINNED_V12_CONFIG_HASH);
+    const live = claimValueV12ConfigHash(CLAIM_VALUE_V1_2_0);
+    expect(claimValueV12ConfigId(CLAIM_VALUE_V1_2_0)).toBe(`claim_value@1.2.0:${live.slice(0, 8)}`);
     expect(Object.isFrozen(CLAIM_VALUE_V1_2_0)).toBe(true);
 
     const scored = selection(mass(4), mass(1), "self_reported");
-    expect(scored.configHash).toBe(PINNED_V12_CONFIG_HASH);
-    expect(scored.configId).toBe("claim_value@1.2.0:6aaa508f");
+    expect(scored.configHash).toBe(live);
+    expect(scored.configId).toBe(`claim_value@1.2.0:${live.slice(0, 8)}`);
     expect(scored.configVersion).toBe("1.2.0");
 
     const editedSeed: ClaimValueV12Config = {
