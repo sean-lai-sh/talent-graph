@@ -6,9 +6,11 @@ import { computeView, emptyState } from "../apps/club/lib/engine.ts";
 import { signalText } from "../apps/club/lib/format.ts";
 import { resolveMemberPersonId } from "../apps/club/lib/memberIdentity.ts";
 import {
+  AMBIGUOUS_MEMBER_ERROR,
   commitMemberReferral,
   EMPTY_OBSERVATION_ERROR,
   memberReferralAnswers,
+  NO_CONTACT_ERROR,
   NOT_LINKED_ERROR,
   NOT_YOUR_REFERRAL_ERROR,
   referralAnswersToEngine,
@@ -28,6 +30,8 @@ import type { EvidenceType, PersonStatus, Scale5 } from "../src/domain/types.ts"
 
 const root = join(import.meta.dir, "..");
 const NOW = "2026-09-28T12:00:00.000Z";
+const LATER = "2026-09-28T15:30:00.000Z";
+const EARLIER = "2026-09-27T09:00:00.000Z";
 const MINA = "mina@example.test";
 
 function read(rel: string): string {
@@ -283,6 +287,7 @@ describe("saveMemberReferralAnswers", () => {
       candidateId: string;
       referredByUser: boolean;
       answers: MemberReferralAnswers;
+      submittedAt: string;
     }> = {},
   ) {
     return commitMemberReferral({
@@ -291,6 +296,7 @@ describe("saveMemberReferralAnswers", () => {
       candidateId: overrides.candidateId ?? applicant.id,
       referredByUser: overrides.referredByUser ?? true,
       answers: overrides.answers ?? sample,
+      submittedAt: overrides.submittedAt ?? NOW,
     });
   }
 
@@ -335,41 +341,105 @@ describe("saveMemberReferralAnswers", () => {
     expect(signalText(afterPerson?.v0Signal ?? null)).not.toBe("Insufficient Evidence");
   });
 
-  test("a person this user did not refer is an error and writes nothing", () => {
+  test("a later submission moves club.now forward to the referral's createdAt", () => {
     const before = linkedState();
-    const result = save(before, { referredByUser: false });
-    expect(result).toEqual({ ok: false, error: NOT_YOUR_REFERRAL_ERROR, state: before });
-    expect(before.referrals).toHaveLength(0);
+    const result = save(before, { submittedAt: LATER });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.state.now).toBe(LATER);
+    expect(result.state.referrals[0]?.createdAt).toBe(LATER);
+    expect(planWrites(before, result.state).club).toEqual({ now: LATER });
+    const view = computeView(reviveState(result.state)).people.find((p) => p.id === applicant.id);
+    expect(view?.incomingCount).toBe(1);
   });
 
-  test("an unlinked account writes nothing and leaves the signup row alone", () => {
-    const none = linkedState();
-    none.people = [person("p-mina", "Mina Example", "candidate", MINA), applicant];
-    const missing = save(none);
-    expect(missing.ok).toBe(false);
-    if (missing.ok) return;
-    expect(missing.error).toBe(NOT_LINKED_ERROR);
-    expect(missing.state.referrals).toBe(none.referrals);
-
-    const two = club([member, person("p-mina-2", "Mina Two", "member", MINA), applicant]);
-    const doubled = save(two);
-    expect(doubled.ok).toBe(false);
-    if (doubled.ok) return;
-    expect(doubled.error).toBe(NOT_LINKED_ERROR);
-    expect(doubled.state.referrals).toHaveLength(0);
-    expect(two.people).toHaveLength(3);
+  test("an earlier submission never moves club.now back", () => {
+    const before = linkedState();
+    const result = save(before, { submittedAt: EARLIER });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.state.now).toBe(NOW);
+    expect(result.state.referrals[0]?.createdAt).toBe(EARLIER);
+    expect(planWrites(before, result.state).club).toEqual({});
+    const view = computeView(reviveState(result.state)).people.find((p) => p.id === applicant.id);
+    expect(view?.incomingCount).toBe(1);
   });
 
-  test("a second call for the same pair returns the engine duplicate error and keeps one row", () => {
-    const first = save(linkedState());
+  test("a second save for the same candidate updates the one row and keeps createdAt", () => {
+    const first = save(linkedState(), { submittedAt: NOW });
     expect(first.ok).toBe(true);
     if (!first.ok) return;
-    const second = save(first.state);
-    expect(second.ok).toBe(false);
-    if (second.ok) return;
-    expect(second.error).toContain("duplicate referral from p-mina to p-ada");
+    const original = first.state.referrals[0];
+    if (!original) throw new Error("missing referral row");
+    const second = save(first.state, {
+      submittedAt: LATER,
+      answers: answers({ rank: "The best of them", what: "Ran the launch." }),
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.link).toBeNull();
     expect(second.state.referrals).toHaveLength(1);
-    expect(second.state.referrals).toBe(first.state.referrals);
+    expect(second.state.referrals[0]).toEqual({
+      ...original,
+      conviction: 5,
+      evidenceText: [
+        "What was it?: Ran the launch.",
+        "What made it hard?: The spec kept moving.",
+        "What did they do that others wouldn't have?: Wrote the failing test first.",
+      ].join("\n"),
+      createdAt: NOW,
+      updatedAt: LATER,
+    });
+    expect(second.state.now).toBe(LATER);
+    const updated = second.state.referrals[0];
+    if (!updated) throw new Error("missing updated row");
+    const writes = planWrites(first.state, second.state);
+    expect(writes.rows.referrals).toEqual([{ kind: "replace", id: original.id, row: updated }]);
+    expect(writes.club).toEqual({ now: LATER });
+  });
+
+  test("a person already in the club that this user had not referred gets a link", () => {
+    const before = linkedState();
+    const result = save(before, { referredByUser: false });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.link).toEqual({ normalizedContact: "ada@example.test" });
+    expect(result.state.referrals).toHaveLength(1);
+    expect(result.state.referrals[0]).toMatchObject({ referrerId: "p-mina", candidateId: "p-ada" });
+
+    const owned = save(before);
+    expect(owned.ok && owned.link).toBeNull();
+  });
+
+  test("a person not in the club, or with no contact on file, writes nothing", () => {
+    const before = linkedState();
+    expect(save(before, { referredByUser: false, candidateId: "p-nobody" })).toEqual({
+      ok: false,
+      error: NOT_YOUR_REFERRAL_ERROR,
+      state: before,
+    });
+    const bare = club([member, person("p-bare", "Bare Example", "candidate")]);
+    expect(save(bare, { referredByUser: false, candidateId: "p-bare" })).toEqual({
+      ok: false,
+      error: NO_CONTACT_ERROR,
+      state: bare,
+    });
+  });
+
+  test("an unlinked account and an email on two members get different errors", () => {
+    const none = linkedState();
+    none.people = [person("p-mina", "Mina Example", "candidate", MINA), applicant];
+    expect(save(none)).toEqual({ ok: false, error: NOT_LINKED_ERROR, state: none });
+
+    const two = club([
+      member,
+      person("p-mina-2", "Mina Two", "member", "MINA@example.test"),
+      applicant,
+    ]);
+    expect(save(two)).toEqual({ ok: false, error: AMBIGUOUS_MEMBER_ERROR, state: two });
+    expect(AMBIGUOUS_MEMBER_ERROR).not.toBe(NOT_LINKED_ERROR);
+    expect(two.referrals).toHaveLength(0);
+    expect(two.people).toHaveLength(3);
   });
 
   test("referring your own person row is rejected by the engine self-referral rule", () => {
@@ -391,6 +461,11 @@ describe("saveMemberReferralAnswers", () => {
     expect(body).toContain("loadState(ctx.db, club)");
     expect(body).toContain("saveState(ctx.db, club, before, result.state)");
     expect(body).toContain('withIndex("by_club_referrer_and_contact"');
+    expect(body).toContain("result.link?.normalizedContact");
+    expect(body).toContain("newStatusToken()");
+    expect(body).toContain("insertMemberReferralLink(ctx.db, club._id");
+    expect(body).toContain("token: issued.token");
+    expect(body).not.toContain("new Date().toISOString() },");
     expect(body).not.toContain("requireAdmin");
     expect(body).not.toContain("applyEngine");
     expect(read("apps/club/lib/memberReferral.ts")).toContain("addReferral(");

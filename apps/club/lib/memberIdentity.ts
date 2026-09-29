@@ -22,3 +22,13 @@ export function resolveMemberPersonId(state: ClubState, email: string): MemberPe
   if (!only) return { status: "not_linked" };
   return { status: "linked", personId: only.id };
 }
+
+/** More than one member row carries this email, so no single profile can be chosen. */
+export function memberEmailIsAmbiguous(state: ClubState, email: string): boolean {
+  const wanted = normalizedEmail(email);
+  if (wanted === "") return false;
+  const matches = state.people.filter(
+    (person) => person.status === "member" && normalizedEmail(person.email) === wanted,
+  );
+  return matches.length > 1;
+}

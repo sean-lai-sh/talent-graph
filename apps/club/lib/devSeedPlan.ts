@@ -315,6 +315,7 @@ export function applyAnswerJob(
     candidateId: job.candidateId,
     referredByUser: true,
     answers: job.answers,
+    submittedAt: state.now,
   });
   if (result.ok) return { ok: true, state: result.state, already: false };
   if (isDuplicateReferral(result.error)) return { ok: true, state, already: true };
