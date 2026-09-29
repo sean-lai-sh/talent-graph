@@ -14,6 +14,7 @@ import {
   CAREER_EVIDENCE_V1_2_1,
   CAREER_EVIDENCE_V1_2_2,
   CAREER_EVIDENCE_V1_2_3,
+  CAREER_EVIDENCE_V1_2_4,
   careerEvidenceV12Behavior,
   careerEvidenceV12RubricHash,
 } from "../src/models/careerEvidenceV12.ts";
@@ -235,6 +236,7 @@ test("the rubric hash is the serialized ask", () => {
     CAREER_EVIDENCE_V1_2_1,
     CAREER_EVIDENCE_V1_2_2,
     CAREER_EVIDENCE_V1_2_3,
+    CAREER_EVIDENCE_V1_2_4,
   ]) {
     const behavior = careerEvidenceV12Behavior(spec);
     const observed = v12Plan(spec);
@@ -266,6 +268,7 @@ test("registered career_evidence versions with different question plans do not s
     "1.2.1",
     "1.2.2",
     "1.2.3",
+    "1.2.4",
   ]);
   expect(questionPlan(CAREER_EVIDENCE_V1_2_0)).not.toEqual(questionPlan(CAREER_EVIDENCE_V1_2_1));
   expect(questionPlan(CAREER_EVIDENCE_V1_0_0)).not.toEqual(questionPlan(CAREER_EVIDENCE_V1_1_0));

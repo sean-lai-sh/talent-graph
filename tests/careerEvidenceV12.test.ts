@@ -131,6 +131,7 @@ describe("career_evidence@1.2.0 registration", () => {
       "1.2.1",
       "1.2.2",
       "1.2.3",
+      "1.2.4",
     ]);
     expect(getSpec("career_evidence", "1.2.0").version).toBe("1.2.0");
     expect(CURRENT_SPECS.career_evidence.version).toBe("1.0.0");

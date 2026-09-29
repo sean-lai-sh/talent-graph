@@ -173,6 +173,17 @@ export const CAREER_EVIDENCE_V1_2_3: CareerEvidenceV12Spec = deepFreeze({
   },
 });
 
+/** 1.2.4 keeps the 1.2.3 text. The company-context sentence lives in its question plan. */
+export const CAREER_EVIDENCE_V1_2_4: CareerEvidenceV12Spec = deepFreeze({
+  ...CAREER_EVIDENCE_V1_2_3,
+  version: "1.2.4",
+});
+
+const COMPANY_CONTEXT_SENTENCE =
+  "When `company_context` is present, treat its sourced facts about the employer at the hire date " +
+  "(stage, top investor, published acceptance rate, hiring bar) as evidence for this answer, " +
+  "and infer nothing from a fact it does not list.";
+
 export function selectivityLevelForRate(
   rate: number,
   spec: CareerEvidenceV12Spec = CAREER_EVIDENCE_V1_2_0,
@@ -204,6 +215,12 @@ export interface CareerEvidenceV12QuestionPlan {
     selection: readonly CareerEvidenceV12QuestionKey[];
     output: readonly CareerEvidenceV12QuestionKey[];
     classHandling: CareerEvidenceV12ClassHandling;
+    /**
+     * Sent with a dated selection claim that has sourced company facts:
+     * the state gains `company_context`, and this sentence is appended to
+     * the selectivity and pool_strength questions. Absent before 1.2.4.
+     */
+    companyContext?: string;
   };
   free: {
     probe: readonly CareerEvidenceV12QuestionKey[];
@@ -258,6 +275,15 @@ const QUESTION_PLANS = {
       selection: ["selectivity", "pool_strength"],
       output: ["difficulty", "scale", "role"],
       classHandling: STRUCTURAL_CLASS,
+    },
+    free: FREE_ASK,
+  },
+  "1.2.4": {
+    dated: {
+      selection: ["selectivity", "pool_strength"],
+      output: ["difficulty", "scale", "role"],
+      classHandling: STRUCTURAL_CLASS,
+      companyContext: COMPANY_CONTEXT_SENTENCE,
     },
     free: FREE_ASK,
   },

@@ -59,7 +59,9 @@ function company(partial: Partial<CompanySelectionEvidence> = {}): CompanySelect
   return {
     knownRate: null,
     investorTier: null,
+    topInvestor: null,
     stageAtHire: null,
+    hiringBar: null,
     proxyLift: 0,
     joinedEarly: false,
     earlyJoinerBonus: 0,

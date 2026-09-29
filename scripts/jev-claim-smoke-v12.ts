@@ -29,6 +29,7 @@ import {
   CAREER_EVIDENCE_V1_2_1,
   CAREER_EVIDENCE_V1_2_2,
   CAREER_EVIDENCE_V1_2_3,
+  CAREER_EVIDENCE_V1_2_4,
   careerEvidenceV12RubricHash,
 } from "../src/models/careerEvidenceV12.ts";
 import { type CareerEvidenceV12Spec, specId } from "../src/models/spec.ts";
@@ -150,7 +151,7 @@ class Pending extends Error {
 }
 
 export function v12LiveQuestions(spec: CareerEvidenceV12Spec, request: ClaimRubricV12Request) {
-  const bank = claimQuestionsV12(spec);
+  const bank = claimQuestionsV12(spec, "company_context" in request.state);
   const claimClass = "claim_class" in request.questions ? { claim_class: bank.claim_class } : {};
   if ("selectivity" in request.questions) {
     return { ...claimClass, selectivity: bank.selectivity, pool_strength: bank.pool_strength };
@@ -178,6 +179,9 @@ export function liveV12Client(spec: CareerEvidenceV12Spec = CAREER_EVIDENCE_V1_2
         selection_rate_source: request.state.selection_rate_source,
         title_hint: request.state.title_hint,
         ...("role_seed" in request.state ? { role_seed: request.state.role_seed } : {}),
+        ...(request.state.company_context
+          ? { company_context: request.state.company_context }
+          : {}),
       };
       return client.systemOne({ state, questions: v12LiveQuestions(spec, request) });
     },
@@ -185,6 +189,9 @@ export function liveV12Client(spec: CareerEvidenceV12Spec = CAREER_EVIDENCE_V1_2
 }
 
 export function v12SpecFor(rubric: string | undefined): CareerEvidenceV12Spec {
+  if (rubric === specId(CAREER_EVIDENCE_V1_2_4) || rubric === "CAREER_EVIDENCE_V1_2_4") {
+    return CAREER_EVIDENCE_V1_2_4;
+  }
   if (rubric === specId(CAREER_EVIDENCE_V1_2_3) || rubric === "CAREER_EVIDENCE_V1_2_3") {
     return CAREER_EVIDENCE_V1_2_3;
   }

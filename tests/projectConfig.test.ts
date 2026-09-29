@@ -86,6 +86,24 @@ describe("config.yml", () => {
     expect(() => checkConfigText(fixture("missing-field.yml"))).toThrow(/missing id/);
   });
 
+  test("a hiring bar without a note fails", () => {
+    const company = {
+      name: "Quarry",
+      aliases: [],
+      source: "https://example.invalid/quarry",
+      currentStage: "public_large",
+      rounds: [],
+      publishedRate: null,
+      hiringBar: { source: "https://example.invalid/quarry-bar" },
+    };
+    const text = withLivePersonRollup(
+      stringify({ company_seed: { investors: [], companies: [company] } }),
+    );
+    expect(() => checkConfigText(text)).toThrow(
+      /companies\[0\]\.hiringBar\.note: must be a non-empty string/,
+    );
+  });
+
   test("an unknown section fails", () => {
     expect(() => checkConfigText(fixture("unknown-section.yml"))).toThrow(
       /unknown section "scoring"/,

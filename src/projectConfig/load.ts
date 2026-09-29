@@ -5,6 +5,7 @@ import {
   COMPANY_STAGES,
   type CompanySeed,
   type CompanyStage,
+  type HiringBar,
   type InvestorTier,
   type PublishedRate,
   type SeedCompany,
@@ -308,11 +309,14 @@ function parseRate(value: unknown, where: string): PublishedRate {
   };
 }
 
-function parseHiringBar(value: unknown, where: string): { source: string } | null {
+function parseHiringBar(value: unknown, where: string): HiringBar | null {
   if (value === null) return null;
   if (!isRecord(value)) fail(where, "must be a map or null");
-  requireKeys(value, ["source"], where);
-  return { source: httpsSource(value.source, `${where}.source`, "entry") };
+  requireKeys(value, ["note", "source"], where);
+  return {
+    note: nonEmptyString(value.note, `${where}.note`),
+    source: httpsSource(value.source, `${where}.source`, "entry"),
+  };
 }
 
 function parseTier(value: unknown, where: string): InvestorTier {
@@ -359,6 +363,11 @@ function calendarDate(value: unknown, where: string): string {
 
 function idString(value: unknown, where: string): string {
   if (typeof value !== "string" || value.trim() === "") fail(where, "missing id");
+  return value;
+}
+
+function nonEmptyString(value: unknown, where: string): string {
+  if (typeof value !== "string" || value.trim() === "") fail(where, "must be a non-empty string");
   return value;
 }
 

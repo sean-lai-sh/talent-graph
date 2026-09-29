@@ -79,6 +79,7 @@ test("1.2.1 is registered beside 1.2.0 and keeps the same question text", () => 
     "1.2.1",
     "1.2.2",
     "1.2.3",
+    "1.2.4",
   ]);
   expect(getSpec("career_evidence", "1.2.1").version).toBe("1.2.1");
   expect(CAREER_EVIDENCE_V1_2_1.claimClass).toEqual(CAREER_EVIDENCE_V1_2_0.claimClass);

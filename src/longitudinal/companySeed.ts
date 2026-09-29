@@ -8,6 +8,7 @@ export {
   COMPANY_STAGES,
   type CompanySeed,
   type CompanyStage,
+  type HiringBar,
   type InvestorTier,
   type PublishedRate,
   type SeedCompany,

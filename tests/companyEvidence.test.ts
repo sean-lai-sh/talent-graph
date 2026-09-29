@@ -46,7 +46,10 @@ function pylonWithBar(): CompanySeed {
   const seed = structuredClone(SEED);
   const pylon = seed.companies.find((company) => company.name === "Pylon");
   if (!pylon) throw new Error("expected Pylon");
-  pylon.hiringBar = { source: "https://example.invalid/pylon-bar" };
+  pylon.hiringBar = {
+    note: "Pylon publishes a five-round interview loop.",
+    source: "https://example.invalid/pylon-bar",
+  };
   return seed;
 }
 
