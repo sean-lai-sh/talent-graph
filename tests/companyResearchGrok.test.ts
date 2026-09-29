@@ -2,6 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { copyFile, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  checkGrokCallbackToken,
+  GROK_CALLBACK_TOKEN_HEADER,
+} from "../apps/club/lib/longitudinal/grokCallback.ts";
 import { main, type ResearchDeps } from "../scripts/jev-company-worklist.ts";
 import { parseGrokResearchResponse } from "../src/longitudinal/companyResearch.ts";
 import { parseProjectConfig, projectConfigPath } from "../src/projectConfig/load.ts";
@@ -13,6 +17,8 @@ const PIN = join(import.meta.dir, "../src/projectConfig/companySeedPin.ts");
 const ENV = {
   GROK_ROUTINE_WEBHOOK_URL: "https://grok.invalid/routine",
   GROK_ROUTINE_KEY: "k-test",
+  GROK_CALLBACK_MASTER_KEY: "master-test",
+  NEXT_PUBLIC_CONVEX_SITE_URL: "https://club.invalid",
 };
 
 async function quarry(): Promise<Record<string, unknown>> {
@@ -33,22 +39,76 @@ async function workspace(): Promise<{ dir: string; config: string; pin: string }
 type Call = {
   url: string;
   auth: string | null;
-  body: { runId: string; worklist: { org: string }[] };
+  body: {
+    runId: string;
+    worklist: { org: string }[];
+    callbackUrl: string;
+    callbackToken: string;
+    delivery: string;
+  };
 };
 
-function fakeGrok(reply: (call: Call) => unknown): { deps: ResearchDeps; calls: Call[] } {
+/**
+ * The routine and the Convex callback in one fetcher. A trigger stores
+ * `reply(call)` as if the routine had POSTed it with the token it was given,
+ * `postAfterMs` later; a read returns it only for the matching read token.
+ * `reply` returning undefined means the routine never posts. Sleeping
+ * advances the clock.
+ */
+function fakeGrok(
+  reply: (call: Call) => unknown,
+  postAfterMs = 0,
+): {
+  deps: ResearchDeps;
+  calls: Call[];
+  reads: number[];
+} {
   const calls: Call[] = [];
+  const reads: number[] = [];
+  const posted = new Map<string, { body: string; at: number }>();
+  let clock = 0;
   const fetcher = (async (url: string, init?: RequestInit) => {
-    const call: Call = {
-      url,
-      auth: new Headers(init?.headers).get("Authorization"),
-      body: JSON.parse(String(init?.body)) as Call["body"],
-    };
-    calls.push(call);
-    return new Response(JSON.stringify(reply(call)), { status: 200 });
+    const headers = new Headers(init?.headers);
+    if (url === ENV.GROK_ROUTINE_WEBHOOK_URL) {
+      const call: Call = {
+        url,
+        auth: headers.get("Authorization"),
+        body: JSON.parse(String(init?.body)) as Call["body"],
+      };
+      calls.push(call);
+      const { runId, callbackToken } = call.body;
+      const answer = reply(call);
+      if (answer === undefined) return Response.json({ success: true });
+      if (
+        !(await checkGrokCallbackToken(ENV.GROK_CALLBACK_MASTER_KEY, runId, "post", callbackToken))
+      ) {
+        throw new Error("the trigger carried a token the callback rejects");
+      }
+      posted.set(call.body.callbackUrl, { body: JSON.stringify(answer), at: clock + postAfterMs });
+      return Response.json({ success: true, runUuid: `uuid-${runId}` });
+    }
+    reads.push(clock);
+    const runId = new URL(url).searchParams.get("runId") ?? "";
+    const token = headers.get(GROK_CALLBACK_TOKEN_HEADER);
+    if (!(await checkGrokCallbackToken(ENV.GROK_CALLBACK_MASTER_KEY, runId, "read", token))) {
+      return new Response("bad callback token", { status: 401 });
+    }
+    const entry = posted.get(url);
+    return entry === undefined || entry.at > clock
+      ? new Response(null, { status: 404 })
+      : new Response(entry.body);
   }) as unknown as typeof fetch;
   let runs = 0;
-  return { deps: { fetcher, env: ENV, runId: () => `run-${++runs}` }, calls };
+  const deps: ResearchDeps = {
+    fetcher,
+    env: ENV,
+    runId: () => `run-${++runs}`,
+    sleep: async (ms) => {
+      clock += ms;
+    },
+    now: () => clock,
+  };
+  return { deps, calls, reads };
 }
 
 describe("Grok company research", () => {
@@ -58,9 +118,9 @@ describe("Grok company research", () => {
     await expect(
       main(["--research", ITEMS, "--out", join(ws.dir, "p.json")], ws, undefined, {
         ...deps,
-        env: { GROK_ROUTINE_WEBHOOK_URL: ENV.GROK_ROUTINE_WEBHOOK_URL },
+        env: { ...ENV, GROK_ROUTINE_KEY: undefined, GROK_CALLBACK_MASTER_KEY: "" },
       }),
-    ).rejects.toThrow("GROK_ROUTINE_KEY");
+    ).rejects.toThrow("set GROK_ROUTINE_KEY and GROK_CALLBACK_MASTER_KEY");
     expect(calls).toHaveLength(0);
   });
 
@@ -81,6 +141,11 @@ describe("Grok company research", () => {
     expect(report).toContain("Nowhere Labs: no identifiable company");
     expect(report).toContain("Ferry Capital");
     expect(report).not.toContain("k-test");
+    expect(calls[0]?.body.callbackUrl).toBe(
+      `${ENV.NEXT_PUBLIC_CONVEX_SITE_URL}/grok/company-research?runId=run-1`,
+    );
+    expect(report).not.toContain(calls[0]?.body.callbackToken);
+    expect(String(calls[0]?.body.delivery)).toContain("POST to callbackUrl");
     await main(["--apply", out], ws);
     const seed = parseProjectConfig(await readFile(ws.config, "utf8")).company_seed;
     expect(seed.companies.map((company) => company.name)).toContain("Quarry");
@@ -189,22 +254,49 @@ describe("Grok company research", () => {
     const out = join(ws.dir, "p.json");
     await writeFile(items, JSON.stringify(statements));
     const company = { ...(await quarry()), aliases: ["Org 0"] };
-    let calls = 0;
-    const fetcher = (async (_url: string, init?: RequestInit) => {
-      calls += 1;
-      if (calls > 1) return new Response("denied", { status: 401 });
-      const body = JSON.parse(String(init?.body)) as { runId: string };
-      return new Response(
-        JSON.stringify({ runId: body.runId, companies: [company], investors: [], unresolved: [] }),
-      );
-    }) as unknown as typeof fetch;
-    let runs = 0;
-    const deps: ResearchDeps = { fetcher, env: ENV, runId: () => `run-${++runs}` };
+    const fake = fakeGrok((call) => ({
+      runId: call.body.runId,
+      companies: [company],
+      investors: [],
+      unresolved: [],
+    }));
+    const deps: ResearchDeps = {
+      ...fake.deps,
+      fetcher: (async (url: string, init?: RequestInit) =>
+        fake.calls.length > 0 && url === ENV.GROK_ROUTINE_WEBHOOK_URL
+          ? new Response("denied", { status: 401 })
+          : fake.deps.fetcher(url, init)) as unknown as typeof fetch,
+    };
     await expect(main(["--research", items, "--out", out], ws, undefined, deps)).rejects.toThrow(
       "stopped at batch 2: Grok routine rejected: 401",
     );
     const written = JSON.parse(await readFile(out, "utf8")) as { name: string }[];
     expect(written.map((entry) => entry.name)).toEqual(["Quarry"]);
+  });
+
+  test("the reply is read once the routine posts it, minutes after the trigger", async () => {
+    const company = await quarry();
+    const { deps, reads } = fakeGrok(
+      (call) => ({ runId: call.body.runId, companies: [company], investors: [], unresolved: [] }),
+      5 * 60_000,
+    );
+    const ws = await workspace();
+    const out = join(ws.dir, "p.json");
+    await main(["--research", ITEMS, "--out", out], ws, undefined, deps);
+    expect(reads.at(-1)).toBeGreaterThanOrEqual(5 * 60_000);
+    const written = JSON.parse(await readFile(out, "utf8")) as { name: string }[];
+    expect(written.map((entry) => entry.name)).toEqual(["Quarry"]);
+  });
+
+  test("a routine that never posts times out and keeps nothing", async () => {
+    const { deps, reads } = fakeGrok(() => undefined);
+    const ws = await workspace();
+    const out = join(ws.dir, "p.json");
+    await expect(main(["--research", ITEMS, "--out", out], ws, undefined, deps)).rejects.toThrow(
+      "stopped at batch 1: no reply for run run-1 after 30 min",
+    );
+    expect(reads.at(-1)).toBeLessThanOrEqual(30 * 60_000);
+    expect(JSON.parse(await readFile(out, "utf8"))).toEqual([]);
   });
 
   test("a worklist org no returned company names is reported as unmatched", async () => {

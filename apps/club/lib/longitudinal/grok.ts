@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { CanonicalIdentity, GrokEvidencePacket } from "../../../../src/longitudinal/types.ts";
+import { GROK_CALLBACK_TOKEN_HEADER } from "./grokCallback.ts";
 
 export interface GrokRoutineRequest {
   schemaVersion: "1";
@@ -53,54 +54,45 @@ export function buildGrokRoutineRequest(input: {
 }
 
 /**
+ * The routine follows this from the trigger body even when its saved text
+ * says to answer in chat (probe run 610a2442…, 2026-09-29).
+ */
+export const GROK_COMPANY_RESEARCH_DELIVERY =
+  "When done, send the result JSON with an HTTP POST to callbackUrl, Content-Type " +
+  `application/json, and header ${GROK_CALLBACK_TOKEN_HEADER}: <callbackToken>. ` +
+  "The POST is the delivery; a chat reply alone is not enough.";
+
+/** Trigger body for the company-research routine (SEA-75). It POSTs its reply to `callbackUrl`. */
+export interface GrokCompanyResearchRequest {
+  runId: string;
+  worklist: Array<{ org: string; titles: string[]; startedAt: string | null }>;
+  callbackUrl: string;
+  /** Per-run token the routine echoes in `X-Grok-Callback-Token`. */
+  callbackToken: string;
+  delivery: typeof GROK_COMPANY_RESEARCH_DELIVERY;
+}
+
+/**
  * Trigger a saved Grok Bot routine. HTTP 200 means accepted, not completed;
- * completion arrives separately at the evidence callback.
+ * completion arrives separately at the callback.
  */
 export async function triggerGrokRoutine(
   webhookUrl: string,
   bearerKey: string,
-  request: GrokRoutineRequest,
+  request: GrokRoutineRequest | GrokCompanyResearchRequest,
   fetcher: typeof fetch = fetch,
 ): Promise<void> {
-  await postGrokRoutine(webhookUrl, bearerKey, request, fetcher);
-}
-
-/** Call a saved Grok Bot routine that answers with JSON in the response body. */
-export async function callGrokRoutine(
-  webhookUrl: string,
-  bearerKey: string,
-  body: unknown,
-  fetcher: typeof fetch = fetch,
-): Promise<unknown> {
-  const response = await postGrokRoutine(webhookUrl, bearerKey, body, fetcher);
-  const text = await response.text();
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(
-      `Grok routine answered ${response.status} without a JSON body; save its output and use --from`,
-    );
-  }
-}
-
-async function postGrokRoutine(
-  webhookUrl: string,
-  bearerKey: string,
-  body: unknown,
-  fetcher: typeof fetch,
-): Promise<Response> {
   const response = await fetcher(webhookUrl, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${bearerKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(request),
   });
   if (!response.ok) {
     throw new Error(`Grok routine rejected: ${response.status}`);
   }
-  return response;
 }
 
 export interface GrokCallbackEnvelope {
