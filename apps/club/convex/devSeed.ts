@@ -4,6 +4,7 @@ import {
   deploymentLabel,
   devSeedEnvError,
   EXAMPLE_CLUB_NAME,
+  EXAMPLE_NOW,
   EXAMPLE_REFERRERS,
   exampleLoginAccounts,
   isDuplicateReferral,
@@ -156,7 +157,7 @@ export const seed = internalMutation({
         email: job.referrerEmail,
         personId: job.candidateId,
         answers: job.answers,
-        now: plan.state.now,
+        now: EXAMPLE_NOW,
       });
       if ("error" in saved && !isDuplicateReferral(saved.error)) {
         throw new Error(saved.error);
