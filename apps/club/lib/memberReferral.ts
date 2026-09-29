@@ -5,9 +5,12 @@
 
 import type { EvidenceType, Scale5 } from "../../../src/domain/types.ts";
 import { addReferral } from "./engine.ts";
-import { resolveMemberPersonId } from "./memberIdentity.ts";
+import { memberEmailIsAmbiguous, resolveMemberPersonId } from "./memberIdentity.ts";
+import { parseContact } from "./referralSignup.ts";
 import type {
+  ClubPerson,
   ClubState,
+  IsoDate,
   MemberReferralAnswers,
   ReferralQ1Context,
   ReferralQ1Length,
@@ -27,7 +30,10 @@ import {
 
 export const NOT_LINKED_ERROR =
   "Your account is not linked to a member profile yet. Ask the council.";
+export const AMBIGUOUS_MEMBER_ERROR =
+  "Your account matches more than one member profile. Ask the council to merge them.";
 export const NOT_YOUR_REFERRAL_ERROR = "You have not referred this person.";
+export const NO_CONTACT_ERROR = "This person has no email or phone on file. Ask the council.";
 export const EMPTY_OBSERVATION_ERROR = "Describe one specific thing you saw.";
 
 const HEARD_ONLY: ReferralQ2Role = "I only heard about it";
@@ -89,8 +95,11 @@ export type ReferralAnswersResult =
   | { ok: true; referral: EngineReferralFields }
   | { ok: false; error: string };
 
+/** The `memberReferrals` row to add when the member had not referred this person before. */
+export type MemberReferralLink = { normalizedContact: string };
+
 export type MemberReferralWrite =
-  | { ok: true; state: ClubState }
+  | { ok: true; state: ClubState; link: MemberReferralLink | null }
   | { ok: false; error: string; state: ClubState };
 
 export const ANSWERS_REJECTED_ERROR = "Those answers do not match the referral questions.";
@@ -171,9 +180,31 @@ export function referralAnswersToEngine(answers: MemberReferralAnswers): Referra
   };
 }
 
+function contactOf(person: ClubPerson): string | null {
+  for (const raw of [person.email, person.phone]) {
+    if (!raw) continue;
+    const parsed = parseContact(raw);
+    if (parsed.ok) return parsed.contact.value;
+  }
+  return null;
+}
+
+function laterOf(a: IsoDate, b: IsoDate): IsoDate {
+  return Date.parse(b) > Date.parse(a) ? b : a;
+}
+
 /**
  * Resolve the member, map the answers, and run `addReferral`. An error
  * returns the input state unchanged so the caller writes nothing.
+ *
+ * `input.state.now` is the stored `club.now`. The referral is created at
+ * `submittedAt`, and `now` only moves forward to it: `computeView` counts
+ * referrals created by `now`, and nothing else advances the clock until
+ * the next admin write.
+ *
+ * A second save for the same candidate replaces the member's referral in
+ * place (same id, same `createdAt`). A person the member had not referred
+ * yet gets a `link` for the caller to store as a `memberReferrals` row.
  */
 export function commitMemberReferral(input: {
   state: ClubState;
@@ -181,27 +212,53 @@ export function commitMemberReferral(input: {
   candidateId: string;
   referredByUser: boolean;
   answers: MemberReferralAnswers;
+  submittedAt: IsoDate;
 }): MemberReferralWrite {
+  const fail = (error: string): MemberReferralWrite => ({ ok: false, error, state: input.state });
+  let link: MemberReferralLink | null = null;
   if (!input.referredByUser) {
-    return { ok: false, error: NOT_YOUR_REFERRAL_ERROR, state: input.state };
+    const candidate = input.state.people.find((person) => person.id === input.candidateId);
+    if (!candidate) return fail(NOT_YOUR_REFERRAL_ERROR);
+    const normalizedContact = contactOf(candidate);
+    if (normalizedContact === null) return fail(NO_CONTACT_ERROR);
+    link = { normalizedContact };
   }
-  const link = resolveMemberPersonId(input.state, input.email);
-  if (link.status !== "linked") {
-    return { ok: false, error: NOT_LINKED_ERROR, state: input.state };
+  const member = resolveMemberPersonId(input.state, input.email);
+  if (member.status !== "linked") {
+    return fail(
+      memberEmailIsAmbiguous(input.state, input.email) ? AMBIGUOUS_MEMBER_ERROR : NOT_LINKED_ERROR,
+    );
   }
   const mapped = referralAnswersToEngine(input.answers);
-  if (!mapped.ok) return { ok: false, error: mapped.error, state: input.state };
-  const result = addReferral(input.state, {
-    referrerId: link.personId,
-    candidateId: input.candidateId,
-    conviction: mapped.referral.conviction,
-    confidence: mapped.referral.confidence,
-    relationshipDepth: mapped.referral.relationshipDepth,
-    evidenceType: mapped.referral.evidenceType,
-    evidenceText: mapped.referral.evidenceText,
-  });
-  if (result.error !== undefined) {
-    return { ok: false, error: result.error, state: input.state };
-  }
-  return { ok: true, state: result.state };
+  if (!mapped.ok) return fail(mapped.error);
+  const isPair = (row: { referrerId: string; candidateId: string }) =>
+    row.referrerId === member.personId && row.candidateId === input.candidateId;
+  const existing = input.state.referrals.find(isPair);
+  const result = addReferral(
+    {
+      ...input.state,
+      now: input.submittedAt,
+      referrals: input.state.referrals.filter((row) => row !== existing),
+    },
+    {
+      referrerId: member.personId,
+      candidateId: input.candidateId,
+      conviction: mapped.referral.conviction,
+      confidence: mapped.referral.confidence,
+      relationshipDepth: mapped.referral.relationshipDepth,
+      evidenceType: mapped.referral.evidenceType,
+      evidenceText: mapped.referral.evidenceText,
+    },
+  );
+  if (result.error !== undefined) return fail(result.error);
+  const referrals = existing
+    ? result.state.referrals.map((row) =>
+        isPair(row) ? { ...row, id: existing.id, createdAt: existing.createdAt } : row,
+      )
+    : result.state.referrals;
+  return {
+    ok: true,
+    state: { ...result.state, referrals, now: laterOf(input.state.now, input.submittedAt) },
+    link,
+  };
 }
