@@ -12,7 +12,12 @@ import {
   parseCompanyResearchProposals,
   parseGrokResearchResponse,
 } from "../src/longitudinal/companyResearch.ts";
-import { COMPANY_SEED, type CompanySeed } from "../src/longitudinal/companySeed.ts";
+import {
+  COMPANY_SEED,
+  type CompanySeed,
+  companyByOrg,
+  normalizeOrgName,
+} from "../src/longitudinal/companySeed.ts";
 import { projectConfigPath } from "../src/projectConfig/load.ts";
 import { parseSmokeItems } from "./jev-claim-smoke.ts";
 
@@ -58,12 +63,18 @@ export async function main(
   if (!path) throw new Error(USAGE);
   if (flag === "--research" || flag === "--from") {
     if (rest.length !== 2 || rest[0] !== "--out" || !rest[1]) throw new Error(USAGE);
-    const result =
+    const run: ResearchRun =
       flag === "--research"
         ? await research(await worklistFrom(path, seed), deps)
-        : parseGrokResearchResponse(JSON.parse(await readFile(path, "utf8")), null);
-    await writeFile(rest[1], `${JSON.stringify(result.companies, null, 2)}\n`);
-    return researchReport(result, rest[1]);
+        : {
+            result: parseGrokResearchResponse(JSON.parse(await readFile(path, "utf8")), null),
+            unmatched: [],
+            failure: null,
+          };
+    await writeFile(rest[1], `${JSON.stringify(run.result.companies, null, 2)}\n`);
+    const report = researchReport(run, rest[1]);
+    if (run.failure !== null) throw new Error(report);
+    return report;
   }
   if (rest.length > 0) throw new Error(USAGE);
   if (flag === "--items") {
@@ -83,7 +94,7 @@ export async function main(
     return [
       `merged ${proposals.map((proposal) => proposal.name).join(", ")} into ${paths.config}`,
       `company_seed ${merged.hash} written to ${paths.pin}`,
-      `claim_value@1.2.0 ${claimValueHash}: set PINNED_V12_CONFIG_HASH in tests/claimValueV12.test.ts to this`,
+      `claim_value@1.2.0 ${claimValueHash}: claims scored under this seed carry this config hash`,
       unknown.length === 0
         ? "every round investor is a seeded investor"
         : `round investors with no seed entry (they add no tier): ${unknown.join(", ")}`,
@@ -103,10 +114,18 @@ async function worklistFrom(path: string, seed: CompanySeed): Promise<CompanyWor
   return companyWorklist(lines, seed);
 }
 
+interface ResearchRun {
+  result: GrokResearchResult;
+  /** Worklist orgs no returned company names, by name or alias. They stay unseeded. */
+  unmatched: string[];
+  /** Why the run stopped early. Batches before it are kept. */
+  failure: string | null;
+}
+
 async function research(
   work: readonly CompanyWorkItem[],
   deps: ResearchDeps,
-): Promise<GrokResearchResult> {
+): Promise<ResearchRun> {
   const url = deps.env.GROK_ROUTINE_WEBHOOK_URL;
   const key = deps.env.GROK_ROUTINE_KEY;
   const missing = [url ? null : "GROK_ROUTINE_WEBHOOK_URL", key ? null : "GROK_ROUTINE_KEY"].filter(
@@ -127,8 +146,16 @@ async function research(
       titles: item.titles,
       startedAt: item.earliestStartedAt,
     }));
-    const reply = await callGrokRoutine(url, key, { runId, worklist }, deps.fetcher);
-    const batch = parseGrokResearchResponse(reply, runId);
+    let batch: GrokResearchResult;
+    try {
+      batch = parseGrokResearchResponse(
+        await callGrokRoutine(url, key, { runId, worklist }, deps.fetcher),
+        runId,
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return { result: total, unmatched: [], failure: `batch ${start / BATCH + 1}: ${reason}` };
+    }
     for (const company of batch.companies) {
       if (total.companies.some((kept) => kept.name === company.name)) {
         total.rejected.push({ org: company.name, error: "returned again in a later batch" });
@@ -140,11 +167,23 @@ async function research(
     total.unresolved.push(...batch.unresolved);
     total.newInvestors.push(...batch.newInvestors);
   }
-  return total;
+  const returned: CompanySeed = { investors: [], companies: total.companies };
+  const unresolved = new Set(total.unresolved.map((entry) => normalizeOrgName(entry.org)));
+  const unmatched = unseeded
+    .map((item) => item.org)
+    .filter((org) => !unresolved.has(normalizeOrgName(org)) && !companyByOrg(org, returned));
+  return { result: total, unmatched, failure: null };
 }
 
-function researchReport(result: GrokResearchResult, out: string): string {
+function researchReport(run: ResearchRun, out: string): string {
+  const { result } = run;
   const lines = [`wrote ${result.companies.length} proposals to ${out}`];
+  if (run.failure !== null) lines.push(`stopped at ${run.failure}; earlier batches were written`);
+  for (const org of run.unmatched) {
+    lines.push(
+      `unmatched ${org}: no returned company has this name or alias, so it stays unseeded`,
+    );
+  }
   for (const entry of result.rejected) lines.push(`rejected ${entry.org}: ${entry.error}`);
   for (const entry of result.unresolved) lines.push(`unresolved ${entry.org}: ${entry.reason}`);
   const investors = [...new Set(result.newInvestors)];

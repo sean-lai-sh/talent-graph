@@ -36,11 +36,11 @@ Respond with ONLY this JSON object, no prose:
 
 Rules:
 - Stages: pre_seed_seed = pre-seed or seed; series_a_b = Series A or B; growth_late = Series C or later, still private; public_large = publicly traded, or a large established employer (government, university, 10,000+ staff).
-- For public_large companies, include the IPO or direct listing as a round: its date, stage "public_large", investors [], and a source. Then focus on publishedRate and hiringBar for the role family in "titles" (for example the internship program's acceptance rate for an intern title).
-- publishedRate.rate is the fraction accepted (0.02 = 2%). upperBound is true when the page says "under X%". labels are the program or role words the rate applies to. If the rate applies to all hiring, omit the labels key entirely. Never send an empty labels list.
+- For public_large companies, include the IPO or direct listing as a round: its exact listing date (always published, so never omit it), stage "public_large", investors [], and a source. Then focus on publishedRate and hiringBar for the role family in "titles" (for example the internship program's acceptance rate for an intern title).
+- publishedRate.rate is the fraction accepted (0.02 = 2%). upperBound is true when the page says "under X%". labels are whole words that appear in the job titles the rate applies to, such as "Intern" or "New Grad" (not "internship"). A rate is used only for a hire whose title contains one of its labels. If the rate applies to all hiring, omit the labels key entirely. Never send an empty labels list.
 - hiringBar.note is one sentence quoting a stated hiring bar (applicants per hire, interview pass rate). Use null if no page states one.
-- Round dates are the announced date. Month only: use the 1st. Year only: omit the round.
-- The investors list holds only new investors named in rounds. Tier 1 = angel or small seed fund. Tier 2 = recognized institutional VC. Tier 3 = top-tier fund or Y Combinator. Already known, do not list: Y Combinator, Sequoia, Andreessen Horowitz, Benchmark, Accel, Greylock, Index Ventures, Precursor Ventures, Hustle Fund.
+- Private round dates are the announced date. Month only: use the 1st. Year only: omit the round.
+- In rounds.investors, write a known investor exactly as it is named in the list below (for example "Sequoia", not "Sequoia Capital"). The investors list holds only new investors named in rounds. Tier 1 = angel or small seed fund. Tier 2 = recognized institutional VC. Tier 3 = top-tier fund or Y Combinator. Already known, do not list: Y Combinator, Sequoia, Andreessen Horowitz, Benchmark, Accel, Greylock, Index Ventures, Precursor Ventures, Hustle Fund.
 - Blogs, forum posts, and aggregators without a primary citation do not count as sources.
 - Merge duplicate orgs into one entry with both names in aliases.
 - Any org you cannot identify with confidence goes in unresolved.
@@ -77,7 +77,7 @@ bun run scripts/jev-company-worklist.ts --apply <proposals.json>
 bun run check:config
 ```
 
-The research step prints each rejected org with the reason (for example a fact without an https source), each org Grok could not resolve, and any new investors. New investors are not applied automatically. Add each one to `company_seed.investors` by hand after checking its tier. `--apply` prints the new `claim_value@1.2.0` config hash to paste into `PINNED_V12_CONFIG_HASH` in `tests/claimValueV12.test.ts`.
+The research step prints each rejected org with the reason (for example a fact without an https source), each org Grok could not resolve, each worklist org that no returned company names by name or alias (it stays unseeded), and any new investors. New investors are not applied automatically. Add each one to `company_seed.investors` by hand after checking its tier. If a batch fails, the proposals from earlier batches are still written and the step says which batch stopped it.
 
 Keep `<items.json>` and `<proposals.json>` under the gitignored `sea-35-private/` path until the proposals are reviewed.
 

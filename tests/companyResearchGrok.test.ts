@@ -173,4 +173,54 @@ describe("Grok company research", () => {
     const written = JSON.parse(await readFile(out, "utf8")) as { name: string }[];
     expect(written.map((company) => company.name)).toEqual(["Quarry"]);
   });
+  test("a failed batch keeps the batches before it and says where it stopped", async () => {
+    const statements = Array.from({ length: 12 }, (_, i) => ({
+      id: `job-${i}`,
+      resume: "A",
+      org: `Org ${i}`,
+      role: "Engineer",
+      dates: "Jan 2023 - Dec 2023",
+      statement: `Engineer at Org ${i} (Jan 2023 - Dec 2023)\n- Built a thing`,
+      pair: null,
+      publishedAt: "2024-01-01T00:00:00.000Z",
+    }));
+    const ws = await workspace();
+    const items = join(ws.dir, "items.json");
+    const out = join(ws.dir, "p.json");
+    await writeFile(items, JSON.stringify(statements));
+    const company = { ...(await quarry()), aliases: ["Org 0"] };
+    let calls = 0;
+    const fetcher = (async (_url: string, init?: RequestInit) => {
+      calls += 1;
+      if (calls > 1) return new Response("denied", { status: 401 });
+      const body = JSON.parse(String(init?.body)) as { runId: string };
+      return new Response(
+        JSON.stringify({ runId: body.runId, companies: [company], investors: [], unresolved: [] }),
+      );
+    }) as unknown as typeof fetch;
+    let runs = 0;
+    const deps: ResearchDeps = { fetcher, env: ENV, runId: () => `run-${++runs}` };
+    await expect(main(["--research", items, "--out", out], ws, undefined, deps)).rejects.toThrow(
+      "stopped at batch 2: Grok routine rejected: 401",
+    );
+    const written = JSON.parse(await readFile(out, "utf8")) as { name: string }[];
+    expect(written.map((entry) => entry.name)).toEqual(["Quarry"]);
+  });
+
+  test("a worklist org no returned company names is reported as unmatched", async () => {
+    const { deps } = fakeGrok((call) => ({
+      runId: call.body.runId,
+      companies: [],
+      investors: [],
+      unresolved: [],
+    }));
+    const ws = await workspace();
+    const report = await main(
+      ["--research", ITEMS, "--out", join(ws.dir, "p.json")],
+      ws,
+      undefined,
+      deps,
+    );
+    expect(report).toMatch(/unmatched Harborline: no returned company has this name or alias/);
+  });
 });
