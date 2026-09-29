@@ -149,6 +149,14 @@ describe("referral signup access", () => {
     expect(submit).toContain("deleteIfNotResume(");
     expect(submit).toContain("const club = await loadClub(ctx.db)");
     expect(submit).not.toMatch(/for \(const \w+ of/);
+    const answers = handler(referral, "saveMemberReferralAnswers", "mutation");
+    expect(answers).toContain("const club = await loadClub(ctx.db)");
+    expect(answers).toContain("const before = await loadState(ctx.db, club)");
+    expect(answers).toContain("await saveState(ctx.db, club, before, result.state)");
+    expect(answers).toContain('await ctx.db.insert("memberReferrals", {');
+    expect(answers).not.toContain('ctx.db.insert("clubReferrals"');
+    expect(answers).not.toContain("ctx.db.patch(");
+    expect(answers).not.toMatch(/for \(const \w+ of/);
     expect(referral).not.toContain("ORG_SCAN");
     const status = handler(referral, "referralStatus", "query");
     expect(status).toContain("token: v.string()");
