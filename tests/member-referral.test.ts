@@ -399,6 +399,21 @@ describe("saveMemberReferralAnswers", () => {
     expect(writes.club).toEqual({ now: LATER });
   });
 
+  test("a resubmit dated before the first save keeps updatedAt at or after createdAt", () => {
+    const FUTURE = "2026-09-30T12:00:00.000Z";
+    const first = save(linkedState(), { submittedAt: FUTURE });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const second = save(first.state, { submittedAt: NOW, answers: answers({ rank: "Top half" }) });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    const row = second.state.referrals[0];
+    if (!row) throw new Error("missing referral row");
+    expect(row.createdAt).toBe(FUTURE);
+    expect(Date.parse(row.updatedAt)).toBeGreaterThanOrEqual(Date.parse(row.createdAt));
+    expect(row.conviction).toBe(3);
+  });
+
   test("a person already in the club that this user had not referred gets a link", () => {
     const before = linkedState();
     const result = save(before, { referredByUser: false });
