@@ -399,6 +399,21 @@ describe("saveMemberReferralAnswers", () => {
     expect(writes.club).toEqual({ now: LATER });
   });
 
+  test("a resubmit dated before the first save keeps updatedAt at or after createdAt", () => {
+    const FUTURE = "2026-09-30T12:00:00.000Z";
+    const first = save(linkedState(), { submittedAt: FUTURE });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const second = save(first.state, { submittedAt: NOW, answers: answers({ rank: "Top half" }) });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    const row = second.state.referrals[0];
+    if (!row) throw new Error("missing referral row");
+    expect(row.createdAt).toBe(FUTURE);
+    expect(Date.parse(row.updatedAt)).toBeGreaterThanOrEqual(Date.parse(row.createdAt));
+    expect(row.conviction).toBe(3);
+  });
+
   test("a person already in the club that this user had not referred gets a link", () => {
     const before = linkedState();
     const result = save(before, { referredByUser: false });
@@ -457,6 +472,22 @@ describe("saveMemberReferralAnswers", () => {
     const lone = save(twinPhone, { referredByUser: false, candidateId: "p-other" });
     expect(lone.ok && lone.link).toEqual({ normalizedContact: "+16465550100" });
     expect(AMBIGUOUS_CONTACT_ERROR).not.toBe(NO_CONTACT_ERROR);
+  });
+
+  test("a contact stored in mixed case still counts as shared and writes nothing", () => {
+    const twins = club([
+      member,
+      person("p-ada", "Ada Example", "candidate", "Ada@Example.test"),
+      person("p-ada2", "Ada Two", "candidate", "ada@example.test"),
+    ]);
+    for (const candidateId of ["p-ada", "p-ada2"]) {
+      expect(save(twins, { referredByUser: false, candidateId })).toEqual({
+        ok: false,
+        error: AMBIGUOUS_CONTACT_ERROR,
+        state: twins,
+      });
+    }
+    expect(twins.referrals).toHaveLength(0);
   });
 
   test("an unlinked account and an email on two members get different errors", () => {

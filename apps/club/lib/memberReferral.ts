@@ -259,7 +259,14 @@ export function commitMemberReferral(input: {
   if (result.error !== undefined) return fail(result.error);
   const referrals = existing
     ? result.state.referrals.map((row) =>
-        isPair(row) ? { ...row, id: existing.id, createdAt: existing.createdAt } : row,
+        isPair(row)
+          ? {
+              ...row,
+              id: existing.id,
+              createdAt: existing.createdAt,
+              updatedAt: laterOf(existing.createdAt, row.updatedAt),
+            }
+          : row,
       )
     : result.state.referrals;
   return {
