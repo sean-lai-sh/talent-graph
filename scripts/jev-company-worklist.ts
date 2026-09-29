@@ -1,19 +1,42 @@
 #!/usr/bin/env bun
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { callGrokRoutine } from "../apps/club/lib/longitudinal/grok.ts";
 import { CLAIM_VALUE_V1_2_0, claimValueV12ConfigHash } from "../src/longitudinal/claimValue.ts";
 import {
   type CompanyResearchProposal,
+  type CompanyWorkItem,
   companyWorklist,
+  type GrokResearchResult,
   mergeSeedCompanies,
   parseCompanyResearchProposals,
+  parseGrokResearchResponse,
 } from "../src/longitudinal/companyResearch.ts";
 import { COMPANY_SEED, type CompanySeed } from "../src/longitudinal/companySeed.ts";
 import { projectConfigPath } from "../src/projectConfig/load.ts";
 import { parseSmokeItems } from "./jev-claim-smoke.ts";
 
-const USAGE =
-  "usage: bun run scripts/jev-company-worklist.ts (--items <smoke-items.json> | --apply <proposals.json>)";
+const USAGE = [
+  "usage: bun run scripts/jev-company-worklist.ts",
+  "  --items <smoke-items.json>                        print the company worklist",
+  "  --research <smoke-items.json> --out <proposals>   ask the Grok routine about unseeded orgs",
+  "  --from <grok-reply.json> --out <proposals>        validate a reply saved by hand",
+  "  --apply <proposals.json>                          merge proposals into config.yml",
+].join("\n");
+
+const BATCH = 10;
+
+export interface ResearchDeps {
+  fetcher: typeof fetch;
+  env: Record<string, string | undefined>;
+  runId: () => string;
+}
+
+const DEFAULT_DEPS: ResearchDeps = {
+  fetcher: fetch,
+  env: process.env,
+  runId: () => crypto.randomUUID(),
+};
 
 export interface WorklistPaths {
   config: string;
@@ -29,17 +52,22 @@ export async function main(
   argv: readonly string[],
   paths: WorklistPaths = DEFAULT_PATHS,
   seed: CompanySeed = COMPANY_SEED,
+  deps: ResearchDeps = DEFAULT_DEPS,
 ): Promise<string> {
   const [flag, path, ...rest] = argv;
-  if (!path || rest.length > 0) throw new Error(USAGE);
+  if (!path) throw new Error(USAGE);
+  if (flag === "--research" || flag === "--from") {
+    if (rest.length !== 2 || rest[0] !== "--out" || !rest[1]) throw new Error(USAGE);
+    const result =
+      flag === "--research"
+        ? await research(await worklistFrom(path, seed), deps)
+        : parseGrokResearchResponse(JSON.parse(await readFile(path, "utf8")), null);
+    await writeFile(rest[1], `${JSON.stringify(result.companies, null, 2)}\n`);
+    return researchReport(result, rest[1]);
+  }
+  if (rest.length > 0) throw new Error(USAGE);
   if (flag === "--items") {
-    const items = parseSmokeItems(JSON.parse(await readFile(path, "utf8")));
-    const lines = items.map((item) => ({
-      id: item.id,
-      statement: item.statement,
-      publishedAt: item.publishedAt,
-    }));
-    return `${JSON.stringify(companyWorklist(lines, seed), null, 2)}\n`;
+    return `${JSON.stringify(await worklistFrom(path, seed), null, 2)}\n`;
   }
   if (flag === "--apply") {
     const proposals = parseCompanyResearchProposals(JSON.parse(await readFile(path, "utf8")));
@@ -63,6 +91,70 @@ export async function main(
     ].join("\n");
   }
   throw new Error(USAGE);
+}
+
+async function worklistFrom(path: string, seed: CompanySeed): Promise<CompanyWorkItem[]> {
+  const items = parseSmokeItems(JSON.parse(await readFile(path, "utf8")));
+  const lines = items.map((item) => ({
+    id: item.id,
+    statement: item.statement,
+    publishedAt: item.publishedAt,
+  }));
+  return companyWorklist(lines, seed);
+}
+
+async function research(
+  work: readonly CompanyWorkItem[],
+  deps: ResearchDeps,
+): Promise<GrokResearchResult> {
+  const url = deps.env.GROK_ROUTINE_WEBHOOK_URL;
+  const key = deps.env.GROK_ROUTINE_KEY;
+  const missing = [url ? null : "GROK_ROUTINE_WEBHOOK_URL", key ? null : "GROK_ROUTINE_KEY"].filter(
+    Boolean,
+  );
+  if (!url || !key) throw new Error(`set ${missing.join(" and ")} (Doppler talent-graph/dev)`);
+  const unseeded = work.filter((item) => item.seeded === null);
+  const total: GrokResearchResult = {
+    companies: [],
+    rejected: [],
+    unresolved: [],
+    newInvestors: [],
+  };
+  for (let start = 0; start < unseeded.length; start += BATCH) {
+    const runId = deps.runId();
+    const worklist = unseeded.slice(start, start + BATCH).map((item) => ({
+      org: item.org,
+      titles: item.titles,
+      startedAt: item.earliestStartedAt,
+    }));
+    const reply = await callGrokRoutine(url, key, { runId, worklist }, deps.fetcher);
+    const batch = parseGrokResearchResponse(reply, runId);
+    for (const company of batch.companies) {
+      if (total.companies.some((kept) => kept.name === company.name)) {
+        total.rejected.push({ org: company.name, error: "returned again in a later batch" });
+      } else {
+        total.companies.push(company);
+      }
+    }
+    total.rejected.push(...batch.rejected);
+    total.unresolved.push(...batch.unresolved);
+    total.newInvestors.push(...batch.newInvestors);
+  }
+  return total;
+}
+
+function researchReport(result: GrokResearchResult, out: string): string {
+  const lines = [`wrote ${result.companies.length} proposals to ${out}`];
+  for (const entry of result.rejected) lines.push(`rejected ${entry.org}: ${entry.error}`);
+  for (const entry of result.unresolved) lines.push(`unresolved ${entry.org}: ${entry.reason}`);
+  const investors = [...new Set(result.newInvestors)];
+  if (investors.length > 0) {
+    lines.push(
+      `new investors, not applied; add them to company_seed.investors with a tier: ${investors.join(", ")}`,
+    );
+  }
+  lines.push(`next: bun run scripts/jev-company-worklist.ts --apply ${out}`, "");
+  return lines.join("\n");
 }
 
 function unseededInvestors(

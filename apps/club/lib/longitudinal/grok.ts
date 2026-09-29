@@ -62,17 +62,45 @@ export async function triggerGrokRoutine(
   request: GrokRoutineRequest,
   fetcher: typeof fetch = fetch,
 ): Promise<void> {
+  await postGrokRoutine(webhookUrl, bearerKey, request, fetcher);
+}
+
+/** Call a saved Grok Bot routine that answers with JSON in the response body. */
+export async function callGrokRoutine(
+  webhookUrl: string,
+  bearerKey: string,
+  body: unknown,
+  fetcher: typeof fetch = fetch,
+): Promise<unknown> {
+  const response = await postGrokRoutine(webhookUrl, bearerKey, body, fetcher);
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      `Grok routine answered ${response.status} without a JSON body; save its output and use --from`,
+    );
+  }
+}
+
+async function postGrokRoutine(
+  webhookUrl: string,
+  bearerKey: string,
+  body: unknown,
+  fetcher: typeof fetch,
+): Promise<Response> {
   const response = await fetcher(webhookUrl, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${bearerKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(request),
+    body: JSON.stringify(body),
   });
   if (!response.ok) {
     throw new Error(`Grok routine rejected: ${response.status}`);
   }
+  return response;
 }
 
 export interface GrokCallbackEnvelope {

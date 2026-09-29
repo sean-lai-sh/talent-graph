@@ -49,6 +49,65 @@ export function parseCompanyResearchProposals(raw: unknown): CompanyResearchProp
   });
 }
 
+export interface GrokResearchResult {
+  companies: CompanyResearchProposal[];
+  rejected: { org: string; error: string }[];
+  unresolved: { org: string; reason: string }[];
+  /** Investors Grok named that have no seed entry. They need a tier by hand. */
+  newInvestors: string[];
+}
+
+/**
+ * Parses one Company Hiring Evidence routine reply. Each company is checked
+ * on its own so one bad fact rejects that org, not the batch. `runId` null
+ * skips the echo check, for a reply pasted by hand.
+ */
+export function parseGrokResearchResponse(raw: unknown, runId: string | null): GrokResearchResult {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new ConfigError("Grok reply: must be a JSON object");
+  }
+  const reply = raw as Record<string, unknown>;
+  if (runId !== null && reply.runId !== runId) {
+    throw new ConfigError(`Grok reply: runId ${String(reply.runId)} is not this run's ${runId}`);
+  }
+  const result: GrokResearchResult = {
+    companies: [],
+    rejected: [],
+    unresolved: [],
+    newInvestors: [],
+  };
+  listOf(reply.companies, "companies").forEach((entry, index) => {
+    const org = nameOf(entry) ?? `companies[${index}]`;
+    try {
+      const company = parseSeedCompany(entry, `companies[${index}]`);
+      if (result.companies.some((kept) => kept.name === company.name)) {
+        throw new ConfigError(`duplicate "${company.name}"`);
+      }
+      result.companies.push(company);
+    } catch (error) {
+      result.rejected.push({ org, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+  for (const entry of listOf(reply.unresolved, "unresolved")) {
+    const record = (entry ?? {}) as Record<string, unknown>;
+    result.unresolved.push({ org: String(record.org), reason: String(record.reason) });
+  }
+  const names = listOf(reply.investors, "investors").map(nameOf);
+  result.newInvestors = names.filter((name): name is string => name !== null);
+  return result;
+}
+
+function listOf(value: unknown, field: string): unknown[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new ConfigError(`Grok reply: ${field} must be a list`);
+  return value;
+}
+
+function nameOf(entry: unknown): string | null {
+  const name = (entry as { name?: unknown } | null)?.name;
+  return typeof name === "string" && name.trim() !== "" ? name : null;
+}
+
 /**
  * Returns config text with each company upserted into
  * `company_seed.companies` by name, and the new `company_seed` hash. Only
