@@ -257,4 +257,10 @@ export default defineSchema({
   })
     .index("by_uploader", ["uploaderUserId", "createdAt"])
     .index("by_storage", ["storageId"]),
+  // Raw Grok company-research replies (SEA-75), one per runId. The script validates them.
+  grokCompanyResearch: defineTable({
+    runId: v.string(),
+    body: v.string(),
+    receivedAt: v.number(),
+  }).index("by_run", ["runId"]),
 });

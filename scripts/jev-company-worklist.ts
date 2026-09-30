@@ -1,7 +1,15 @@
 #!/usr/bin/env bun
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { callGrokRoutine } from "../apps/club/lib/longitudinal/grok.ts";
+import {
+  GROK_COMPANY_RESEARCH_DELIVERY,
+  triggerGrokRoutine,
+} from "../apps/club/lib/longitudinal/grok.ts";
+import {
+  GROK_CALLBACK_TOKEN_HEADER,
+  grokCallbackToken,
+  grokCallbackUrl,
+} from "../apps/club/lib/longitudinal/grokCallback.ts";
 import { CLAIM_VALUE_V1_2_0, claimValueV12ConfigHash } from "../src/longitudinal/claimValue.ts";
 import {
   type CompanyResearchProposal,
@@ -30,17 +38,29 @@ const USAGE = [
 ].join("\n");
 
 const BATCH = 10;
+const POLL_MS = 20_000;
+const REPLY_TIMEOUT_MS = 30 * 60_000;
+const RESEARCH_ENV = [
+  "GROK_ROUTINE_WEBHOOK_URL",
+  "GROK_ROUTINE_KEY",
+  "GROK_CALLBACK_MASTER_KEY",
+  "NEXT_PUBLIC_CONVEX_SITE_URL",
+] as const;
 
 export interface ResearchDeps {
   fetcher: typeof fetch;
   env: Record<string, string | undefined>;
   runId: () => string;
+  sleep: (ms: number) => Promise<void>;
+  now: () => number;
 }
 
 const DEFAULT_DEPS: ResearchDeps = {
   fetcher: fetch,
   env: process.env,
   runId: () => crypto.randomUUID(),
+  sleep: (ms) => Bun.sleep(ms),
+  now: () => Date.now(),
 };
 
 export interface WorklistPaths {
@@ -126,12 +146,7 @@ async function research(
   work: readonly CompanyWorkItem[],
   deps: ResearchDeps,
 ): Promise<ResearchRun> {
-  const url = deps.env.GROK_ROUTINE_WEBHOOK_URL;
-  const key = deps.env.GROK_ROUTINE_KEY;
-  const missing = [url ? null : "GROK_ROUTINE_WEBHOOK_URL", key ? null : "GROK_ROUTINE_KEY"].filter(
-    Boolean,
-  );
-  if (!url || !key) throw new Error(`set ${missing.join(" and ")} (Doppler talent-graph/dev)`);
+  const env = researchEnv(deps.env);
   const unseeded = work.filter((item) => item.seeded === null);
   const total: GrokResearchResult = {
     companies: [],
@@ -148,8 +163,16 @@ async function research(
     }));
     let batch: GrokResearchResult;
     try {
+      const callbackUrl = grokCallbackUrl(env.NEXT_PUBLIC_CONVEX_SITE_URL, runId);
+      const callbackToken = await grokCallbackToken(env.GROK_CALLBACK_MASTER_KEY, runId, "post");
+      const runUuid = await triggerGrokRoutine(
+        env.GROK_ROUTINE_WEBHOOK_URL,
+        env.GROK_ROUTINE_KEY,
+        { runId, worklist, callbackUrl, callbackToken, delivery: GROK_COMPANY_RESEARCH_DELIVERY },
+        deps.fetcher,
+      );
       batch = parseGrokResearchResponse(
-        await callGrokRoutine(url, key, { runId, worklist }, deps.fetcher),
+        await awaitReply(callbackUrl, env.GROK_CALLBACK_MASTER_KEY, runId, runUuid, deps),
         runId,
       );
     } catch (error) {
@@ -173,6 +196,61 @@ async function research(
     .map((item) => item.org)
     .filter((org) => !unresolved.has(normalizeOrgName(org)) && !companyByOrg(org, returned));
   return { result: total, unmatched, failure: null };
+}
+
+function researchEnv(env: ResearchDeps["env"]): Record<(typeof RESEARCH_ENV)[number], string> {
+  const values = Object.fromEntries(RESEARCH_ENV.map((name) => [name, env[name] ?? ""]));
+  const missing = RESEARCH_ENV.filter((name) => !values[name]);
+  if (missing.length > 0) {
+    throw new Error(`set ${missing.join(" and ")} (Doppler talent-graph/dev)`);
+  }
+  return values as Record<(typeof RESEARCH_ENV)[number], string>;
+}
+
+/**
+ * Poll the Convex callback until the routine has posted this run's reply.
+ * The route keeps the last POST, so a failed read or an unparseable body is
+ * retried until the deadline; only a rejected token or request is final.
+ */
+async function awaitReply(
+  callbackUrl: string,
+  masterKey: string,
+  runId: string,
+  runUuid: string,
+  deps: ResearchDeps,
+): Promise<unknown> {
+  const headers = {
+    [GROK_CALLBACK_TOKEN_HEADER]: await grokCallbackToken(masterKey, runId, "read"),
+  };
+  const deadline = deps.now() + REPLY_TIMEOUT_MS;
+  let lastError = "nothing posted";
+  while (deps.now() < deadline) {
+    await deps.sleep(POLL_MS);
+    let response: Response;
+    try {
+      response = await deps.fetcher(callbackUrl, { headers });
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      continue;
+    }
+    if (response.status === 404) continue;
+    if (response.status >= 400 && response.status < 500) {
+      throw new Error(`callback read rejected: ${response.status}`);
+    }
+    if (!response.ok) {
+      lastError = `callback read failed: ${response.status}`;
+      continue;
+    }
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      lastError = "the posted reply is not JSON";
+    }
+  }
+  throw new Error(
+    `no reply for run ${runId} (Grok run ${runUuid}) after ${REPLY_TIMEOUT_MS / 60_000} min (${lastError}); if it is in the Bot's chat, save it and use --from`,
+  );
 }
 
 function researchReport(run: ResearchRun, out: string): string {

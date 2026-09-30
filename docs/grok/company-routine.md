@@ -10,13 +10,13 @@ In Grok Bot, create a saved routine and paste this as its instructions:
 Create a saved routine named "Company Hiring Evidence".
 
 Trigger: a webhook call. The request body is JSON:
-{ "runId": string, "worklist": [ { "org": string, "titles": string[], "startedAt": "YYYY-MM-DD" | null } ] }
+{ "runId": string, "worklist": [ { "org": string, "titles": string[], "startedAt": "YYYY-MM-DD" | null } ], "callbackUrl": string, "callbackToken": string, "delivery": string }
 
 Tools: web search. Do not use X search.
 
 Task: for each org in the worklist, research sourced, checkable facts about how selective it was to be hired there around startedAt. Cite a specific https page for every fact. Do not rate prestige, brand, or reputation. Never estimate or infer a number. If a page you can cite does not state it, leave it out.
 
-Respond with ONLY this JSON object, no prose:
+The result is ONLY this JSON object, no prose:
 {
   "runId": <echo the runId>,
   "companies": [
@@ -45,10 +45,10 @@ Rules:
 - Merge duplicate orgs into one entry with both names in aliases.
 - Any org you cannot identify with confidence goes in unresolved.
 
-Return the JSON as the response to the webhook call.
+Delivery: POST the JSON object to callbackUrl with Content-Type application/json and the header X-Grok-Callback-Token set to callbackToken. The POST is the delivery; a chat reply alone is not enough.
 ```
 
-## 2. Store the trigger in Doppler
+## 2. Store the trigger and callback key
 
 Copy the routine's webhook trigger URL and an API key allowed to trigger it. Store both in Doppler `talent-graph/dev`:
 
@@ -59,6 +59,17 @@ doppler secrets --only-names --project talent-graph --config dev | grep GROK_ROU
 ```
 
 The last command must list both names. Never paste the key into chat, a ticket, or git.
+
+The routine posts its result to the club Convex deployment at `POST /grok/company-research?runId=<runId>` (`apps/club/convex/grokCompanyResearch.ts`), and `--research` reads it back from `GET` on the same path. Both check a token derived from `GROK_CALLBACK_MASTER_KEY` and the runId: `HMAC-SHA256(key, "post:" + runId)` to post, `HMAC-SHA256(key, "read:" + runId)` to read. The same key must be in Doppler and in the deployment env. To set or rotate it without printing it:
+
+```sh
+KEY=$(openssl rand -hex 32)
+doppler secrets set GROK_CALLBACK_MASTER_KEY="$KEY" --project talent-graph --config dev --silent
+(cd apps/club && doppler run --project talent-graph --config dev -- bunx convex env set GROK_CALLBACK_MASTER_KEY "$KEY" >/dev/null)
+unset KEY
+```
+
+`--research` also reads `NEXT_PUBLIC_CONVEX_SITE_URL` from Doppler to build the callback URL.
 
 ## 3. Run it
 
@@ -83,15 +94,13 @@ Keep `<items.json>` and `<proposals.json>` under the gitignored `sea-35-private/
 
 ## The routine runs asynchronously
 
-Tested on 2026-09-29: the webhook answers at once with only `{ "success": true, "runUuid": "…" }`, and the result appears in the Bot's chat. No documented API returns a run's output by `runUuid`. So `--research` cannot read results from the webhook reply today. It stops with "runId undefined is not this run's …" and writes nothing.
+The webhook answers at once with only `{ "success": true, "runUuid": "…" }`. No documented API returns a run's output by `runUuid`, so `--research` sends each batch a `callbackUrl` and a per-run `callbackToken`, then polls the callback every 20 seconds for up to 30 minutes. A failed read or an unparseable body is retried until then, because the route keeps the routine's last POST. A rejected token stops the batch at once. The trigger body also carries a `delivery` field with the POST instruction, so the routine posts back even if its saved text predates the callback. A probe on 2026-09-29 (Grok run `610a2442-fb11-4a28-ad1b-152cffee8a1b`, synthetic Stripe intern entry) posted a valid reply 101 seconds after the trigger.
 
-Until the callback endpoint in SEA-75 exists, run the routine, copy its JSON reply from the Bot's chat, and validate it offline:
+If a batch times out, the reply may still be in the Bot's chat. Save it and validate it offline:
 
 ```sh
 bun run scripts/jev-company-worklist.ts --from <grok-reply.json> --out <proposals.json>
 ```
-
-SEA-75 plans a Convex HTTP route the routine POSTs its result to, with a per-run token, and a query `--research` polls. When it lands, the routine text above changes from "return the JSON as the response" to "POST the JSON to callbackUrl".
 
 ## Then test
 
