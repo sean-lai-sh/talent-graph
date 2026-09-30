@@ -327,6 +327,13 @@ describe("Grok company research", () => {
         throw new Error("getaddrinfo ENOTFOUND");
       },
       async () => new Response("upstream", { status: 502 }),
+      async () => new Response("slow down", { status: 429 }),
+      async () =>
+        ({
+          status: 200,
+          ok: true,
+          text: () => Promise.reject(new Error("socket hang up")),
+        }) as unknown as Response,
       async () => new Response("{ half a reply"),
     ];
     const deps: ResearchDeps = {
