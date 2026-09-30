@@ -231,6 +231,12 @@ test("career_evidence@1.2.0 and career_evidence@1.2.1 rubric hashes differ", () 
   );
 });
 
+test("career_evidence@1.2.0's question plan is pinned, because its rubric hash leaves the plan out", () => {
+  expect(hashInputs(careerEvidenceV12QuestionPlan(CAREER_EVIDENCE_V1_2_0))).toBe(
+    "91d11ae36827abb963258fc3a3bbc782554777cdba437283a3c8ad48bfc3e184",
+  );
+});
+
 test("the rubric hash is the serialized ask", () => {
   for (const spec of [
     CAREER_EVIDENCE_V1_2_0,

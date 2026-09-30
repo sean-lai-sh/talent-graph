@@ -228,6 +228,7 @@ async function awaitReply(
     await deps.sleep(POLL_MS);
     const read = await readReply(callbackUrl, headers, deps.fetcher);
     if (read.kind === "reply") return read.value;
+    if (read.kind === "rejected") throw new Error(`callback read rejected: ${read.status}`);
     if (read.kind === "retry") lastError = read.reason;
   }
   throw new Error(
@@ -238,27 +239,27 @@ async function awaitReply(
 type ReplyRead =
   | { kind: "reply"; value: unknown }
   | { kind: "pending" }
-  | { kind: "retry"; reason: string };
+  | { kind: "retry"; reason: string }
+  | { kind: "rejected"; status: number };
 
-/** One poll. Throws only when the route rejects the request itself. */
+/** One poll. A 4xx other than 404 and 429 is the route rejecting the request itself. */
 async function readReply(
   callbackUrl: string,
   headers: Record<string, string>,
   fetcher: typeof fetch,
 ): Promise<ReplyRead> {
-  let response: Response;
   let text: string;
   try {
-    response = await fetcher(callbackUrl, { headers });
+    const response = await fetcher(callbackUrl, { headers });
     if (response.status === 404) return { kind: "pending" };
+    if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+      return { kind: "rejected", status: response.status };
+    }
+    if (!response.ok) return { kind: "retry", reason: `callback read failed: ${response.status}` };
     text = await response.text();
   } catch (error) {
     return { kind: "retry", reason: error instanceof Error ? error.message : String(error) };
   }
-  if (response.status >= 400 && response.status < 500 && response.status !== 429) {
-    throw new Error(`callback read rejected: ${response.status}`);
-  }
-  if (!response.ok) return { kind: "retry", reason: `callback read failed: ${response.status}` };
   try {
     return { kind: "reply", value: JSON.parse(text) };
   } catch {

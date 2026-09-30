@@ -363,6 +363,25 @@ describe("Grok company research", () => {
     expect(fake.reads).toHaveLength(1);
   });
 
+  test("a rejected read stops at once even when its body fails to stream", async () => {
+    const fake = fakeGrok(() => undefined);
+    const deps: ResearchDeps = {
+      ...fake.deps,
+      fetcher: (async (url: string, init?: RequestInit) =>
+        url === ENV.GROK_ROUTINE_WEBHOOK_URL
+          ? fake.deps.fetcher(url, init)
+          : ({
+              status: 401,
+              ok: false,
+              text: () => Promise.reject(new Error("socket hang up")),
+            } as unknown as Response)) as unknown as typeof fetch,
+    };
+    const ws = await workspace();
+    await expect(
+      main(["--research", ITEMS, "--out", join(ws.dir, "p.json")], ws, undefined, deps),
+    ).rejects.toThrow("stopped at batch 1: callback read rejected: 401");
+  });
+
   test("a worklist org no returned company names is reported as unmatched", async () => {
     const { deps } = fakeGrok((call) => ({
       runId: call.body.runId,
