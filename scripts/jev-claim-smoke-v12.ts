@@ -27,6 +27,8 @@ import { JudgmentInvariantError } from "../src/longitudinal/records.ts";
 import {
   CAREER_EVIDENCE_V1_2_0,
   CAREER_EVIDENCE_V1_2_1,
+  CAREER_EVIDENCE_V1_2_2,
+  CAREER_EVIDENCE_V1_2_3,
   careerEvidenceV12RubricHash,
 } from "../src/models/careerEvidenceV12.ts";
 import { type CareerEvidenceV12Spec, specId } from "../src/models/spec.ts";
@@ -49,6 +51,8 @@ interface Stamp {
   configHash: string;
 }
 
+type LevelProbabilities = readonly [number, number, number, number, number];
+
 interface AnsweredV12Row extends Stamp {
   outcome: "answered";
   itemId: string;
@@ -62,6 +66,19 @@ interface AnsweredV12Row extends Stamp {
   poolStrength: number | null;
   difficulty: number | null;
   scale: number | null;
+  selectivityConfidence: number | null;
+  selectivityProbabilities: LevelProbabilities | null;
+  poolStrengthConfidence: number | null;
+  poolStrengthProbabilities: LevelProbabilities | null;
+  difficultyConfidence: number | null;
+  difficultyProbabilities: LevelProbabilities | null;
+  scaleConfidence: number | null;
+  scaleProbabilities: LevelProbabilities | null;
+  lowDimensions: PairDimension[];
+  stageAtHirePresent: boolean;
+  investorTierPresent: boolean;
+  acceptanceRatePresent: boolean;
+  noCompanyEvidence: boolean;
   role: string | null;
   claimValue: number;
   observedAt: string;
@@ -168,6 +185,12 @@ export function liveV12Client(spec: CareerEvidenceV12Spec = CAREER_EVIDENCE_V1_2
 }
 
 export function v12SpecFor(rubric: string | undefined): CareerEvidenceV12Spec {
+  if (rubric === specId(CAREER_EVIDENCE_V1_2_3) || rubric === "CAREER_EVIDENCE_V1_2_3") {
+    return CAREER_EVIDENCE_V1_2_3;
+  }
+  if (rubric === specId(CAREER_EVIDENCE_V1_2_2) || rubric === "CAREER_EVIDENCE_V1_2_2") {
+    return CAREER_EVIDENCE_V1_2_2;
+  }
   if (rubric === specId(CAREER_EVIDENCE_V1_2_1) || rubric === "CAREER_EVIDENCE_V1_2_1") {
     return CAREER_EVIDENCE_V1_2_1;
   }
@@ -261,6 +284,19 @@ export function renderV12Jsonl(report: V12SmokeReport): string {
         claimValue: row.claimValue,
         observedAt: row.observedAt,
         reviewReasons: row.reviewReasons,
+        selectivityConfidence: row.selectivityConfidence,
+        selectivityProbabilities: row.selectivityProbabilities,
+        poolStrengthConfidence: row.poolStrengthConfidence,
+        poolStrengthProbabilities: row.poolStrengthProbabilities,
+        difficultyConfidence: row.difficultyConfidence,
+        difficultyProbabilities: row.difficultyProbabilities,
+        scaleConfidence: row.scaleConfidence,
+        scaleProbabilities: row.scaleProbabilities,
+        lowDimensions: row.lowDimensions,
+        stageAtHirePresent: row.stageAtHirePresent,
+        investorTierPresent: row.investorTierPresent,
+        acceptanceRatePresent: row.acceptanceRatePresent,
+        noCompanyEvidence: row.noCompanyEvidence,
         respondedModel: row.respondedModel,
       });
     })
@@ -295,6 +331,7 @@ export function renderV12Summary(report: V12SmokeReport): string {
     ...report.resumes.flatMap((resume) => jobLines(resume)),
     ...distribution("Pool strength", "level", LEVELS, poolCounts(report.rows)),
     ...distribution("Role", "role", ROLES, roleCounts(report.rows)),
+    ...dimensionConfidenceLines(report.rows),
     ...pairLines(report.rows),
     ...peopleLines(report),
     "## Failures",
@@ -335,6 +372,7 @@ async function scoreResume(
   const failures = new Map<string, Failure>();
   const failedText = new Map<string, Failure>();
   const modelByText = new Map<string, string>();
+  const acceptanceByText = new Map<string, boolean>();
   const models: string[] = [];
   let calls = 0;
   let answered = 0;
@@ -343,6 +381,9 @@ async function scoreResume(
   let lastKey: string | null = null;
 
   const respond = (request: ClaimRubricV12Request): unknown => {
+    if ("selectivity" in request.questions || "difficulty" in request.questions) {
+      acceptanceByText.set(request.state.text, request.state.selection_rate !== null);
+    }
     const key = requestKey(request);
     lastKey = key;
     const failed = failures.get(key);
@@ -398,7 +439,15 @@ async function scoreResume(
     }
     const model = modelByText.get(claim.text);
     if (model === undefined) throw new Error(`claim ${claim.id} has no model`);
-    const row = answeredRow(resume, located, claim, model, stamped);
+    const row = answeredRow(
+      resume,
+      located,
+      claim,
+      model,
+      stamped,
+      spec.thresholds.dimensionConfidence,
+      acceptanceByText.get(claim.text) ?? false,
+    );
     rows.push(row);
     rollupClaims.push({
       id: row.claimId,
@@ -725,6 +774,8 @@ function answeredRow(
   claim: ScoredClaimV12,
   model: string,
   stamped: Stamp,
+  dimensionConfidence: number,
+  acceptanceRatePresent: boolean,
 ): AnsweredV12Row {
   const value =
     claim.claimClass === "selection"
@@ -746,6 +797,9 @@ function answeredRow(
           },
           BACKING_TIER,
         );
+  const selection = claim.claimClass === "selection" ? claim : null;
+  const output = claim.claimClass === "output" ? claim : null;
+  const evidence = selection?.companyEvidence ?? null;
   return {
     outcome: "answered",
     ...stamped,
@@ -756,16 +810,43 @@ function answeredRow(
     class: claim.id.endsWith("#funding") ? "funding" : claim.claimClass,
     claimClass: claim.claimClass,
     status: claim.status,
-    selectivity: claim.claimClass === "selection" ? claim.selectivity.score : null,
-    poolStrength: claim.claimClass === "selection" ? claim.pool_strength.score : null,
-    difficulty: claim.claimClass === "output" ? claim.difficulty.score : null,
-    scale: claim.claimClass === "output" ? claim.scale.score : null,
-    role: claim.claimClass === "output" ? claim.role.choice : null,
+    selectivity: selection ? selection.selectivity.score : null,
+    poolStrength: selection ? selection.pool_strength.score : null,
+    difficulty: output ? output.difficulty.score : null,
+    scale: output ? output.scale.score : null,
+    selectivityConfidence: selection ? selection.selectivity.confidence : null,
+    selectivityProbabilities: selection ? selection.selectivity.probabilities : null,
+    poolStrengthConfidence: selection ? selection.pool_strength.confidence : null,
+    poolStrengthProbabilities: selection ? selection.pool_strength.probabilities : null,
+    difficultyConfidence: output ? output.difficulty.confidence : null,
+    difficultyProbabilities: output ? output.difficulty.probabilities : null,
+    scaleConfidence: output ? output.scale.confidence : null,
+    scaleProbabilities: output ? output.scale.probabilities : null,
+    lowDimensions: lowDimensions(claim, dimensionConfidence),
+    stageAtHirePresent: evidence?.stageAtHire != null,
+    investorTierPresent: evidence?.investorTier != null,
+    acceptanceRatePresent,
+    noCompanyEvidence: claim.noCompanyEvidence,
+    role: output ? output.role.choice : null,
     claimValue: value.claimValue,
     observedAt: observedInstant(claim, located.publishedAt),
     reviewReasons: claim.reviewReasons,
     respondedModel: model,
   };
+}
+
+function lowDimensions(claim: ScoredClaimV12, threshold: number): PairDimension[] {
+  const scored: readonly (readonly [PairDimension, number])[] =
+    claim.claimClass === "selection"
+      ? [
+          ["selectivity", claim.selectivity.confidence],
+          ["pool_strength", claim.pool_strength.confidence],
+        ]
+      : [
+          ["difficulty", claim.difficulty.confidence],
+          ["scale", claim.scale.confidence],
+        ];
+  return scored.filter(([, confidence]) => confidence < threshold).map(([dimension]) => dimension);
 }
 
 function failedRow(
@@ -988,6 +1069,75 @@ function alphaText(alpha: PersonAlpha): string {
   }
   if (alpha.state === "no_output_evidence") return "Alpha no_output_evidence";
   return `Alpha ${fmt(alpha.percentile)} residual ${fmt(alpha.residual)}`;
+}
+
+const CONFIDENCE_KINDS = ["hire", "award", "output"] as const;
+type ConfidenceKind = (typeof CONFIDENCE_KINDS)[number];
+
+const KIND_DIMENSIONS: Record<ConfidenceKind, readonly PairDimension[]> = {
+  hire: ["selectivity", "pool_strength"],
+  award: ["selectivity", "pool_strength"],
+  output: ["difficulty", "scale"],
+};
+
+function dimensionConfidenceLines(rows: readonly V12Row[]): string[] {
+  const lines = [
+    "## Dimension confidence",
+    "",
+    "Hire is a claim id that ends in the hire suffix. Award is every other selection claim. Output is an output claim.",
+    "A low count is how many scored claims of that kind fell below the dimension confidence threshold.",
+    "",
+    "| kind | dimension | low | min | median | max | scored |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
+  ];
+  for (const kind of CONFIDENCE_KINDS) {
+    for (const dimension of KIND_DIMENSIONS[kind]) {
+      const values: number[] = [];
+      let low = 0;
+      for (const row of rows) {
+        if (row.outcome !== "answered" || confidenceKind(row) !== kind) continue;
+        const confidence = confidenceOf(row, dimension);
+        if (confidence === null) continue;
+        values.push(confidence);
+        if (row.lowDimensions.includes(dimension)) low += 1;
+      }
+      lines.push(
+        `| ${kind} | ${dimension} | ${low} | ${fmt(span(values, "min"))} | ${fmt(median(values))} | ${fmt(span(values, "max"))} | ${values.length} |`,
+      );
+    }
+  }
+  lines.push("");
+  return lines;
+}
+
+function confidenceKind(row: AnsweredV12Row): ConfidenceKind {
+  if (row.claimId.endsWith("#hire")) return "hire";
+  if (row.claimClass === "selection") return "award";
+  return "output";
+}
+
+function confidenceOf(row: AnsweredV12Row, dimension: PairDimension): number | null {
+  if (dimension === "selectivity") return row.selectivityConfidence;
+  if (dimension === "pool_strength") return row.poolStrengthConfidence;
+  if (dimension === "difficulty") return row.difficultyConfidence;
+  return row.scaleConfidence;
+}
+
+function span(values: readonly number[], end: "min" | "max"): number | null {
+  if (values.length === 0) return null;
+  return end === "min" ? Math.min(...values) : Math.max(...values);
+}
+
+function median(values: readonly number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const mid = Math.floor(sorted.length / 2);
+  const upper = sorted[mid];
+  if (upper === undefined) return null;
+  if (sorted.length % 2 === 1) return upper;
+  const lower = sorted[mid - 1];
+  if (lower === undefined) return upper;
+  return (lower + upper) / 2;
 }
 
 function fmt(value: number | null): string {

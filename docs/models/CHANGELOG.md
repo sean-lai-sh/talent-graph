@@ -254,6 +254,69 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   stays `Verdict: STABLE`.)
 - **PR:** stacked on #98.
 
+## career_evidence@1.2.2 scale ranges and a missing-evidence tag
+
+- **What:** `CAREER_EVIDENCE_V1_2_2` is registered beside `1.2.1`.
+  `CURRENT_SPECS.career_evidence` stays `1.0.0`. Versions `1.0.0` through
+  `1.2.1` keep their question text and their hashes. `1.2.0` stays
+  `bcf23650aa94d7db63cd254cd04d31cfbd77201af887c7b3b4645238f5d9e376`.
+  `1.2.1` stays
+  `8170c38a439ccca3130ae2e60979b5b0519a6ba3ef2500ffeaac75b199691e3c`.
+  `1.2.2` hashes to
+  `b644c4c39148e937a8d7cd853a8c2d2232eec04bb1e42a48e9ced8eaeb9b727f`.
+  `1.2.2` uses the `1.2.1` question plan. Dated claims still omit
+  `claim_class`. Thresholds stay `0.65` and `0.5`. The selectivity and
+  pool-strength questions are the `1.2.1` questions plus one sentence.
+  When `selection_rate` is absent, no company evidence is available. Their
+  levels stay the `1.2.1` levels. The scale question maps a stated quantity
+  onto one level, with ranges for users, requests, a percent, team size, and
+  money. A stated number is mapped, not hedged. A scored claim carries
+  `noCompanyEvidence`. It is true when a selection claim has no stage at
+  hire, no investor tier, and no acceptance rate. An output claim is false.
+  The smoke `claims.jsonl` emits the same field. Consensus, substance,
+  value, and alpha are unchanged. `company_seed` is unchanged.
+- **Why:** Hire claims have no company evidence. That uncertainty stays in
+  the answer. The tag lets a later score weigh those claims less. Scale
+  flags clustered on bullets that stated a number, because the anchors did
+  not place that number on one level. The dimension threshold stays `0.5`,
+  because those flags were spread across levels.
+- **Drift:** n/a (`CURRENT_SPECS` did not move. Demo and drift do not call
+  `career_evidence@1.2.2`. `bun run drift -- --kind referral_signal --before 0.1.0 --after 0.1.0`
+  stays `Verdict: STABLE`.)
+- **PR:** #103.
+
+## career_evidence@1.2.3 numbers that are not reach
+
+- **What:** `CAREER_EVIDENCE_V1_2_3` is registered beside `1.2.2`.
+  `CURRENT_SPECS.career_evidence` stays `1.0.0`. Versions `1.0.0` through
+  `1.2.2` keep their question text and their hashes. `1.2.2` stays
+  `b644c4c39148e937a8d7cd853a8c2d2232eec04bb1e42a48e9ced8eaeb9b727f`.
+  `1.2.3` hashes to
+  `8119ac21ca629e156962472eb22e9104c0b47a0d0d508dae2d37df37441145bb`.
+  `1.2.3` uses the `1.2.2` question plan. Dated claims still omit
+  `claim_class`. Thresholds stay `0.65` and `0.5`. The selectivity and
+  pool-strength questions and levels match `1.2.1`. The scale question
+  keeps the `1.2.2` quantity anchors and levels. It drops the sentence that
+  told the model to put the probability on one level when the text states
+  no quantity. It adds that an applicant or acceptance count, an absolute
+  quality percentage, and a data or sample size are not reach. The level
+  comes from the stated or implied audience. A speedup converts to a
+  percent improvement. A before-and-after time, or a multiplier of 2x or
+  more, counts as an improvement of at least 50%, and then the percent
+  ranges apply. `noCompanyEvidence` is unchanged.
+  `company_seed` is unchanged. Consensus, substance, value, and alpha are
+  unchanged.
+- **Why:** On `1.2.2`, the sentence that company evidence was missing made
+  hire selectivity look low and confident. The scale ranges still left
+  applicant counts, absolute quality percentages, data sizes, and speedups
+  that are not written as a percent. The sentence that put all the
+  probability on one level when no quantity was stated forced confidence
+  the evidence does not support. The dimension threshold stays `0.5`.
+- **Drift:** n/a (`CURRENT_SPECS` did not move. Demo and drift do not call
+  `career_evidence@1.2.3`. `bun run drift -- --kind referral_signal --before 0.1.0 --after 0.1.0`
+  stays `Verdict: STABLE`.)
+- **PR:** #103.
+
 ## claim_value@1.1.0 — square-law claim value
 
 - **What:** `CLAIM_VALUE_V1_1_0` in `src/longitudinal/claimValue.ts`. It is not a

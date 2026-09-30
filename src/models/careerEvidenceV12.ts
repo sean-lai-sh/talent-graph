@@ -113,6 +113,66 @@ export const CAREER_EVIDENCE_V1_2_1: CareerEvidenceV12Spec = deepFreeze({
   version: "1.2.1",
 });
 
+const NO_COMPANY_EVIDENCE_SENTENCE =
+  "When `selection_rate` is absent, no company evidence is available.";
+
+const SELECTIVITY_QUESTION_V122 = `${SELECTIVITY_QUESTION} ${NO_COMPANY_EVIDENCE_SENTENCE}`;
+
+const POOL_QUESTION_V122 = `${POOL_QUESTION} ${NO_COMPANY_EVIDENCE_SENTENCE}`;
+
+const SCALE_QUESTION_V122 =
+  "Using only `text`, how far does this work reach beyond the people who made it? " +
+  "When the text states a quantity, map that number onto exactly one level using the ranges in the anchors. " +
+  "A stated number is mapped, not hedged. Do not split probability between adjacent levels. " +
+  "The lower end of a range is inclusive and belongs to that level. " +
+  "If the text states both an audience and a percent, the audience sets the level. " +
+  "If the text states only a percent, map that percent with the percent ranges and still pick one level. " +
+  "If the text states no quantity, pick the most likely level from who the audience is, and put the probability on that one level. " +
+  "Do not answer 0 only because reach was not stated.";
+
+export const CAREER_EVIDENCE_V1_2_2: CareerEvidenceV12Spec = deepFreeze({
+  ...CAREER_EVIDENCE_V1_2_1,
+  version: "1.2.2",
+  selectivity: {
+    question: SELECTIVITY_QUESTION_V122,
+    levels: CAREER_EVIDENCE_V1_2_1.selectivity.levels,
+  },
+  pool_strength: {
+    question: POOL_QUESTION_V122,
+    levels: CAREER_EVIDENCE_V1_2_1.pool_strength.levels,
+  },
+  scale: {
+    question: SCALE_QUESTION_V122,
+    levels: [
+      "No users beyond the makers. Example: a class project that was graded and shelved, or a personal demo. Do not put a stated quantity here unless the text says nobody else used the work.",
+      "A small named audience. Users 1 to 99. Requests, events, or downloads under 1,000. One team, or a team of at most 15 people. Money under $10,000. A percent improvement under 20% when no audience is stated. Example: a club attendance app used by 40 members, or an internal script used by the author's own team.",
+      "A bounded audience outside the team. Users 100 to 9,999. Requests, events, or downloads from 1,000 to 999,999. Several teams, or a team of 16 to 200 people. Money from $10,000 to under $1,000,000. A percent improvement from 20% to under 50% when no audience is stated. Open source with hundreds of stars or thousands of weekly downloads. Example: an internal tool adopted by three teams at a company, or an npm package with about 5k weekly downloads.",
+      "Broad adoption. Users from 10,000 to 999,999. Requests, events, or downloads from 1,000,000 to 99,999,999. Company-wide, or more than 200 people. Money from $1,000,000 to under $100,000,000. A percent improvement of 50% or more when no audience is stated. Open source at 10,000 or more stars, or millions of monthly downloads. Example: an intern's service that became company-wide core infrastructure, or a library that major frameworks depend on.",
+      "Used globally and field-defining. Users 1,000,000 or more. Requests, events, or downloads 100,000,000 or more. Money $100,000,000 or more. Do not assign level 4 from a percent alone. Example: CUDA, ChatGPT, PyTorch, React, or a Linux kernel subsystem.",
+    ],
+  },
+});
+
+const NOT_REACH_SENTENCE =
+  "An applicant or acceptance count, an absolute quality percentage, and a data or sample size are not reach. " +
+  "Set the level from the stated or implied audience instead. " +
+  "Convert a speedup to a percent improvement. " +
+  "A before-and-after time, or a multiplier of 2x or more, counts as an improvement of at least 50%, and then use the percent ranges.";
+
+const ONE_LEVEL_WHEN_UNSTATED =
+  "If the text states no quantity, pick the most likely level from who the audience is, and put the probability on that one level. ";
+
+export const CAREER_EVIDENCE_V1_2_3: CareerEvidenceV12Spec = deepFreeze({
+  ...CAREER_EVIDENCE_V1_2_2,
+  version: "1.2.3",
+  selectivity: CAREER_EVIDENCE_V1_2_1.selectivity,
+  pool_strength: CAREER_EVIDENCE_V1_2_1.pool_strength,
+  scale: {
+    question: `${SCALE_QUESTION_V122.replace(ONE_LEVEL_WHEN_UNSTATED, "")} ${NOT_REACH_SENTENCE}`,
+    levels: CAREER_EVIDENCE_V1_2_2.scale.levels,
+  },
+});
+
 export function selectivityLevelForRate(
   rate: number,
   spec: CareerEvidenceV12Spec = CAREER_EVIDENCE_V1_2_0,
@@ -178,6 +238,22 @@ const QUESTION_PLANS = {
     free: FREE_ASK,
   },
   "1.2.1": {
+    dated: {
+      selection: ["selectivity", "pool_strength"],
+      output: ["difficulty", "scale", "role"],
+      classHandling: STRUCTURAL_CLASS,
+    },
+    free: FREE_ASK,
+  },
+  "1.2.2": {
+    dated: {
+      selection: ["selectivity", "pool_strength"],
+      output: ["difficulty", "scale", "role"],
+      classHandling: STRUCTURAL_CLASS,
+    },
+    free: FREE_ASK,
+  },
+  "1.2.3": {
     dated: {
       selection: ["selectivity", "pool_strength"],
       output: ["difficulty", "scale", "role"],
