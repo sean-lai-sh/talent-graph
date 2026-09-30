@@ -17,7 +17,7 @@ import { CURRENT_SPECS, getSpec } from "../src/models/registry.ts";
 import type { CareerEvidenceV12Spec } from "../src/models/spec.ts";
 import { SYNTHETIC_COMPANY_SEED } from "./fixtures/companySeed.synthetic.ts";
 
-const RUBRIC_HASH_V120 = "bcf23650aa94d7db63cd254cd04d31cfbd77201af887c7b3b4645238f5d9e376";
+const RUBRIC_HASH_V120 = "cd500b05728594c6599e31e8aee5c6db81a2c7814aca61332dbd195b3fc662a6";
 const RUBRIC_HASH_V121 = "8170c38a439ccca3130ae2e60979b5b0519a6ba3ef2500ffeaac75b199691e3c";
 const RUBRIC_HASH_V122 = "b644c4c39148e937a8d7cd853a8c2d2232eec04bb1e42a48e9ced8eaeb9b727f";
 const RUBRIC_HASH_V123 = "8119ac21ca629e156962472eb22e9104c0b47a0d0d508dae2d37df37441145bb";

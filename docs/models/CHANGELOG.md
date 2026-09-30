@@ -180,12 +180,9 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   `preprocessJobClaims` once, with every line for one person. Each scored
   claim carries `jobDates` (`startedAt`, `endedAt`, `publishedAt`), `rubricId`
   `career_evidence@1.2.0`, and `rubricHash`
-  `bcf23650aa94d7db63cd254cd04d31cfbd77201af887c7b3b4645238f5d9e376`.
+  `cd500b05728594c6599e31e8aee5c6db81a2c7814aca61332dbd195b3fc662a6`.
   `careerEvidenceV12RubricHash` fingerprints the class text, the anchors, the
-  role labels, the cuts, the model, and the question plan. The 1.2.0 plan asks
-  `claim_class` on dated and free claims and applies the class gate. The
-  numeric thresholds stay outside the hash. The earlier stamp
-  `career_evidence@1.2.0:cd500b05` no longer matches a fresh hash.
+  role labels, the cuts, and the model. Thresholds stay outside the hash.
   Company selection evidence (PR #92) is not part of that rubric hash. The
   `company_seed` section of `config.yml` is the investor list and any published
   rates. `companySeed.ts` loads that section into `COMPANY_SEED`.
@@ -219,16 +216,14 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   `1.2.1` uses the same question text as `1.2.0`. The rubric hash is no longer
   that text alone. `careerEvidenceV12Behavior` is the template plus the
   per-claim-kind question plan and class handling, and
-  `careerEvidenceV12RubricHash` is the hash of that object. The scorer reads
-  the same plan. Dated claims on `1.2.1` omit `claim_class`, store class
+  `careerEvidenceV12RubricHash` is the hash of that object from `1.2.1` on;
+  `1.2.0` keeps hashing the template alone. The scorer reads the same plan. Dated claims on `1.2.1` omit `claim_class`, store class
   confidence 1, and skip the class gate. `1.2.0` still asks `claim_class` on
-  dated claims and still applies the class gate. Those two plans hash to
-  `bcf23650aa94d7db63cd254cd04d31cfbd77201af887c7b3b4645238f5d9e376` and
+  dated claims and still applies the class gate. The two versions hash to
+  `cd500b05728594c6599e31e8aee5c6db81a2c7814aca61332dbd195b3fc662a6` and
   `8170c38a439ccca3130ae2e60979b5b0519a6ba3ef2500ffeaac75b199691e3c`.
-  The stamps are `career_evidence@1.2.0:bcf23650` and
-  `career_evidence@1.2.1:8170c38a`. The stored stamp
-  `cd500b05728594c6599e31e8aee5c6db81a2c7814aca61332dbd195b3fc662a6` no longer
-  matches either version. Thresholds stay 0.65 and 0.5, outside the hash,
+  The stamps are `career_evidence@1.2.0:cd500b05`, unchanged since #90, and
+  `career_evidence@1.2.1:8170c38a`. Thresholds stay 0.65 and 0.5, outside the hash,
   because the two versions use the same numbers. The version-tied difference
   is whether the class gate runs. `claim_value@1.2.0` stays
   `6aaa508fff88d6f3dedabf803f3b21ea9b20b6a1dec25911fff495ffe6e697f8`.
@@ -259,7 +254,7 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
 - **What:** `CAREER_EVIDENCE_V1_2_2` is registered beside `1.2.1`.
   `CURRENT_SPECS.career_evidence` stays `1.0.0`. Versions `1.0.0` through
   `1.2.1` keep their question text and their hashes. `1.2.0` stays
-  `bcf23650aa94d7db63cd254cd04d31cfbd77201af887c7b3b4645238f5d9e376`.
+  `cd500b05728594c6599e31e8aee5c6db81a2c7814aca61332dbd195b3fc662a6`.
   `1.2.1` stays
   `8170c38a439ccca3130ae2e60979b5b0519a6ba3ef2500ffeaac75b199691e3c`.
   `1.2.2` hashes to

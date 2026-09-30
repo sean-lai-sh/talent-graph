@@ -25,13 +25,6 @@ import { decideStatus } from "../src/longitudinal/stages.ts";
 import type { ClaimStatus, GrokEvidenceItem, ReviewReason } from "../src/longitudinal/types.ts";
 import { CAREER_EVIDENCE_V1_0_0, careerEvidenceRubricHash } from "../src/models/careerEvidence.ts";
 import { CAREER_EVIDENCE_V1_1_0 } from "../src/models/careerEvidenceV11.ts";
-import {
-  CAREER_EVIDENCE_V1_2_0,
-  CAREER_EVIDENCE_V1_2_1,
-  CAREER_EVIDENCE_V1_2_2,
-  CAREER_EVIDENCE_V1_2_3,
-  CAREER_EVIDENCE_V1_2_4,
-} from "../src/models/careerEvidenceV12.ts";
 import { type CareerEvidenceSpec, specId } from "../src/models/spec.ts";
 import {
   liveV11Client,
@@ -567,7 +560,8 @@ function rubricFor(name: string | undefined): CareerEvidenceSpec {
 }
 
 const USAGE =
-  "usage: bun run scripts/jev-claim-smoke.ts --items <path> (--jsonl <path> --summary <path> | --out <dir>) [--spec career_evidence@1.0.0] [--rubric career_evidence@1.0.0|career_evidence@1.1.0|career_evidence@1.2.0|career_evidence@1.2.1|career_evidence@1.2.2|career_evidence@1.2.3|career_evidence@1.2.4]";
+  "usage: bun run scripts/jev-claim-smoke.ts --items <path> (--jsonl <path> --summary <path> | --out <dir>) [--spec career_evidence@1.0.0] [--rubric career_evidence@1.0.0|career_evidence@1.1.0|career_evidence@1.2.0|career_evidence@1.2.1|career_evidence@1.2.2|career_evidence@1.2.3|career_evidence@1.2.4]\n" +
+  "       bun run scripts/jev-claim-smoke.ts --items <path> --jobs-only";
 
 const FLAGS = new Set<string>(["--items", "--jsonl", "--summary", "--spec", "--rubric", "--out"]);
 
@@ -631,17 +625,8 @@ function rubricMode(
     rubricFor(specFlag);
     return "v10";
   }
-  const v12 =
-    rubricFlag === specId(CAREER_EVIDENCE_V1_2_0) ||
-    rubricFlag === "CAREER_EVIDENCE_V1_2_0" ||
-    rubricFlag === specId(CAREER_EVIDENCE_V1_2_1) ||
-    rubricFlag === "CAREER_EVIDENCE_V1_2_1" ||
-    rubricFlag === specId(CAREER_EVIDENCE_V1_2_2) ||
-    rubricFlag === "CAREER_EVIDENCE_V1_2_2" ||
-    rubricFlag === specId(CAREER_EVIDENCE_V1_2_3) ||
-    rubricFlag === "CAREER_EVIDENCE_V1_2_3" ||
-    rubricFlag === specId(CAREER_EVIDENCE_V1_2_4) ||
-    rubricFlag === "CAREER_EVIDENCE_V1_2_4";
+  const v12Spec = v12SpecFor(rubricFlag);
+  const v12 = v12Spec !== null;
   const v11 =
     rubricFlag === specId(CAREER_EVIDENCE_V1_1_0) || rubricFlag === "CAREER_EVIDENCE_V1_1_0";
   const v10 =
@@ -651,7 +636,7 @@ function rubricMode(
     rubricFor(specFlag);
     return "v10";
   }
-  const selected = v12 ? v12SpecFor(rubricFlag) : CAREER_EVIDENCE_V1_1_0;
+  const selected = v12Spec ?? CAREER_EVIDENCE_V1_1_0;
   const constantName = v12
     ? `CAREER_EVIDENCE_V${selected.version.replaceAll(".", "_")}`
     : "CAREER_EVIDENCE_V1_1_0";
@@ -684,6 +669,7 @@ export async function main(
     await mkdir(dirname(args.summary), { recursive: true });
     if (mode === "v12") {
       const spec = v12SpecFor(args.rubric);
+      if (spec === null) throw new Error(`unknown rubric ${args.rubric}`);
       const report = await runV12ClaimSmoke(items, v12Client ?? liveV12Client(spec), spec);
       await writeFile(args.jsonl, renderV12Jsonl(report));
       await writeFile(args.summary, renderV12Summary(report));

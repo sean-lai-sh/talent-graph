@@ -16,6 +16,7 @@ import {
   CAREER_EVIDENCE_V1_2_3,
   CAREER_EVIDENCE_V1_2_4,
   careerEvidenceV12Behavior,
+  careerEvidenceV12QuestionPlan,
   careerEvidenceV12RubricHash,
 } from "../src/models/careerEvidenceV12.ts";
 import { SPEC_HISTORY } from "../src/models/registry.ts";
@@ -239,19 +240,21 @@ test("the rubric hash is the serialized ask", () => {
     CAREER_EVIDENCE_V1_2_4,
   ]) {
     const behavior = careerEvidenceV12Behavior(spec);
+    const plan = careerEvidenceV12QuestionPlan(spec);
     const observed = v12Plan(spec);
     expect(careerEvidenceV12RubricHash(spec)).toBe(hashInputs(behavior));
+    expect("questionPlan" in behavior ? behavior.questionPlan : plan).toEqual(plan);
     const asked = (keys: readonly string[]) => [...keys].sort();
-    expect(asked(behavior.questionPlan.dated.selection)).toEqual(observed.asks.datedSelection);
-    expect(asked(behavior.questionPlan.dated.output)).toEqual(observed.asks.datedOutput);
-    expect(asked(behavior.questionPlan.free.probe)).toEqual(observed.asks.freeProbe);
-    expect(asked(behavior.questionPlan.free.selection)).toEqual(observed.asks.freeScore);
-    expect(behavior.questionPlan.dated.classHandling).toEqual(
+    expect(asked(plan.dated.selection)).toEqual(observed.asks.datedSelection);
+    expect(asked(plan.dated.output)).toEqual(observed.asks.datedOutput);
+    expect(asked(plan.free.probe)).toEqual(observed.asks.freeProbe);
+    expect(asked(plan.free.selection)).toEqual(observed.asks.freeScore);
+    expect(plan.dated.classHandling).toEqual(
       observed.classHandling.datedClassConfidence === 1
         ? { source: "structural", confidence: 1, classGate: "skip" }
         : { source: "model", classGate: "apply" },
     );
-    expect(behavior.questionPlan.free.classHandling).toEqual({
+    expect(plan.free.classHandling).toEqual({
       source: "model",
       classGate: "apply",
     });

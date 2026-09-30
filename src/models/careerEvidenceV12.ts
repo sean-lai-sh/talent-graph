@@ -295,9 +295,13 @@ export function careerEvidenceV12QuestionPlan(
   return QUESTION_PLANS[spec.version];
 }
 
-/** Template text plus the per-claim-kind ask. This object is the rubric hash. */
+/**
+ * Template text plus the per-claim-kind ask. This object is the rubric hash.
+ * 1.2.0 shipped hashing the template alone (`cd500b05`), so its plan stays
+ * out of the hash to keep that stamp valid.
+ */
 export function careerEvidenceV12Behavior(spec: CareerEvidenceV12Spec) {
-  return {
+  const template = {
     model: spec.model,
     claimClass: spec.claimClass,
     selectivity: spec.selectivity,
@@ -306,8 +310,9 @@ export function careerEvidenceV12Behavior(spec: CareerEvidenceV12Spec) {
     scale: spec.scale,
     role: spec.role,
     selectivityCuts: spec.selectivityCuts,
-    questionPlan: careerEvidenceV12QuestionPlan(spec),
   };
+  if (spec.version === "1.2.0") return template;
+  return { ...template, questionPlan: careerEvidenceV12QuestionPlan(spec) };
 }
 
 export function careerEvidenceV12RubricHash(spec: CareerEvidenceV12Spec): string {
