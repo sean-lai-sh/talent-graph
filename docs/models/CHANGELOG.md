@@ -267,7 +267,9 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   onto one level, with ranges for users, requests, a percent, team size, and
   money. A stated number is mapped, not hedged. A scored claim carries
   `noCompanyEvidence`. It is true when a selection claim has no stage at
-  hire, no investor tier, and no acceptance rate. An output claim is false.
+  hire, no investor tier of 1 or more, and no acceptance rate. Tier 0, a
+  seeded company with no tiered backer, counts as no tier (#112). An output
+  claim is false.
   The smoke `claims.jsonl` emits the same field. Consensus, substance,
   value, and alpha are unchanged. `company_seed` is unchanged.
 - **Why:** Hire claims have no company evidence. That uncertainty stays in

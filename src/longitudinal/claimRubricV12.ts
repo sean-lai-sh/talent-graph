@@ -581,7 +581,8 @@ function lacksCompanyEvidence(
   evidence: CompanySelectionEvidence | null,
 ): boolean {
   if (evidence?.stageAtHire != null) return false;
-  if (evidence?.investorTier != null) return false;
+  // Tier 0 is a seeded company with no tiered backer, which gives the model no fact.
+  if ((evidence?.investorTier ?? 0) > 0) return false;
   if (selectionSignal(claim.facts) !== null) return false;
   if (evidence?.knownRate != null) return false;
   return true;

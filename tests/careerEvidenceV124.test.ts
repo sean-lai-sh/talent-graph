@@ -187,3 +187,52 @@ function answer(): unknown {
     },
   };
 }
+
+test("a hire before a seeded company's first round sends no context and is tagged as lacking evidence", () => {
+  const seed: CompanySeed = {
+    investors: SEED.investors,
+    companies: [
+      ...SEED.companies,
+      {
+        name: "Shoal",
+        aliases: [],
+        source: "https://example.invalid/shoal",
+        currentStage: "series_a_b",
+        rounds: [
+          {
+            date: "2021-06-01",
+            stage: "series_a_b",
+            investors: [],
+            source: "https://example.invalid/shoal-a",
+          },
+        ],
+        publishedRate: null,
+        hiringBar: null,
+      },
+    ],
+  };
+  const seen: ClaimRubricV12Request[] = [];
+  const claims = scoreClaimRubricV12(
+    {
+      lines: [
+        {
+          id: "job",
+          statement: "Engineer at Shoal (Jan 2020 - Mar 2021)\n- Built the kiosk",
+          publishedAt: null,
+        },
+      ],
+      source: "resume",
+      respond: (request) => {
+        seen.push(request);
+        return answer();
+      },
+      seed,
+    },
+    CAREER_EVIDENCE_V1_2_4,
+  );
+  const request = seen.find((item) => "selectivity" in item.questions);
+  if (!request) throw new Error("expected a hire request");
+  expect("company_context" in request.state).toBe(false);
+  const hire = claims.find((claim) => claim.id === "job#hire");
+  expect((hire as { noCompanyEvidence?: unknown } | undefined)?.noCompanyEvidence).toBe(true);
+});
