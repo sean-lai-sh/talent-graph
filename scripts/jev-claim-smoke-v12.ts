@@ -26,6 +26,7 @@ import {
 import { JudgmentInvariantError } from "../src/longitudinal/records.ts";
 import {
   CAREER_EVIDENCE_V1_2_0,
+  CAREER_EVIDENCE_V1_2_1,
   careerEvidenceV12RubricHash,
 } from "../src/models/careerEvidenceV12.ts";
 import { type CareerEvidenceV12Spec, specId } from "../src/models/spec.ts";
@@ -131,9 +132,25 @@ class Pending extends Error {
   }
 }
 
-export function liveV12Client(): V12JevClient {
+export function v12LiveQuestions(spec: CareerEvidenceV12Spec, request: ClaimRubricV12Request) {
+  const bank = claimQuestionsV12(spec);
+  const claimClass = "claim_class" in request.questions ? { claim_class: bank.claim_class } : {};
+  if ("selectivity" in request.questions) {
+    return { ...claimClass, selectivity: bank.selectivity, pool_strength: bank.pool_strength };
+  }
+  if ("difficulty" in request.questions) {
+    return {
+      ...claimClass,
+      difficulty: bank.difficulty,
+      scale: bank.scale,
+      role: bank.role,
+    };
+  }
+  return { claim_class: bank.claim_class };
+}
+
+export function liveV12Client(spec: CareerEvidenceV12Spec = CAREER_EVIDENCE_V1_2_0): V12JevClient {
   const client = createJevClient();
-  const bank = claimQuestionsV12(CAREER_EVIDENCE_V1_2_0);
   return {
     systemOne(request) {
       const state = {
@@ -145,30 +162,16 @@ export function liveV12Client(): V12JevClient {
         title_hint: request.state.title_hint,
         ...("role_seed" in request.state ? { role_seed: request.state.role_seed } : {}),
       };
-      if ("selectivity" in request.questions) {
-        return client.systemOne({
-          state,
-          questions: {
-            claim_class: bank.claim_class,
-            selectivity: bank.selectivity,
-            pool_strength: bank.pool_strength,
-          },
-        });
-      }
-      if ("difficulty" in request.questions) {
-        return client.systemOne({
-          state,
-          questions: {
-            claim_class: bank.claim_class,
-            difficulty: bank.difficulty,
-            scale: bank.scale,
-            role: bank.role,
-          },
-        });
-      }
-      return client.systemOne({ state, questions: { claim_class: bank.claim_class } });
+      return client.systemOne({ state, questions: v12LiveQuestions(spec, request) });
     },
   };
+}
+
+export function v12SpecFor(rubric: string | undefined): CareerEvidenceV12Spec {
+  if (rubric === specId(CAREER_EVIDENCE_V1_2_1) || rubric === "CAREER_EVIDENCE_V1_2_1") {
+    return CAREER_EVIDENCE_V1_2_1;
+  }
+  return CAREER_EVIDENCE_V1_2_0;
 }
 
 export async function runV12ClaimSmoke(

@@ -18,7 +18,7 @@ import { CURRENT_SPECS, getSpec, isRegisteredSpec, specVersions } from "../src/m
 import { type CareerEvidenceV12Spec, validateSpec } from "../src/models/spec.ts";
 import { SYNTHETIC_COMPANY_SEED } from "./fixtures/companySeed.synthetic.ts";
 
-const PINNED_RUBRIC_HASH = "cd500b05728594c6599e31e8aee5c6db81a2c7814aca61332dbd195b3fc662a6";
+const PINNED_RUBRIC_HASH = "bcf23650aa94d7db63cd254cd04d31cfbd77201af887c7b3b4645238f5d9e376";
 
 const spec = CAREER_EVIDENCE_V1_2_0;
 
@@ -124,7 +124,7 @@ describe("career_evidence@1.2.0 registration", () => {
   test("1.2.0 validates and 1.0.0 stays current", () => {
     expect(validateSpec(spec)).toEqual({ ok: true });
     expect(isRegisteredSpec(spec)).toBe(true);
-    expect(specVersions("career_evidence")).toEqual(["1.0.0", "1.1.0", "1.2.0"]);
+    expect(specVersions("career_evidence")).toEqual(["1.0.0", "1.1.0", "1.2.0", "1.2.1"]);
     expect(getSpec("career_evidence", "1.2.0").version).toBe("1.2.0");
     expect(CURRENT_SPECS.career_evidence.version).toBe("1.0.0");
     expect(careerEvidenceV12RubricHash(spec)).toBe(PINNED_RUBRIC_HASH);

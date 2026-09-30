@@ -1,5 +1,9 @@
 import {
   CAREER_EVIDENCE_V1_2_0,
+  type CareerEvidenceV12ClassHandling,
+  type CareerEvidenceV12QuestionKey,
+  type CareerEvidenceV12QuestionPlan,
+  careerEvidenceV12QuestionPlan,
   careerEvidenceV12RubricHash,
 } from "../models/careerEvidenceV12.ts";
 import {
@@ -124,6 +128,17 @@ interface OutputQuestions extends ClassQuestions {
   };
 }
 
+interface FixedSelectionQuestions {
+  selectivity: SelectionQuestions["selectivity"];
+  pool_strength: SelectionQuestions["pool_strength"];
+}
+
+interface FixedOutputQuestions {
+  difficulty: OutputQuestions["difficulty"];
+  scale: OutputQuestions["scale"];
+  role: OutputQuestions["role"];
+}
+
 interface StateBase {
   source: SourceKind;
   text: string;
@@ -135,8 +150,11 @@ interface StateBase {
 
 export type ClaimRubricV12Request =
   | { state: StateBase; questions: ClassQuestions }
-  | { state: StateBase; questions: SelectionQuestions }
-  | { state: StateBase & { role_seed: RoleChoice | null }; questions: OutputQuestions };
+  | { state: StateBase; questions: SelectionQuestions | FixedSelectionQuestions }
+  | {
+      state: StateBase & { role_seed: RoleChoice | null };
+      questions: OutputQuestions | FixedOutputQuestions;
+    };
 
 export interface ClaimRubricCatalog {
   claim_class: ClassQuestions["claim_class"];
@@ -205,7 +223,8 @@ export function claimRubricRequestV12(
   claim: SplitClaim | AtomicClaim,
   source: SourceKind,
   ask: Ask,
-  seed: CompanySeed = COMPANY_SEED,
+  seed: CompanySeed,
+  questionKeys: readonly CareerEvidenceV12QuestionKey[],
 ): ClaimRubricV12Request {
   const catalog = claimRubricCatalog(spec);
   const signal = selectionSignal(claim.facts);
@@ -219,26 +238,41 @@ export function claimRubricRequestV12(
     selection_rate_source: signal ? null : (seeded?.source ?? null),
     title_hint: titleOf(claim),
   };
+  const includeClass = questionKeys.includes("claim_class");
   if (ask === "class") return { state, questions: { claim_class: catalog.claim_class } };
   if (ask === "selection") {
+    requireKeys(questionKeys, ["selectivity", "pool_strength"], "selection");
+    const dimensions: FixedSelectionQuestions = {
+      selectivity: catalog.selectivity,
+      pool_strength: catalog.pool_strength,
+    };
     return {
       state,
-      questions: {
-        claim_class: catalog.claim_class,
-        selectivity: catalog.selectivity,
-        pool_strength: catalog.pool_strength,
-      },
+      questions: includeClass ? { claim_class: catalog.claim_class, ...dimensions } : dimensions,
     };
   }
+  requireKeys(questionKeys, ["difficulty", "scale", "role"], "output");
+  const dimensions: FixedOutputQuestions = {
+    difficulty: catalog.difficulty,
+    scale: catalog.scale,
+    role: catalog.role,
+  };
   return {
     state: { ...state, role_seed: roleSeedFor(claim.text) },
-    questions: {
-      claim_class: catalog.claim_class,
-      difficulty: catalog.difficulty,
-      scale: catalog.scale,
-      role: catalog.role,
-    },
+    questions: includeClass ? { claim_class: catalog.claim_class, ...dimensions } : dimensions,
   };
+}
+
+function requireKeys(
+  questionKeys: readonly CareerEvidenceV12QuestionKey[],
+  required: readonly CareerEvidenceV12QuestionKey[],
+  ask: string,
+): void {
+  for (const key of required) {
+    if (!questionKeys.includes(key)) {
+      throw new JudgmentInvariantError(`${ask} ask is missing ${key}`);
+    }
+  }
 }
 
 export function scoreClaimRubricV12(
@@ -252,16 +286,22 @@ export function scoreClaimRubricV12(
 ): ScoredClaimV12[] {
   assertSpec(spec);
   const seed = input.seed ?? COMPANY_SEED;
+  const plan = careerEvidenceV12QuestionPlan(spec);
   const prepared = preprocessJobClaims(input.lines, { version: "1.2.0", seed });
   const splitParents = parentsAlreadySplit(prepared);
   const scored: ScoredClaimV12[] = [];
   for (const claim of prepared) {
     if (isDated(claim) && claim.noWorkDescribed === true) continue;
     if (isDated(claim)) {
-      scored.push(scoreKnown(spec, input, claim, claim.claimClass, seed));
+      const keys = claim.claimClass === "selection" ? plan.dated.selection : plan.dated.output;
+      scored.push(
+        scoreKnown(spec, input, claim, claim.claimClass, seed, keys, plan.dated.classHandling),
+      );
       continue;
     }
-    scored.push(...scoreOpen(spec, input, claim, splitParents.has(claim.parentId), seed));
+    scored.push(
+      ...scoreOpen(spec, input, claim, splitParents.has(claim.parentId), seed, plan.free),
+    );
   }
   return scored;
 }
@@ -301,10 +341,11 @@ function scoreOpen(
   claim: AtomicClaim,
   splitterSplit: boolean,
   seed: CompanySeed,
+  free: CareerEvidenceV12QuestionPlan["free"],
 ): ScoredClaimV12[] {
   const probed = classDistribution(
     asRecord(
-      input.respond(claimRubricRequestV12(spec, claim, input.source, "class", seed)),
+      input.respond(claimRubricRequestV12(spec, claim, input.source, "class", seed, free.probe)),
       "claim response",
     ).claim_class,
   );
@@ -314,17 +355,50 @@ function scoreOpen(
       const halves = selectionOutputHalves(claim.text);
       if (halves) {
         return [
-          scoreKnown(spec, input, child(claim, halves[0], "selection"), "selection", seed),
-          scoreKnown(spec, input, child(claim, halves[1], "output"), "output", seed),
+          scoreKnown(
+            spec,
+            input,
+            child(claim, halves[0], "selection"),
+            "selection",
+            seed,
+            free.selection,
+            free.classHandling,
+          ),
+          scoreKnown(
+            spec,
+            input,
+            child(claim, halves[1], "output"),
+            "output",
+            seed,
+            free.output,
+            free.classHandling,
+          ),
         ];
       }
     }
     return [
-      scoreKnown(spec, input, child(claim, claim.text, "selection"), "selection", seed),
-      scoreKnown(spec, input, child(claim, claim.text, "output"), "output", seed),
+      scoreKnown(
+        spec,
+        input,
+        child(claim, claim.text, "selection"),
+        "selection",
+        seed,
+        free.selection,
+        free.classHandling,
+      ),
+      scoreKnown(
+        spec,
+        input,
+        child(claim, claim.text, "output"),
+        "output",
+        seed,
+        free.output,
+        free.classHandling,
+      ),
     ];
   }
-  return [scoreKnown(spec, input, claim, resolved, seed)];
+  const keys = resolved === "selection" ? free.selection : free.output;
+  return [scoreKnown(spec, input, claim, resolved, seed, keys, free.classHandling)];
 }
 
 function child(claim: AtomicClaim, text: string, role: "selection" | "output"): AtomicClaim {
@@ -346,33 +420,78 @@ function scoreKnown(
   claim: SplitClaim,
   claimClass: "selection" | "output",
   seed: CompanySeed,
+  questionKeys: readonly CareerEvidenceV12QuestionKey[],
+  handling: CareerEvidenceV12ClassHandling,
 ): ScoredClaimV12 {
-  const raw = input.respond(claimRubricRequestV12(spec, claim, input.source, claimClass, seed));
+  const raw = input.respond(
+    claimRubricRequestV12(spec, claim, input.source, claimClass, seed, questionKeys),
+  );
   if (claimClass === "selection") {
-    return materialize(spec, claim, parseResponse(raw, "selection"), "selection", claim.id, seed);
+    return materialize(
+      spec,
+      claim,
+      parseResponse(raw, "selection", handling),
+      "selection",
+      claim.id,
+      seed,
+      handling,
+    );
   }
-  return materialize(spec, claim, parseResponse(raw, "output"), "output", claim.id, seed);
+  return materialize(
+    spec,
+    claim,
+    parseResponse(raw, "output", handling),
+    "output",
+    claim.id,
+    seed,
+    handling,
+  );
 }
 
-function parseResponse(value: unknown, claimClass: "selection"): ParsedSelection;
-function parseResponse(value: unknown, claimClass: "output"): ParsedOutput;
+function parseResponse(
+  value: unknown,
+  claimClass: "selection",
+  handling: CareerEvidenceV12ClassHandling,
+): ParsedSelection;
+function parseResponse(
+  value: unknown,
+  claimClass: "output",
+  handling: CareerEvidenceV12ClassHandling,
+): ParsedOutput;
 function parseResponse(
   value: unknown,
   claimClass: "selection" | "output",
+  handling: CareerEvidenceV12ClassHandling,
 ): ParsedSelection | ParsedOutput {
   const record = asRecord(value, "claim response");
+  const claim_class =
+    handling.source === "structural"
+      ? fixedClass(claimClass, handling.confidence)
+      : classDistribution(record.claim_class);
   if (claimClass === "selection") {
     return {
-      claim_class: classDistribution(record.claim_class),
+      claim_class,
       selectivity: levelDistribution(record.selectivity, "selectivity"),
       pool_strength: levelDistribution(record.pool_strength, "pool_strength"),
     };
   }
   return {
-    claim_class: classDistribution(record.claim_class),
+    claim_class,
     difficulty: levelDistribution(record.difficulty, "difficulty"),
     scale: levelDistribution(record.scale, "scale"),
     role: roleDistribution(record.role),
+  };
+}
+
+function fixedClass(claimClass: "selection" | "output", confidence: 1): ClassDistribution {
+  return {
+    choice: claimClass,
+    confidence,
+    probabilities: {
+      selection: claimClass === "selection" ? 1 : 0,
+      output: claimClass === "output" ? 1 : 0,
+      both: 0,
+    },
   };
 }
 
@@ -383,6 +502,7 @@ function materialize(
   claimClass: "selection" | "output",
   id: string,
   seed: CompanySeed,
+  handling: CareerEvidenceV12ClassHandling,
 ): ScoredClaimV12 {
   const classConfidence = confidenceFor(parsed.claim_class, claimClass);
   const shared = {
@@ -404,7 +524,7 @@ function materialize(
     const selection = parsed;
     return {
       ...shared,
-      ...gate(classConfidence, [selection.selectivity, selection.pool_strength], spec),
+      ...gate(classConfidence, [selection.selectivity, selection.pool_strength], spec, handling),
       claimClass: "selection",
       selectivity: selection.selectivity,
       pool_strength: selection.pool_strength,
@@ -417,7 +537,7 @@ function materialize(
   const output = parsed;
   return {
     ...shared,
-    ...gate(classConfidence, [output.difficulty, output.scale], spec),
+    ...gate(classConfidence, [output.difficulty, output.scale], spec, handling),
     claimClass: "output",
     difficulty: output.difficulty,
     scale: output.scale,
@@ -435,9 +555,10 @@ function gate(
   classConfidence: number,
   dimensions: readonly LevelDistribution[],
   spec: CareerEvidenceV12Spec,
+  handling: CareerEvidenceV12ClassHandling,
 ): { status: "accepted" | "review"; reviewReasons: ClaimV12ReviewReason[] } {
   const reviewReasons: ClaimV12ReviewReason[] = [];
-  if (classConfidence < spec.thresholds.classConfidence) {
+  if (handling.classGate === "apply" && classConfidence < spec.thresholds.classConfidence) {
     reviewReasons.push("class_low_confidence");
   }
   if (dimensions.some((dimension) => dimension.confidence < spec.thresholds.dimensionConfidence)) {

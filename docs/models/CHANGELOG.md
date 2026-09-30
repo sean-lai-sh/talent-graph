@@ -180,9 +180,12 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   `preprocessJobClaims` once, with every line for one person. Each scored
   claim carries `jobDates` (`startedAt`, `endedAt`, `publishedAt`), `rubricId`
   `career_evidence@1.2.0`, and `rubricHash`
-  `cd500b05728594c6599e31e8aee5c6db81a2c7814aca61332dbd195b3fc662a6`.
+  `bcf23650aa94d7db63cd254cd04d31cfbd77201af887c7b3b4645238f5d9e376`.
   `careerEvidenceV12RubricHash` fingerprints the class text, the anchors, the
-  role labels, the cuts, and the model. Thresholds stay outside the hash.
+  role labels, the cuts, the model, and the question plan. The 1.2.0 plan asks
+  `claim_class` on dated and free claims and applies the class gate. The
+  numeric thresholds stay outside the hash. The earlier stamp
+  `career_evidence@1.2.0:cd500b05` no longer matches a fresh hash.
   Company selection evidence (PR #92) is not part of that rubric hash. The
   `company_seed` section of `config.yml` is the investor list and any published
   rates. `companySeed.ts` loads that section into `COMPANY_SEED`.
@@ -204,6 +207,52 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
 - **Drift:** n/a (rubric-only kind; `CURRENT_SPECS` did not move, and this
   spec produces no pipeline number)
 - **PR:** #90, stacked on #89.
+
+## career_evidence@1.2.1 structural class is not re-judged
+
+- **What:** `CAREER_EVIDENCE_V1_2_1` is registered beside `1.2.0`.
+  `CURRENT_SPECS.career_evidence` stays `1.0.0`. The 1.0.0 and 1.1.0 question
+  text and hashes are unchanged. `1.0.0` stays
+  `6290bc28b1a9b5a61ecab7dc389203daf1d4527a5b1b5c7d20866a34e26bac97`.
+  `1.1.0` stays
+  `60dadea6eae5cd8e3a0a552941ab30ef5cc12bde0f1346ab4d65ed6a78ab689c`.
+  `1.2.1` uses the same question text as `1.2.0`. The rubric hash is no longer
+  that text alone. `careerEvidenceV12Behavior` is the template plus the
+  per-claim-kind question plan and class handling, and
+  `careerEvidenceV12RubricHash` is the hash of that object. The scorer reads
+  the same plan. Dated claims on `1.2.1` omit `claim_class`, store class
+  confidence 1, and skip the class gate. `1.2.0` still asks `claim_class` on
+  dated claims and still applies the class gate. Those two plans hash to
+  `bcf23650aa94d7db63cd254cd04d31cfbd77201af887c7b3b4645238f5d9e376` and
+  `8170c38a439ccca3130ae2e60979b5b0519a6ba3ef2500ffeaac75b199691e3c`.
+  The stamps are `career_evidence@1.2.0:bcf23650` and
+  `career_evidence@1.2.1:8170c38a`. The stored stamp
+  `cd500b05728594c6599e31e8aee5c6db81a2c7814aca61332dbd195b3fc662a6` no longer
+  matches either version. Thresholds stay 0.65 and 0.5, outside the hash,
+  because the two versions use the same numbers. The version-tied difference
+  is whether the class gate runs. `claim_value@1.2.0` stays
+  `6aaa508fff88d6f3dedabf803f3b21ea9b20b6a1dec25911fff495ffe6e697f8`.
+  `person_rollup` stays
+  `35a1b965b63e251f71c85be0a9ca43504584a800328bb4c73f59665ae5527efb`.
+  `company_seed` stays
+  `2229a5fe852c86e6c9988dcca0b56045b2525c54113f16cf429f0b6f7afd88e7`.
+  On `1.2.1` only, a dated claim from `preprocessJobClaims` does not ask
+  `claim_class`. The job split already fixed the class. `#hire` and founder
+  `#funding` are selection. An award bullet the splitter marked selection
+  stays selection. Every other dated bullet stays output. The stored
+  class confidence is 1, and `class_low_confidence` is not added. Dimension
+  confidence still sends the claim to review. A free line still asks for
+  class, and a class confidence below 0.65 still reviews. `1.2.0` still asks
+  `claim_class` on dated claims and still reviews that uncertainty.
+- **Why:** The 1.2.0 scorer asked the model to classify a claim the job split
+  had already classified, then sent the claim to review when that second
+  judgment was unsure. A hire line is a job header. The class question tells
+  the model titles are not scored, so the model is unsure, and the claim
+  reviews even though the class was never in doubt.
+- **Drift:** n/a (`CURRENT_SPECS` did not move. Demo and drift do not call
+  `career_evidence@1.2.1`. `bun run drift -- --kind referral_signal --before 0.1.0 --after 0.1.0`
+  stays `Verdict: STABLE`.)
+- **PR:** stacked on #98.
 
 ## claim_value@1.1.0 — square-law claim value
 

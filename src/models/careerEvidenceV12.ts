@@ -108,6 +108,11 @@ export const CAREER_EVIDENCE_V1_2_0: CareerEvidenceV12Spec = deepFreeze({
   },
 });
 
+export const CAREER_EVIDENCE_V1_2_1: CareerEvidenceV12Spec = deepFreeze({
+  ...CAREER_EVIDENCE_V1_2_0,
+  version: "1.2.1",
+});
+
 export function selectivityLevelForRate(
   rate: number,
   spec: CareerEvidenceV12Spec = CAREER_EVIDENCE_V1_2_0,
@@ -121,8 +126,76 @@ export function selectivityLevelForRate(
   return 0;
 }
 
-export function careerEvidenceV12RubricHash(spec: CareerEvidenceV12Spec): string {
-  return hashInputs({
+export type CareerEvidenceV12QuestionKey =
+  | "claim_class"
+  | "selectivity"
+  | "pool_strength"
+  | "difficulty"
+  | "scale"
+  | "role";
+
+/** How a class answer becomes a stored class and a review reason. */
+export type CareerEvidenceV12ClassHandling =
+  | { source: "model"; classGate: "apply" }
+  | { source: "structural"; confidence: 1; classGate: "skip" };
+
+export interface CareerEvidenceV12QuestionPlan {
+  dated: {
+    selection: readonly CareerEvidenceV12QuestionKey[];
+    output: readonly CareerEvidenceV12QuestionKey[];
+    classHandling: CareerEvidenceV12ClassHandling;
+  };
+  free: {
+    probe: readonly CareerEvidenceV12QuestionKey[];
+    selection: readonly CareerEvidenceV12QuestionKey[];
+    output: readonly CareerEvidenceV12QuestionKey[];
+    classHandling: CareerEvidenceV12ClassHandling;
+  };
+}
+
+const MODEL_CLASS = { source: "model", classGate: "apply" } as const;
+const STRUCTURAL_CLASS = { source: "structural", confidence: 1, classGate: "skip" } as const;
+
+const FREE_ASK = {
+  probe: ["claim_class"],
+  selection: ["claim_class", "selectivity", "pool_strength"],
+  output: ["claim_class", "difficulty", "scale", "role"],
+  classHandling: MODEL_CLASS,
+} as const satisfies CareerEvidenceV12QuestionPlan["free"];
+
+/**
+ * Which questions each claim kind is asked, and how class becomes a status.
+ * The scorer reads this. The rubric hash serializes it. A version that asks
+ * a different set cannot keep the previous digest.
+ */
+const QUESTION_PLANS = {
+  "1.2.0": {
+    dated: {
+      selection: ["claim_class", "selectivity", "pool_strength"],
+      output: ["claim_class", "difficulty", "scale", "role"],
+      classHandling: MODEL_CLASS,
+    },
+    free: FREE_ASK,
+  },
+  "1.2.1": {
+    dated: {
+      selection: ["selectivity", "pool_strength"],
+      output: ["difficulty", "scale", "role"],
+      classHandling: STRUCTURAL_CLASS,
+    },
+    free: FREE_ASK,
+  },
+} as const satisfies Record<CareerEvidenceV12Spec["version"], CareerEvidenceV12QuestionPlan>;
+
+export function careerEvidenceV12QuestionPlan(
+  spec: CareerEvidenceV12Spec,
+): CareerEvidenceV12QuestionPlan {
+  return QUESTION_PLANS[spec.version];
+}
+
+/** Template text plus the per-claim-kind ask. This object is the rubric hash. */
+export function careerEvidenceV12Behavior(spec: CareerEvidenceV12Spec) {
+  return {
     model: spec.model,
     claimClass: spec.claimClass,
     selectivity: spec.selectivity,
@@ -131,7 +204,12 @@ export function careerEvidenceV12RubricHash(spec: CareerEvidenceV12Spec): string
     scale: spec.scale,
     role: spec.role,
     selectivityCuts: spec.selectivityCuts,
-  });
+    questionPlan: careerEvidenceV12QuestionPlan(spec),
+  };
+}
+
+export function careerEvidenceV12RubricHash(spec: CareerEvidenceV12Spec): string {
+  return hashInputs(careerEvidenceV12Behavior(spec));
 }
 
 export function careerEvidenceV12SpecId(spec: CareerEvidenceV12Spec): string {

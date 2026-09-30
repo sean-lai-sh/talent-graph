@@ -343,8 +343,8 @@ describe("drift gate: end to end", () => {
       edit(
         dir,
         "src/models/registry.ts",
-        "  CAREER_EVIDENCE_V1_2_0,\n]);",
-        "  CAREER_EVIDENCE_V1_2_0,\n  CAREER_EVIDENCE_V1_0_1,\n]);",
+        "  CAREER_EVIDENCE_V1_2_1,\n]);",
+        "  CAREER_EVIDENCE_V1_2_1,\n  CAREER_EVIDENCE_V1_0_1,\n]);",
       );
       edit(
         dir,
