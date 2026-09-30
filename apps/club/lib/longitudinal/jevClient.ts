@@ -99,8 +99,8 @@ export function claimQuestionsV11(spec: CareerEvidenceV11Spec) {
   };
 }
 
-export function claimQuestionsV12(spec: CareerEvidenceV12Spec) {
-  const questions = claimRubricCatalog(spec);
+export function claimQuestionsV12(spec: CareerEvidenceV12Spec, withCompanyContext = false) {
+  const questions = claimRubricCatalog(spec, withCompanyContext);
   return {
     claim_class: choice(questions.claim_class.instructions, questions.claim_class.criteria),
     selectivity: score(questions.selectivity.instructions, questions.selectivity.criteria),

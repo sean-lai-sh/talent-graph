@@ -5,6 +5,7 @@ import {
   COMPANY_STAGES,
   type CompanySeed,
   type CompanyStage,
+  type HiringBar,
   type InvestorTier,
   type PublishedRate,
   type SeedCompany,
@@ -237,14 +238,14 @@ function parseCompanies(value: unknown, where: string): SeedCompany[] {
   if (!Array.isArray(value)) fail(where, "must be a list");
   const seen = new Set<string>();
   return value.map((entry, index) => {
-    const company = parseCompany(entry, `${where}[${index}]`);
+    const company = parseSeedCompany(entry, `${where}[${index}]`);
     if (seen.has(company.name)) fail(`${where}[${index}]`, `duplicate id "${company.name}"`);
     seen.add(company.name);
     return company;
   });
 }
 
-function parseCompany(value: unknown, where: string): SeedCompany {
+export function parseSeedCompany(value: unknown, where: string): SeedCompany {
   if (!isRecord(value)) fail(where, "must be a map");
   requireKeys(
     value,
@@ -308,11 +309,14 @@ function parseRate(value: unknown, where: string): PublishedRate {
   };
 }
 
-function parseHiringBar(value: unknown, where: string): { source: string } | null {
+function parseHiringBar(value: unknown, where: string): HiringBar | null {
   if (value === null) return null;
   if (!isRecord(value)) fail(where, "must be a map or null");
-  requireKeys(value, ["source"], where);
-  return { source: httpsSource(value.source, `${where}.source`, "entry") };
+  requireKeys(value, ["note", "source"], where);
+  return {
+    note: nonEmptyString(value.note, `${where}.note`),
+    source: httpsSource(value.source, `${where}.source`, "entry"),
+  };
 }
 
 function parseTier(value: unknown, where: string): InvestorTier {
@@ -359,6 +363,11 @@ function calendarDate(value: unknown, where: string): string {
 
 function idString(value: unknown, where: string): string {
   if (typeof value !== "string" || value.trim() === "") fail(where, "missing id");
+  return value;
+}
+
+function nonEmptyString(value: unknown, where: string): string {
+  if (typeof value !== "string" || value.trim() === "") fail(where, "must be a non-empty string");
   return value;
 }
 

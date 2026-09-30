@@ -29,7 +29,7 @@ import {
   type CompanySelectionEvidence,
   companySelectionEvidence,
 } from "./companyEvidence.ts";
-import { COMPANY_SEED, type CompanySeed } from "./companySeed.ts";
+import { COMPANY_SEED, type CompanySeed, type CompanyStage } from "./companySeed.ts";
 import { inRange, unit } from "./ranges.ts";
 import { JudgmentInvariantError } from "./records.ts";
 import type { SourceKind } from "./types.ts";
@@ -140,6 +140,18 @@ interface FixedOutputQuestions {
   role: OutputQuestions["role"];
 }
 
+/**
+ * Sourced company facts sent with a dated selection claim from 1.2.4 on.
+ * A fact with no source is an omitted key, never null, so the model sees
+ * only what the seed can back.
+ */
+export type CompanyContext = {
+  stage_at_hire?: string;
+  top_investor?: string;
+  acceptance_rate?: { rate: number; upper_bound: boolean; source: string };
+  hiring_bar?: { note: string; source: string };
+};
+
 interface StateBase {
   source: SourceKind;
   text: string;
@@ -147,6 +159,7 @@ interface StateBase {
   selection_rate_upper_bound: boolean;
   selection_rate_source: string | null;
   title_hint: string | null;
+  company_context?: CompanyContext;
 }
 
 export type ClaimRubricV12Request =
@@ -181,7 +194,15 @@ interface ParsedOutput {
   role: RoleDistribution;
 }
 
-export function claimRubricCatalog(spec: CareerEvidenceV12Spec): ClaimRubricCatalog {
+/** `withCompanyContext` appends the plan's company-context sentence to the selection questions. */
+export function claimRubricCatalog(
+  spec: CareerEvidenceV12Spec,
+  withCompanyContext = false,
+): ClaimRubricCatalog {
+  const sentence = withCompanyContext
+    ? careerEvidenceV12QuestionPlan(spec).dated.companyContext
+    : undefined;
+  const ask = (question: string) => (sentence ? `${question} ${sentence}` : question);
   return {
     claim_class: {
       instructions: spec.claimClass.question,
@@ -192,11 +213,11 @@ export function claimRubricCatalog(spec: CareerEvidenceV12Spec): ClaimRubricCata
       },
     },
     selectivity: {
-      instructions: spec.selectivity.question,
+      instructions: ask(spec.selectivity.question),
       criteria: spec.selectivity.levels,
     },
     pool_strength: {
-      instructions: spec.pool_strength.question,
+      instructions: ask(spec.pool_strength.question),
       criteria: spec.pool_strength.levels,
     },
     difficulty: {
@@ -227,10 +248,14 @@ export function claimRubricRequestV12(
   seed: CompanySeed,
   questionKeys: readonly CareerEvidenceV12QuestionKey[],
 ): ClaimRubricV12Request {
-  const catalog = claimRubricCatalog(spec);
   const signal = selectionSignal(claim.facts);
   const evidence = ask === "selection" ? evidenceFor(claim, seed) : null;
   const seeded = evidence?.knownRate ?? null;
+  const context =
+    evidence && careerEvidenceV12QuestionPlan(spec).dated.companyContext
+      ? companyContext(evidence)
+      : null;
+  const catalog = claimRubricCatalog(spec, context !== null);
   const state: StateBase = {
     source,
     text: claim.text,
@@ -238,6 +263,7 @@ export function claimRubricRequestV12(
     selection_rate_upper_bound: signal ? signal.upperBound : (seeded?.upperBound ?? false),
     selection_rate_source: signal ? null : (seeded?.source ?? null),
     title_hint: titleOf(claim),
+    ...(context ? { company_context: context } : {}),
   };
   const includeClass = questionKeys.includes("claim_class");
   if (ask === "class") return { state, questions: { claim_class: catalog.claim_class } };
@@ -590,10 +616,39 @@ function evidenceFor(claim: SplitClaim, seed: CompanySeed): CompanySelectionEvid
       startedAt: claim.startedAt,
       founder: claim.founder,
       fundingText: claim.founder ? claim.text : null,
+      title: claim.title,
     },
     seed,
     COMPANY_EVIDENCE_CONFIG,
   );
+}
+
+const STAGE_LABEL: Record<CompanyStage, string> = {
+  pre_seed_seed: "pre-seed or seed",
+  series_a_b: "Series A or B",
+  growth_late: "growth or late stage",
+  public_large: "public or large company",
+};
+
+function companyContext(evidence: CompanySelectionEvidence): CompanyContext | null {
+  const { stageAtHire, investorTier, topInvestor, knownRate, hiringBar } = evidence;
+  const context: CompanyContext = {
+    ...(stageAtHire ? { stage_at_hire: STAGE_LABEL[stageAtHire] } : {}),
+    ...(topInvestor && investorTier
+      ? { top_investor: `tier ${investorTier} investor: ${topInvestor}` }
+      : {}),
+    ...(knownRate
+      ? {
+          acceptance_rate: {
+            rate: knownRate.rate,
+            upper_bound: knownRate.upperBound,
+            source: knownRate.source,
+          },
+        }
+      : {}),
+    ...(hiringBar ? { hiring_bar: { note: hiringBar.note, source: hiringBar.source } } : {}),
+  };
+  return Object.keys(context).length > 0 ? context : null;
 }
 
 function isDated(claim: SplitClaim): claim is DatedClaim {

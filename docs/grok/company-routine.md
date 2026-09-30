@@ -1,0 +1,103 @@
+# Company Hiring Evidence routine (Grok Bot)
+
+This routine researches the employers behind Jev hire claims and returns `company_seed` entries for `config.yml` (SEA-64). `career_evidence@1.2.4` sends those sourced facts to the model as `company_context` (SEA-74). Only company names, titles, and hire dates go to Grok. No resume text does.
+
+## 1. Create the routine
+
+In Grok Bot, create a saved routine and paste this as its instructions:
+
+```text
+Create a saved routine named "Company Hiring Evidence".
+
+Trigger: a webhook call. The request body is JSON:
+{ "runId": string, "worklist": [ { "org": string, "titles": string[], "startedAt": "YYYY-MM-DD" | null } ] }
+
+Tools: web search. Do not use X search.
+
+Task: for each org in the worklist, research sourced, checkable facts about how selective it was to be hired there around startedAt. Cite a specific https page for every fact. Do not rate prestige, brand, or reputation. Never estimate or infer a number. If a page you can cite does not state it, leave it out.
+
+Respond with ONLY this JSON object, no prose:
+{
+  "runId": <echo the runId>,
+  "companies": [
+    {
+      "name": string,
+      "aliases": string[],
+      "source": string,
+      "currentStage": "pre_seed_seed" | "series_a_b" | "growth_late" | "public_large",
+      "rounds": [ { "date": "YYYY-MM-DD", "stage": <same enum>, "investors": string[], "source": string } ],
+      "publishedRate": null | { "rate": number, "upperBound": boolean, "labels": string[], "source": string },
+      "hiringBar": null | { "note": string, "source": string }
+    }
+  ],
+  "investors": [ { "name": string, "aliases": string[], "tier": 1 | 2 | 3, "source": string, "publishedRates": [] } ],
+  "unresolved": [ { "org": string, "reason": string } ]
+}
+
+Rules:
+- Stages: pre_seed_seed = pre-seed or seed; series_a_b = Series A or B; growth_late = Series C or later, still private; public_large = publicly traded, or a large established employer (government, university, 10,000+ staff).
+- For public_large companies, include the IPO or direct listing as a round: its exact listing date (always published, so never omit it), stage "public_large", investors [], and a source. Then focus on publishedRate and hiringBar for the role family in "titles" (for example the internship program's acceptance rate for an intern title).
+- publishedRate.rate is the fraction accepted (0.02 = 2%). upperBound is true when the page says "under X%". labels are whole words that appear in the job titles the rate applies to, such as "Intern" or "New Grad" (not "internship"). A rate is used only for a hire whose title contains one of its labels. If the rate applies to all hiring, omit the labels key entirely. Never send an empty labels list.
+- hiringBar.note is one sentence quoting a stated hiring bar (applicants per hire, interview pass rate). Use null if no page states one.
+- Private round dates are the announced date. Month only: use the 1st. Year only: omit the round.
+- In rounds.investors, write a known investor exactly as it is named in the list below (for example "Sequoia", not "Sequoia Capital"). The investors list holds only new investors named in rounds. Tier 1 = angel or small seed fund. Tier 2 = recognized institutional VC. Tier 3 = top-tier fund or Y Combinator. Already known, do not list: Y Combinator, Sequoia, Andreessen Horowitz, Benchmark, Accel, Greylock, Index Ventures, Precursor Ventures, Hustle Fund.
+- Blogs, forum posts, and aggregators without a primary citation do not count as sources.
+- Merge duplicate orgs into one entry with both names in aliases.
+- Any org you cannot identify with confidence goes in unresolved.
+
+Return the JSON as the response to the webhook call.
+```
+
+## 2. Store the trigger in Doppler
+
+Copy the routine's webhook trigger URL and an API key allowed to trigger it. Store both in Doppler `talent-graph/dev`:
+
+```sh
+doppler secrets set GROK_ROUTINE_WEBHOOK_URL="<trigger url>" --project talent-graph --config dev
+doppler secrets set GROK_ROUTINE_KEY="<api key>" --project talent-graph --config dev
+doppler secrets --only-names --project talent-graph --config dev | grep GROK_ROUTINE
+```
+
+The last command must list both names. Never paste the key into chat, a ticket, or git.
+
+## 3. Run it
+
+From the repo root, with the private resume items file:
+
+```sh
+# Optional: see which orgs will be researched and which are already seeded.
+bun run scripts/jev-company-worklist.ts --items <items.json>
+
+# Ask the routine about every unseeded org, 10 per call. Writes validated proposals.
+doppler run --project talent-graph --config dev -- \
+  bun run scripts/jev-company-worklist.ts --research <items.json> --out <proposals.json>
+
+# Merge the proposals into config.yml and update the seed pin.
+bun run scripts/jev-company-worklist.ts --apply <proposals.json>
+bun run check:config
+```
+
+The research step prints each rejected org with the reason (for example a fact without an https source), each org Grok could not resolve, each worklist org that no returned company names by name or alias (it stays unseeded), and any new investors. New investors are not applied automatically. Add each one to `company_seed.investors` by hand after checking its tier. If a batch fails, the proposals from earlier batches are still written and the step says which batch stopped it.
+
+Keep `<items.json>` and `<proposals.json>` under the gitignored `sea-35-private/` path until the proposals are reviewed.
+
+## The routine runs asynchronously
+
+Tested on 2026-09-29: the webhook answers at once with only `{ "success": true, "runUuid": "…" }`, and the result appears in the Bot's chat. No documented API returns a run's output by `runUuid`. So `--research` cannot read results from the webhook reply today. It stops with "runId undefined is not this run's …" and writes nothing.
+
+Until the callback endpoint in SEA-75 exists, run the routine, copy its JSON reply from the Bot's chat, and validate it offline:
+
+```sh
+bun run scripts/jev-company-worklist.ts --from <grok-reply.json> --out <proposals.json>
+```
+
+SEA-75 plans a Convex HTTP route the routine POSTs its result to, with a per-run token, and a query `--research` polls. When it lands, the routine text above changes from "return the JSON as the response" to "POST the JSON to callbackUrl".
+
+## Then test
+
+Run 3 live smoke runs each of `career_evidence@1.2.3` and `@1.2.4` on the two SEA-35 resumes, and compare review per run and hire selectivity per job (SEA-74 acceptance):
+
+```sh
+doppler run --project talent-graph --config dev -- \
+  bun run scripts/jev-claim-smoke.ts --items <items.json> --rubric career_evidence@1.2.4 --out <run-dir>
+```

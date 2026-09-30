@@ -6,6 +6,11 @@ import { main, type SmokeItem } from "../scripts/jev-claim-smoke.ts";
 import type { V11JevClient } from "../scripts/jev-claim-smoke-v11.ts";
 import { type V12JevClient, v12JobCheckText } from "../scripts/jev-claim-smoke-v12.ts";
 import { preprocessJobClaims } from "../src/longitudinal/claimPreprocess.ts";
+import {
+  CLAIM_VALUE_V1_2_0,
+  claimValueV12ConfigHash,
+  claimValueV12ConfigId,
+} from "../src/longitudinal/claimValue.ts";
 import type { JevJudgmentService } from "../src/longitudinal/judgments.ts";
 import { JudgmentInvariantError } from "../src/longitudinal/records.ts";
 import {
@@ -18,8 +23,8 @@ import { fixtureAnswers, fixtureV12Client } from "./fixtures/jev-claim-smoke-v12
 const fixturePath = join(import.meta.dir, "fixtures/jev-claim-smoke-v12.items.json");
 const RUBRIC_HASH_V120 = "bcf23650aa94d7db63cd254cd04d31cfbd77201af887c7b3b4645238f5d9e376";
 const RUBRIC_HASH_V121 = "8170c38a439ccca3130ae2e60979b5b0519a6ba3ef2500ffeaac75b199691e3c";
-const CONFIG_HASH = "6aaa508fff88d6f3dedabf803f3b21ea9b20b6a1dec25911fff495ffe6e697f8";
-const CONFIG_ID = "claim_value@1.2.0:6aaa508f";
+const CONFIG_HASH = claimValueV12ConfigHash(CLAIM_VALUE_V1_2_0);
+const CONFIG_ID = claimValueV12ConfigId(CLAIM_VALUE_V1_2_0);
 const ROLLUP_HASH = "35a1b965b63e251f71c85be0a9ca43504584a800328bb4c73f59665ae5527efb";
 
 const PRIVATE = [

@@ -173,7 +173,7 @@ export type CareerEvidenceRoleChoice =
 
 export interface CareerEvidenceV12Spec {
   kind: "career_evidence";
-  version: "1.2.0" | "1.2.1" | "1.2.2" | "1.2.3";
+  version: "1.2.0" | "1.2.1" | "1.2.2" | "1.2.3" | "1.2.4";
   model: string;
   claimClass: {
     question: string;
@@ -568,9 +568,10 @@ function validateCareerEvidenceV12Spec(spec: CareerEvidenceV12Spec, errors: stri
     spec.version !== "1.2.0" &&
     spec.version !== "1.2.1" &&
     spec.version !== "1.2.2" &&
-    spec.version !== "1.2.3"
+    spec.version !== "1.2.3" &&
+    spec.version !== "1.2.4"
   ) {
-    errors.push('version must be "1.2.0", "1.2.1", "1.2.2", or "1.2.3"');
+    errors.push('version must be "1.2.0", "1.2.1", "1.2.2", "1.2.3", or "1.2.4"');
   }
   if (!isNonEmptyString(spec.model)) errors.push("model must be a non-empty string");
   for (const key of V12_BANNED_KEYS) {
@@ -645,6 +646,7 @@ function isCareerEvidenceV12(
     spec.version === "1.2.1" ||
     spec.version === "1.2.2" ||
     spec.version === "1.2.3" ||
+    spec.version === "1.2.4" ||
     "pool_strength" in spec ||
     "scale" in spec ||
     "role" in spec

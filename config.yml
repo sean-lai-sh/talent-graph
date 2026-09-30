@@ -21,8 +21,11 @@ company_seed:
   # rounds[].stage: stage at that round. Same four stages as currentStage.
   # rounds[].investors: investor names on that round.
   # rounds[].source: https page that states the round.
+  # A public company records its IPO as a round: IPO date, stage public_large, investors [].
   # companies[].publishedRate: a company acceptance rate, or null. Same fields as an investor rate.
-  # companies[].hiringBar: a map with source when a hiring-bar note exists, otherwise null.
+  # companies[].hiringBar: a sourced hiring-bar note, or null.
+  # hiringBar.note: what the source says about the hiring bar, in one sentence.
+  # hiringBar.source: https page that states the note.
   investors:
     - name: Y Combinator
       aliases:

@@ -30,6 +30,7 @@ import {
   CAREER_EVIDENCE_V1_2_1,
   CAREER_EVIDENCE_V1_2_2,
   CAREER_EVIDENCE_V1_2_3,
+  CAREER_EVIDENCE_V1_2_4,
 } from "../src/models/careerEvidenceV12.ts";
 import { type CareerEvidenceSpec, specId } from "../src/models/spec.ts";
 import {
@@ -566,7 +567,7 @@ function rubricFor(name: string | undefined): CareerEvidenceSpec {
 }
 
 const USAGE =
-  "usage: bun run scripts/jev-claim-smoke.ts --items <path> (--jsonl <path> --summary <path> | --out <dir>) [--spec career_evidence@1.0.0] [--rubric career_evidence@1.0.0|career_evidence@1.1.0|career_evidence@1.2.0|career_evidence@1.2.1|career_evidence@1.2.2|career_evidence@1.2.3]";
+  "usage: bun run scripts/jev-claim-smoke.ts --items <path> (--jsonl <path> --summary <path> | --out <dir>) [--spec career_evidence@1.0.0] [--rubric career_evidence@1.0.0|career_evidence@1.1.0|career_evidence@1.2.0|career_evidence@1.2.1|career_evidence@1.2.2|career_evidence@1.2.3|career_evidence@1.2.4]";
 
 const FLAGS = new Set<string>(["--items", "--jsonl", "--summary", "--spec", "--rubric", "--out"]);
 
@@ -638,7 +639,9 @@ function rubricMode(
     rubricFlag === specId(CAREER_EVIDENCE_V1_2_2) ||
     rubricFlag === "CAREER_EVIDENCE_V1_2_2" ||
     rubricFlag === specId(CAREER_EVIDENCE_V1_2_3) ||
-    rubricFlag === "CAREER_EVIDENCE_V1_2_3";
+    rubricFlag === "CAREER_EVIDENCE_V1_2_3" ||
+    rubricFlag === specId(CAREER_EVIDENCE_V1_2_4) ||
+    rubricFlag === "CAREER_EVIDENCE_V1_2_4";
   const v11 =
     rubricFlag === specId(CAREER_EVIDENCE_V1_1_0) || rubricFlag === "CAREER_EVIDENCE_V1_1_0";
   const v10 =

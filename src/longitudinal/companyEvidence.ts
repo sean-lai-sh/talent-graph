@@ -5,7 +5,9 @@ import {
   type CompanySeed,
   type CompanyStage,
   companyByOrg,
+  type HiringBar,
   mentionedInvestors,
+  normalizeOrgName,
   type PublishedRate,
   type SeedCompany,
   type SeedInvestor,
@@ -18,6 +20,8 @@ export interface CompanySelectionQuery {
   startedAt: string | null;
   founder: boolean;
   fundingText?: string | null;
+  /** Job title. A company rate's labels are matched against it for a non-founder hire. */
+  title?: string | null;
 }
 
 export interface KnownSelectionRate {
@@ -29,7 +33,11 @@ export interface KnownSelectionRate {
 export interface CompanySelectionEvidence {
   knownRate: KnownSelectionRate | null;
   investorTier: 0 | 1 | 2 | 3 | null;
+  /** The seeded investor behind `investorTier`, when that tier is 1 or higher. */
+  topInvestor: string | null;
   stageAtHire: CompanyStage | null;
+  /** The company's hiring bar, only when the hire landed at growth or public stage. */
+  hiringBar: HiringBar | null;
   proxyLift: 0 | 1;
   joinedEarly: boolean;
   earlyJoinerBonus: number;
@@ -70,16 +78,20 @@ export function companySelectionEvidence(
   const company = query.org ? companyByOrg(query.org, seed) : undefined;
   const fundingText = query.fundingText ?? "";
   const named = query.founder ? mentionedInvestors(fundingText, seed) : [];
-  const known = knownRateFor(query.founder, fundingText, named, company);
+  const labelText = query.founder ? fundingText : (query.title ?? "");
+  const known = knownRateFor(query.founder, labelText, named, company);
   const observed = observedAtHire(query.startedAt, company, named, seed);
   const joinedEarly = isJoinedEarly(observed.stage, company?.currentStage ?? null);
+  const hiringBar = isLate(observed.stage) ? (company?.hiringBar ?? null) : null;
   return {
     knownRate: known
       ? { rate: known.rate, source: known.source, upperBound: known.upperBound }
       : null,
     investorTier: observed.tier,
+    topInvestor: observed.top?.name ?? null,
     stageAtHire: observed.stage,
-    proxyLift: proxyLiftFor(known, observed.stage, observed.tier, company?.hiringBar ?? null),
+    hiringBar,
+    proxyLift: proxyLiftFor(known, observed.stage, observed.tier, hiringBar),
     joinedEarly,
     earlyJoinerBonus: joinedEarly ? clampedBonus(config) : 0,
   };
@@ -102,17 +114,13 @@ export function applyProxyLift(
 
 function knownRateFor(
   founder: boolean,
-  fundingText: string,
+  labelText: string,
   named: readonly SeedInvestor[],
   company: SeedCompany | undefined,
 ): PublishedRate | null {
   if (founder)
-    return tightest(
-      named.flatMap((investor) => matchingRates(investor.publishedRates, fundingText)),
-    );
-  return (
-    matchingRates(company?.publishedRate ? [company.publishedRate] : [], fundingText)[0] ?? null
-  );
+    return tightest(named.flatMap((investor) => matchingRates(investor.publishedRates, labelText)));
+  return matchingRates(company?.publishedRate ? [company.publishedRate] : [], labelText)[0] ?? null;
 }
 
 function matchingRates(rates: readonly PublishedRate[], text: string): PublishedRate[] {
@@ -134,21 +142,17 @@ function observedAtHire(
   company: SeedCompany | undefined,
   named: readonly SeedInvestor[],
   seed: CompanySeed,
-): { tier: 0 | 1 | 2 | 3 | null; stage: CompanyStage | null } {
-  if (startedAt === null) return { tier: null, stage: null };
+): { tier: 0 | 1 | 2 | 3 | null; top: SeedInvestor | null; stage: CompanyStage | null } {
+  if (startedAt === null) return { tier: null, top: null, stage: null };
   const prior = company ? company.rounds.filter((round) => round.date <= startedAt) : [];
   const stage = latestRound(prior)?.stage ?? null;
-  const tiers: (0 | 1 | 2 | 3)[] = [];
-  if (company)
-    tiers.push(
-      tierFromNames(
-        prior.flatMap((round) => [...round.investors]),
-        seed,
-      ),
-    );
-  if (named.length > 0) tiers.push(highest(named.map((investor) => investor.tier)));
-  if (tiers.length === 0) return { tier: null, stage };
-  return { tier: highest(tiers), stage };
+  if (!company && named.length === 0) return { tier: null, top: null, stage };
+  const backers = [
+    ...prior.flatMap((round) => round.investors.flatMap((name) => seededInvestor(name, seed))),
+    ...named,
+  ];
+  const top = strongest(backers);
+  return { tier: top?.tier ?? 0, top, stage };
 }
 
 function latestRound(rounds: readonly SeedRound[]): SeedRound | null {
@@ -159,21 +163,18 @@ function latestRound(rounds: readonly SeedRound[]): SeedRound | null {
   return best;
 }
 
-function tierFromNames(names: readonly string[], seed: CompanySeed): 0 | 1 | 2 | 3 {
-  let best: 0 | 1 | 2 | 3 = 0;
-  for (const name of names) {
-    const investor = seed.investors.find(
-      (item) => item.name === name || item.aliases.includes(name),
-    );
-    if (investor && investor.tier > best) best = investor.tier;
-  }
-  return best;
+function seededInvestor(name: string, seed: CompanySeed): SeedInvestor[] {
+  const key = normalizeOrgName(name);
+  const investor = seed.investors.find((item) =>
+    [item.name, ...item.aliases].some((known) => normalizeOrgName(known) === key),
+  );
+  return investor ? [investor] : [];
 }
 
-function highest(tiers: readonly (0 | 1 | 2 | 3)[]): 0 | 1 | 2 | 3 {
-  let best: 0 | 1 | 2 | 3 = 0;
-  for (const tier of tiers) {
-    if (tier > best) best = tier;
+function strongest(investors: readonly SeedInvestor[]): SeedInvestor | null {
+  let best: SeedInvestor | null = null;
+  for (const investor of investors) {
+    if (!best || investor.tier > best.tier) best = investor;
   }
   return best;
 }
@@ -182,14 +183,17 @@ function proxyLiftFor(
   known: PublishedRate | null,
   stage: CompanyStage | null,
   tier: 0 | 1 | 2 | 3 | null,
-  hiringBar: { source: string } | null,
+  hiringBar: HiringBar | null,
 ): 0 | 1 {
   if (known) return 0;
   if (stage === "pre_seed_seed" || stage === "series_a_b") {
     return tier !== null && tier >= 1 ? 1 : 0;
   }
-  if ((stage === "growth_late" || stage === "public_large") && hiringBar) return 1;
-  return 0;
+  return hiringBar ? 1 : 0;
+}
+
+function isLate(stage: CompanyStage | null): boolean {
+  return stage === "growth_late" || stage === "public_large";
 }
 
 function isJoinedEarly(atHire: CompanyStage | null, current: CompanyStage | null): boolean {

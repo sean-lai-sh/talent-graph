@@ -317,6 +317,42 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   stays `Verdict: STABLE`.)
 - **PR:** #103.
 
+## career_evidence@1.2.4 sourced company context on hire claims
+
+- **What:** `CAREER_EVIDENCE_V1_2_4` is registered beside `1.2.3`.
+  `CURRENT_SPECS.career_evidence` stays `1.0.0`. Versions `1.0.0` through
+  `1.2.3` keep their question text and their hashes. `1.2.3` stays
+  `8119ac21ca629e156962472eb22e9104c0b47a0d0d508dae2d37df37441145bb`.
+  `1.2.4` hashes to
+  `fafb7d39fbc2607f35371756884bb8cb6cf724df298fca67bad28b4b9a4084f6`.
+  The spec text is the `1.2.3` text. The question plan gains
+  `dated.companyContext`, one sentence. A dated selection claim (hire or
+  funding) whose `companySelectionEvidence` has at least one sourced fact
+  sends `company_context` in the request state, and that sentence is
+  appended to its selectivity and pool_strength questions.
+  `company_context` holds only the facts that exist: `stage_at_hire` (a
+  stage label), `top_investor` (for example `tier 3 investor: Sequoia`),
+  `acceptance_rate` (`rate`, `upper_bound`, `source`), and `hiring_bar`
+  (`note`, `source`). A missing fact is an omitted key, not null. A claim
+  with no sourced fact sends no `company_context` key and the `1.2.3`
+  question text, so the prompt never says that company evidence is
+  missing. `companySelectionEvidence` gains `topInvestor` and `hiringBar`.
+  `hiringBar` is set only when the stage at hire is growth or public,
+  which is the case where it already lifted claim value. The company seed
+  `hiringBar` gains a required `note`. A public company records its IPO
+  as a round with stage `public_large` and no investors.
+  `company_seed` has no companies yet, so its hash is unchanged.
+  Thresholds, consensus, substance, value, and alpha are unchanged.
+- **Why:** Hire claims are half or more of the `1.2.3` review count
+  (SEA-63). The model judged hire selectivity and pool strength from the
+  header alone. Company evidence only lifted claim value after scoring.
+  `1.2.2` showed that telling the model evidence is missing makes it rate
+  hires low with high confidence, so an absent fact is never mentioned.
+- **Drift:** n/a (`CURRENT_SPECS` did not move. Demo and drift do not call
+  `career_evidence@1.2.4`. `bun run drift -- --kind referral_signal --before 0.1.0 --after 0.1.0`
+  stays `Verdict: STABLE`.)
+- **PR:** SEA-74.
+
 ## claim_value@1.1.0 — square-law claim value
 
 - **What:** `CLAIM_VALUE_V1_1_0` in `src/longitudinal/claimValue.ts`. It is not a

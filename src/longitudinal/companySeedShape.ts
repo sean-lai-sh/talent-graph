@@ -28,6 +28,12 @@ export interface SeedInvestor {
   publishedRates: readonly PublishedRate[];
 }
 
+/** A sourced note on how hard the company is to get hired into, such as a published interview bar. */
+export interface HiringBar {
+  note: string;
+  source: string;
+}
+
 export interface SeedRound {
   date: string;
   stage: CompanyStage;
@@ -42,7 +48,7 @@ export interface SeedCompany {
   currentStage: CompanyStage;
   rounds: readonly SeedRound[];
   publishedRate: PublishedRate | null;
-  hiringBar: { source: string } | null;
+  hiringBar: HiringBar | null;
 }
 
 export interface CompanySeed {
