@@ -167,7 +167,7 @@ export function v12LiveQuestions(spec: CareerEvidenceV12Spec, request: ClaimRubr
   return { claim_class: bank.claim_class };
 }
 
-export function liveV12Client(spec: CareerEvidenceV12Spec = CAREER_EVIDENCE_V1_2_0): V12JevClient {
+export function liveV12Client(spec: CareerEvidenceV12Spec): V12JevClient {
   const client = createJevClient();
   return {
     systemOne(request) {
@@ -188,20 +188,23 @@ export function liveV12Client(spec: CareerEvidenceV12Spec = CAREER_EVIDENCE_V1_2
   };
 }
 
-export function v12SpecFor(rubric: string | undefined): CareerEvidenceV12Spec {
-  if (rubric === specId(CAREER_EVIDENCE_V1_2_4) || rubric === "CAREER_EVIDENCE_V1_2_4") {
-    return CAREER_EVIDENCE_V1_2_4;
-  }
-  if (rubric === specId(CAREER_EVIDENCE_V1_2_3) || rubric === "CAREER_EVIDENCE_V1_2_3") {
-    return CAREER_EVIDENCE_V1_2_3;
-  }
-  if (rubric === specId(CAREER_EVIDENCE_V1_2_2) || rubric === "CAREER_EVIDENCE_V1_2_2") {
-    return CAREER_EVIDENCE_V1_2_2;
-  }
-  if (rubric === specId(CAREER_EVIDENCE_V1_2_1) || rubric === "CAREER_EVIDENCE_V1_2_1") {
-    return CAREER_EVIDENCE_V1_2_1;
-  }
-  return CAREER_EVIDENCE_V1_2_0;
+const V12_SPECS: readonly CareerEvidenceV12Spec[] = [
+  CAREER_EVIDENCE_V1_2_0,
+  CAREER_EVIDENCE_V1_2_1,
+  CAREER_EVIDENCE_V1_2_2,
+  CAREER_EVIDENCE_V1_2_3,
+  CAREER_EVIDENCE_V1_2_4,
+];
+
+/** The 1.2.x spec a `--rubric` value names, by spec id or constant name, or null. */
+export function v12SpecFor(rubric: string | undefined): CareerEvidenceV12Spec | null {
+  return (
+    V12_SPECS.find(
+      (spec) =>
+        rubric === specId(spec) ||
+        rubric === `CAREER_EVIDENCE_V${spec.version.replaceAll(".", "_")}`,
+    ) ?? null
+  );
 }
 
 export async function runV12ClaimSmoke(
@@ -987,7 +990,7 @@ function pairLines(rows: readonly V12Row[]): string[] {
   const lines = [
     "## Pairs",
     "",
-    "Max absolute difference of expected level, resume B against resume A, zipped in input order.",
+    "Max absolute difference of level, resume B against resume A, claim by claim in input order. An unanswered claim is skipped and keeps its place.",
     "",
   ];
   if (order.length === 0) {
@@ -1018,35 +1021,24 @@ function maxAbsExpected(
   right: readonly V12Row[],
   dimension: PairDimension,
 ): number | null {
-  const a = expectedLevels(left, dimension);
-  const b = expectedLevels(right, dimension);
-  if (a.length === 0 || b.length === 0) return null;
-  const count = Math.min(a.length, b.length);
-  let max = 0;
+  const count = Math.min(left.length, right.length);
+  let max: number | null = null;
   for (let index = 0; index < count; index++) {
-    const first = a[index];
-    const second = b[index];
-    if (first === undefined || second === undefined) continue;
-    max = Math.max(max, Math.abs(second - first));
+    const first = pairLevel(left[index], dimension);
+    const second = pairLevel(right[index], dimension);
+    if (first === null || second === null) continue;
+    max = Math.max(max ?? 0, Math.abs(second - first));
   }
   return max;
 }
 
-function expectedLevels(rows: readonly V12Row[], dimension: PairDimension): number[] {
-  const levels: number[] = [];
-  for (const row of rows) {
-    if (row.outcome !== "answered") continue;
-    const level =
-      dimension === "selectivity"
-        ? row.selectivity
-        : dimension === "pool_strength"
-          ? row.poolStrength
-          : dimension === "difficulty"
-            ? row.difficulty
-            : row.scale;
-    if (level !== null) levels.push(level);
-  }
-  return levels;
+/** A row that was not answered keeps its slot, so later rows stay paired. */
+function pairLevel(row: V12Row | undefined, dimension: PairDimension): number | null {
+  if (row === undefined || row.outcome !== "answered") return null;
+  if (dimension === "selectivity") return row.selectivity;
+  if (dimension === "pool_strength") return row.poolStrength;
+  if (dimension === "difficulty") return row.difficulty;
+  return row.scale;
 }
 
 function peopleLines(report: V12SmokeReport): string[] {

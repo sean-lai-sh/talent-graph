@@ -226,31 +226,45 @@ async function awaitReply(
   let lastError = "nothing posted";
   while (deps.now() < deadline) {
     await deps.sleep(POLL_MS);
-    let response: Response;
-    try {
-      response = await deps.fetcher(callbackUrl, { headers });
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-      continue;
-    }
-    if (response.status === 404) continue;
-    if (response.status >= 400 && response.status < 500) {
-      throw new Error(`callback read rejected: ${response.status}`);
-    }
-    if (!response.ok) {
-      lastError = `callback read failed: ${response.status}`;
-      continue;
-    }
-    const text = await response.text();
-    try {
-      return JSON.parse(text);
-    } catch {
-      lastError = "the posted reply is not JSON";
-    }
+    const read = await readReply(callbackUrl, headers, deps.fetcher);
+    if (read.kind === "reply") return read.value;
+    if (read.kind === "rejected") throw new Error(`callback read rejected: ${read.status}`);
+    if (read.kind === "retry") lastError = read.reason;
   }
   throw new Error(
     `no reply for run ${runId} (Grok run ${runUuid}) after ${REPLY_TIMEOUT_MS / 60_000} min (${lastError}); if it is in the Bot's chat, save it and use --from`,
   );
+}
+
+type ReplyRead =
+  | { kind: "reply"; value: unknown }
+  | { kind: "pending" }
+  | { kind: "retry"; reason: string }
+  | { kind: "rejected"; status: number };
+
+/** One poll. A 4xx other than 404 and 429 is the route rejecting the request itself. */
+async function readReply(
+  callbackUrl: string,
+  headers: Record<string, string>,
+  fetcher: typeof fetch,
+): Promise<ReplyRead> {
+  let text: string;
+  try {
+    const response = await fetcher(callbackUrl, { headers });
+    if (response.status === 404) return { kind: "pending" };
+    if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+      return { kind: "rejected", status: response.status };
+    }
+    if (!response.ok) return { kind: "retry", reason: `callback read failed: ${response.status}` };
+    text = await response.text();
+  } catch (error) {
+    return { kind: "retry", reason: error instanceof Error ? error.message : String(error) };
+  }
+  try {
+    return { kind: "reply", value: JSON.parse(text) };
+  } catch {
+    return { kind: "retry", reason: "the posted reply is not JSON" };
+  }
 }
 
 function researchReport(run: ResearchRun, out: string): string {

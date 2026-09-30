@@ -21,7 +21,7 @@ import {
 import { fixtureAnswers, fixtureV12Client } from "./fixtures/jev-claim-smoke-v12-client.ts";
 
 const fixturePath = join(import.meta.dir, "fixtures/jev-claim-smoke-v12.items.json");
-const RUBRIC_HASH_V120 = "bcf23650aa94d7db63cd254cd04d31cfbd77201af887c7b3b4645238f5d9e376";
+const RUBRIC_HASH_V120 = "cd500b05728594c6599e31e8aee5c6db81a2c7814aca61332dbd195b3fc662a6";
 const RUBRIC_HASH_V121 = "8170c38a439ccca3130ae2e60979b5b0519a6ba3ef2500ffeaac75b199691e3c";
 const CONFIG_HASH = claimValueV12ConfigHash(CLAIM_VALUE_V1_2_0);
 const CONFIG_ID = claimValueV12ConfigId(CLAIM_VALUE_V1_2_0);
@@ -97,7 +97,7 @@ test("career_evidence@1.2.0 scores claims offline and rolls people up", async ()
   expect(summary).toContain("difficulty 2.0000");
   expect(summary).toContain("scale 1.0000");
   expect(summary).toContain(
-    "Max absolute difference of expected level, resume B against resume A, zipped in input order.",
+    "Max absolute difference of level, resume B against resume A, claim by claim in input order. An unanswered claim is skipped and keeps its place.",
   );
   expect(summary).toContain(`Person rollup hash ${ROLLUP_HASH}.`);
   expect(summary).toContain("Alpha not_enough_cohort cohort 2 minimum 30");
@@ -344,6 +344,49 @@ test("a transport failure stays on its claim and an invariant exits 1", async ()
   expect(invariant).toContain("Invariant failures");
   expect(invariant).toContain("broken legend");
   expect(invariant).not.toContain(down);
+});
+
+test("an unanswered paired claim keeps its slot, so later pairs stay aligned", async () => {
+  const down = "Helped the example crew file notes.";
+  const header = "Engineer at Harborline (Jan 2020 - Mar 2021)";
+  const items: SmokeItem[] = [
+    item("a-job", "A", `${header}\n- ${down}\n- Built the kiosk for roster beta`, "p"),
+    item(
+      "b-job",
+      "B",
+      `${header}\n- Built the kiosk for roster alpha\n- Built the kiosk for roster beta`,
+      "p",
+    ),
+  ];
+  const dir = await mkdtemp(join(tmpdir(), "jev-v12-pairs-"));
+  const itemsPath = join(dir, "items.json");
+  await Bun.write(itemsPath, JSON.stringify(items));
+  const client: V12JevClient = {
+    systemOne(request) {
+      return {
+        async withResponse() {
+          if (request.state.text === down) throw new Error("socket down");
+          return { data: { model: "fixture-v12", answers: fixtureAnswers(request) } };
+        },
+      };
+    },
+  };
+  await main(
+    ["--items", itemsPath, "--rubric", "career_evidence@1.2.0", "--out", dir],
+    throwingV10(),
+    throwingV11(),
+    client,
+  );
+  const summary = await readFile(join(dir, "summary.md"), "utf8");
+  const pairs = summary.slice(summary.indexOf("### p"));
+  const deltas = [...pairs.matchAll(/^(selectivity|pool_strength|difficulty|scale) (\S+)$/gm)];
+  expect(deltas).toHaveLength(4);
+  expect(deltas.map(([, dimension, value]) => `${dimension} ${value}`)).toEqual([
+    "selectivity 0.0000",
+    "pool_strength 0.0000",
+    "difficulty 0.0000",
+    "scale 0.0000",
+  ]);
 });
 
 test("rubric flags disagree and an unknown rubric is rejected", async () => {

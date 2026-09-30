@@ -35,12 +35,14 @@ export async function checkGrokCallbackToken(
   presented: string | null,
 ): Promise<boolean> {
   if (masterKey.length === 0 || presented === null) return false;
+  // The routine is an LLM agent echoing the token; tolerate case and padding.
+  const token = presented.trim().toLowerCase();
   const expected = await grokCallbackToken(masterKey, runId, purpose);
-  if (presented.length !== expected.length) return false;
+  if (token.length !== expected.length) return false;
   // node:crypto's timingSafeEqual is unavailable in the Convex default runtime.
   let diff = 0;
   for (let i = 0; i < expected.length; i++) {
-    diff |= expected.charCodeAt(i) ^ presented.charCodeAt(i);
+    diff |= expected.charCodeAt(i) ^ token.charCodeAt(i);
   }
   return diff === 0;
 }

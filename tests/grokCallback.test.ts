@@ -14,6 +14,13 @@ describe("Grok callback tokens", () => {
     expect(await checkGrokCallbackToken("other", "run-1", "post", token)).toBe(false);
   });
 
+  test("an echoed token with padding or upper case still matches", async () => {
+    const token = await grokCallbackToken("master", "run-1", "post");
+    expect(
+      await checkGrokCallbackToken("master", "run-1", "post", ` ${token.toUpperCase()}\n`),
+    ).toBe(true);
+  });
+
   test("a post token cannot read and a read token cannot post", async () => {
     const post = await grokCallbackToken("master", "run-1", "post");
     const read = await grokCallbackToken("master", "run-1", "read");
