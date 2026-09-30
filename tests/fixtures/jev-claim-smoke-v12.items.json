@@ -1,0 +1,82 @@
+[
+  {
+    "id": "a-harbor",
+    "resume": "A",
+    "org": "Harborline",
+    "role": "Engineer",
+    "dates": "Jan 2020 - Mar 2021",
+    "statement": "Engineer at Harborline (Jan 2020 - Mar 2021)\n- Built the kiosk for 40 club members\n- Designed the lamp",
+    "pair": null,
+    "publishedAt": "2024-06-01T00:00:00.000Z"
+  },
+  {
+    "id": "a-pine",
+    "resume": "A",
+    "org": "Pine Widget",
+    "role": "Founder",
+    "dates": "Jan 2024 - Present",
+    "statement": "Founder at Pine Widget (Jan 2024 - Present)\n- Accepted into YC W24\n- Shipped the editor",
+    "pair": null,
+    "publishedAt": "2024-06-01T00:00:00.000Z"
+  },
+  {
+    "id": "a-quiet",
+    "resume": "A",
+    "org": "Quiet Press",
+    "role": "Founder",
+    "dates": "Jun 2019 - Dec 2019",
+    "statement": "Founder at Quiet Press (Jun 2019 - Dec 2019)\n- Kept the notes",
+    "pair": null,
+    "publishedAt": "2024-06-01T00:00:00.000Z"
+  },
+  {
+    "id": "a-north",
+    "resume": "A",
+    "org": "Northwind",
+    "role": "Applicant",
+    "dates": "2022",
+    "statement": "Selected as 1 of 400 applicants from one school for the Northwind program.",
+    "pair": "northwind",
+    "publishedAt": "2022-05-01T00:00:00.000Z"
+  },
+  {
+    "id": "b-north",
+    "resume": "B",
+    "org": "Northwind",
+    "role": "Applicant",
+    "dates": "2022",
+    "statement": "Selected as 1 of 400 applicants from a national pool for the Northwind program.",
+    "pair": "northwind",
+    "publishedAt": "2022-05-01T00:00:00.000Z"
+  },
+  {
+    "id": "a-repeat",
+    "resume": "A",
+    "org": "Example Lab",
+    "role": "Engineer",
+    "dates": "Jan 2021 - Jun 2021",
+    "statement": "Engineer at Example Lab (Jan 2021 - Jun 2021)\n- Built the example roster alpha",
+    "pair": "repeat",
+    "publishedAt": "2021-08-01T00:00:00.000Z"
+  },
+  {
+    "id": "b-repeat",
+    "resume": "B",
+    "org": "Example Lab",
+    "role": "Engineer",
+    "dates": "Jan 2021 - Jun 2021",
+    "statement": "Engineer at Example Lab (Jan 2021 - Jun 2021)\n- Built the example roster beta",
+    "pair": "repeat",
+    "publishedAt": "2021-08-01T00:00:00.000Z"
+  },
+  {
+    "id": "b-maintain",
+    "resume": "B",
+    "org": "Example Lab",
+    "role": "Engineer",
+    "dates": "Mar 2022 - May 2022",
+    "statement": "Engineer at Example Lab (Mar 2022 - May 2022)\n- Maintained the example kiosk",
+    "pair": null,
+    "publishedAt": "2024-06-01T00:00:00.000Z"
+  }
+]

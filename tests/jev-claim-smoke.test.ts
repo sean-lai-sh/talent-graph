@@ -437,7 +437,7 @@ test("a pair with one resume is reported missing", async () => {
 
 test("main rejects a missing flag and an unknown rubric", async () => {
   await expect(main(["--items", "only.json"])).rejects.toThrow(
-    "usage: bun run scripts/jev-claim-smoke.ts --items <path> (--jsonl <path> --summary <path> | --out <dir>) [--spec career_evidence@1.0.0] [--rubric career_evidence@1.0.0|career_evidence@1.1.0]",
+    "usage: bun run scripts/jev-claim-smoke.ts --items <path> (--jsonl <path> --summary <path> | --out <dir>) [--spec career_evidence@1.0.0] [--rubric career_evidence@1.0.0|career_evidence@1.1.0|career_evidence@1.2.0]",
   );
   await expect(
     main([

@@ -25,6 +25,7 @@ import { decideStatus } from "../src/longitudinal/stages.ts";
 import type { ClaimStatus, GrokEvidenceItem, ReviewReason } from "../src/longitudinal/types.ts";
 import { CAREER_EVIDENCE_V1_0_0, careerEvidenceRubricHash } from "../src/models/careerEvidence.ts";
 import { CAREER_EVIDENCE_V1_1_0 } from "../src/models/careerEvidenceV11.ts";
+import { CAREER_EVIDENCE_V1_2_0 } from "../src/models/careerEvidenceV12.ts";
 import { type CareerEvidenceSpec, specId } from "../src/models/spec.ts";
 import {
   liveV11Client,
@@ -35,6 +36,14 @@ import {
   V11_SUMMARY_NAME,
   type V11JevClient,
 } from "./jev-claim-smoke-v11.ts";
+import {
+  liveV12Client,
+  renderV12Jobs,
+  renderV12Jsonl,
+  renderV12Summary,
+  runV12ClaimSmoke,
+  type V12JevClient,
+} from "./jev-claim-smoke-v12.ts";
 
 export const SOURCE_URL_PLACEHOLDER = "https://example.invalid/resume-source-placeholder";
 
@@ -551,7 +560,7 @@ function rubricFor(name: string | undefined): CareerEvidenceSpec {
 }
 
 const USAGE =
-  "usage: bun run scripts/jev-claim-smoke.ts --items <path> (--jsonl <path> --summary <path> | --out <dir>) [--spec career_evidence@1.0.0] [--rubric career_evidence@1.0.0|career_evidence@1.1.0]";
+  "usage: bun run scripts/jev-claim-smoke.ts --items <path> (--jsonl <path> --summary <path> | --out <dir>) [--spec career_evidence@1.0.0] [--rubric career_evidence@1.0.0|career_evidence@1.1.0|career_evidence@1.2.0]";
 
 const FLAGS = new Set<string>(["--items", "--jsonl", "--summary", "--spec", "--rubric", "--out"]);
 
@@ -561,10 +570,16 @@ function parseArgs(argv: readonly string[]): {
   summary: string;
   spec: string | undefined;
   rubric: string | undefined;
+  jobsOnly: boolean;
 } {
   const values = new Map<string, string>();
+  let jobsOnly = false;
   for (let index = 0; index < argv.length; index++) {
     const flag = argv[index];
+    if (flag === "--jobs-only") {
+      jobsOnly = true;
+      continue;
+    }
     if (flag === undefined || !FLAGS.has(flag)) {
       throw new Error(`unknown argument ${flag ?? ""}`);
     }
@@ -574,52 +589,88 @@ function parseArgs(argv: readonly string[]): {
     index += 1;
   }
   const items = values.get("--items");
+  if (jobsOnly) {
+    if (items === undefined) throw new Error("missing --items for --jobs-only");
+    return {
+      items,
+      jsonl: "",
+      summary: "",
+      spec: values.get("--spec"),
+      rubric: values.get("--rubric"),
+      jobsOnly: true,
+    };
+  }
   const out = values.get("--out");
   const jsonl =
     values.get("--jsonl") ?? (out === undefined ? undefined : join(out, V11_JSONL_NAME));
   const summary =
     values.get("--summary") ?? (out === undefined ? undefined : join(out, V11_SUMMARY_NAME));
   if (items === undefined || jsonl === undefined || summary === undefined) throw new Error(USAGE);
-  return { items, jsonl, summary, spec: values.get("--spec"), rubric: values.get("--rubric") };
+  return {
+    items,
+    jsonl,
+    summary,
+    spec: values.get("--spec"),
+    rubric: values.get("--rubric"),
+    jobsOnly: false,
+  };
 }
 
-function rubricMode(specFlag: string | undefined, rubricFlag: string | undefined): "v10" | "v11" {
+function rubricMode(
+  specFlag: string | undefined,
+  rubricFlag: string | undefined,
+): "v10" | "v11" | "v12" {
   if (rubricFlag === undefined) {
     rubricFor(specFlag);
     return "v10";
   }
+  const v12 =
+    rubricFlag === specId(CAREER_EVIDENCE_V1_2_0) || rubricFlag === "CAREER_EVIDENCE_V1_2_0";
   const v11 =
     rubricFlag === specId(CAREER_EVIDENCE_V1_1_0) || rubricFlag === "CAREER_EVIDENCE_V1_1_0";
   const v10 =
     rubricFlag === specId(CAREER_EVIDENCE_V1_0_0) || rubricFlag === "CAREER_EVIDENCE_V1_0_0";
-  if (!v11 && !v10) throw new Error(`unknown rubric ${rubricFlag}`);
+  if (!v12 && !v11 && !v10) throw new Error(`unknown rubric ${rubricFlag}`);
   if (v10) {
     rubricFor(specFlag);
     return "v10";
   }
-  if (
-    specFlag !== undefined &&
-    specFlag !== specId(CAREER_EVIDENCE_V1_1_0) &&
-    specFlag !== "CAREER_EVIDENCE_V1_1_0"
-  ) {
+  const selected = v12 ? CAREER_EVIDENCE_V1_2_0 : CAREER_EVIDENCE_V1_1_0;
+  const constantName = v12 ? "CAREER_EVIDENCE_V1_2_0" : "CAREER_EVIDENCE_V1_1_0";
+  if (specFlag !== undefined && specFlag !== specId(selected) && specFlag !== constantName) {
     throw new Error(`rubric flags disagree: --spec ${specFlag} and --rubric ${rubricFlag}`);
   }
-  return "v11";
+  return v12 ? "v12" : "v11";
 }
 
 export async function main(
   argv: readonly string[],
   service?: JevJudgmentService,
   v11Client?: V11JevClient,
+  v12Client?: V12JevClient,
 ): Promise<number> {
   const args = parseArgs(argv);
-  if (rubricMode(args.spec, args.rubric) === "v11") {
+  if (args.jobsOnly) {
     const raw: unknown = JSON.parse(await readFile(args.items, "utf8"));
     const items = parseSmokeItems(raw);
     if (items.length === 0) throw new Error("items file is empty");
-    const report = await runV11ClaimSmoke(items, v11Client ?? liveV11Client());
+    console.log(renderV12Jobs(items));
+    return 0;
+  }
+  const mode = rubricMode(args.spec, args.rubric);
+  if (mode === "v11" || mode === "v12") {
+    const raw: unknown = JSON.parse(await readFile(args.items, "utf8"));
+    const items = parseSmokeItems(raw);
+    if (items.length === 0) throw new Error("items file is empty");
     await mkdir(dirname(args.jsonl), { recursive: true });
     await mkdir(dirname(args.summary), { recursive: true });
+    if (mode === "v12") {
+      const report = await runV12ClaimSmoke(items, v12Client ?? liveV12Client());
+      await writeFile(args.jsonl, renderV12Jsonl(report));
+      await writeFile(args.summary, renderV12Summary(report));
+      return report.invariant > 0 ? 1 : 0;
+    }
+    const report = await runV11ClaimSmoke(items, v11Client ?? liveV11Client());
     await writeFile(args.jsonl, renderV11Jsonl(report));
     await writeFile(args.summary, renderV11Summary(report));
     return report.invariant > 0 ? 1 : 0;
