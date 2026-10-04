@@ -7,6 +7,12 @@
 
 ---
 
+## 0. Goals
+
+1. **Calibrate a judge's weight as soon as possible.** A new judge shouldn't sit at a placeholder for long. Served by: the low starting weight (3.1), accuracy-only weights before the club gate (3.6), and the timing guard so early evidence counts (3.3). The 180-day accuracy window and the 12-month movement checkpoint slow this goal down. See question 6 in §8.
+2. **Once calibrated, change smoothly over time and find where a judge is strong.** Weights shouldn't jump on one candidate, and should show which kinds of candidates a judge evaluates well. Served by: shrinkage and `λ_c` (3.5), the dead band (3.4), frozen stored results (3.3), and per-role weights as the later version that finds a judge's strong areas (3.6).
+3. **Reward spotting slope over credentialism and consensus bets.** Backing someone who is already credentialed or widely agreed on should earn little. Backing someone who then rises beyond what's normal should earn a lot. Served by: measuring substance rather than value or consensus (3.2), and scoring movement against what's normal for the starting score (3.4), so an already-strong pick that merely stays strong earns about 0.
+
 ## 1. Summary
 
 People in the club refer candidates. Each referrer ("judge") has a **weight** in [0, 1] for how much their referrals count. This spec changes three things:
@@ -213,3 +219,5 @@ Each step is its own PR and can be verified on its own:
 3. **Club gate:** is a single club-wide switch at `M` safe, given that it changes every weight at once?
 4. **Evidence dates:** is the `startedAt` rule for in-progress work right (open decision 2)?
 5. **Anything still gameable or circular** after the `author` field and the truth-label guard?
+6. **Speed of calibration (goal 1):** accuracy needs 180 days and movement needs 12 months, so a new judge's weight barely moves in year one. Is there an earlier signal that is still hard to game, such as evaluation results or a shorter first checkpoint, that would calibrate faster?
+7. **Slope over credentialism (goal 3):** does the accuracy part of the weight (V2's level-based `truth_uv`) still reward consensus bets enough to work against goal 3? Should its share of the weight shrink once movement data exists?
