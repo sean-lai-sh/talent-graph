@@ -1,137 +1,151 @@
-# Judge weights from candidate movement (v3.2, replaces Phase E)
+# Judge weights from candidate movement (v4, replaces Phase E)
 
-**Status:** v3.2 draft for final review. Not implemented. The Linear doc is the source of truth; this file is a copy so Codex can review it as a diff.
+**Status:** v4 draft for review. Not implemented. The Linear doc is the source of truth; this file is a copy so Codex and the PR reviewers can review it as a diff.
 **Replaces:** #20–#27 (Phase E). That work was merged into `cursor/judge-calibration-demo-5d70` and never reached `main`. It is not ported.
-**Builds on:** V2 judge calibration (`judge_reliability@2.0.0`, `src/judges/reliability.ts`) and the Jev claim and rollup modules (`src/longitudinal/claimValue.ts`, `src/longitudinal/personRollup.ts`).
-**Spec version touched:** registers `judge_reliability@3.0.0`. It becomes current only after a drift report is reviewed.
+**Builds on:** V2 judge calibration (`judge_reliability@2.0.0`, `src/judges/reliability.ts`), Referral Signal weighting (`src/scoring/weighting.ts`), and the Jev claim and rollup modules (`src/longitudinal/claimValue.ts`, `claimPreprocess.ts`, `personRollup.ts`).
+**Spec versions touched:** registers `judge_reliability@4.0.0` (3.0.0 is reserved by Phase E's `docs/issues/20`). Each delivery step that changes numbers gets its own version and drift report.
 
 ---
 
 ## 1. Summary
 
-People in the club refer candidates. Each referrer ("judge") has a **weight**: how much their referrals count. Today that weight is learned once per referral, from how close the judge's rating came to how the candidate turned out shortly after.
+People in the club refer candidates. Each referrer ("judge") has a **weight** in [0, 1] for how much their referrals count. This spec changes three things:
 
-This spec makes two changes:
+1. **Judges start low and earn weight.** A new judge starts at 0.3, not 1. Weights near 1 count disproportionately more than weights near 0.3.
+2. **Later movement counts.** If a candidate's evidence-backed substance rises beyond what's normal for where they started, the judge who referred them gains weight. A drop beyond normal costs weight. Small wobble is noise and does nothing.
+3. **Calibration happens in stages.** Until the club has enough data, weights come from accuracy only. The movement term switches on for the whole club once there's enough 12-month data. Per-role weights and extra checkpoints come later, each with its own data gate.
 
-1. **Later movement counts.** If a candidate a judge backed later moves up a level (B → B+) beyond what's normal for where they started, the judge's weight goes up. If the candidate drops, it goes down. Small wobble (B → B/B+) is noise and does nothing.
-2. **Weights per role.** A judge good at spotting engineers doesn't get extra weight on GTM picks.
+Rules that keep it hard to game and stable over time:
 
-The rules that make this hard to game and stable over time:
-
-- The candidate score it reads is built **only from evidence the judges didn't write**.
-- Every value is measured **as of a fixed date and stored once**. Later reruns never move old results.
-- Movement is judged **against what's normal for the candidate's starting score**, so picking strong or weak candidates isn't rewarded by itself.
+- The candidate score is built **only from evidence judges didn't write**.
+- Every value has a **fixed evidence cutoff and a fixed compute time, and is stored once**. Later reruns never move old results.
+- Movement is judged **against what's normal for the candidate's starting score**.
 - A judge's average uses **only referrals that moved past the noise threshold**, so padding with extra referrals does nothing.
 
 ---
 
-## 2. What exists today (V2)
+## 2. What exists today (V2), as on `main` @ `7785c8d`
 
-From `src/judges/reliability.ts`:
+From `src/judges/reliability.ts` and `src/models/registry.ts`:
 
 ```
-x_uv     = strength of referral u → v (conviction, confidence, relationship depth, evidence type)
+x_uv     = V0 strength of referral u → v
 truth_uv = percentile of v's opportunity-corrected outcome residual R*_v, from outcomes after the referral
 E_uv     = (x_uv − truth_uv)²
 Ē_u     ← (1 − η)·Ē_u + η·E_uv          (chronological)
 p_u      = exp(−τ·Ē_u)
-p̂_u      = n/(n+λ)·p_u + λ/(n+λ)·μ_p     (shrinkage to the population mean)
-b_u      = signed bias, shrunk toward 0
+p̂_u      = n/(n+λ)·p_u + λ/(n+λ)·priorReliability      // priorReliability = 1
 ```
 
-- One weight per judge. `JudgeCalibration.dimension` exists but is always `null`.
-- One prediction per (judge, candidate) pair: the earliest referral.
-- Referral Signal: `contribution = p̂_u · clip(R_uv − b̂_u, 0, 1)`.
-- Circularity guard today: `src/judges` never imports `src/inference`.
-- Product rules: missing data is never treated as low. No single merged person score. Judge weights are hidden in the UI.
+- One prediction per (judge, candidate) pair: the earliest referral. It is scored only after the 180-day `observationWindowDays` and once the candidate has a later outcome.
+- Shrinkage goes toward `priorReliability: 1`, so a judge with no scored referrals has the **maximum** weight. `populationMeanReliability` is computed but never used.
+- `applyBiasCorrection: false` in 2.0.0, so the live Referral Signal contribution is `p̂_u · R_uv`.
+- `judgeWeighting` (`src/scoring/weighting.ts:86`) throws when a reliability is outside [0, 1].
+- `JudgeCalibration.dimension` is typed over rubric dimensions (problem_solving, taste, …), not roles, and is always `null`.
+- Product rules: missing data is never treated as low. No single merged person score. Judge weights are hidden from members; admins see referrals ordered by reliability.
 
-**Jev** is the LLM pipeline that turns a candidate's career claims into claim values, then rolls them up per person into `consensus`, `substance`, `value` and `alpha` (`src/longitudinal/personRollup.ts`). Three inputs come from judges, directly or indirectly:
+**Jev** turns a candidate's career claims into claim values, then rolls them up per person into `consensus`, `substance`, `value` and `alpha` (`personRollup.ts`). Paths by which judges can influence Jev today or soon:
 
-- `consensus = selectionAggregate + wTrend · trend`, where `trend` is a caller-supplied map with no provenance check.
-- `claimValue.ts` accepts `ReferrerNote`s, which raise a claim's `backingMultiplier`.
-- Referrer-added claims (SEA-61): accomplishments a referrer adds that the resume lacks.
+- `consensus = selectionAggregate + wTrend · trend`, where `trend` is caller-supplied with no provenance check.
+- In `career_evidence@1.2.0`, a `ReferrerNote` lifts a claim's backing from self-reported to corroborated (`claimValue.ts`).
+- Referrer-added claims (SEA-61) are planned, not implemented.
+- `claimValuesToLongitudinalRecords` (`claimValue.ts:272`) can turn note-raised claim values into `Outcome` rows. It has no callers yet. If it ever fed `computeJudgeCalibration`, judge-written text would move V2's truth labels without tripping the import guard.
+- Evidence a judge helped write (a coached resume) enters as ordinary `resume`/`github`/`x`/`other` evidence. **This cannot be closed** by any rule below.
 
 ---
 
 ## 3. Design
 
-### 3.1 Evidence-only score
+### 3.1 Weight scale: start at 0.3, high weights count more
 
-`evidenceScore(v, evidenceCutoff)` comes from a new `outputOnlyRollup`:
+```
+p̂_u = n/(n+λ)·p_u + λ/(n+λ)·μ0                  // μ0 = 0.3: new judges start here
+w_u = σ( logit(clamp(p̂_u, ε, 1−ε)) + κ·c_u )    // movement term on the log-odds scale (3.5)
+ω_u = w_u^γ                                      // γ ≥ 1, start γ = 2
+contribution_uv = ω_u · R_uv                     // what Referral Signal uses
+```
 
-- Its input type is **provenance-tagged raw Jev judgments**, never finished `claimValue` numbers, which may already include note uplift. Claim values are recomputed inside it with referrer notes switched off.
-- Every claim carries a `source`. Claims whose source is a referrer or committee member are rejected by the type, not by a filter.
-- It has no `trend` parameter. It never reads comparisons, Referral Signal, or anything downstream of judge weights.
-- Each result records the hash of its complete input claim set and its config.
+- `w_u` stays strictly inside (0, 1) for any `c_u`, so `judgeWeighting` never throws.
+- `ω_u = w^γ` makes high weights count more. At γ = 2: 0.3 → 0.09, 0.6 → 0.36, 0.9 → 0.81, so a proven judge counts 9× a new one instead of 3×. An inverse square like `1/(1−w)²` was considered and rejected: it is unbounded as `w → 1`.
+- With `μ0 = 1`, `γ = 1`, `κ = 0`, this is V2 exactly.
+- Moving `μ0` from 1 to 0.3 lowers every Referral Signal from judges with no record by the same factor. It does not reorder candidates referred only by such judges.
 
-### 3.2 Fixed dates, computed once
+### 3.2 Evidence-only substance
 
-Each value has two dates: an **evidence cutoff** (which evidence counts) and a **compute time** (when it is calculated and stored). Both are fixed, so the order evidence arrives in never matters.
+`evidenceScore(v, evidenceCutoff)` is Jev **substance**, computed by a new `outputOnlyRollup`. Substance, not value: value includes consensus, which counts missing selection evidence as 0 and jumps on hire dates.
 
-For referral `u → v` at `t_uv`, with grace period `G` (e.g. 30 days) and checkpoints `H_k` (e.g. 6, 12, 24 months):
+- **Input:** provenance-tagged raw Jev judgments, never finished `claimValue` numbers. Claim values are recomputed inside it with referrer notes switched off.
+- **Author:** every claim gets a new `author` field (`candidate | referrer | committee | system`), separate from the existing `source: SourceKind`, which records where the evidence came from. Only `candidate` and `system` claims are accepted. A runtime validator enforces this, because TypeScript types are erased at runtime.
+- **No `trend`** parameter. It never reads comparisons, Referral Signal, or anything downstream of judge weights.
+- **Hash:** each result records `hashInputs` of its input claims **sorted by claim id** (`hashInputs` keeps array order) plus its config.
+- **Evidence dates:** a claim's date for cutoffs is when the work was observable, never when the document was uploaded. Completed work uses `endedAt`. In-progress work uses `startedAt`, not the resume's `publishedAt` (today `claimPreprocess.ts:794` uses `publishedAt` for in-progress output claims). A resume uploaded after a referral that describes pre-referral work therefore feeds the starting score, not movement.
+- **Truth-label guard:** V2's outcome labels never include `Outcome` rows derived from note-raised claim values.
+
+### 3.3 Fixed dates, computed once
+
+Each value has an **evidence cutoff** (which evidence counts) and a **compute time** (when it's calculated and stored), with timing guard `G` (e.g. 30 days) and arrival slack `A` (e.g. 30 days). `t_uv = referral.createdAt`.
 
 | Value | Evidence cutoff | Computed and stored at |
 |---|---|---|
-| Starting score `s0_uv` | evidence dated ≤ `t_uv` | `t_uv + G` |
-| Checkpoint score `s_k` | evidence dated ≤ `t_uv + H_k` | `t_uv + H_k + G` |
-| Role mix `E_v` (over `<eng, design, gtm, founder>`) | evidence dated ≤ `t_uv` | `t_uv + G` |
+| Starting score `s0_uv` | evidence dated ≤ `t_uv + G` | `t_uv + G + A` |
+| 12-month score `s12_uv` | evidence dated ≤ `t_uv + 12 months` | `t_uv + 12 months + A` |
 
+- **Timing guard:** evidence dated up to `G` after the referral counts toward the starting score. Referring someone a week before an offer you already know about earns nothing.
 - Stored values are never recomputed. Changing one is an explicit, logged correction.
-- **No evidence dated ≤ `t_uv` at `t_uv + G`** means the referral is never scored, in either direction. It can't count against the judge, and it can't count for them if the candidate rises later.
-- A candidate with a starting score always gets checkpoint scores. If they go quiet, their score stays flat and lands below normal movement, so failures are not hidden.
-- **Unreferred candidates** use their first Jev intake date `t_v` in place of `t_uv`, with the same rules. They are needed for 3.3.
+- **No starting score** (no evidence dated ≤ `t_uv + G` by its compute time): the referral is never scored, in either direction.
+- **No 12-month score yet:** the referral is pending and unscored, never 0.
+- **Unreferred candidates** use their first Jev intake date in place of `t_uv`, with the same rules. They are needed for 3.4.
 
-### 3.3 Movement against what's normal for the starting score
-
-For each referral and each stored checkpoint `k`:
+### 3.4 Movement against what's normal for the starting score
 
 ```
-m_uvk  = s_k − s0_uv                          // raw movement
-e_k(s) = normal movement at checkpoint k for a candidate starting at score s
-r_uvk  = m_uvk − e_k(s0_uv)                   // movement beyond normal
-d_uvk  = sign(r_uvk) · max(|r_uvk| − h, 0)    // dead band: |r| ≤ h counts as 0
+m_v    = s12 − s0                        // raw movement
+e(s)   = a + b·s                         // normal movement for starting score s (pooled line)
+r_uv   = m_v − e(s0_uv)                  // movement beyond normal
+d_uv   = sign(r_uv) · max(|r_uv| − h, 0) // dead band
 ```
 
-- `e_k(s)` is fitted on **all** club candidates, referred or not. It depends on the exact starting score, so a high B and a low B are compared fairly, as are top and bottom bands.
-- **`e_k` is frozen and versioned.** Each stored checkpoint result records the `e_k` version it used and keeps it. A refit is a new version with a drift report, and it applies only to checkpoints stored after it. The club growing never moves old results.
-- `h` is about half a band width. B → B/B+ falls inside the dead band, and B → a solid B+ counts.
-- Bands (C … A) are display labels only. The math uses the continuous score.
+- `e` is fitted on all club candidates with both scores, referred or not, **leaving out the candidate being scored**.
+- `e` is **frozen and versioned**. Each stored result records the `e` version it used. A refit is a new version with a drift report and applies only to results stored after it.
+- `h` is in absolute substance units, set from the seed. Bands (C … A) don't exist on `main` and aren't needed here.
+- A candidate who goes quiet scores flat. That counts against the judge only when `e(s0) > h`. Otherwise it falls inside the dead band and is left out.
 
-### 3.4 Judge weight
-
-For each referral, `d_uv` is the `d_uvk` of its latest stored checkpoint. A referral is **informative** when `d_uv ≠ 0`.
+### 3.5 Movement term
 
 ```
-c_u = Σ_{informative uv} d_uv / (n_inf,u + λ_c)     // only referrals that moved past the dead band
-w_u = p̂_u · exp(κ · c_u)
+c_u = Σ_{d_uv ≠ 0} d_uv / (n_inf,u + λ_c)     // λ_c > 0; c_u = 0 when n_inf,u = 0
 ```
 
-- Referrals inside the dead band carry no information and are left out of both the sum and the count. **Adding referrals that don't move changes nothing**, whether the judge's average is positive or negative.
-- Bad picks can't hide. A candidate who drops beyond normal, or stays flat when normal is upward, has `d_uv < 0` and counts.
-- With `κ = 0`, `w_u = p̂_u`, and V3 output values equal V2's bit for bit. V3 gets its own run id, because run ids hash the spec version and parameters.
+- Only referrals past the dead band count, so **adding referrals that don't move changes nothing**, whether the judge's average is positive or negative.
+- `λ_c > 0` keeps a single big mover from swinging a judge, since leaving out dead-band referrals makes the average rest on few points.
 
-### 3.5 Per-role weights
+### 3.6 Calibration path
 
-Each informative referral's `d_uv` is credited to role `k` in proportion to its stored `E_v[k]`.
+| Level | State | Rule |
+|---|---|---|
+| Club | **uncalibrated** | Fewer than `M` candidates with both `s0` and `s12`. `κ` is effectively 0: weights come from accuracy only (3.1). |
+| Club | **calibrated** | `M` reached. The movement term switches on, club-wide, at once. The switch is recorded in the run's options. |
+| Judge | **provisional** | Fewer than `N` scored referrals. Label only, admin-visible. |
+| Judge | **calibrated** | `N` or more scored referrals. Label only. |
 
-```
-w_{u,k} = n_{u,k}/(n_{u,k}+λ) · ŵ_{u,k}  +  λ/(n_{u,k}+λ) · w_u
-```
+- The judge label never changes the math. Weights move smoothly through shrinkage, so there's no jump at `N` to game.
+- The club switch is a real switch, but it applies to everyone at once, so no single judge can game it.
 
-- `n_{u,k}`: the judge's role-weighted count of informative referrals in role `k`.
-- The fallback is the judge's **overall** weight. With little data, per-role equals the single weight, so it adds no behaviour until there is data.
-- Referral Signal uses `Σ_k E_v[k] · w_{u,k}`.
+**Later versions**, each with its own version bump, drift report and data gate:
 
-### 3.6 What is dropped from Phase E
+- **Per-role weights:** needs a role taxonomy, a defined per-role estimate `ŵ_{u,k}`, and a migration of `JudgeCalibration.dimension` from rubric dimensions to roles. It shrinks toward the judge's overall weight.
+- **Extra movement checkpoints** (6 and 24 months): needs a rule for mixed horizons, since `e` normalizes the mean but not the variance across horizons.
+
+### 3.7 What is dropped from Phase E
 
 | Phase E piece | What replaces it |
 |---|---|
-| Separate scout number `Ĝ_u` | Movement term inside the single weight (3.4) |
-| `forecastKind: "will_compound"` tag | Every referral counts |
-| Prior-recognition discount `(1 − π_v)` | Normal movement for the starting score (3.3) |
-| Fixed `t0`/`t1` slope window, `minGapDays` | Stored checkpoints (3.2) |
-| Upside-only `max(ΔR*, 0)` | Symmetric, measured against normal (3.3) |
-| Surprise term in comparison selection, trajectory reporting | Not replaced. They don't move a judge's weight and can return separately |
+| Separate scout number `Ĝ_u` | Movement term inside the single weight (3.1, 3.5) |
+| `forecastKind: "will_compound"` tag | Every referral with a starting score is eligible |
+| Prior-recognition discount `(1 − π_v)` | Normal movement for the starting score (3.4) |
+| Fixed `t0`/`t1` slope window, `minGapDays` | Stored starting and 12-month scores (3.3) |
+| Upside-only `max(ΔR*, 0)` | Symmetric, measured against normal (3.4) |
+| Surprise term in comparison selection, trajectory reporting | Not replaced. They don't move a judge's weight |
 
 ---
 
@@ -139,56 +153,63 @@ w_{u,k} = n_{u,k}/(n_{u,k}+λ) · ŵ_{u,k}  +  λ/(n_{u,k}+λ) · w_u
 
 Each step is its own PR and can be verified on its own:
 
-1. **`outputOnlyRollup` and `evidenceScore`.** Provenance-tagged input, evidence cutoff, input hashing. No weight changes.
-2. **Stored snapshots.** `s0`, checkpoints and `E_v` stored on referrals and on unreferred candidates' intake, plus the logged correction operation. No weight changes.
-3. **The movement term.** `e_k` fitting and versioning, the dead band, `c_u`, `κ`. Register `judge_reliability@3.0.0` with a drift report on the seed. Not current until reviewed.
-4. **Per-role split.** Its own version bump and drift report.
+1. **Weight scale.** `μ0`, `γ`, the log-odds form, and `judgeWeighting` using `ω_u`. Register `judge_reliability@4.0.0` with a drift report. This changes numbers.
+2. **Evidence-only substance.** `author` field and runtime validator, `outputOnlyRollup`, the evidence-date rule, sorted input hashing, the truth-label guard. No weight changes.
+3. **Stored snapshots.** `s0` and `s12` stored on referrals and on unreferred candidates' intake, plus the logged correction operation. No weight changes.
+4. **Movement term and calibration path.** `e` fitting and versioning, the dead band, `c_u`, `κ`, the club switch at `M`, the judge label at `N`. Its own version and drift report.
 
 ## 5. Invariants (tests)
 
-- **κ = 0:** V3 output values equal V2's exactly. Runs still on V2 keep their golden run ids.
-- **No judge input:** adding referrer notes, referrer-added claims, or a `trend` value never changes `evidenceScore`. Tested through the real claim-value code, and `outputOnlyRollup` rejects a judge-sourced claim at the type level.
-- **Arrival order:** the same evidence arriving in different batches or orders gives the same stored snapshots.
-- **Backfill:** evidence that arrives after a snapshot's compute time never changes that snapshot.
-- **Padding:** adding referrals whose movement is inside the dead band never changes any judge's weight, for judges with positive or negative averages.
-- **No starting score:** adding referrals with no evidence dated ≤ `t_uv` never changes any judge's weight.
-- **Refit:** fitting a new `e_k` version never changes an already-stored checkpoint result.
-- **Dead band:** movement within `h` of normal never changes any weight.
-- **Fairness:** equally skilled simulated judges get weights within tolerance whether they pick top-band, bottom-band, high-in-band or low-in-band candidates.
-- **Per-role fallback:** `w_{u,k} = w_u` when `n_{u,k} = 0`.
+- **V2 equivalence:** with `μ0 = 1`, `γ = 1`, `κ = 0`, output values equal V2's exactly. Runs still on V2 keep their golden run ids.
+- **Bounds:** `w_u` and `ω_u` are always in (0, 1), and `judgeWeighting` never throws, for any `c_u`.
+- **No judge input:** adding referrer notes, referrer- or committee-authored claims, or a `trend` value never changes `evidenceScore`. Tested through the real claim-value code, including the runtime validator.
+- **Truth labels:** V2 outcome labels never include rows derived from note-raised claim values.
+- **Arrival order:** the same evidence in different batches or orders gives the same stored snapshots and hashes.
+- **Backfill:** evidence arriving after a snapshot's compute time never changes it.
+- **Late resume:** a resume uploaded after the referral, describing pre-referral work, changes `s0` (if before its compute time) and never counts as movement.
+- **Padding:** adding referrals whose movement falls inside the dead band never changes any judge's weight, for positive or negative averages.
+- **No starting score:** adding referrals with no starting score never changes any judge's weight.
+- **Refit:** a new `e` version never changes an already-stored result.
+- **Empty:** `c_u = 0` when `n_inf,u = 0`.
+- **Club gate:** below `M`, every weight equals its accuracy-only value.
+- **Fairness:** a seeded simulation, with its data-generating process and tolerance written down before step 4, shows equally skilled judges get weights within tolerance whether they pick high or low starting scores.
 
 ## 6. Open decisions
 
-1. **Checkpoints:** several (6, 12, 24 months) so a candidate who takes off in year 2 still pays off, or one 12-month checkpoint for simplicity.
-2. **How checkpoints combine:** latest stored (current default), mean, or weighted toward later checkpoints.
-3. **Which Jev quantity `evidenceScore` is:** value (level), substance, or alpha (outperforming expectation). "B → B+" reads as level.
-4. **Parameter values:** `G`, `h`, checkpoint times, `λ_c`, `κ`, `λ`, display band edges.
-5. **How `e_k(s)` is fitted with a small club:** linear in `s` with pooling, isotonic, or band means as a fallback.
-6. **Referral timing:** a judge who refers someone just before a big event they already know about (e.g. an offer) gets credit for it. Is that legitimate scouting or something to guard against?
-7. **Referral-volume signal** (many referrals plus passing evaluations means a name is spreading). This is a candidate signal and is tracked separately.
+1. **Parameter values:** `μ0 = 0.3` and `γ = 2` are chosen. Still to set from the seed: `λ`, `λ_c`, `κ`, `h`, `G`, `A`, `M`, `N`.
+2. **In-progress work:** dating in-progress claims by `startedAt` puts all of a long-running job into the starting score. Movement then shows up only when new claims appear (a new role, or the job's end). Is that acceptable, or should in-progress output accrue over time?
+3. **Display bands** (C … A on value) for admins: separate from this spec.
+4. **Referral-volume signal** (many referrals plus passing evaluations means a name is spreading): a candidate signal, tracked separately.
 
 ## 7. Review history
 
-- **Round 1 (Codex, on v1):** missing evidence made mass referrals a free bet. The circularity guard checked imports, not data. Equal up/down steps are unfair at the top and bottom of the ladder. Band hysteresis needed path history. "Run ids unchanged" was impossible under a new spec version.
-- **Round 2 (Codex, on v2):** counting unresolved referrals as 0 helped judges with negative averages. Claim values could arrive already raised by notes. "Latest score" kept changing old results. A grace-period starting point absorbed post-referral improvement. Band-only expectation ignored position inside a band. Role mixes could change later.
-- **Self-review (on v3):** padding still worked through referrals with a starting score that never moved. Referrer-added claims were not excluded. Starting scores locked on first arrival, so arrival order mattered. Refitting `e_k` moved old results.
+- **Round 1 (Codex, v1):** free bet on candidates without evidence; import-only circularity guard; unfair steps at ladder ends; hysteresis needed history; impossible run-id invariant. Fixed in v2.
+- **Round 2 (Codex, v2):** padding helped negative judges; note-raised values reached the rollup; "latest score" moved old results; grace-period lookahead; band-only expectation; mutable role mix. Fixed in v3.
+- **Self-review (v3):** padding through non-moving referrals; referrer-added claims; arrival order; refits moved old results. Fixed in v3.2.
+- **Round 3 (Kimi K3 max, Grok 4.7 xhigh, v3.2):** all verified against `main`. Handled in v4:
+  - Weight above 1 breaks `judgeWeighting` → log-odds form, bounded (3.1).
+  - Shrinkage is toward 1, not the population mean → corrected (§2); prior is now `μ0 = 0.3` (3.1).
+  - Version clash → `@4.0.0`.
+  - V2 description (180-day window, bias off, live signal `p̂·R`) → corrected (§2).
+  - Judge inputs described wrong; no referrer `SourceKind` → new `author` field with runtime validator (3.2).
+  - `hashInputs` keeps array order → sort by claim id (3.2).
+  - In-progress claims dated by `publishedAt` → date by `startedAt` (3.2).
+  - Hidden truth-label path → guard and invariant (3.2, §5).
+  - Coached evidence → stated as unclosable (§2).
+  - `ŵ_{u,k}` undefined, roles don't exist, `dimension` type → per-role moved to a later version (3.6).
+  - Mixed horizons → one 12-month checkpoint; extras later (3.6).
+  - Winner's curse → `λ_c > 0`, `c_u = 0` when empty (3.5).
+  - Minimum cohort and leave-one-out → club gate `M` and leave-one-out fit (3.4, 3.6).
+  - `h` units → absolute substance units (3.4).
+  - Timing → evidence within `G` counts toward the starting score (3.3).
+  - Value vs substance → substance (3.2).
+  - Name clash → "movement checkpoints".
+  - Simpler-version recommendation → adopted as the calibration path (3.6).
 
-v3.2 merges v2 and v3 and fixes all of the above (3.1–3.4). It has not been through an outside review yet.
+## 8. Questions for reviewers (round 4)
 
-## 8. Questions for reviewers
-
-1. **Is this too complicated for the data we have?** A judge may have fewer than 10 referrals, and few will reach a 24-month checkpoint soon. Is there a simpler rule that keeps the properties that matter: hard to game, no circularity, stable history, fair across starting levels?
-2. **Is anything still gameable?** Especially by a judge who influences what evidence a candidate submits, or who times referrals.
-3. **Is there still circularity?** Any path from judge weights or judge-written content back into `evidenceScore`.
-4. **Does leaving out non-informative referrals (3.4) create a new bias?**
-5. **Is `e_k(s)` sound with few candidates?** What fitting method keeps noise from dominating the expectation?
-6. **Per-role:** is falling back to the judge's overall weight the right default, and is a fixed role mix at referral time reasonable?
-
-### Simpler fallback to compare against
-
-- One checkpoint at 12 months.
-- Starting score from evidence-only Jev, evidence dated ≤ referral, computed once at referral + 30 days. No starting score means not scored.
-- `r = (s_12 − s0) − mean movement of all candidates in the same starting band` (frozen per version), with dead band `h`.
-- `w_u = p̂_u · exp(κ · Σ_{|r|>h} d / (n_inf + λ))`. No per-role split yet.
-
-Reviewers should argue for this, or for something simpler still, if the full design isn't worth it.
+1. **Weight scale:** is `σ(logit(p̂) + κ·c)` then `w^γ` sound? Does `μ0 = 0.3` with γ = 2 (new judges count 9%) suppress the signal too much while the club is small?
+2. **Shrinkage toward 0.3:** a judge with raw accuracy above 0.3 is pulled down until they have data. Is that the right behaviour for a club that's just starting?
+3. **Club gate:** is a single club-wide switch at `M` safe, given that it changes every weight at once?
+4. **Evidence dates:** is the `startedAt` rule for in-progress work right (open decision 2)?
+5. **Anything still gameable or circular** after the `author` field and the truth-label guard?
