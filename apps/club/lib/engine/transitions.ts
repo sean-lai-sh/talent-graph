@@ -240,7 +240,11 @@ export function addReferral(state: ClubState, input: AddReferralInput): EngineRe
     createdAt: new Date(next.now),
     updatedAt: new Date(next.now),
   };
-  const check = validateReferral(referral, next.referrals.map(clubToReferral));
+  const check = validateReferral(
+    referral,
+    new Set(next.people.map((p) => p.id)),
+    next.referrals.map(clubToReferral),
+  );
   if (!check.ok) return fail(next, check.errors.join("; "));
   next.referrals.push(referralToClub(referral));
   return ok(next);

@@ -39,15 +39,19 @@ export function isEvidenceType(value: unknown): value is EvidenceType {
 }
 
 /**
- * A referral is valid when nobody refers themselves, all three sliders are
- * integers in 1..5, the (referrer, candidate) pair is new, and the referrer
- * wrote down what they observed.
+ * A referral is valid when both ends are known people, nobody refers
+ * themselves, all three sliders are integers in 1..5, the (referrer,
+ * candidate) pair is new, and the referrer wrote down what they observed.
  */
 export function validateReferral(
   r: Referral,
+  personIds: ReadonlySet<string>,
   existing: readonly Referral[] = [],
 ): ValidationResult {
   const errors: string[] = [];
+
+  if (!personIds.has(r.referrerId)) errors.push(`unknown referrer: ${r.referrerId}`);
+  if (!personIds.has(r.candidateId)) errors.push(`unknown candidate: ${r.candidateId}`);
 
   if (r.referrerId === r.candidateId) {
     errors.push("referrerId must differ from candidateId (no self-referral)");
