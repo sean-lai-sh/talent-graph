@@ -1,21 +1,27 @@
 #!/usr/bin/env bun
 /**
- * bun run sim:judges [-- --seed <n>] [--reps <n>] [--no-sweep]
+ * bun run sim:judges [-- --seed <n>] [--reps <n>] [--detail-reps <n>] [--no-sweep] [--centre median|neutral]
  *
- * Delivery step 0 of the r7 judge-weight spec (docs/issues/28): runs the five
- * §5 scenarios through the pure r7 model, sweeps a small grid over the most
- * consequential parameters, and prints which parameter set passes S1–S4 with
- * the widest margin while keeping S5 in bounds, how sensitive that is, and
- * the per-criterion results at that set.
+ * The sweep uses `--reps` seeds (3) to fit in well under a minute; the
+ * results at the chosen set and the attribution runs use `--detail-reps` (5),
+ * the replicate count the r7 results were reported at.
+ *
+ * Delivery step 0 of the r8 judge-weight spec (docs/issues/28): runs the six
+ * §5 scenarios through the pure r8 model, sweeps a small grid over the most
+ * consequential parameters, and prints which parameter set passes S1–S4, S6 and
+ * S6 with the widest margin while keeping S5 in bounds, how sensitive that
+ * is, and the per-criterion results at that set (S6 also with the watch off).
  *
  * Deterministic: replicate seeds are `seed, seed + 1, …`; there is no clock,
  * network or environment read, so the same arguments print the same bytes.
  */
 
-import { type Params, perEventBound, R7_DEFAULTS } from "./model.ts";
+import { type Params, R8_DEFAULTS } from "./model.ts";
 import {
+  boundSlack,
   type CriterionResult,
   evaluateScenario,
+  S6_WATCH_OFF,
   SCENARIOS,
   type Scenario,
   type ScenarioResult,
@@ -23,22 +29,19 @@ import {
 } from "./scenarios.ts";
 import type { WorldConfig } from "./world.ts";
 
-/** Each axis is a list of named overrides of R7_DEFAULTS. */
+/**
+ * Each axis is a list of named overrides of R8_DEFAULTS. α/φ, the b values,
+ * β and M stay at the r7 harness's chosen values: r7's sweep found them
+ * roughly neutral, and the grid has to fit in well under a minute.
+ */
 const GRID: Record<string, { label: string; set: Partial<Params> }[]> = {
   kappaA: [0.25, 0.5].map((v) => ({ label: String(v), set: { kappaA: v } })),
-  kappa: [5, 10].map((v) => ({ label: String(v), set: { kappa: v } })),
-  beta: [1.25, 2].map((v) => ({ label: String(v), set: { beta: v } })),
-  "alpha/phi": [
-    { label: "0.75/0.2", set: { alpha: 0.75, phi: 0.2 } },
-    { label: "1.5/0.1", set: { alpha: 1.5, phi: 0.1 } },
-  ],
-  b: [
-    { label: "1.5/1.25/0.25", set: { b: { not_yet: 1.5, soon: 1.25, yes: 0.25 } } },
-    { label: "1.2/1.1/0.8", set: { b: { not_yet: 1.2, soon: 1.1, yes: 0.8 } } },
-  ],
+  kappa: [0.3, 0.6].map((v) => ({ label: String(v), set: { kappa: v } })),
   lambdaF: [2, 8].map((v) => ({ label: String(v), set: { lambdaF: v } })),
-  h: [0, 0.02, 0.05].map((v) => ({ label: String(v), set: { h: v } })),
-  M: [20, 40].map((v) => ({ label: String(v), set: { M: v } })),
+  T: [2, 3, 5].map((v) => ({ label: String(v), set: { T: v } })),
+  h: [0, 0.3, 0.6].map((v) => ({ label: String(v), set: { h: v } })),
+  sFloor: [0.15, 0.3].map((v) => ({ label: String(v), set: { sFloor: v } })),
+  B: [5, 20].map((v) => ({ label: String(v), set: { B: v } })),
 };
 
 interface GridPoint {
@@ -46,8 +49,8 @@ interface GridPoint {
   params: Params;
 }
 
-function gridPoints(): GridPoint[] {
-  let points: GridPoint[] = [{ labels: {}, params: R7_DEFAULTS }];
+function gridPoints(base: Params): GridPoint[] {
+  let points: GridPoint[] = [{ labels: {}, params: base }];
   for (const [axis, options] of Object.entries(GRID)) {
     points = points.flatMap((pt) =>
       options.map((o) => ({
@@ -63,10 +66,10 @@ interface Scored {
   point: GridPoint;
   results: ScenarioResult[];
   s5InBounds: boolean;
-  /** S1–S4 criteria that pass somewhere in the grid, all passing here. */
+  /** S1–S4, S6 criteria that pass somewhere in the grid, all passing here. */
   acceptable: boolean;
   passed: number;
-  /** Smallest margin among S1–S4 criteria that pass somewhere in the grid. */
+  /** Smallest margin among S1–S4, S6 criteria that pass somewhere in the grid. */
   minMargin: number;
 }
 
@@ -92,13 +95,14 @@ function score(points: GridPoint[], seeds: number[]): { scored: Scored[]; passab
     const cs = flat(results);
     const main = cs.filter((c) => !isS5(c));
     const counted = main.filter((c) => passable.has(c.criterion.id));
+    const margins = counted.filter((c) => !c.criterion.binary).map((c) => c.margin);
     return {
       point,
       results,
       s5InBounds: cs.filter(isS5).every((c) => c.pass),
       acceptable: counted.every((c) => c.pass),
       passed: main.filter((c) => c.pass).length,
-      minMargin: Math.min(...counted.map((c) => c.margin)),
+      minMargin: margins.length === 0 ? 0 : Math.min(...margins),
     };
   });
   return { scored, passable };
@@ -144,14 +148,14 @@ function printSweep(scored: Scored[], passable: Set<string>): Scored {
   const best = ranked[0] as Scored;
   const acceptable = scored.filter((s) => s.s5InBounds && s.acceptable);
   console.log(
-    `Acceptable sets (S5 in bounds, every passable S1–S4 criterion passing): ${acceptable.length}/${total}`,
+    `Acceptable sets (S5 in bounds, every passable S1–S4, S6 criterion passing): ${acceptable.length}/${total}`,
   );
   console.log(
     `\nChosen: ${Object.entries(best.point.labels)
       .map(([k, v]) => `${k}=${v}`)
       .join(
         " ",
-      )}  (S5 in bounds: ${best.s5InBounds}; S1–S4 passed ${best.passed}; min margin ${fmt(best.minMargin)})`,
+      )}  (S5 in bounds: ${best.s5InBounds}; S1–S4, S6 passed ${best.passed}; min margin ${fmt(best.minMargin)})`,
   );
 
   console.log("\nSensitivity: share of acceptable sets and mean min margin, per value\n");
@@ -177,7 +181,9 @@ function printDetail(results: ScenarioResult[], p: Params): void {
   for (const r of results) {
     for (const c of r.results) {
       rows.push([
-        c.criterion.id,
+        c.criterion.id.startsWith(`${r.scenario.id}.`)
+          ? c.criterion.id
+          : `${c.criterion.id} (${r.scenario.id})`,
         c.pass ? "PASS" : "FAIL",
         fmt(c.metric),
         fmt(c.margin, 2),
@@ -191,7 +197,7 @@ function printDetail(results: ScenarioResult[], p: Params): void {
     if (!first) continue;
     const { world, run } = first;
     console.log(
-      `\n${r.scenario.id} ${r.scenario.name} (first replicate): K=${run.K} gate opened day ${run.gateOpenedDay ?? "never"}, κ_m=${fmt(run.kappaM, 2)}, referrals=${run.referrals.length}, settled=${run.referrals.filter((x) => x.settlement).length}`,
+      `\n${r.scenario.id} ${r.scenario.name} (first replicate): K=${run.K} gate opened day ${run.gateOpenedDay ?? "never"}, κ_m=${fmt(run.kappaM, 2)}, referrals=${run.referrals.length}, settled=${run.referrals.filter((x) => x.settle12).length}, settled at 24 months=${run.referrals.filter((x) => x.settle24).length}, escrowed=${run.referrals.filter((x) => x.factors?.contrarian && x.admission?.decision === "deny").length}, released=${run.referrals.filter((x) => x.admission?.state === "released").length}, corrections=${run.referrals.reduce((n, x) => n + x.corrections, 0)}, watch checks=${run.watch.checks.length}, regret cases=${run.watch.regret.length}`,
     );
     const jrows = [["judge", "role", "skill", "referrals", "w", "logit w", "label"]];
     for (const j of run.judges) {
@@ -209,7 +215,7 @@ function printDetail(results: ScenarioResult[], p: Params): void {
     console.log(table(jrows));
     const delta = run.maxEventDelta;
     console.log(
-      `max |Δ logit w| per event: admission ${fmt(delta.admission)}, settle ${fmt(delta.settle)} (bound ${fmt(perEventBound(p))}); accuracy ${fmt(delta.accuracy)}, ramp step ${fmt(delta.intake_s12)} (neither covered by the bound)`,
+      `max |Δ logit w| per event: admission ${fmt(delta.factors)}, correction ${fmt(delta.correct)}, accuracy ${fmt(delta.accuracy)}, settle12 ${fmt(delta.settle12)}, settle24 ${fmt(delta.settle24)}, ramp step ${fmt(delta.intake_s12)}, escrow release ${fmt(delta.watch)}; smallest slack to its bound ${fmt(boundSlack(run, p))}`,
     );
   }
 }
@@ -225,14 +231,18 @@ const ABLATIONS: {
   config?: (c: WorldConfig) => WorldConfig;
   params?: Partial<Params>;
 }[] = [
+  { label: "S4 without committee flags", scenario: "S4", config: (c) => ({ ...c, flagRate: 0 }) },
+  { label: "S4 with every flag caught", scenario: "S4", config: (c) => ({ ...c, flagRate: 1 }) },
   { label: "S4 without coaching", scenario: "S4", config: (c) => ({ ...c, coachBoost: 0 }) },
+  { label: "S3 centred so fitted d averages 0", scenario: "S3", params: { centre: "neutral" } },
+  { label: "S1 centred so fitted d averages 0", scenario: "S1", params: { centre: "neutral" } },
+  { label: "S4 centred so fitted d averages 0", scenario: "S4", params: { centre: "neutral" } },
+  { label: "S6 without the two-flat-checks exit", scenario: "S6", params: { watchFlatExit: 1000 } },
   {
-    label: "S4 without withheld evidence",
-    scenario: "S4",
-    config: (c) => ({ ...c, withholdUntil: null }),
+    label: "S6 without escrow-eligible answers",
+    scenario: "S6",
+    params: { g0: 10, b: { not_yet: 1, soon: 1, yes: 0.8 } },
   },
-  { label: "S1 with dead band h = 0.02", scenario: "S1", params: { h: 0.02 } },
-  { label: "S3 with dead band h = 0.02", scenario: "S3", params: { h: 0.02 } },
 ];
 
 function printAblations(chosen: Params, seeds: number[]): void {
@@ -253,14 +263,30 @@ function printAblations(chosen: Params, seeds: number[]): void {
   console.log(table(rows));
 }
 
-function parseArgs(argv: string[]): { seed: number; reps: number; sweep: boolean } {
-  const out = { seed: 1, reps: 5, sweep: true };
+interface Args {
+  seed: number;
+  reps: number;
+  detailReps: number;
+  sweep: boolean;
+  /** `--centre neutral` reruns everything under the non-spec centring, for attribution. */
+  centre: Params["centre"];
+}
+
+function parseArgs(argv: string[]): Args {
+  const out: Args = { seed: 1, reps: 3, detailReps: 5, sweep: true, centre: "median" };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = Number(argv[i + 1]);
     if (arg === "--no-sweep") out.sweep = false;
-    else if ((arg === "--seed" || arg === "--reps") && Number.isInteger(next) && next > 0) {
-      out[arg === "--seed" ? "seed" : "reps"] = next;
+    else if (arg === "--centre" && (argv[i + 1] === "median" || argv[i + 1] === "neutral")) {
+      out.centre = argv[i + 1] as Params["centre"];
+      i++;
+    } else if (
+      (arg === "--seed" || arg === "--reps" || arg === "--detail-reps") &&
+      Number.isInteger(next) &&
+      next > 0
+    ) {
+      out[arg === "--seed" ? "seed" : arg === "--reps" ? "reps" : "detailReps"] = next;
       i++;
     } else {
       console.error(`unknown or invalid argument: ${arg}`);
@@ -273,15 +299,19 @@ function parseArgs(argv: string[]): { seed: number; reps: number; sweep: boolean
 if (import.meta.main) {
   const args = parseArgs(process.argv.slice(2));
   const seeds = Array.from({ length: args.reps }, (_, i) => args.seed + i);
-  console.log(`judge-weight r7 simulation: seeds ${seeds.join(", ")}`);
-  let chosen = R7_DEFAULTS;
+  const detailSeeds = Array.from({ length: args.detailReps }, (_, i) => args.seed + i);
+  console.log(
+    `judge-weight r8 simulation: sweep seeds ${seeds.join(", ")}; detail seeds ${detailSeeds.join(", ")}; centre ${args.centre}`,
+  );
+  const base = { ...R8_DEFAULTS, centre: args.centre };
+  let chosen = base;
   if (args.sweep) {
-    const { scored, passable } = score(gridPoints(), seeds);
+    const { scored, passable } = score(gridPoints(base), seeds);
     chosen = printSweep(scored, passable).point.params;
   }
   printDetail(
-    SCENARIOS.map((s) => evaluateScenario(s, chosen, seeds)),
+    [...SCENARIOS, S6_WATCH_OFF].map((s) => evaluateScenario(s, chosen, detailSeeds)),
     chosen,
   );
-  printAblations(chosen, seeds);
+  printAblations(chosen, detailSeeds);
 }

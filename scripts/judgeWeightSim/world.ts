@@ -1,14 +1,15 @@
 /**
- * A synthetic club: candidates with latent level A and slope g, their dated
- * and ingested evidence, judges' referral intents, and the council. A world is
- * plain data generated once from a seed; it never depends on the r7
+ * A synthetic club: candidates with latent level A, slope g and an optional
+ * heavy-tailed breakout, their dated evidence and how it reaches us, judges'
+ * referral intents, the council and the organising committee. A world is
+ * plain data generated once from a seed; it never depends on the r8
  * parameters, so the sweep can replay one world under many parameter sets.
  * The only feedback path is the council, which `sim.ts` runs live because it
  * reads the judge weights.
  */
 
 import { gaussian, mulberry32, type Rng } from "../../src/seed/prng.ts";
-import type { Decision, EvidenceItem, Recognition } from "./model.ts";
+import type { Channel, Decision, EvidenceItem, Recognition } from "./model.ts";
 
 export const MONTH = 30;
 
@@ -21,7 +22,7 @@ export interface JudgeSpec {
   admin: boolean;
 }
 
-export type CredentialPath = "pre-credential" | "consensus" | "neither";
+export type CredentialPath = "pre-credential" | "consensus" | "neither" | "unconventional";
 
 export interface CandidateSpec {
   id: string;
@@ -30,8 +31,10 @@ export interface CandidateSpec {
   /** Substance gained per year. */
   g: number;
   credential: CredentialPath;
+  /** A step rise on `day`, for out-of-distribution candidates. */
+  breakout: { day: number; jump: number } | null;
   items: EvidenceItem[];
-  /** The same evidence ingested on time; set only for candidates who withheld some. */
+  /** The same evidence submitted on time; set only for candidates who withheld some. */
   onTimeItems: EvidenceItem[] | null;
 }
 
@@ -72,8 +75,16 @@ export interface World {
   deciders: ReadonlyMap<string, readonly string[]>;
   /** Later decisions on a candidate (reopen or reversal), applied as recorded history. */
   reversals: { candidate: string; day: number; decision: Decision }[];
-  /** Population level used for the council's z-scores. */
-  population: { meanA: number; sdA: number };
+  /** Organising committee members (§3.11) and each one's prediction noise. */
+  committee: ReadonlyMap<string, number>;
+  /** Population level used for the council's z-scores and committee predictions. */
+  population: { meanA: number; sdA: number; meanG: number };
+}
+
+/** Substance the candidate truly has on `day`. */
+export function trueLevel(c: Omit<CandidateSpec, "items" | "onTimeItems">, day: number): number {
+  const jump = c.breakout && day >= c.breakout.day ? c.breakout.jump : 0;
+  return c.A + (c.g * (day - c.intakeDay)) / 365 + jump;
 }
 
 // --- generator -----------------------------------------------------------------
@@ -98,10 +109,24 @@ export interface JudgeArchetype {
   spray?: boolean;
   /** Refers whatever this judge refers, one day later, at full strength. */
   follows?: string;
-  /** Inflates output dated after the judge's referral. */
+  /** Exaggerates output claims dated after the judge's referral. */
   coaches?: boolean;
   /** Share of candidates who are the judge's friends: referred on intake day regardless. */
   friendsShare?: number;
+  /** Firsthand knowledge: perceives an out-of-distribution breakout coming within 3 years. */
+  seesBreakouts?: boolean;
+}
+
+export interface OodConfig {
+  /** Share of candidates who are out of distribution. */
+  share: number;
+  /** Monthly probability they submit an output claim themselves. */
+  pSubmitted: number;
+  /** Breakout arrives this many days after intake, uniformly. */
+  breakoutFrom: number;
+  breakoutTo: number;
+  /** Share of post-breakout evidence only a committee check finds; the rest is public. */
+  pDeep: number;
 }
 
 export interface WorldConfig {
@@ -120,16 +145,21 @@ export interface WorldConfig {
     | { kind: "scripted"; admitRate: number };
   councilNoise: number;
   decidersPerDecision: number;
+  /** Exaggeration added to coached output claims. */
   coachBoost: number;
+  /** Probability a committee flags an exaggerated claim, about two months after it appears. */
+  flagRate: number;
   /** Friends of coaching judges hold back their two best pre-intake outputs until intake + this. */
   withholdUntil: number | null;
+  ood: OodConfig | null;
 }
 
 const POP = { meanA: 0.5, sdA: 0.12, meanG: 0.02, sdG: 0.08 };
 /** Perceived score is level plus one year of slope. */
-const PERCEIVED = { mean: POP.meanA + POP.meanG };
+const PERCEIVED_MEAN = POP.meanA + POP.meanG;
 const ITEM_NOISE = 0.05;
 const HISTORY_DAYS = 720;
+const FLAG_LAG = 60;
 
 const uniform = (rng: Rng, lo: number, hi: number): number => lo + (hi - lo) * rng();
 
@@ -143,77 +173,105 @@ export function normalCdf(z: number): number {
   return z >= 0 ? (1 + erf) / 2 : (1 - erf) / 2;
 }
 
-interface Latent {
-  id: string;
-  intakeDay: number;
-  A: number;
-  g: number;
-  credential: CredentialPath;
+interface Latent extends Omit<CandidateSpec, "items" | "onTimeItems"> {
   gap0: number;
   premium: number;
   slow: boolean;
 }
 
-/** Substance the candidate truly has on `day`. */
-const level = (c: Latent, day: number): number => c.A + (c.g * (day - c.intakeDay)) / 365;
-
 /**
  * Credentials. Pre-credential candidates start `gap0` below substance and
  * catch up over about 18 months from intake; consensus candidates sit a
- * premium above substance; the rest track substance.
+ * premium above substance; unconventional ones sit far below and never catch
+ * up; the rest track substance.
  */
 function selectionLevel(c: Latent, day: number): number {
-  const lvl = level(c, day);
-  if (c.credential === "pre-credential") {
-    return lvl - c.gap0 * Math.exp(-Math.max(0, day - c.intakeDay) / 540);
+  const lvl = trueLevel(c, day);
+  switch (c.credential) {
+    case "pre-credential":
+      return lvl - c.gap0 * Math.exp(-Math.max(0, day - c.intakeDay) / 540);
+    case "consensus":
+      return lvl + c.premium;
+    case "unconventional":
+      return c.A - 0.2;
+    case "neither":
+      return lvl;
   }
-  return c.credential === "consensus" ? lvl + c.premium : lvl;
 }
 
-function drawLatent(rng: Rng, id: string, intakeDay: number, slowShare: number): Latent {
+/** Pareto(1.5) excess: heavy-tailed, mean 2. */
+const paretoExcess = (rng: Rng): number => (1 - rng()) ** (-1 / 1.5) - 1;
+
+function drawLatent(rng: Rng, id: string, intakeDay: number, cfg: WorldConfig): Latent {
   const A = POP.meanA + POP.sdA * gaussian(rng);
   const g = POP.meanG + POP.sdG * gaussian(rng);
+  const gap0 = uniform(rng, 0.12, 0.25);
+  const premium = uniform(rng, 0.03, 0.15);
+  const slow = rng() < cfg.slowShare;
+  if (cfg.ood && rng() < cfg.ood.share) {
+    const day = intakeDay + Math.round(uniform(rng, cfg.ood.breakoutFrom, cfg.ood.breakoutTo));
+    const jump = Math.min(0.6, 0.08 + 0.06 * paretoExcess(rng));
+    return {
+      id,
+      intakeDay,
+      A,
+      g: POP.meanG,
+      credential: "unconventional",
+      breakout: { day, jump },
+      gap0,
+      premium,
+      slow,
+    };
+  }
   // Fast risers are more often ahead of their credentials.
   const pPre = 0.1 + 0.4 * normalCdf((g - POP.meanG) / POP.sdG);
   const u = rng();
   const credential: CredentialPath =
     u < pPre ? "pre-credential" : u < pPre + 0.35 ? "consensus" : "neither";
-  return {
-    id,
-    intakeDay,
-    A,
-    g,
-    credential,
-    gap0: uniform(rng, 0.12, 0.25),
-    premium: uniform(rng, 0.03, 0.15),
-    slow: rng() < slowShare,
-  };
+  return { id, intakeDay, A, g, credential, breakout: null, gap0, premium, slow };
 }
 
 function drawItems(rng: Rng, c: Latent, cfg: WorldConfig): EvidenceItem[] {
   const items: EvidenceItem[] = [];
   const start = c.intakeDay - HISTORY_DAYS;
-  const ingest = (dated: number): number =>
-    Math.max(dated, c.intakeDay) + (c.slow ? uniform(rng, 90, 180) : uniform(rng, 0, 14));
+  const ood = c.credential === "unconventional" ? cfg.ood : null;
+  const arrive = (dated: number): number =>
+    Math.round(
+      Math.max(dated, c.intakeDay) + (c.slow ? uniform(rng, 90, 180) : uniform(rng, 0, 14)),
+    );
+  const item = (
+    kind: EvidenceItem["kind"],
+    dated: number,
+    value: number,
+    channel: Channel,
+  ): EvidenceItem => ({
+    id: `${c.id}:${kind[0]}${items.length}`,
+    kind,
+    datedAt: dated,
+    availableAt: channel === "submitted" ? arrive(dated) : dated + MONTH,
+    channel,
+    value,
+    inflation: 0,
+    flaggedAt: null,
+  });
   for (let month = start; month < cfg.days; month += MONTH) {
-    if (rng() >= cfg.pEvidence) continue;
     const dated = Math.round(month + uniform(rng, 0, MONTH - 1));
-    items.push({
-      id: `${c.id}:o${items.length}`,
-      kind: "output",
-      datedAt: dated,
-      ingestedAt: Math.round(ingest(dated)),
-      value: level(c, dated) + ITEM_NOISE * gaussian(rng),
-    });
+    const value = trueLevel(c, dated) + ITEM_NOISE * gaussian(rng);
+    if (!ood) {
+      if (rng() < cfg.pEvidence) items.push(item("output", dated, value, "submitted"));
+      continue;
+    }
+    // Out of distribution: a thin trail of their own submissions; after the
+    // breakout, the rise shows up publicly or only to someone who digs.
+    if (rng() < ood.pSubmitted) items.push(item("output", dated, value, "submitted"));
+    if (c.breakout && dated >= c.breakout.day && rng() < cfg.pEvidence) {
+      items.push(item("output", dated, value, rng() < ood.pDeep ? "deep" : "public"));
+    }
   }
   for (let dated = start; dated < cfg.days; dated += 180) {
-    items.push({
-      id: `${c.id}:s${items.length}`,
-      kind: "selection",
-      datedAt: dated,
-      ingestedAt: Math.round(ingest(dated)),
-      value: selectionLevel(c, dated) + 0.03 * gaussian(rng),
-    });
+    items.push(
+      item("selection", dated, selectionLevel(c, dated) + 0.03 * gaussian(rng), "submitted"),
+    );
   }
   return items;
 }
@@ -225,7 +283,7 @@ function honestAnswer(perceivedGap: number, perceivedG: number): Recognition {
   return "not_sure";
 }
 
-function judgeIntents(
+function judgeIntent(
   rng: Rng,
   j: JudgeArchetype,
   c: Latent,
@@ -236,8 +294,10 @@ function judgeIntents(
     return { ...base, day: c.intakeDay, strength: 1, answer: "not_yet" };
   }
   const day = Math.round(c.intakeDay + j.lagDays + uniform(rng, 0, 20));
+  const foresight =
+    j.seesBreakouts && c.breakout && c.breakout.day <= day + 3 * 365 ? c.breakout.jump : 0;
   const seenA = c.A + j.levelNoise * gaussian(rng);
-  const seenG = c.g + j.slopeNoise * gaussian(rng);
+  const seenG = c.g + j.slopeNoise * gaussian(rng) + foresight;
   const sel = selectionLevel(c, day);
   const perceived = (1 - j.consensus) * (seenA + seenG) + j.consensus * sel;
   // Each judge refers the same share of candidates as it perceives them, so
@@ -247,9 +307,9 @@ function judgeIntents(
       (1 - j.consensus) ** 2 * (POP.sdG ** 2 + j.levelNoise ** 2 + j.slopeNoise ** 2) +
       (j.consensus * 0.06) ** 2,
   );
-  const z = (perceived - PERCEIVED.mean) / ownSd;
+  const z = (perceived - PERCEIVED_MEAN) / ownSd;
   if (z <= j.pickZ) return null;
-  const answer = rng() < j.honesty ? honestAnswer(seenA - sel, seenG) : "not_yet";
+  const answer = rng() < j.honesty ? honestAnswer(seenA + foresight - sel, seenG) : "not_yet";
   return { ...base, day, strength: Math.min(1, Math.max(0.05, normalCdf(z))), answer };
 }
 
@@ -258,7 +318,7 @@ export function generateWorld(cfg: WorldConfig, seed: number): World {
   const latents: Latent[] = [];
   for (let i = 0; i < cfg.candidates; i++) {
     const day = Math.floor((i * cfg.arrivalDays) / cfg.candidates + uniform(rng, 0, MONTH));
-    latents.push(drawLatent(rng, `c${latents.length}`, day, cfg.slowShare));
+    latents.push(drawLatent(rng, `c${latents.length}`, day, cfg));
   }
 
   const intents: ReferralIntent[] = [];
@@ -269,7 +329,7 @@ export function generateWorld(cfg: WorldConfig, seed: number): World {
     for (const j of cfg.judges) {
       if (j.follows) continue;
       const friend = rng() < (j.friendsShare ?? 0);
-      const intent = judgeIntents(rng, j, c, friend);
+      const intent = judgeIntent(rng, j, c, friend);
       if (!intent) continue;
       own.push({ ...intent, id: `${j.id}>${c.id}` });
       if (j.coaches) {
@@ -289,11 +349,16 @@ export function generateWorld(cfg: WorldConfig, seed: number): World {
 
   const candidates: CandidateSpec[] = latents.map((c) => {
     const coachDay = coachedFrom.get(c.id);
-    const onTime = drawItems(rng, c, cfg).map((item) =>
-      coachDay !== undefined && item.kind === "output" && item.datedAt > coachDay
-        ? { ...item, value: item.value + cfg.coachBoost }
-        : item,
-    );
+    const onTime = drawItems(rng, c, cfg).map((item) => {
+      if (coachDay === undefined || item.kind !== "output" || item.datedAt <= coachDay) return item;
+      const flagged = rng() < cfg.flagRate;
+      return {
+        ...item,
+        value: item.value + cfg.coachBoost,
+        inflation: cfg.coachBoost,
+        flaggedAt: flagged ? item.availableAt + FLAG_LAG : null,
+      };
+    });
     let items = onTime;
     if (withholders.has(c.id) && cfg.withholdUntil !== null) {
       const held = new Set(
@@ -304,17 +369,10 @@ export function generateWorld(cfg: WorldConfig, seed: number): World {
           .map((i) => i.id),
       );
       const until = c.intakeDay + cfg.withholdUntil;
-      items = onTime.map((i) => (held.has(i.id) ? { ...i, ingestedAt: until } : i));
+      items = onTime.map((i) => (held.has(i.id) ? { ...i, availableAt: until } : i));
     }
-    return {
-      id: c.id,
-      intakeDay: c.intakeDay,
-      A: c.A,
-      g: c.g,
-      credential: c.credential,
-      items,
-      onTimeItems: items === onTime ? null : onTime,
-    };
+    const { gap0: _gap0, premium: _premium, slow: _slow, ...latent } = c;
+    return { ...latent, items, onTimeItems: items === onTime ? null : onTime };
   });
 
   const admins = cfg.judges.filter((j) => j.admin).map((j) => j.id);
@@ -334,6 +392,7 @@ export function generateWorld(cfg: WorldConfig, seed: number): World {
       scripted.set(c.id, rng() < cfg.council.admitRate ? "admit" : "deny");
     }
   }
+  const committee = new Map(admins.map((id) => [id, uniform(rng, 0.02, 0.1)]));
 
   return {
     name: cfg.name,
@@ -353,6 +412,7 @@ export function generateWorld(cfg: WorldConfig, seed: number): World {
     decisionLag: MONTH,
     deciders,
     reversals: [],
-    population: { meanA: POP.meanA, sdA: POP.sdA },
+    committee,
+    population: { meanA: POP.meanA, sdA: POP.sdA, meanG: POP.meanG },
   };
 }

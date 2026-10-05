@@ -7,7 +7,7 @@
  */
 
 import { logit, type Params, perEventBound } from "./model.ts";
-import { type RunResult, simulate } from "./sim.ts";
+import { BOUND_OF, type RunResult, simulate } from "./sim.ts";
 import { generateWorld, type JudgeArchetype, type World, type WorldConfig } from "./world.ts";
 
 export interface Criterion {
@@ -22,6 +22,8 @@ export interface Criterion {
   measure: (run: RunResult, world: World, p: Params) => number;
   floor: number;
   scale: number;
+  /** A pass/fail invariant: it counts toward passing but never toward the margin. */
+  binary?: boolean;
 }
 
 export interface Scenario {
@@ -29,6 +31,8 @@ export interface Scenario {
   name: string;
   /** The data-generating process; only S5's depends on a parameter (M). */
   config: (p: Params) => WorldConfig;
+  /** Parameters this variant fixes on top of the ones being evaluated. */
+  params?: Partial<Params>;
   criteria: Criterion[];
 }
 
@@ -63,6 +67,16 @@ export function spearman(x: readonly number[], y: readonly number[]): number {
     syy += dy * dy;
   }
   return sxx === 0 || syy === 0 ? 0 : sxy / Math.sqrt(sxx * syy);
+}
+
+/** Smallest slack, over every weight-moving event kind, between its bound and its largest effect. */
+export function boundSlack(run: RunResult, p: Params): number {
+  return Math.min(
+    ...Object.entries(BOUND_OF).map(
+      ([kind, bound]) =>
+        perEventBound(bound, p) - run.maxEventDelta[kind as keyof RunResult["maxEventDelta"]],
+    ),
+  );
 }
 
 const logitOf = (run: RunResult, id: string): number =>
@@ -110,8 +124,13 @@ const BASE: Omit<WorldConfig, "name" | "judges" | "council"> = {
   councilNoise: 0.4,
   decidersPerDecision: 2,
   coachBoost: 0,
+  flagRate: 0,
   withholdUntil: null,
+  ood: null,
 };
+
+/** S4's stated committee detection rate for exaggerated claims (§3.12). */
+export const S4_FLAG_RATE = 0.6;
 
 const FAIR_COUNCIL = {
   kind: "scored",
@@ -288,10 +307,12 @@ const S4_GAMERS = ["col1", "col2"];
  * col1 picks with poor perception (noise 0.25) at a low bar and also refers
  * its friends (8% of candidates) on intake day; col2 refers whatever col1
  * refers one day later. Both always answer "Not yet" at full strength. Every
- * candidate they refer is coached: output dated after the referral is
- * inflated by 0.06. Their friends withhold their two best pre-intake outputs
- * until 8 months after intake. The council leans on credentials (1.2) over
- * substance (0.3), so pre-credential candidates are often denied.
+ * candidate they refer is coached: output claims dated after the referral
+ * are exaggerated by 0.06, and the committee flags each exaggerated claim
+ * with probability S4_FLAG_RATE about two months after it appears (§3.12).
+ * Their friends withhold their two best pre-intake outputs until 8 months
+ * after intake. The council leans on credentials (1.2) over substance (0.3),
+ * so pre-credential candidates are often denied.
  */
 const S4: Scenario = {
   id: "S4",
@@ -300,6 +321,7 @@ const S4: Scenario = {
     ...BASE,
     name: "S4",
     coachBoost: 0.06,
+    flagRate: S4_FLAG_RATE,
     withholdUntil: 240,
     judges: [
       honest("sp1", 0.9, { role: "honest spotter", lagDays: 0 }),
@@ -341,27 +363,29 @@ const S4: Scenario = {
       aggregate: "worst",
       measure: (run) => {
         const created = run.referrals
-          .map((r) => r.settlement)
+          .map((r) => r.settle12)
           .filter((s) => s !== null && s.dOnTime !== null)
           .map((s) => (s?.d ?? 0) - (s?.dOnTime ?? 0));
         return created.length === 0 ? Number.NaN : -Math.max(...created);
       },
       floor: -1e-9,
       scale: 0.05,
+      binary: true,
     },
     {
       id: "S4.c",
       claim: "Denied-but-rose judges still gain at settlement",
-      threshold: "worst over denied, d > 0 referrals of κ_m(end)·ℓᴹ − ℓᴬ > 0",
+      threshold: "worst over denied, d > 0 referrals of κ_m(end)·ℓᴹ − applied ℓᴬ > 0",
       aggregate: "worst",
       measure: (run) => {
         const gains = run.referrals
           .filter(
-            (r) => r.admission?.decision === "deny" && r.settlement !== null && r.settlement.d > 0,
+            (r) => r.admission?.decision === "deny" && (r.settle24?.d ?? r.settle12?.d ?? 0) > 0,
           )
           .map((r) => {
-            const s = r.settlement as NonNullable<typeof r.settlement>;
-            return run.kappaM * s.ell - s.removedA;
+            const ell = r.settle24?.ell ?? r.settle12?.ell ?? 0;
+            const removed = r.factors?.contrarian ? 0 : (r.admission?.ell ?? 0);
+            return run.kappaM * ell - removed;
           });
         return gains.length === 0 ? Number.NaN : Math.min(...gains);
       },
@@ -434,10 +458,9 @@ const S5: Scenario = {
     {
       id: "S5.b",
       claim: "No single event exceeds the per-event bound",
-      threshold: "worst (B − max |Δ logit w| over add and settle events) ≥ 0, B = Lᴬ + κLᴹ + fade",
+      threshold: "worst over every event kind of (bound(kind) − max |Δ logit w|) ≥ 0",
       aggregate: "worst",
-      measure: (run, _w, p) =>
-        perEventBound(p) - Math.max(run.maxEventDelta.admission, run.maxEventDelta.settle),
+      measure: (run, _w, p) => boundSlack(run, p),
       floor: 0,
       scale: 0.5,
     },
@@ -472,7 +495,108 @@ const S5: Scenario = {
   ],
 };
 
-export const SCENARIOS: readonly Scenario[] = [S1, S2, S3, S4, S5];
+// --- S6 --------------------------------------------------------------------------
+
+const S6_BACKERS = ["ood1", "ood2"];
+const S6_CONSENSUS = ["cp1", "cp2"];
+
+/**
+ * S6 out of distribution. 150 candidates arrive over the first 12 months;
+ * 15% are out of distribution: credentials 0.2 below their level that never
+ * catch up, almost no submitted evidence (5% of months), and a heavy-tailed
+ * breakout (0.08 + 0.06·Pareto(1.5), capped at 0.6) 18–36 months after
+ * intake. After the breakout, 40% of their new evidence is found only by a
+ * committee check; the rest is public and reaches the standard check. Two
+ * judges have firsthand knowledge and see a breakout coming within three
+ * years (0.8, 0.7); two honest judges (0.6, 0.5); two consensus-pickers
+ * (0.2). Admins: h1, cp1, ood2. The council leans on credentials (1.2) over
+ * substance (0.3), so it denies the out-of-distribution candidates.
+ */
+const S6: Scenario = {
+  id: "S6",
+  name: "Out of distribution",
+  config: () => ({
+    ...BASE,
+    name: "S6",
+    arrivalDays: 12 * 30,
+    ood: { share: 0.15, pSubmitted: 0.05, breakoutFrom: 540, breakoutTo: 1080, pDeep: 0.4 },
+    judges: [
+      honest("ood1", 0.8, { role: "out-of-distribution backer", lagDays: 0, seesBreakouts: true }),
+      honest("ood2", 0.7, {
+        role: "out-of-distribution backer",
+        lagDays: 0,
+        seesBreakouts: true,
+        admin: true,
+      }),
+      honest("h1", 0.6, { admin: true }),
+      honest("h2", 0.5),
+      { ...honest("cp1", 0.6), role: "consensus-picker", skill: 0.2, consensus: 0.9, admin: true },
+      { ...honest("cp2", 0.6), role: "consensus-picker", skill: 0.2, consensus: 0.9 },
+    ],
+    council: { kind: "scored", signal: 0.2, substance: 0.3, credentials: 1.2, threshold: 0.6 },
+  }),
+  criteria: [
+    {
+      id: "S6.a",
+      claim: "Judges who back out-of-distribution candidates end above consensus-pickers",
+      threshold: "mean of min logit(backers) − max logit(consensus-pickers) ≥ 0",
+      aggregate: "mean",
+      measure: (run) =>
+        Math.min(...S6_BACKERS.map((id) => logitOf(run, id))) -
+        Math.max(...S6_CONSENSUS.map((id) => logitOf(run, id))),
+      floor: 0,
+      scale: 0.5,
+    },
+    {
+      id: "S6.b",
+      claim: "Escrow keeps the backers from dropping below μ0 in the meantime",
+      threshold: "worst monthly min w(backers) − μ0 ≥ −0.02",
+      aggregate: "worst",
+      measure: (run, _w, p) =>
+        Math.min(...S6_BACKERS.flatMap((id) => run.monthly.get(id) ?? [])) - p.mu0,
+      floor: -0.02,
+      scale: 0.05,
+      binary: true,
+    },
+    {
+      id: "S6.c",
+      claim: "The regret report finds most denied-then-rose cases within its budget",
+      threshold:
+        "mean share of denied candidates whose breakout landed a quarter before the end that the watch found ≥ 0.5",
+      aggregate: "mean",
+      measure: (run, world, p) => {
+        const referred = new Set(run.referrals.map((r) => r.intent.candidate));
+        const admitted = new Set(
+          run.referrals
+            .filter((r) => r.admission?.decision === "admit")
+            .map((r) => r.intent.candidate),
+        );
+        const truth = world.candidates.filter(
+          (c) =>
+            referred.has(c.id) &&
+            !admitted.has(c.id) &&
+            c.breakout !== null &&
+            c.breakout.day <= world.days - p.quarter,
+        );
+        if (truth.length === 0) return Number.NaN;
+        const found = new Set(run.watch.regret);
+        return truth.filter((c) => found.has(c.id)).length / truth.length;
+      },
+      floor: 0.5,
+      scale: 0.25,
+    },
+  ],
+};
+
+export const SCENARIOS: readonly Scenario[] = [S1, S2, S3, S4, S5, S6];
+
+/** S6 with the anti-cohort watch switched off (B = 0), reported beside S6. */
+export const S6_WATCH_OFF: Scenario = {
+  ...S6,
+  id: "S6-off",
+  name: "Out of distribution, watch off",
+  params: { B: 0 },
+};
 
 // --- evaluation -------------------------------------------------------------------
 
@@ -506,7 +630,7 @@ export function evaluateScenario(
       world = generateWorld(config, seed);
       cache.set(key, world);
     }
-    return { world, run: simulate(world, p) };
+    return { world, run: simulate(world, { ...p, ...scenario.params }) };
   });
   const results = scenario.criteria.map((criterion) => {
     const values = runs
