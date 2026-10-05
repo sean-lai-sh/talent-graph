@@ -1,13 +1,14 @@
 /**
- * The five §5 scenarios. Each states its data-generating process, builds a
- * world from a seed, and carries its pass criteria as explicit, thresholded
+ * The r9 §5 scenarios. Each states its data-generating process, builds a
+ * world from a seed, and carries its criteria as explicit, thresholded
  * checks. A criterion's metric is oriented so larger is better and it passes
- * when the metric is at least `floor`; `scale` turns the distance to the
- * floor into a margin comparable across criteria.
+ * when the metric is at least `floor`; `scale` turns the distance to the floor
+ * into a margin comparable across criteria. Some criteria compare against a
+ * counterfactual world: the same seed with one thing changed.
  */
 
-import { logit, type Params, perEventBound } from "./model.ts";
-import { BOUND_OF, type RunResult, simulate } from "./sim.ts";
+import { logit, nearCeiling, type Params, perEventBound } from "./model.ts";
+import { BOUND_OF, latestSettlement, type RunResult, simulate } from "./sim.ts";
 import { generateWorld, type JudgeArchetype, type World, type WorldConfig } from "./world.ts";
 
 export interface Criterion {
@@ -18,12 +19,15 @@ export interface Criterion {
   threshold: string;
   /** "mean" averages the metric over replicates; "worst" takes the minimum. */
   aggregate: "mean" | "worst";
-  /** NaN when the replicate never exercised the criterion. */
-  measure: (run: RunResult, world: World, p: Params) => number;
+  /** NaN when the replicate never exercised the criterion. `cf` is the counterfactual run, if any. */
+  measure: (run: RunResult, world: World, p: Params, cf: RunResult | null) => number;
   floor: number;
   scale: number;
-  /** A pass/fail invariant: it counts toward passing but never toward the margin. */
-  binary?: boolean;
+  /**
+   * "check": pass/fail with a margin. "binary": pass/fail, never in the margin
+   * (an invariant that holds exactly). "report": printed, never pass/fail.
+   */
+  kind: "check" | "binary" | "report";
 }
 
 export interface Scenario {
@@ -31,8 +35,12 @@ export interface Scenario {
   name: string;
   /** The data-generating process; only S5's depends on a parameter (M). */
   config: (p: Params) => WorldConfig;
+  /** The same world with one thing changed, for criteria that compare against it. */
+  counterfactual?: (c: WorldConfig) => WorldConfig;
   /** Parameters this variant fixes on top of the ones being evaluated. */
   params?: Partial<Params>;
+  /** False for scenarios that test invariants of the design, not of the parameters. */
+  sweep: boolean;
   criteria: Criterion[];
 }
 
@@ -69,26 +77,24 @@ export function spearman(x: readonly number[], y: readonly number[]): number {
   return sxx === 0 || syy === 0 ? 0 : sxy / Math.sqrt(sxx * syy);
 }
 
-/** Smallest slack, over every weight-moving event kind, between its bound and its largest effect. */
+/** Smallest slack, over every event kind, between its bound and its largest effect. */
 export function boundSlack(run: RunResult, p: Params): number {
   return Math.min(
-    ...Object.entries(BOUND_OF).map(
-      ([kind, bound]) =>
-        perEventBound(bound, p) - run.maxEventDelta[kind as keyof RunResult["maxEventDelta"]],
-    ),
+    ...Object.entries(BOUND_OF).map(([kind, bound]) => {
+      const limit = bound === "none" || bound === undefined ? 0 : perEventBound(bound, p);
+      return limit - run.maxEventDelta[kind as keyof RunResult["maxEventDelta"]];
+    }),
   );
 }
 
-const logitOf = (run: RunResult, id: string): number =>
+export const logitOf = (run: RunResult, id: string): number =>
   run.judges.find((j) => j.id === id)?.logit ?? Number.NaN;
 
-const skillOrder = (run: RunResult, world: World, ids?: readonly string[]): number => {
-  const judges = world.judges.filter((j) => !ids || ids.includes(j.id));
-  return spearman(
-    judges.map((j) => j.skill),
-    judges.map((j) => logitOf(run, j.id)),
+const skillOrder = (run: RunResult, world: World): number =>
+  spearman(
+    world.judges.map((j) => j.skill),
+    world.judges.map((j) => logitOf(run, j.id)),
   );
-};
 
 /** Spearman of weight against skill on the given month's weights. */
 const skillOrderAt = (run: RunResult, world: World, month: number): number =>
@@ -96,6 +102,47 @@ const skillOrderAt = (run: RunResult, world: World, month: number): number =>
     world.judges.map((j) => j.skill),
     world.judges.map((j) => run.monthly.get(j.id)?.[month - 1] ?? Number.NaN),
   );
+
+/** Judges whose weight sits near the soft-cap ceiling (tanh(Σ/T) ≥ 0.9). */
+export const atCeiling = (run: RunResult, p: Params): number =>
+  run.judges.filter((j) => nearCeiling(j.logit, p)).length;
+
+/** Largest difference between two runs in any judge's monthly weight. */
+const maxWeightGap = (a: RunResult, b: RunResult): number => {
+  let gap = 0;
+  for (const [id, ws] of a.monthly) {
+    const other = b.monthly.get(id) ?? [];
+    ws.forEach((w, i) => {
+      gap = Math.max(gap, Math.abs(w - (other[i] ?? Number.NaN)));
+    });
+  }
+  return gap;
+};
+
+/**
+ * Largest difference between two runs in any referral's stored s0 or movement
+ * result d. ℓᴹ is left out: its stake reads ρ from a decision snapshot, which
+ * is history and never recomputed.
+ */
+const maxStoredGap = (a: RunResult, b: RunResult): number => {
+  const other = new Map(b.referrals.map((r) => [r.intent.id, r]));
+  let gap = 0;
+  for (const r of a.referrals) {
+    // A referral only one run has follows from a different council decision: history, not a snapshot.
+    const o = other.get(r.intent.id);
+    if (!o) continue;
+    gap = Math.max(
+      gap,
+      Math.abs((r.factors?.s0?.substance ?? 0) - (o.factors?.s0?.substance ?? 0)),
+    );
+    r.settlements.forEach((s, k) => {
+      const t = o.settlements[k];
+      if ((s === null) !== (t === null)) gap = Number.POSITIVE_INFINITY;
+      else if (s && t) gap = Math.max(gap, Math.abs(s.d - t.d));
+    });
+  }
+  return gap;
+};
 
 // --- judge archetypes ------------------------------------------------------------
 
@@ -119,17 +166,21 @@ const BASE: Omit<WorldConfig, "name" | "judges" | "council"> = {
   days: 36 * 30,
   candidates: 150,
   arrivalDays: 24 * 30,
+  arrivalStart: 0,
   pEvidence: 0.6,
   slowShare: 0,
   councilNoise: 0.4,
   decidersPerDecision: 2,
   coachBoost: 0,
   flagRate: 0,
+  malice: null,
+  extraCommittee: [],
+  relations: [],
   withholdUntil: null,
   ood: null,
 };
 
-/** S4's stated committee detection rate for exaggerated claims (§3.12). */
+/** S4's stated probability that an exaggerated claim gets a flag proposed (§3.12). */
 export const S4_FLAG_RATE = 0.6;
 
 const FAIR_COUNCIL = {
@@ -140,6 +191,14 @@ const FAIR_COUNCIL = {
   threshold: 1.2,
 } as const;
 
+const CREDENTIAL_COUNCIL = {
+  kind: "scored",
+  signal: 0.2,
+  substance: 0.3,
+  credentials: 1.2,
+  threshold: 0.6,
+} as const;
+
 const S1_JUDGES: JudgeArchetype[] = [0.95, 0.85, 0.75, 0.65, 0.55, 0.45, 0.35, 0.25].map(
   (skill, i) => honest(`j${i + 1}`, skill, { admin: i === 1 || i === 4 || i === 6 }),
 );
@@ -148,7 +207,7 @@ const S1_JUDGES: JudgeArchetype[] = [0.95, 0.85, 0.75, 0.65, 0.55, 0.45, 0.35, 0
 
 /**
  * S1 best case. 150 candidates arrive over 24 months, A ~ N(0.5, 0.12) and
- * g ~ N(0.02, 0.08) per year; output evidence in 60% of months, ingested
+ * g ~ N(0.02, 0.08) per year; output evidence in 60% of months, submitted
  * within two weeks. Credentials lag substance for fast risers and catch up
  * over ~18 months. Eight honest judges, skill 0.95 down to 0.25 (perception
  * noise 0.03–0.17 on level and slope), all looking 10–30 days after intake,
@@ -159,6 +218,7 @@ const S1: Scenario = {
   id: "S1",
   name: "Best case",
   config: () => ({ ...BASE, name: "S1", judges: S1_JUDGES, council: FAIR_COUNCIL }),
+  sweep: true,
   criteria: [
     {
       id: "S1.a",
@@ -168,6 +228,7 @@ const S1: Scenario = {
       measure: (run, world) => skillOrder(run, world),
       floor: 0.7,
       scale: 0.3,
+      kind: "check",
     },
     {
       id: "S1.b",
@@ -177,6 +238,7 @@ const S1: Scenario = {
       measure: (run, world) => skillOrderAt(run, world, 12),
       floor: 0.5,
       scale: 0.5,
+      kind: "check",
     },
   ],
 };
@@ -201,6 +263,7 @@ const S2: Scenario = {
     ],
     council: FAIR_COUNCIL,
   }),
+  sweep: true,
   criteria: [
     {
       id: "S2.a",
@@ -211,6 +274,7 @@ const S2: Scenario = {
         Math.min(...["j1", "j2", "j3"].map((id) => logitOf(run, id))) - logitOf(run, "cp"),
       floor: 0,
       scale: 0.5,
+      kind: "check",
     },
     {
       id: "S2.b",
@@ -220,18 +284,24 @@ const S2: Scenario = {
       measure: (run) => logitOf(run, "j3") - logitOf(run, "cp"),
       floor: 1e-9,
       scale: 0.5,
+      kind: "check",
     },
   ],
 };
 
 // --- S3 --------------------------------------------------------------------------
 
+const S3_HONEST = ["spot", "h1", "h2", "h3"];
+
 /**
  * S3 mixed. An early spotter (skill 0.9, looks on intake day), three ordinary
- * honest judges (0.6, 0.5, 0.4, looking 3–4 months after intake), a consensus-picker (0.2), a sprayer who refers everyone on intake
- * day at full strength saying "Not yet" (skill 0), and a noisy judge (0.1,
- * perception noise 0.4). Admins: h1, the consensus-picker and the noisy judge.
- * 30% of candidates' evidence reaches us 3–6 months late.
+ * honest judges (0.6, 0.5, 0.4, looking 3–4 months after intake), a
+ * consensus-picker (0.2), a sprayer who refers everyone on intake day at full
+ * strength saying "Not yet" (skill 0), a noisy judge (0.1, perception noise
+ * 0.4), and a one-hit judge (0.05): perception noise 0.4, plus one sure
+ * referral of the first candidate, who breaks out by 0.35 seven months after
+ * intake. Admins: h1, the consensus-picker and the noisy judge. 30% of
+ * candidates' evidence reaches us 3–6 months late.
  */
 const S3: Scenario = {
   id: "S3",
@@ -260,9 +330,17 @@ const S3: Scenario = {
         slopeNoise: 0.4,
         admin: true,
       },
+      {
+        ...honest("lucky", 0.05),
+        role: "one-hit",
+        levelNoise: 0.4,
+        slopeNoise: 0.4,
+        luckyHit: true,
+      },
     ],
     council: FAIR_COUNCIL,
   }),
+  sweep: true,
   criteria: [
     {
       id: "S3.a",
@@ -272,6 +350,7 @@ const S3: Scenario = {
       measure: (run, world) => skillOrder(run, world),
       floor: 0.6,
       scale: 0.4,
+      kind: "check",
     },
     {
       id: "S3.b",
@@ -281,6 +360,7 @@ const S3: Scenario = {
       measure: (run, _w, p) => logit(p.mu0) - logitOf(run, "spray"),
       floor: 0,
       scale: 0.5,
+      kind: "check",
     },
     {
       id: "S3.c",
@@ -288,10 +368,20 @@ const S3: Scenario = {
       threshold: "mean of min logit(honest) − logit(spray) ≥ 0",
       aggregate: "mean",
       measure: (run) =>
-        Math.min(...["spot", "h1", "h2", "h3"].map((id) => logitOf(run, id))) -
-        logitOf(run, "spray"),
+        Math.min(...S3_HONEST.map((id) => logitOf(run, id))) - logitOf(run, "spray"),
       floor: 0,
       scale: 0.5,
+      kind: "check",
+    },
+    {
+      id: "S3.d",
+      claim: "The one-hit judge ends below the consistent spotter",
+      threshold: "mean logit(spot) − logit(lucky) ≥ 0",
+      aggregate: "mean",
+      measure: (run) => logitOf(run, "spot") - logitOf(run, "lucky"),
+      floor: 0,
+      scale: 0.5,
+      kind: "check",
     },
   ],
 };
@@ -307,43 +397,53 @@ const S4_GAMERS = ["col1", "col2"];
  * col1 picks with poor perception (noise 0.25) at a low bar and also refers
  * its friends (8% of candidates) on intake day; col2 refers whatever col1
  * refers one day later. Both always answer "Not yet" at full strength. Every
- * candidate they refer is coached: output claims dated after the referral
- * are exaggerated by 0.06, and the committee flags each exaggerated claim
- * with probability S4_FLAG_RATE about two months after it appears (§3.12).
- * Their friends withhold their two best pre-intake outputs until 8 months
- * after intake. The council leans on credentials (1.2) over substance (0.3),
- * so pre-credential candidates are often denied.
+ * candidate they refer is coached: output claims dated after the referral are
+ * exaggerated by 0.06, and a flag is proposed on each with probability
+ * S4_FLAG_RATE two months after it appears; it takes effect only once a
+ * second conflict-free member approves it a month later (§3.12). Their
+ * friends withhold their two best pre-intake outputs until 8 months after
+ * intake. The council leans on credentials (1.2) over substance (0.3).
  */
+const s4Config = (): WorldConfig => ({
+  ...BASE,
+  name: "S4",
+  coachBoost: 0.06,
+  flagRate: S4_FLAG_RATE,
+  withholdUntil: 240,
+  judges: [
+    honest("sp1", 0.9, { role: "honest spotter", lagDays: 0 }),
+    honest("sp2", 0.8, { role: "honest spotter", lagDays: 0 }),
+    honest("sp3", 0.7, { role: "honest spotter", lagDays: 0, admin: true }),
+    honest("h1", 0.5, { lagDays: 60, admin: true }),
+    honest("h2", 0.4, { lagDays: 60, admin: true }),
+    {
+      ...honest("col1", 0.1),
+      role: "colluder (leader)",
+      levelNoise: 0.25,
+      slopeNoise: 0.25,
+      pickZ: 0.8,
+      lagDays: 0,
+      honesty: 0,
+      coaches: true,
+      friendsShare: 0.08,
+    },
+    { ...honest("col2", 0.1), role: "colluder (follower)", follows: "col1", coaches: true },
+  ],
+  council: CREDENTIAL_COUNCIL,
+});
+
+/** S4.d's counterfactual: every judge answers "Not yet" on every referral. */
+const everyoneNotYet = (c: WorldConfig): WorldConfig => ({
+  ...c,
+  judges: c.judges.map((j) => ({ ...j, honesty: 0 })),
+});
+
 const S4: Scenario = {
   id: "S4",
   name: "Adversarial",
-  config: () => ({
-    ...BASE,
-    name: "S4",
-    coachBoost: 0.06,
-    flagRate: S4_FLAG_RATE,
-    withholdUntil: 240,
-    judges: [
-      honest("sp1", 0.9, { role: "honest spotter", lagDays: 0 }),
-      honest("sp2", 0.8, { role: "honest spotter", lagDays: 0 }),
-      honest("sp3", 0.7, { role: "honest spotter", lagDays: 0, admin: true }),
-      honest("h1", 0.5, { lagDays: 60, admin: true }),
-      honest("h2", 0.4, { lagDays: 60, admin: true }),
-      {
-        ...honest("col1", 0.1),
-        role: "colluder (leader)",
-        levelNoise: 0.25,
-        slopeNoise: 0.25,
-        pickZ: 0.8,
-        lagDays: 0,
-        honesty: 0,
-        coaches: true,
-        friendsShare: 0.08,
-      },
-      { ...honest("col2", 0.1), role: "colluder (follower)", follows: "col1", coaches: true },
-    ],
-    council: { kind: "scored", signal: 0.2, substance: 0.3, credentials: 1.2, threshold: 0.6 },
-  }),
+  config: s4Config,
+  counterfactual: everyoneNotYet,
+  sweep: true,
   criteria: [
     {
       id: "S4.a",
@@ -355,6 +455,7 @@ const S4: Scenario = {
         Math.max(...S4_GAMERS.map((id) => logitOf(run, id))),
       floor: 0,
       scale: 0.5,
+      kind: "check",
     },
     {
       id: "S4.b",
@@ -363,34 +464,157 @@ const S4: Scenario = {
       aggregate: "worst",
       measure: (run) => {
         const created = run.referrals
-          .map((r) => r.settle12)
+          .flatMap((r) => r.settlements)
           .filter((s) => s !== null && s.dOnTime !== null)
           .map((s) => (s?.d ?? 0) - (s?.dOnTime ?? 0));
         return created.length === 0 ? Number.NaN : -Math.max(...created);
       },
       floor: -1e-9,
       scale: 0.05,
-      binary: true,
+      kind: "binary",
     },
     {
       id: "S4.c",
       claim: "Denied-but-rose judges still gain at settlement",
-      threshold: "worst over denied, d > 0 referrals of κ_m(end)·ℓᴹ − applied ℓᴬ > 0",
+      threshold: "worst over denied, latest d > 0 referrals of κ_m(end)·ℓᴹ − applied ℓᴬ > 0",
       aggregate: "worst",
       measure: (run) => {
         const gains = run.referrals
-          .filter(
-            (r) => r.admission?.decision === "deny" && (r.settle24?.d ?? r.settle12?.d ?? 0) > 0,
-          )
+          .filter((r) => r.admission?.decision === "deny" && (latestSettlement(r)?.d ?? 0) > 0)
           .map((r) => {
-            const ell = r.settle24?.ell ?? r.settle12?.ell ?? 0;
-            const removed = r.factors?.contrarian ? 0 : (r.admission?.ell ?? 0);
-            return run.kappaM * ell - removed;
+            const removed = r.factors?.preCredential ? 0 : (r.admission?.ell ?? 0);
+            return run.kappaM * (latestSettlement(r)?.ell ?? 0) - removed;
           });
         return gains.length === 0 ? Number.NaN : Math.min(...gains);
       },
       floor: 1e-9,
       scale: 0.1,
+      kind: "check",
+    },
+    {
+      id: "S4.d",
+      claim: 'Everyone answering "Not yet" gains nothing over honest answers',
+      threshold: 'mean over judges of logit(honest) − logit(all "Not yet") ≥ 0',
+      aggregate: "mean",
+      measure: (run, world, _p, cf) =>
+        cf === null
+          ? Number.NaN
+          : world.judges.reduce((s, j) => s + logitOf(run, j.id) - logitOf(cf, j.id), 0) /
+            world.judges.length,
+      floor: 0,
+      scale: 0.25,
+      kind: "check",
+    },
+    {
+      id: "S4.d+",
+      claim: 'Largest single-judge gain from everyone answering "Not yet" (reported)',
+      threshold: 'max over judges of logit(all "Not yet") − logit(honest)',
+      aggregate: "mean",
+      measure: (run, world, _p, cf) =>
+        cf === null
+          ? Number.NaN
+          : Math.max(...world.judges.map((j) => logitOf(cf, j.id) - logitOf(run, j.id))),
+      floor: 0,
+      scale: 1,
+      kind: "report",
+    },
+  ],
+};
+
+// --- S4.e ------------------------------------------------------------------------
+
+/**
+ * S4.e a malicious committee member. S4's world with two extra committee
+ * members, `mal` and `acc`. `mal` proposes a flag lowering by 0.15 the best
+ * claim each honest spotter's candidate made in the year after the referral.
+ * Three variants: alone (no second approval), with `acc` approving and an
+ * honest pair reversing each flag 90 days later, and with `acc` approving and
+ * nothing reversed. Each is compared with the same world without `mal`.
+ */
+const s4Malice = (
+  name: string,
+  accomplice: string | null,
+  reverseAfter: number | null,
+): (() => WorldConfig) => {
+  return () => ({
+    ...s4Config(),
+    name,
+    extraCommittee: ["acc", "mal"],
+    malice: { member: "mal", accomplice, targets: S4_SPOTTERS, amount: 0.15, reverseAfter },
+  });
+};
+const withoutMalice = (c: WorldConfig): WorldConfig => ({ ...c, malice: null });
+
+const S4E_SOLO: Scenario = {
+  id: "S4e1",
+  name: "Malicious flagger alone",
+  config: s4Malice("S4e1", null, null),
+  counterfactual: withoutMalice,
+  sweep: false,
+  criteria: [
+    {
+      id: "S4.e1",
+      claim: "A single malicious flagger has no effect without a second approval",
+      threshold: "worst max |Δw| against the world without them = 0",
+      aggregate: "worst",
+      measure: (run, _w, _p, cf) => (cf === null ? Number.NaN : -maxWeightGap(run, cf)),
+      floor: 0,
+      scale: 0.05,
+      kind: "binary",
+    },
+  ],
+};
+
+const S4E_REVERSED: Scenario = {
+  id: "S4e2",
+  name: "Malicious pair, reversed",
+  config: s4Malice("S4e2", "acc", 90),
+  counterfactual: withoutMalice,
+  sweep: false,
+  criteria: [
+    {
+      id: "S4.e2",
+      claim: "An approved-then-reversed flag leaves no trace in snapshots or movement results",
+      threshold: "worst max |Δ| in any stored s0 or d = 0",
+      aggregate: "worst",
+      measure: (run, _w, _p, cf) => (cf === null ? Number.NaN : -maxStoredGap(run, cf)),
+      floor: -1e-12,
+      scale: 0.05,
+      kind: "binary",
+    },
+    {
+      id: "S4.e2w",
+      claim: "…nor in any judge's weight",
+      threshold: "worst max |Δw| against the world without them = 0",
+      aggregate: "worst",
+      measure: (run, _w, _p, cf) => (cf === null ? Number.NaN : -maxWeightGap(run, cf)),
+      floor: -1e-12,
+      scale: 0.05,
+      kind: "binary",
+    },
+  ],
+};
+
+const S4E_PAIR: Scenario = {
+  id: "S4e3",
+  name: "Malicious pair, unreversed",
+  config: s4Malice("S4e3", "acc", null),
+  counterfactual: withoutMalice,
+  sweep: false,
+  criteria: [
+    {
+      id: "S4.e3",
+      claim: "Effect of an unreversed malicious pair on the targeted spotters (reported)",
+      threshold: "mean logit change of the three targeted spotters",
+      aggregate: "mean",
+      measure: (run, _w, _p, cf) =>
+        cf === null
+          ? Number.NaN
+          : S4_SPOTTERS.reduce((s, id) => s + logitOf(run, id) - logitOf(cf, id), 0) /
+            S4_SPOTTERS.length,
+      floor: 0,
+      scale: 1,
+      kind: "report",
     },
   ],
 };
@@ -439,6 +663,7 @@ const S5: Scenario = {
     ],
     council: { kind: "scored", signal: 1, substance: 0, credentials: 0, threshold: 2.5 },
   }),
+  sweep: true,
   criteria: [
     {
       id: "S5.a",
@@ -454,15 +679,17 @@ const S5: Scenario = {
         ),
       floor: 1e-12,
       scale: 0.3,
+      kind: "binary",
     },
     {
       id: "S5.b",
-      claim: "No single event exceeds the per-event bound",
+      claim: "No single event exceeds its per-event bound",
       threshold: "worst over every event kind of (bound(kind) − max |Δ logit w|) ≥ 0",
       aggregate: "worst",
       measure: (run, _w, p) => boundSlack(run, p),
       floor: 0,
       scale: 0.5,
+      kind: "binary",
     },
     {
       id: "S5.c",
@@ -472,6 +699,7 @@ const S5: Scenario = {
       measure: (run) => 0.6 - Math.max(...run.judges.map((j) => j.w)),
       floor: 0,
       scale: 0.1,
+      kind: "check",
     },
     {
       id: "S5.d",
@@ -482,6 +710,7 @@ const S5: Scenario = {
         0.1 - run.judges.reduce((s, j) => s + Math.abs(j.w - p.mu0), 0) / run.judges.length,
       floor: 0,
       scale: 0.05,
+      kind: "check",
     },
     {
       id: "S5.e",
@@ -491,6 +720,7 @@ const S5: Scenario = {
       measure: (run) => -run.gateLeak,
       floor: 0,
       scale: 0.1,
+      kind: "binary",
     },
   ],
 };
@@ -499,6 +729,20 @@ const S5: Scenario = {
 
 const S6_BACKERS = ["ood1", "ood2"];
 const S6_CONSENSUS = ["cp1", "cp2"];
+
+const S6_JUDGES: JudgeArchetype[] = [
+  honest("ood1", 0.8, { role: "out-of-distribution backer", lagDays: 0, seesBreakouts: true }),
+  honest("ood2", 0.7, {
+    role: "out-of-distribution backer",
+    lagDays: 0,
+    seesBreakouts: true,
+    admin: true,
+  }),
+  honest("h1", 0.6, { admin: true }),
+  honest("h2", 0.5),
+  { ...honest("cp1", 0.6), role: "consensus-picker", skill: 0.2, consensus: 0.9, admin: true },
+  { ...honest("cp2", 0.6), role: "consensus-picker", skill: 0.2, consensus: 0.9 },
+];
 
 /**
  * S6 out of distribution. 150 candidates arrive over the first 12 months;
@@ -509,8 +753,7 @@ const S6_CONSENSUS = ["cp1", "cp2"];
  * committee check; the rest is public and reaches the standard check. Two
  * judges have firsthand knowledge and see a breakout coming within three
  * years (0.8, 0.7); two honest judges (0.6, 0.5); two consensus-pickers
- * (0.2). Admins: h1, cp1, ood2. The council leans on credentials (1.2) over
- * substance (0.3), so it denies the out-of-distribution candidates.
+ * (0.2). Admins: h1, cp1, ood2. The council leans on credentials.
  */
 const S6: Scenario = {
   id: "S6",
@@ -519,22 +762,18 @@ const S6: Scenario = {
     ...BASE,
     name: "S6",
     arrivalDays: 12 * 30,
-    ood: { share: 0.15, pSubmitted: 0.05, breakoutFrom: 540, breakoutTo: 1080, pDeep: 0.4 },
-    judges: [
-      honest("ood1", 0.8, { role: "out-of-distribution backer", lagDays: 0, seesBreakouts: true }),
-      honest("ood2", 0.7, {
-        role: "out-of-distribution backer",
-        lagDays: 0,
-        seesBreakouts: true,
-        admin: true,
-      }),
-      honest("h1", 0.6, { admin: true }),
-      honest("h2", 0.5),
-      { ...honest("cp1", 0.6), role: "consensus-picker", skill: 0.2, consensus: 0.9, admin: true },
-      { ...honest("cp2", 0.6), role: "consensus-picker", skill: 0.2, consensus: 0.9 },
-    ],
-    council: { kind: "scored", signal: 0.2, substance: 0.3, credentials: 1.2, threshold: 0.6 },
+    ood: {
+      share: 0.15,
+      pSubmitted: 0.05,
+      breakoutFrom: 540,
+      breakoutTo: 1080,
+      pDeep: 0.4,
+      realised: true,
+    },
+    judges: S6_JUDGES,
+    council: CREDENTIAL_COUNCIL,
   }),
+  sweep: true,
   criteria: [
     {
       id: "S6.a",
@@ -546,6 +785,7 @@ const S6: Scenario = {
         Math.max(...S6_CONSENSUS.map((id) => logitOf(run, id))),
       floor: 0,
       scale: 0.5,
+      kind: "check",
     },
     {
       id: "S6.b",
@@ -556,39 +796,75 @@ const S6: Scenario = {
         Math.min(...S6_BACKERS.flatMap((id) => run.monthly.get(id) ?? [])) - p.mu0,
       floor: -0.02,
       scale: 0.05,
-      binary: true,
-    },
-    {
-      id: "S6.c",
-      claim: "The regret report finds most denied-then-rose cases within its budget",
-      threshold:
-        "mean share of denied candidates whose breakout landed a quarter before the end that the watch found ≥ 0.5",
-      aggregate: "mean",
-      measure: (run, world, p) => {
-        const referred = new Set(run.referrals.map((r) => r.intent.candidate));
-        const admitted = new Set(
-          run.referrals
-            .filter((r) => r.admission?.decision === "admit")
-            .map((r) => r.intent.candidate),
-        );
-        const truth = world.candidates.filter(
-          (c) =>
-            referred.has(c.id) &&
-            !admitted.has(c.id) &&
-            c.breakout !== null &&
-            c.breakout.day <= world.days - p.quarter,
-        );
-        if (truth.length === 0) return Number.NaN;
-        const found = new Set(run.watch.regret);
-        return truth.filter((c) => found.has(c.id)).length / truth.length;
-      },
-      floor: 0.5,
-      scale: 0.25,
+      kind: "binary",
     },
   ],
 };
 
-export const SCENARIOS: readonly Scenario[] = [S1, S2, S3, S4, S5, S6];
+/**
+ * S6 late breakouts, tested separately. A historical cohort of 260 candidates
+ * joined over the 40 months before the judges did, so 36-month fits exist; 40
+ * more arrive in the club's first six months and are the only ones referred.
+ * 30% are out of distribution, as in S6, but every breakout lands 25–36 months
+ * after intake. The run lasts 44 months so their 36-month settlements land.
+ * The counterfactual keeps the breakouts latent (the backers still foresee
+ * them and refer the same people) but out of every claim.
+ */
+const S6L: Scenario = {
+  id: "S6L",
+  name: "Late breakouts",
+  config: () => ({
+    ...BASE,
+    name: "S6L",
+    days: 44 * 30,
+    candidates: 300,
+    arrivalStart: -1200,
+    arrivalDays: 1380,
+    ood: {
+      share: 0.3,
+      pSubmitted: 0.05,
+      breakoutFrom: 750,
+      breakoutTo: 1080,
+      pDeep: 0.4,
+      realised: true,
+    },
+    judges: S6_JUDGES,
+    council: CREDENTIAL_COUNCIL,
+  }),
+  counterfactual: (c) => ({
+    ...c,
+    ood: c.ood ? { ...c.ood, realised: false } : null,
+  }),
+  sweep: true,
+  criteria: [
+    {
+      id: "S6.d",
+      claim: "Breakouts in months 25–36 improve their backers' weights on their own",
+      threshold: "mean of min over backers of logit(with) − logit(without) > 0",
+      aggregate: "mean",
+      measure: (run, _w, _p, cf) =>
+        cf === null
+          ? Number.NaN
+          : Math.min(...S6_BACKERS.map((id) => logitOf(run, id) - logitOf(cf, id))),
+      floor: 1e-9,
+      scale: 0.25,
+      kind: "check",
+    },
+  ],
+};
+
+export const SCENARIOS: readonly Scenario[] = [
+  S1,
+  S2,
+  S3,
+  S4,
+  S4E_SOLO,
+  S4E_REVERSED,
+  S4E_PAIR,
+  S5,
+  S6,
+  S6L,
+];
 
 /** S6 with the anti-cohort watch switched off (B = 0), reported beside S6. */
 export const S6_WATCH_OFF: Scenario = {
@@ -596,7 +872,69 @@ export const S6_WATCH_OFF: Scenario = {
   id: "S6-off",
   name: "Out of distribution, watch off",
   params: { B: 0 },
+  sweep: false,
 };
+
+// --- the watch as a learning tool (§3.11) ------------------------------------------
+
+export interface WatchMetrics {
+  checks: number;
+  found: number;
+  /** Misses found per check, prioritised half ÷ random half; NaN when the random half found none. */
+  lift: number;
+  checksPerMiss: number;
+  /** Share of each judge's ever-eligible candidates checked at least once, by final-weight half. */
+  coverageTop: number;
+  coverageBottom: number;
+}
+
+/** Pooled over replicates: lift and checks per miss need counts, not per-run ratios. */
+export function watchMetrics(runs: readonly RunResult[]): WatchMetrics {
+  let checksP = 0;
+  let foundP = 0;
+  let checksR = 0;
+  let foundR = 0;
+  const top: number[] = [];
+  const bottom: number[] = [];
+  for (const run of runs) {
+    for (const c of run.watch.checks) {
+      const rose = c.finding === "rose" ? 1 : 0;
+      if (c.half === "priority") {
+        checksP++;
+        foundP += rose;
+      } else {
+        checksR++;
+        foundR += rose;
+      }
+    }
+    const checked = new Set(run.watch.checks.map((c) => c.candidate));
+    const coverage = new Map<string, { eligible: number; checked: number }>();
+    for (const [candidate, referrers] of run.watch.eligible) {
+      for (const j of referrers) {
+        const entry = coverage.get(j) ?? { eligible: 0, checked: 0 };
+        entry.eligible++;
+        if (checked.has(candidate)) entry.checked++;
+        coverage.set(j, entry);
+      }
+    }
+    const ranked = [...run.judges].sort((a, b) => b.logit - a.logit);
+    ranked.forEach((j, i) => {
+      const entry = coverage.get(j.id);
+      if (!entry || entry.eligible === 0) return;
+      (i < ranked.length / 2 ? top : bottom).push(entry.checked / entry.eligible);
+    });
+  }
+  const mean = (xs: number[]) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : NaN);
+  const found = foundP + foundR;
+  return {
+    checks: checksP + checksR,
+    found,
+    lift: foundR === 0 || checksP === 0 ? Number.NaN : foundP / checksP / (foundR / checksR),
+    checksPerMiss: found === 0 ? Number.NaN : (checksP + checksR) / found,
+    coverageTop: mean(top),
+    coverageBottom: mean(bottom),
+  };
+}
 
 // --- evaluation -------------------------------------------------------------------
 
@@ -616,25 +954,34 @@ export interface ScenarioResult {
 
 export type WorldCache = Map<string, World>;
 
+function cachedWorld(config: WorldConfig, seed: number, cache: WorldCache): World {
+  const key = `${JSON.stringify(config)}#${seed}`;
+  let world = cache.get(key);
+  if (!world) {
+    world = generateWorld(config, seed);
+    cache.set(key, world);
+  }
+  return world;
+}
+
 export function evaluateScenario(
   scenario: Scenario,
   p: Params,
   seeds: readonly number[],
   cache: WorldCache = new Map(),
 ): ScenarioResult {
+  const params = { ...p, ...scenario.params };
   const runs = seeds.map((seed) => {
-    const config = scenario.config(p);
-    const key = `${JSON.stringify(config)}#${seed}`;
-    let world = cache.get(key);
-    if (!world) {
-      world = generateWorld(config, seed);
-      cache.set(key, world);
-    }
-    return { world, run: simulate(world, { ...p, ...scenario.params }) };
+    const config = scenario.config(params);
+    const world = cachedWorld(config, seed, cache);
+    const cf = scenario.counterfactual
+      ? simulate(cachedWorld(scenario.counterfactual(config), seed, cache), params)
+      : null;
+    return { world, run: simulate(world, params), cf };
   });
   const results = scenario.criteria.map((criterion) => {
     const values = runs
-      .map(({ world, run }) => criterion.measure(run, world, p))
+      .map(({ world, run, cf }) => criterion.measure(run, world, params, cf))
       .filter((v) => !Number.isNaN(v));
     const metric =
       values.length === 0
@@ -642,11 +989,12 @@ export function evaluateScenario(
         : criterion.aggregate === "mean"
           ? values.reduce((s, v) => s + v, 0) / values.length
           : Math.min(...values);
-    const pass = !Number.isNaN(metric) && metric >= criterion.floor;
+    const pass =
+      criterion.kind === "report" || (!Number.isNaN(metric) && metric >= criterion.floor);
     const margin = Number.isNaN(metric)
       ? Number.NEGATIVE_INFINITY
       : (metric - criterion.floor) / criterion.scale;
     return { criterion, metric, pass, margin };
   });
-  return { scenario, results, runs };
+  return { scenario, results, runs: runs.map(({ world, run }) => ({ world, run })) };
 }

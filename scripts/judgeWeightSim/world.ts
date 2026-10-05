@@ -62,6 +62,25 @@ export type Council =
     }
   | { kind: "scripted"; decisions: ReadonlyMap<string, Decision> };
 
+/**
+ * A committee flag as it happens in the world (§3.12). Honest flags target
+ * exaggerated claims and get their proposer and approver from the committee
+ * rotation at run time, both conflict-free. Malicious flags come from a named
+ * member and are approved only by a named accomplice, if any.
+ */
+export interface FlagIntent {
+  id: string;
+  item: string;
+  candidate: string;
+  amount: number;
+  proposedAt: number;
+  honest: boolean;
+  proposer: string | null;
+  accomplice: string | null;
+  /** Reversed by an honest pair this many days after approval, if ever. */
+  reverseAfter: number | null;
+}
+
 export interface World {
   name: string;
   days: number;
@@ -77,6 +96,9 @@ export interface World {
   reversals: { candidate: string; day: number; decision: Decision }[];
   /** Organising committee members (§3.11) and each one's prediction noise. */
   committee: ReadonlyMap<string, number>;
+  /** Declared relationships between committee members and judges (§3.11 conflicts). */
+  relations: readonly (readonly [string, string])[];
+  flags: FlagIntent[];
   /** Population level used for the council's z-scores and committee predictions. */
   population: { meanA: number; sdA: number; meanG: number };
 }
@@ -115,6 +137,8 @@ export interface JudgeArchetype {
   friendsShare?: number;
   /** Firsthand knowledge: perceives an out-of-distribution breakout coming within 3 years. */
   seesBreakouts?: boolean;
+  /** S3.d: refers one candidate who breaks out, and otherwise refers on noise. */
+  luckyHit?: boolean;
 }
 
 export interface OodConfig {
@@ -127,14 +151,28 @@ export interface OodConfig {
   breakoutTo: number;
   /** Share of post-breakout evidence only a committee check finds; the rest is public. */
   pDeep: number;
+  /** False keeps the breakouts latent (judges still foresee them) but out of every claim. */
+  realised: boolean;
+}
+
+/** S4.e: a malicious committee member flags honest claims on candidates the target judges referred. */
+export interface MaliceConfig {
+  member: string;
+  /** A second member who approves the malicious flags; null leaves them unapproved. */
+  accomplice: string | null;
+  targets: string[];
+  amount: number;
+  reverseAfter: number | null;
 }
 
 export interface WorldConfig {
   name: string;
   days: number;
-  /** Candidate arrivals, spread uniformly over the first `arrivalDays` days. */
+  /** Candidate arrivals, spread uniformly over `arrivalDays` days from `arrivalStart`. */
   candidates: number;
   arrivalDays: number;
+  /** Negative for a historical cohort that joined before the club's judges did. */
+  arrivalStart: number;
   /** Monthly probability a candidate produces a dated output item. */
   pEvidence: number;
   /** Share of candidates whose evidence reaches us 3–6 months late. */
@@ -147,8 +185,12 @@ export interface WorldConfig {
   decidersPerDecision: number;
   /** Exaggeration added to coached output claims. */
   coachBoost: number;
-  /** Probability a committee flags an exaggerated claim, about two months after it appears. */
+  /** Probability a committee member proposes a flag on an exaggerated claim, two months after it appears. */
   flagRate: number;
+  malice: MaliceConfig | null;
+  /** Committee members who are not judges. */
+  extraCommittee: string[];
+  relations: [string, string][];
   /** Friends of coaching judges hold back their two best pre-intake outputs until intake + this. */
   withholdUntil: number | null;
   ood: OodConfig | null;
@@ -160,6 +202,8 @@ const PERCEIVED_MEAN = POP.meanA + POP.meanG;
 const ITEM_NOISE = 0.05;
 const HISTORY_DAYS = 720;
 const FLAG_LAG = 60;
+/** S3.d's breakout candidate: the first arrival, so its rise settles inside 36 months. */
+const LUCKY_CANDIDATE = "c0";
 
 const uniform = (rng: Rng, lo: number, hi: number): number => lo + (hi - lo) * rng();
 
@@ -252,11 +296,12 @@ function drawItems(rng: Rng, c: Latent, cfg: WorldConfig): EvidenceItem[] {
     channel,
     value,
     inflation: 0,
-    flaggedAt: null,
   });
+  const latentOnly = ood !== null && !ood.realised && c.breakout !== null;
   for (let month = start; month < cfg.days; month += MONTH) {
     const dated = Math.round(month + uniform(rng, 0, MONTH - 1));
-    const value = trueLevel(c, dated) + ITEM_NOISE * gaussian(rng);
+    const level = latentOnly ? trueLevel({ ...c, breakout: null }, dated) : trueLevel(c, dated);
+    const value = level + ITEM_NOISE * gaussian(rng);
     if (!ood) {
       if (rng() < cfg.pEvidence) items.push(item("output", dated, value, "submitted"));
       continue;
@@ -290,7 +335,7 @@ function judgeIntent(
   friend: boolean,
 ): Omit<ReferralIntent, "id"> | null {
   const base = { judge: j.id, candidate: c.id };
-  if (j.spray || friend) {
+  if (j.spray || friend || (j.luckyHit && c.id === LUCKY_CANDIDATE)) {
     return { ...base, day: c.intakeDay, strength: 1, answer: "not_yet" };
   }
   const day = Math.round(c.intakeDay + j.lagDays + uniform(rng, 0, 20));
@@ -317,8 +362,15 @@ export function generateWorld(cfg: WorldConfig, seed: number): World {
   const rng = mulberry32(seed);
   const latents: Latent[] = [];
   for (let i = 0; i < cfg.candidates; i++) {
-    const day = Math.floor((i * cfg.arrivalDays) / cfg.candidates + uniform(rng, 0, MONTH));
+    const day =
+      cfg.arrivalStart +
+      Math.floor((i * cfg.arrivalDays) / cfg.candidates + uniform(rng, 0, MONTH));
     latents.push(drawLatent(rng, `c${latents.length}`, day, cfg));
+  }
+  const lucky = latents.find((c) => c.id === LUCKY_CANDIDATE);
+  if (lucky && cfg.judges.some((j) => j.luckyHit)) {
+    lucky.credential = "neither";
+    lucky.breakout = { day: lucky.intakeDay + 200, jump: 0.35 };
   }
 
   const intents: ReferralIntent[] = [];
@@ -347,17 +399,25 @@ export function generateWorld(cfg: WorldConfig, seed: number): World {
     intents.push(...own);
   }
 
+  const flags: FlagIntent[] = [];
   const candidates: CandidateSpec[] = latents.map((c) => {
     const coachDay = coachedFrom.get(c.id);
     const onTime = drawItems(rng, c, cfg).map((item) => {
       if (coachDay === undefined || item.kind !== "output" || item.datedAt <= coachDay) return item;
-      const flagged = rng() < cfg.flagRate;
-      return {
-        ...item,
-        value: item.value + cfg.coachBoost,
-        inflation: cfg.coachBoost,
-        flaggedAt: flagged ? item.availableAt + FLAG_LAG : null,
-      };
+      if (rng() < cfg.flagRate) {
+        flags.push({
+          id: `flag:${item.id}`,
+          item: item.id,
+          candidate: c.id,
+          amount: cfg.coachBoost,
+          proposedAt: item.availableAt + FLAG_LAG,
+          honest: true,
+          proposer: null,
+          accomplice: null,
+          reverseAfter: null,
+        });
+      }
+      return { ...item, value: item.value + cfg.coachBoost, inflation: cfg.coachBoost };
     });
     let items = onTime;
     if (withholders.has(c.id) && cfg.withholdUntil !== null) {
@@ -392,7 +452,39 @@ export function generateWorld(cfg: WorldConfig, seed: number): World {
       scripted.set(c.id, rng() < cfg.council.admitRate ? "admit" : "deny");
     }
   }
-  const committee = new Map(admins.map((id) => [id, uniform(rng, 0.02, 0.1)]));
+  const committee = new Map(
+    [...admins, ...cfg.extraCommittee].map((id) => [id, uniform(rng, 0.02, 0.1)]),
+  );
+
+  // Malicious flags: the target judges' candidates lose their best claim dated
+  // in the year after the referral, which is what their 12-month settlement reads.
+  const malice = cfg.malice;
+  if (malice) {
+    const byId = new Map(candidates.map((c) => [c.id, c]));
+    const hit = new Set<string>();
+    for (const r of intents) {
+      if (!malice.targets.includes(r.judge) || hit.has(r.candidate)) continue;
+      const best = (byId.get(r.candidate)?.items ?? [])
+        .filter((i) => i.kind === "output" && i.datedAt > r.day + 30 && i.datedAt <= r.day + 365)
+        .sort((x, y) => y.value - x.value || (x.id < y.id ? -1 : 1))[0];
+      if (!best) continue;
+      // A flag that is to be reversed is only planted if its reversal lands inside the run.
+      const reversal = best.availableAt + 30 + MONTH + (malice.reverseAfter ?? 0);
+      if (malice.reverseAfter !== null && reversal >= cfg.days) continue;
+      hit.add(r.candidate);
+      flags.push({
+        id: `malice:${best.id}`,
+        item: best.id,
+        candidate: r.candidate,
+        amount: malice.amount,
+        proposedAt: best.availableAt + 30,
+        honest: false,
+        proposer: malice.member,
+        accomplice: malice.accomplice,
+        reverseAfter: malice.reverseAfter,
+      });
+    }
+  }
 
   return {
     name: cfg.name,
@@ -413,6 +505,8 @@ export function generateWorld(cfg: WorldConfig, seed: number): World {
     deciders,
     reversals: [],
     committee,
+    relations: cfg.relations,
+    flags: flags.sort((x, y) => x.proposedAt - y.proposedAt || (x.id < y.id ? -1 : 1)),
     population: { meanA: POP.meanA, sdA: POP.sdA, meanG: POP.meanG },
   };
 }

@@ -1,14 +1,16 @@
 /**
- * Runs one world through the r8 pipeline, one dated event at a time:
- * referrals, council decisions, fit releases, snapshots and their
- * corrections, admission credit and escrow, V2 accuracy, 12- and 24-month
- * settlement, and the quarterly anti-cohort watch. Every weight change
- * happens inside exactly one event, so the per-event bound is measured per
- * event kind, not assumed.
+ * Runs one world through the r9 pipeline, one dated event at a time:
+ * referrals, council decisions, quarterly fit releases, snapshots and their
+ * corrections, admission credit and escrow, V2 accuracy, settlement at 12
+ * months (and 24 and 36 for pre-credential referrals), committee flags with
+ * two-person approval and reversal, and the quarterly anti-cohort watch.
+ * Every weight change happens inside exactly one event, so the per-event
+ * bound is measured per event kind, not assumed.
  */
 
 import { mulberry32 } from "../../src/seed/prng.ts";
 import {
+  type ActiveFlag,
   admissionCredit,
   type BoundedEvent,
   checkpointWindow,
@@ -19,7 +21,7 @@ import {
   type FitPoint,
   fitLine,
   fitNorm,
-  isContrarian,
+  isPreCredential,
   type JudgeTerms,
   judgeLabel,
   type Line,
@@ -41,7 +43,14 @@ import {
   takeSnapshot,
   weights,
 } from "./model.ts";
-import { type CandidateSpec, MONTH, type ReferralIntent, trueLevel, type World } from "./world.ts";
+import {
+  type CandidateSpec,
+  type FlagIntent,
+  MONTH,
+  type ReferralIntent,
+  trueLevel,
+  type World,
+} from "./world.ts";
 
 type EventKind =
   | "refer"
@@ -53,39 +62,50 @@ type EventKind =
   | "factors"
   | "correct"
   | "accuracy"
-  | "settle12"
-  | "settle24";
+  | "settle"
+  | "resettle"
+  | "propose"
+  | "approve"
+  | "unflag";
 
 /** Same-day events run in this order; every kind is listed once. */
 const ORDER: readonly EventKind[] = [
   "refer",
   "decide",
   "reverse",
+  "propose",
+  "approve",
+  "unflag",
   "release",
   "watch",
   "intake_s12",
   "factors",
   "correct",
   "accuracy",
-  "settle12",
-  "settle24",
+  "settle",
+  "resettle",
 ];
 
-/** Which §6 per-event bound each weight-moving event kind answers to. */
-export const BOUND_OF: Partial<Record<EventKind, BoundedEvent>> = {
+/** Which §6 per-event bound each weight-moving event kind answers to; the watch must move nothing. */
+export const BOUND_OF: Partial<Record<EventKind, BoundedEvent | "none">> = {
   factors: "admission",
   correct: "correct",
   accuracy: "accuracy",
-  settle12: "settle12",
-  settle24: "settle24",
+  settle: "settle",
+  resettle: "resettle",
   intake_s12: "ramp",
-  watch: "release",
+  approve: "flag",
+  unflag: "flag",
+  propose: "none",
+  watch: "none",
 };
 
 interface SimEvent {
   kind: EventKind;
   day: number;
   key: string;
+  /** Checkpoint index for settlements; the decision for reversals. */
+  horizon?: number;
   decision?: Decision;
 }
 
@@ -98,48 +118,49 @@ interface DecisionRecord {
   parts: ReadonlyMap<string, number>;
 }
 
-/** A frozen fit release (§3.6): every stored result records the one it used. */
+/** A frozen fit release (§3.6): its points, so a settling candidate can be left out entirely. */
 export interface FitVersion {
   version: number;
   releasedAt: number;
-  f: Line;
-  e12: MovementNorm;
-  e24: MovementNorm;
+  f: FitPoint[];
+  /** Movement points per checkpoint: x = s0, y = s_k − s0. */
+  e: FitPoint[][];
   /** Starting scores the fits saw: the reference for V2's level truth. */
   starts: number[];
+  cache: Map<string, MovementNorm | Line>;
 }
 
 export interface Factors {
   s0: Snapshot | null;
+  /** The correction time s0 was last read as of. */
+  s0AsOf: number;
   fVersion: number;
   gap: number;
   position: number;
   q: number;
-  contrarian: boolean;
+  preCredential: boolean;
   recused: boolean;
 }
 
-export type EscrowState = "none" | "applied" | "escrowed" | "released" | "settled";
+export type AdmissionState = "none" | "applied" | "escrowed" | "settled";
 
 export interface AdmissionResult {
   decision: Decision | null;
   rho: number;
   /** ℓᴬ as computed; whether it counts depends on `state`. */
   ell: number;
-  /** "none": unscored. "applied": counts now. "escrowed": held. "released": cleared by the watch. */
-  state: EscrowState;
+  state: AdmissionState;
 }
 
 export interface SettlementResult {
   storedAt: number;
+  correctedAsOf: number;
   d: number;
   /** d had withheld evidence been submitted on time, under the same frozen version. */
   dOnTime: number | null;
   stake: number;
   ell: number;
   version: number;
-  /** κ_m on the settlement day. */
-  kappaM: number;
 }
 
 export interface ReferralRecord {
@@ -147,8 +168,8 @@ export interface ReferralRecord {
   afterDecision: boolean;
   factors: Factors | null;
   admission: AdmissionResult | null;
-  settle12: SettlementResult | null;
-  settle24: SettlementResult | null;
+  /** One slot per checkpoint (12, 24, 36 months); the latest filled one is the movement term. */
+  settlements: (SettlementResult | null)[];
   corrections: number;
 }
 
@@ -158,8 +179,17 @@ export interface CheckRecord {
   day: number;
   candidate: string;
   checker: string;
+  half: "priority" | "random";
   prediction: Finding;
   finding: Finding;
+}
+
+export interface FlagRecord {
+  intent: FlagIntent;
+  proposer: string | null;
+  approver: string | null;
+  approvedAt: number | null;
+  reversedAt: number | null;
 }
 
 export interface RunResult {
@@ -182,12 +212,15 @@ export interface RunResult {
   K: number;
   kappaM: number;
   versions: FitVersion[];
+  flags: FlagRecord[];
   watch: {
     checks: CheckRecord[];
-    /** The regret report: denied or stalled candidates a check found risen. */
+    /** Candidates a check found risen: the regret report. */
     regret: string[];
-    /** Each candidate's decidedBy and referrers, for the recusal check. */
-    recusedFrom: Map<string, Set<string>>;
+    /** Candidates that were ever eligible, with their referrers. */
+    eligible: Map<string, string[]>;
+    /** Who each candidate conflicts with: referrers, deciders, and members related to a referrer. */
+    conflicts: Map<string, Set<string>>;
   };
 }
 
@@ -197,11 +230,15 @@ const decisionOf = (history: DecisionRecord[] | undefined, day: number): Decisio
   return standing;
 };
 
-/** Deterministic per-check noise: no shared random stream, so check order can't change it. */
-function checkNoise(key: string): number {
+/** A deterministic stream per key, so no shared random state can change with event order. */
+function streamFor(key: string): () => number {
   let h = 0x811c9dc5;
   for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 0x01000193) >>> 0;
-  const rng = mulberry32(h);
+  return mulberry32(h);
+}
+
+function gaussianFor(key: string): number {
+  const rng = streamFor(key);
   const u = Math.max(rng(), 1e-12);
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rng());
 }
@@ -215,14 +252,19 @@ export function simulate(world: World, p: Params): RunResult {
   const decisions = new Map<string, DecisionRecord[]>();
   const pendingDecision = new Set<string>();
   const versions: FitVersion[] = [];
-  const startsAtK: number[] = [];
+  /** Candidates counted in K, with the starting score each had when it entered. */
+  const settledAtK: { id: string; day: number; s0: number }[] = [];
   let K = 0;
   let spread = 0;
   let gateOpenedDay: number | null = null;
-  const watchState = new Map<string, { since: number; flats: number; done: boolean }>();
+  const book = new Map<string, ActiveFlag[]>();
+  const flagRecords = new Map<string, FlagRecord>();
+  const watchSince = new Map<string, number>();
+  const watchDone = new Set<string>();
   const checks: CheckRecord[] = [];
   const regret: string[] = [];
-  const recusedFrom = new Map<string, Set<string>>();
+  const eligibleEver = new Map<string, string[]>();
+  const conflicts = new Map<string, Set<string>>();
   const committee = [...world.committee.keys()].sort();
   let rotation = 0;
 
@@ -233,18 +275,22 @@ export function simulate(world: World, p: Params): RunResult {
     if (list) list.push(e);
     else queue.set(e.day, [e]);
   };
+  const H12 = p.horizons[0] as number;
   for (const c of world.candidates) {
-    schedule({ kind: "intake_s12", day: c.intakeDay + p.horizon12 + p.S, key: c.id });
+    // A historical cohort's intake snapshots already exist on day 0.
+    schedule({ kind: "intake_s12", day: Math.max(0, c.intakeDay + H12 + p.S), key: c.id });
   }
   for (const r of world.intents) schedule({ kind: "refer", day: r.day, key: r.id });
   for (const r of world.reversals) {
     schedule({ kind: "reverse", day: r.day, key: r.candidate, decision: r.decision });
   }
+  for (const f of world.flags) schedule({ kind: "propose", day: f.proposedAt, key: f.id });
   for (let day = p.quarter; day < world.days; day += p.quarter) {
     schedule({ kind: "release", day, key: "fits" });
     schedule({ kind: "watch", day, key: "watch" });
   }
   const intentsById = new Map(world.intents.map((r) => [r.id, r]));
+  const flagsById = new Map(world.flags.map((f) => [f.id, f]));
 
   const kappaM = (): number => movementScale(K, spread, p);
   const termsOf = (judge: string): JudgeTerms => terms.get(judge) as JudgeTerms;
@@ -252,29 +298,72 @@ export function simulate(world: World, p: Params): RunResult {
   const bump = (judge: string): void => {
     signals.set(judge, (signals.get(judge) ?? 0) + 1);
   };
-  const EMPTY_VERSION: FitVersion = {
-    version: 0,
-    releasedAt: 0,
-    f: { a: 0, b: 0 },
-    e12: fitNorm([], p),
-    e24: fitNorm([], p),
-    starts: [],
-  };
-  const latest = (day: number): FitVersion => {
+  const latest = (day: number): FitVersion | null => {
     for (let i = versions.length - 1; i >= 0; i--) {
       if ((versions[i] as FitVersion).releasedAt < day) return versions[i] as FitVersion;
     }
-    return EMPTY_VERSION;
+    return null;
   };
-  const versionById = (id: number): FitVersion => versions[id - 1] ?? EMPTY_VERSION;
+  const versionById = (id: number): FitVersion | null => versions[id - 1] ?? null;
+  const snapshot = (c: CandidateSpec, w: Parameters<typeof takeSnapshot>[1]) =>
+    takeSnapshot(c.items, w, p, book);
   const visible = (c: CandidateSpec, day: number, scope: "standard" | "all" = "standard") =>
-    takeSnapshot(c.items, { evidenceCutoff: day, asOf: day, scope }, p);
+    snapshot(c, { evidenceCutoff: day, asOf: day, scope });
+  const intakeS0 = (c: CandidateSpec, asOf: number) => snapshot(c, s0Window(c.intakeDay, p, asOf));
+
+  /** §3.6: fits exclude the settling candidate entirely, including its intake pair. */
+  function normFor(v: FitVersion | null, horizon: number, leaveOut: string): MovementNorm {
+    if (!v) return fitNorm([], p);
+    const key = `e${horizon}:${leaveOut}`;
+    const hit = v.cache.get(key);
+    if (hit) return hit as MovementNorm;
+    const norm = fitNorm(
+      (v.e[horizon] ?? []).filter((pt) => pt.id !== leaveOut),
+      p,
+    );
+    v.cache.set(key, norm);
+    return norm;
+  }
+  function fFor(v: FitVersion | null, leaveOut: string): Line {
+    if (!v) return { a: 0, b: 0 };
+    const key = `f:${leaveOut}`;
+    const hit = v.cache.get(key);
+    if (hit) return hit as Line;
+    const line = fitLine(v.f.filter((pt) => pt.id !== leaveOut));
+    v.cache.set(key, line);
+    return line;
+  }
+
+  function buildVersion(version: number, day: number): FitVersion {
+    const f: FitPoint[] = [];
+    const e: FitPoint[][] = p.horizons.map(() => []);
+    for (const c of world.candidates) {
+      if (c.intakeDay + p.G + p.S > day) continue;
+      const s0 = intakeS0(c, day);
+      f.push({ id: c.id, x: s0.selection, y: s0.substance });
+      p.horizons.forEach((horizon, k) => {
+        if (c.intakeDay + horizon + p.S > day) return;
+        const sk = snapshot(c, checkpointWindow(c.intakeDay, horizon, p, day));
+        e[k]?.push({ id: c.id, x: s0.substance, y: sk.substance - s0.substance });
+      });
+    }
+    return { version, releasedAt: day, f, e, starts: f.map((pt) => pt.y), cache: new Map() };
+  }
+
+  /** After a flag reversal, re-read every counted starting score without the erased flag. */
+  function recomputeSpread(): void {
+    for (const entry of settledAtK) {
+      entry.s0 = intakeS0(candidates.get(entry.id) as CandidateSpec, entry.day).substance;
+    }
+    spread = stdev(settledAtK.map((entry) => entry.s0));
+  }
 
   /** A referral's current terms: applied admission credit and its latest movement result. */
-  const contribution = (r: ReferralRecord): { a: number; m: number } => ({
-    a: r.admission?.state === "applied" ? r.admission.ell : 0,
-    m: r.settle24?.ell ?? r.settle12?.ell ?? 0,
-  });
+  const contribution = (r: ReferralRecord): { a: number; m: number } => {
+    let m = 0;
+    for (const s of r.settlements) if (s) m = s.ell;
+    return { a: r.admission?.state === "applied" ? r.admission.ell : 0, m };
+  };
   /** Mutate a referral and move its judge's sums by exactly the change in its terms. */
   const update = (r: ReferralRecord, change: () => void): void => {
     const before = contribution(r);
@@ -285,42 +374,47 @@ export function simulate(world: World, p: Params): RunResult {
     t.sumM += after.m - before.m;
   };
 
-  function settle(r: ReferralRecord, horizon: number, day: number): SettlementResult | null {
+  function settle(
+    r: ReferralRecord,
+    k: number,
+    version: FitVersion | null,
+    storedAt: number,
+    correctedAsOf: number,
+  ): SettlementResult | null {
     const f = r.factors;
     const admission = r.admission;
     if (!f?.s0 || !admission) return null;
     const c = candidates.get(r.intent.candidate) as CandidateSpec;
     const t = r.intent.day;
-    const prior = horizon === p.horizon12 ? r.settle12 : r.settle24;
-    const version = prior ? versionById(prior.version) : latest(day);
-    const norm = horizon === p.horizon12 ? version.e12 : version.e24;
-    const sk = takeSnapshot(c.items, checkpointWindow(t, horizon, p, day), p).substance;
-    const d = movementBeyondNormal(f.s0.substance, sk, norm, p.h);
+    const horizon = p.horizons[k] as number;
+    const norm = normFor(version, k, c.id);
+    const sk = snapshot(c, checkpointWindow(t, horizon, p, correctedAsOf)).substance;
+    const d = movementBeyondNormal(f.s0.substance, sk, norm, p);
     let dOnTime: number | null = null;
     if (c.onTimeItems) {
-      const s0 = takeSnapshot(c.onTimeItems, s0Window(t, p), p).substance;
-      const skOnTime = takeSnapshot(c.onTimeItems, checkpointWindow(t, horizon, p), p).substance;
-      dOnTime = movementBeyondNormal(s0, skOnTime, norm, p.h);
+      const s0 = takeSnapshot(c.onTimeItems, s0Window(t, p), p, book).substance;
+      const skOnTime = takeSnapshot(c.onTimeItems, checkpointWindow(t, horizon, p), p, book);
+      dOnTime = movementBeyondNormal(s0, skOnTime.substance, norm, p);
     }
     const admitted = admission.decision === "admit" && !f.recused;
     const stake = f.recused ? 1 : settlementStake(admitted, admission.rho, p);
     return {
-      storedAt: prior?.storedAt ?? day,
+      storedAt,
+      correctedAsOf,
       d,
       dOnTime,
       stake,
       ell: movementCredit(f.q, stake, d, p),
-      version: version.version,
-      kappaM: prior?.kappaM ?? kappaM(),
+      version: version?.version ?? 0,
     };
   }
 
   /** §3.2–§3.3 factors and admission credit, from s0 as of `asOf` and a fixed f version. */
-  function fixFactors(r: ReferralRecord, asOf: number, fVersion: FitVersion): void {
+  function fixFactors(r: ReferralRecord, asOf: number, fVersion: FitVersion | null): void {
     const { judge, candidate, day } = r.intent;
     const c = candidates.get(candidate) as CandidateSpec;
     const hasIntake = c.intakeDay <= day + p.G + p.S;
-    const s0 = hasIntake ? takeSnapshot(c.items, s0Window(day, p, asOf), p) : null;
+    const s0 = hasIntake ? snapshot(c, s0Window(day, p, asOf)) : null;
     const standingOf = (x: ReferralRecord) =>
       decisionOf(decisions.get(candidate), x.intent.day + p.D);
     const recusedOf = (x: ReferralRecord) =>
@@ -340,10 +434,19 @@ export function simulate(world: World, p: Params): RunResult {
         })),
     );
     const position = positions.get(r.intent.id) ?? 1;
-    const gap = s0 ? s0.substance - evalLine(fVersion.f, s0.selection) : 0;
+    const gap = s0 ? s0.substance - evalLine(fFor(fVersion, candidate), s0.selection) : 0;
     const q = referralWeight(position, gap, r.intent.answer, p);
-    const contrarian = isContrarian(r.intent.answer, gap, p);
-    r.factors = { s0, fVersion: fVersion.version, gap, position, q, contrarian, recused };
+    const preCredential = isPreCredential(gap, p);
+    r.factors = {
+      s0,
+      s0AsOf: asOf,
+      fVersion: fVersion?.version ?? 0,
+      gap,
+      position,
+      q,
+      preCredential,
+      recused,
+    };
 
     const scored = standing !== null && !recused && !r.afterDecision && s0 !== null;
     if (!scored) {
@@ -353,11 +456,58 @@ export function simulate(world: World, p: Params): RunResult {
     const part = standing.parts.get(judge) ?? 0;
     const rho = reliance(standing.decision, standing.signal, standing.signal - part);
     const ell = admissionCredit(q, standing.decision, rho, p);
-    const previous = r.admission?.state;
-    const held = standing.decision === "deny" && contrarian;
-    const state: EscrowState =
-      previous === "settled" || previous === "released" ? previous : held ? "escrowed" : "applied";
-    r.admission = { decision: standing.decision, rho, ell, state };
+    const settled = r.settlements.some((s) => s !== null);
+    const held = standing.decision === "deny" && preCredential;
+    r.admission = {
+      decision: standing.decision,
+      rho,
+      ell,
+      state: settled ? "settled" : held ? "escrowed" : "applied",
+    };
+  }
+
+  const scheduledLater = new Set<string>();
+  /** Pre-credential referrals settle again at 24 and 36 months; scheduled whenever the status appears. */
+  function scheduleLater(r: ReferralRecord, now: number): void {
+    if (!r.factors?.preCredential) return;
+    p.horizons.forEach((horizon, k) => {
+      if (k === 0 || r.settlements[k] !== null || scheduledLater.has(`${r.intent.id}#${k}`)) return;
+      scheduledLater.add(`${r.intent.id}#${k}`);
+      const day = Math.max(r.intent.day + horizon + p.S, now);
+      schedule({ kind: "resettle", day, key: r.intent.id, horizon: k });
+    });
+  }
+
+  /** A logged correction: re-read s0 and re-settle under each result's own stored version. */
+  function correct(r: ReferralRecord, asOf: number, settleAsOf: (s: SettlementResult) => number) {
+    if (!r.factors) return;
+    const fVersion = versionById(r.factors.fVersion);
+    update(r, () => {
+      fixFactors(r, asOf, fVersion);
+      r.settlements = r.settlements.map((s, k) =>
+        s ? settle(r, k, versionById(s.version), s.storedAt, settleAsOf(s)) : null,
+      );
+    });
+  }
+
+  function conflicted(member: string, candidate: string): boolean {
+    if (conflicts.get(candidate)?.has(member)) return true;
+    const referrers = (byCandidate.get(candidate) ?? []).map((r) => r.intent.judge);
+    return world.relations.some(
+      ([a, b]) =>
+        (a === member && referrers.includes(b)) || (b === member && referrers.includes(a)),
+    );
+  }
+  /** The next conflict-free committee member on the rotation, other than `not`. */
+  function nextMember(candidate: string, not: string | null): string | null {
+    for (let i = 0; i < committee.length; i++) {
+      const member = committee[(rotation + i) % committee.length] as string;
+      if (member !== not && !conflicted(member, candidate)) {
+        rotation = (rotation + i + 1) % committee.length;
+        return member;
+      }
+    }
+    return null;
   }
 
   const handlers: Record<EventKind, (e: SimEvent) => void> = {
@@ -370,24 +520,23 @@ export function simulate(world: World, p: Params): RunResult {
         afterDecision: standing !== null,
         factors: null,
         admission: null,
-        settle12: null,
-        settle24: null,
+        settlements: p.horizons.map(() => null),
         corrections: 0,
       };
       referrals.set(intent.id, record);
       const list = byCandidate.get(intent.candidate);
       if (list) list.push(record);
       else byCandidate.set(intent.candidate, [record]);
-      const from = recusedFrom.get(intent.candidate) ?? new Set<string>();
+      const from = conflicts.get(intent.candidate) ?? new Set<string>();
       from.add(intent.judge);
-      recusedFrom.set(intent.candidate, from);
+      conflicts.set(intent.candidate, from);
       if (!decisions.has(intent.candidate) && !pendingDecision.has(intent.candidate)) {
         pendingDecision.add(intent.candidate);
         schedule({ kind: "decide", day: e.day + world.decisionLag, key: intent.candidate });
       }
       schedule({ kind: "factors", day: e.day + Math.max(p.D, p.G + p.S), key: intent.id });
       schedule({ kind: "accuracy", day: e.day + p.observationWindow, key: intent.id });
-      schedule({ kind: "settle12", day: e.day + p.horizon12 + p.S, key: intent.id });
+      schedule({ kind: "settle", day: e.day + H12 + p.S, key: intent.id, horizon: 0 });
     },
 
     decide(e) {
@@ -416,9 +565,9 @@ export function simulate(world: World, p: Params): RunResult {
       }
       const decidedBy = world.deciders.get(e.key) ?? [];
       decisions.set(e.key, [{ day: e.day, decision, decidedBy, signal, parts }]);
-      const from = recusedFrom.get(e.key) ?? new Set<string>();
+      const from = conflicts.get(e.key) ?? new Set<string>();
       for (const id of decidedBy) from.add(id);
-      recusedFrom.set(e.key, from);
+      conflicts.set(e.key, from);
     },
 
     reverse(e) {
@@ -428,118 +577,144 @@ export function simulate(world: World, p: Params): RunResult {
       history.push({ ...last, day: e.day, decision: e.decision });
     },
 
-    release(e) {
-      const f: FitPoint[] = [];
-      const e12: FitPoint[] = [];
-      const e24: FitPoint[] = [];
-      for (const c of world.candidates) {
-        if (c.intakeDay + p.G + p.S > e.day) continue;
-        const s0 = takeSnapshot(c.items, s0Window(c.intakeDay, p, e.day), p);
-        f.push({ x: s0.selection, y: s0.substance });
-        for (const [horizon, points] of [
-          [p.horizon12, e12],
-          [p.horizon24, e24],
-        ] as const) {
-          if (c.intakeDay + horizon + p.S > e.day) continue;
-          const sk = takeSnapshot(c.items, checkpointWindow(c.intakeDay, horizon, p, e.day), p);
-          points.push({ x: s0.substance, y: sk.substance - s0.substance });
-        }
+    propose(e) {
+      const intent = flagsById.get(e.key) as FlagIntent;
+      const proposer = intent.honest ? nextMember(intent.candidate, null) : intent.proposer;
+      const record: FlagRecord = {
+        intent,
+        proposer,
+        approver: null,
+        approvedAt: null,
+        reversedAt: null,
+      };
+      flagRecords.set(intent.id, record);
+      if (proposer === null) return;
+      // Two-person approval: an honest flag needs a second conflict-free member;
+      // a malicious one is confirmed only by its accomplice, who must also be conflict-free.
+      const approver = intent.honest
+        ? nextMember(intent.candidate, proposer)
+        : intent.accomplice !== null && !conflicted(intent.accomplice, intent.candidate)
+          ? intent.accomplice
+          : null;
+      if (approver === null) return;
+      record.approver = approver;
+      schedule({ kind: "approve", day: e.day + MONTH, key: intent.id });
+    },
+
+    approve(e) {
+      const record = flagRecords.get(e.key) as FlagRecord;
+      record.approvedAt = e.day;
+      const active = { id: record.intent.id, amount: record.intent.amount, approvedAt: e.day };
+      book.set(record.intent.item, [...(book.get(record.intent.item) ?? []), active]);
+      if (record.intent.reverseAfter !== null) {
+        schedule({ kind: "unflag", day: e.day + record.intent.reverseAfter, key: e.key });
       }
-      versions.push({
-        version: versions.length + 1,
-        releasedAt: e.day,
-        f: fitLine(f),
-        e12: fitNorm(e12, p),
-        e24: fitNorm(e24, p),
-        starts: f.map((pt) => pt.y),
-      });
+    },
+
+    unflag(e) {
+      // A logged correction (§3.12): erase the flag from history, rebuild every
+      // fit released since it took effect, and recompute every snapshot and
+      // settlement that could have read it.
+      const record = flagRecords.get(e.key) as FlagRecord;
+      record.reversedAt = e.day;
+      const remaining = (book.get(record.intent.item) ?? []).filter(
+        (f) => f.id !== record.intent.id,
+      );
+      if (remaining.length > 0) book.set(record.intent.item, remaining);
+      else book.delete(record.intent.item);
+      for (let i = 0; i < versions.length; i++) {
+        const v = versions[i] as FitVersion;
+        if (v.releasedAt >= (record.approvedAt ?? 0))
+          versions[i] = buildVersion(v.version, v.releasedAt);
+      }
+      recomputeSpread();
+      for (const r of referrals.values()) {
+        if (!r.factors) continue;
+        correct(r, r.factors.s0AsOf, (s) => s.correctedAsOf);
+      }
+    },
+
+    release(e) {
+      versions.push(buildVersion(versions.length + 1, e.day));
     },
 
     watch(e) {
+      const eligible: string[] = [];
       for (const [candidate, list] of byCandidate) {
-        if (watchState.has(candidate)) continue;
-        const standing = decisionOf(decisions.get(candidate), e.day);
-        if (standing?.decision === "admit") continue;
-        const backed = list.some(
-          (r) =>
-            r.factors?.contrarian ||
-            (r.factors?.position === 1 &&
-              judgeLabel(signals.get(r.intent.judge) ?? 0, p) === "calibrated"),
+        if (watchDone.has(candidate)) continue;
+        if (decisionOf(decisions.get(candidate), e.day)?.decision === "admit") continue;
+        const since = watchSince.get(candidate) ?? e.day;
+        watchSince.set(candidate, since);
+        if (e.day - since > p.watchMaxDays) {
+          watchDone.add(candidate);
+          continue;
+        }
+        eligible.push(candidate);
+        eligibleEver.set(candidate, [...new Set(list.map((r) => r.intent.judge))]);
+      }
+      // Prioritised half by bet size Σ b·c (no judge weight); random half uniform.
+      const betSize = (candidate: string): number =>
+        (byCandidate.get(candidate) ?? []).reduce(
+          (sum, r) =>
+            sum + recognitionStake(r.intent.answer, p) * credentialStake(r.factors?.gap ?? 0, p),
+          0,
         );
-        if (backed) watchState.set(candidate, { since: e.day, flats: 0, done: false });
+      const prioritised = [...eligible].sort((x, y) => betSize(y) - betSize(x) || (x < y ? -1 : 1));
+      const rng = streamFor(`watch@${e.day}`);
+      const random = [...eligible];
+      for (let i = random.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [random[i], random[j]] = [random[j] as string, random[i] as string];
       }
-      const priority = (candidate: string): number =>
-        (byCandidate.get(candidate) ?? []).reduce((sum, r) => {
-          if (!r.factors) return sum;
-          const omega = weights(logitOf(r.intent.judge), p).omega;
-          return (
-            sum + omega * recognitionStake(r.intent.answer, p) * credentialStake(r.factors.gap, p)
-          );
-        }, 0);
-      const active = [...watchState.entries()]
-        .filter(([candidate, s]) => {
-          if (s.done) return false;
-          if (e.day - s.since > p.watchMaxDays) s.done = true;
-          return !s.done && decisionOf(decisions.get(candidate), e.day)?.decision !== "admit";
-        })
-        .map(([candidate]) => ({ candidate, priority: priority(candidate) }))
-        .sort((x, y) => y.priority - x.priority || (x.candidate < y.candidate ? -1 : 1));
+      const perJudge = new Map<string, number>();
+      const checked = new Set<string>();
       const version = latest(e.day + 1);
-      let used = 0;
-      for (const { candidate } of active) {
-        if (used >= p.B) break;
-        const recused = recusedFrom.get(candidate) ?? new Set<string>();
-        let checker: string | null = null;
-        for (let i = 0; i < committee.length; i++) {
-          const member = committee[(rotation + i) % committee.length] as string;
-          if (!recused.has(member)) {
-            checker = member;
-            rotation = (rotation + i + 1) % committee.length;
-            break;
+      const run = (order: string[], half: CheckRecord["half"], budget: number) => {
+        let used = 0;
+        for (const candidate of order) {
+          if (used >= budget) break;
+          if (checked.has(candidate)) continue;
+          const referrers = eligibleEver.get(candidate) ?? [];
+          if (referrers.some((j) => (perJudge.get(j) ?? 0) >= p.C)) continue;
+          const checker = nextMember(candidate, null);
+          if (checker === null) continue;
+          used++;
+          checked.add(candidate);
+          for (const j of referrers) perJudge.set(j, (perJudge.get(j) ?? 0) + 1);
+          const c = candidates.get(candidate) as CandidateSpec;
+          const years = (e.day - c.intakeDay) / 365;
+          const seen =
+            trueLevel(c, e.day) -
+            trueLevel(c, c.intakeDay) -
+            world.population.meanG * years +
+            (world.committee.get(checker) ?? 0) * gaussianFor(`${candidate}@${e.day}`);
+          const prediction: Finding = seen > 0.05 ? "rose" : seen < -0.05 ? "fell" : "flat";
+          // "Rose": above normal movement for the time elapsed since intake.
+          const s0 = intakeS0(c, e.day).substance;
+          const norm = normFor(version, 0, "");
+          const z =
+            (visible(c, e.day, "all").substance - s0 - evalLine(norm.line, s0) * years) /
+            norm.spread;
+          const finding: Finding = z > p.watchRiseZ ? "rose" : z < -p.watchRiseZ ? "fell" : "flat";
+          checks.push({ day: e.day, candidate, checker, half, prediction, finding });
+          if (finding === "rose") {
+            watchDone.add(candidate);
+            regret.push(candidate);
           }
         }
-        if (checker === null) continue;
-        used++;
-        const c = candidates.get(candidate) as CandidateSpec;
-        const years = (e.day - c.intakeDay) / 365;
-        const seen =
-          trueLevel(c, e.day) -
-          trueLevel(c, c.intakeDay) -
-          world.population.meanG * years +
-          (world.committee.get(checker) ?? 0) * checkNoise(`${candidate}@${e.day}`);
-        const prediction: Finding = seen > 0.05 ? "rose" : seen < -0.05 ? "fell" : "flat";
-        const start = (byCandidate.get(candidate) ?? []).find((r) => r.factors?.s0)?.factors?.s0;
-        const z = start
-          ? (visible(c, e.day, "all").substance -
-              start.substance -
-              evalLine(version.e12.line, start.substance) -
-              version.e12.median) /
-            version.e12.spread
-          : 0;
-        const finding: Finding = z > p.watchRiseZ ? "rose" : z < -p.watchRiseZ ? "fell" : "flat";
-        checks.push({ day: e.day, candidate, checker, prediction, finding });
-        const state = watchState.get(candidate) as { since: number; flats: number; done: boolean };
-        if (finding === "rose") {
-          state.done = true;
-          regret.push(candidate);
-          for (const r of byCandidate.get(candidate) ?? []) {
-            if (r.admission?.state !== "escrowed") continue;
-            update(r, () => {
-              if (r.admission) r.admission.state = "released";
-            });
-          }
-        } else {
-          state.flats = finding === "flat" ? state.flats + 1 : 0;
-          if (state.flats >= p.watchFlatExit) state.done = true;
-        }
-      }
+      };
+      // The random half is drawn first, from every eligible candidate, so it is an
+      // unbiased baseline; the prioritised half then takes the highest bets left.
+      const randomBudget = Math.floor(p.B / 2);
+      run(random, "random", randomBudget);
+      run(prioritised, "priority", p.B - randomBudget);
     },
 
     intake_s12(e) {
       const c = candidates.get(e.key) as CandidateSpec;
-      startsAtK.push(takeSnapshot(c.items, s0Window(c.intakeDay, p, e.day), p).substance);
-      K = startsAtK.length;
-      spread = stdev(startsAtK);
+      settledAtK.push({ id: e.key, day: e.day, s0: intakeS0(c, e.day).substance });
+      K = settledAtK.length;
+      spread = stdev(settledAtK.map((entry) => entry.s0));
       if (gateOpenedDay === null && kappaM() > 0) gateOpenedDay = e.day;
     },
 
@@ -557,27 +732,20 @@ export function simulate(world: World, p: Params): RunResult {
       for (const day of [...late].sort((x, y) => x - y)) {
         schedule({ kind: "correct", day: Math.max(day, e.day), key: r.intent.id });
       }
-      if (r.factors?.contrarian) {
-        schedule({ kind: "settle24", day: t + p.horizon24 + p.S, key: r.intent.id });
-      }
+      scheduleLater(r, e.day);
     },
 
     correct(e) {
       const r = referrals.get(e.key) as ReferralRecord;
-      if (!r.factors) return;
-      const fVersion = versionById(r.factors.fVersion);
-      update(r, () => {
-        fixFactors(r, e.day, fVersion);
-        if (r.settle12) r.settle12 = settle(r, p.horizon12, e.day);
-        if (r.settle24) r.settle24 = settle(r, p.horizon24, e.day);
-      });
+      correct(r, e.day, () => e.day);
       r.corrections++;
+      scheduleLater(r, e.day);
     },
 
     accuracy(e) {
       const record = referrals.get(e.key) as ReferralRecord;
       const c = candidates.get(record.intent.candidate) as CandidateSpec;
-      const starts = latest(e.day + 1).starts;
+      const starts = latest(e.day + 1)?.starts ?? [];
       if (starts.length === 0) return;
       // Level-only truth: the percentile of today's substance among the fits' starting scores.
       const seen = visible(c, e.day).substance;
@@ -589,27 +757,26 @@ export function simulate(world: World, p: Params): RunResult {
       bump(record.intent.judge);
     },
 
-    settle12(e) {
+    settle(e) {
       const r = referrals.get(e.key) as ReferralRecord;
-      const result = settle(r, p.horizon12, e.day);
+      const result = settle(r, 0, latest(e.day), e.day, e.day);
       if (!result) return;
       update(r, () => {
-        r.settle12 = result;
-        if (r.admission && (r.admission.state === "applied" || r.admission.state === "escrowed")) {
-          r.admission.state = "settled";
-        }
+        r.settlements[0] = result;
+        if (r.admission && r.admission.state !== "none") r.admission.state = "settled";
       });
       termsOf(r.intent.judge).nSettled++;
       bump(r.intent.judge);
     },
 
-    settle24(e) {
+    resettle(e) {
       const r = referrals.get(e.key) as ReferralRecord;
-      if (!r.settle12 || !r.factors?.contrarian) return;
-      const result = settle(r, p.horizon24, e.day);
+      const k = e.horizon ?? 1;
+      if (!r.settlements[0] || !r.factors?.preCredential) return;
+      const result = settle(r, k, latest(e.day), e.day, e.day);
       if (!result) return;
       update(r, () => {
-        r.settle24 = result;
+        r.settlements[k] = result;
       });
     },
   };
@@ -673,6 +840,11 @@ export function simulate(world: World, p: Params): RunResult {
     K,
     kappaM: kappaM(),
     versions,
-    watch: { checks, regret, recusedFrom },
+    flags: [...flagRecords.values()],
+    watch: { checks, regret, eligible: eligibleEver, conflicts },
   };
 }
+
+/** The latest filled settlement of a referral, if any. */
+export const latestSettlement = (r: ReferralRecord): SettlementResult | null =>
+  r.settlements.reduce<SettlementResult | null>((last, s) => s ?? last, null);

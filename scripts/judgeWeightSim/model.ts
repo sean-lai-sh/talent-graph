@@ -1,14 +1,16 @@
 /**
- * The r8 judge-weight maths (docs/issues/28-judge-band-crossing.md §3), as
+ * The r9 judge-weight maths (docs/issues/28-judge-band-crossing.md §3), as
  * pure functions over plain numbers. No engine types: substance and selection
  * are synthetic numbers on Jev's [0, 1]-ish scale, and time is in days.
  *
  * Every formula of §3.1–§3.8 lives here; `sim.ts` sequences them and runs the
- * anti-cohort watch (§3.11).
+ * anti-cohort watch (§3.11) and committee flags (§3.12).
  */
 
 export type Recognition = "not_yet" | "soon" | "yes" | "not_sure";
 export type Decision = "admit" | "deny";
+/** §3.6 the three credit curves the simulation compares. */
+export type Curve = "G1" | "G2" | "G3";
 
 export interface Params {
   /** §3.1 starting weight; chosen, not swept. */
@@ -22,7 +24,7 @@ export interface Params {
   /** §3.2 position schedule share(k) = max(φ, 1/k^α). */
   alpha: number;
   phi: number;
-  /** §3.2 credential gap c = clip(1 + β_g·gap, c_min, c_max); gap ≥ g0 makes a contrarian bet. */
+  /** §3.2 credential gap c = clip(1 + β_g·gap, c_min, c_max); gap ≥ g0 is pre-credential. */
   betaG: number;
   cMin: number;
   cMax: number;
@@ -35,13 +37,14 @@ export interface Params {
   D: number;
   G: number;
   S: number;
-  /** §3.5 checkpoints in days (12 and 24 months). */
-  horizon12: number;
-  horizon24: number;
-  /** §3.5 floor for thin starting (and later) scores. */
+  /** §3.4–§3.5 checkpoints in days: 12 months for every referral, 24 and 36 for pre-credential ones. */
+  horizons: readonly number[];
+  /** §3.5 floor for every snapshot. */
   sFloor: number;
-  /** §3.6 dead band in spread units. */
+  /** §3.6 credit curve, its softness h (spread units) and, for G3, its power p. */
+  curve: Curve;
   h: number;
+  p: number;
   /** §3.3 admission scale and cap. */
   kappaA: number;
   LA: number;
@@ -64,24 +67,22 @@ export interface Params {
   topN: number;
   /** §3.6 fit versions and §3.11 watch both run on this cadence (a quarter), in days. */
   quarter: number;
-  /** §3.11 checks per quarter. */
+  /** §3.11 checks per quarter, half prioritised and half random, and the per-judge cap. */
   B: number;
-  /** §3.11 a watch finding counts as "rose" past this many spreads above normal. */
+  C: number;
+  /** §3.11 a check finds "rose" past this many spreads above normal for the elapsed time. */
   watchRiseZ: number;
-  /** §3.11 days a candidate can stay on the watch. */
+  /** §3.11 days a candidate stays eligible. */
   watchMaxDays: number;
-  /** §3.11 flat checks in a row that take a candidate off the watch (r8: 2). */
-  watchFlatExit: number;
   /**
-   * §3.6 what the dead band is centred on. "median" is r8. "neutral" is not in
-   * the spec: the centre at which the fitted residuals' d averages exactly 0,
-   * used only to attribute the drift the median leaves on skewed movement.
+   * Open decision 4: when > 0, a judge's movement sum is scaled by
+   * min(1, V / n_settled), so volume past V stops adding. 0 is the spec as written.
    */
-  centre: "median" | "neutral";
+  volumeV: number;
 }
 
-/** μ0, γ are the spec's; the rest are r8's "e.g." values or the r7 harness's chosen ones. */
-export const R8_DEFAULTS: Params = {
+/** μ0, γ, λ_f are the spec's; the rest are r9's "e.g." values or earlier harness choices. */
+export const R9_DEFAULTS: Params = {
   mu0: 0.3,
   gamma: 2,
   T: 3,
@@ -97,13 +98,14 @@ export const R8_DEFAULTS: Params = {
   D: 60,
   G: 30,
   S: 30,
-  horizon12: 365,
-  horizon24: 730,
-  sFloor: 0.2,
-  h: 0.3,
+  horizons: [365, 730, 1095],
+  sFloor: 0.3,
+  curve: "G2",
+  h: 0.5,
+  p: 1.5,
   kappaA: 0.25,
   LA: 0.75,
-  kappa: 0.5,
+  kappa: 0.3,
   LM: 3,
   M: 20,
   sigmaMin: 0.03,
@@ -116,10 +118,10 @@ export const R8_DEFAULTS: Params = {
   topN: 3,
   quarter: 90,
   B: 20,
+  C: 4,
   watchRiseZ: 1,
   watchMaxDays: 1080,
-  watchFlatExit: 2,
-  centre: "median",
+  volumeV: 0,
 };
 
 export const clip = (x: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, x));
@@ -185,10 +187,8 @@ export function referralWeight(k: number, gap: number, answer: Recognition, p: P
   return positionShare(k, p) * credentialStake(gap, p) * recognitionStake(answer, p);
 }
 
-/** §3.2: "Not yet" or "Soon", or substance ahead of credentials by g0. */
-export function isContrarian(answer: Recognition, gap: number, p: Params): boolean {
-  return answer === "not_yet" || answer === "soon" || gap >= p.g0;
-}
+/** §3.2: measured by Jev alone; the recognition answer never enters. */
+export const isPreCredential = (gap: number, p: Params): boolean => gap >= p.g0;
 
 // §3.3 admission ---------------------------------------------------------------
 
@@ -203,17 +203,28 @@ export function admissionCredit(q: number, decision: Decision, rho: number, p: P
   return clip(p.kappaA * q * a * (1 - rho), -p.LA, p.LA);
 }
 
-// §3.4 settlement --------------------------------------------------------------
+// §3.4 settlement and §3.6 the credit curve -------------------------------------
 
 export function settlementStake(admitted: boolean, rho: number, p: Params): number {
   return admitted ? 1 + (p.beta - 1) * rho : 1;
 }
 
-/** ψ(d) = sign(d)·ln(1 + |d|). */
-export const compress = (d: number): number => Math.sign(d) * Math.log1p(Math.abs(d));
+/** §3.6 g: G1 hard band then log; G2 smooth and proportional; G3 smooth and steep. */
+export function creditCurve(x: number, p: Params): number {
+  const x2 = x * x;
+  const fade = x2 + p.h * p.h > 0 ? x2 / (x2 + p.h * p.h) : 0;
+  switch (p.curve) {
+    case "G1":
+      return Math.sign(x) * Math.log1p(Math.max(Math.abs(x) - p.h, 0));
+    case "G2":
+      return x * fade;
+    case "G3":
+      return Math.sign(x) * fade * Math.abs(x) ** p.p;
+  }
+}
 
 export function movementCredit(q: number, stake: number, d: number, p: Params): number {
-  return clip(q * stake * compress(d), -p.LM, p.LM);
+  return clip(q * stake * d, -p.LM, p.LM);
 }
 
 // §3.5 snapshots ---------------------------------------------------------------
@@ -233,16 +244,26 @@ export interface EvidenceItem {
   channel: Channel;
   /** Claimed value, including any exaggeration. */
   value: number;
-  /** How much of `value` is exaggeration; a committee flag removes it. */
+  /** How much of `value` is exaggeration: the latent truth an honest flag removes. */
   inflation: number;
-  /** When a committee flag lands on this claim, if ever. */
-  flaggedAt: number | null;
 }
+
+/** An approved, unreversed committee flag (§3.12): lowers one claim by `amount` from `approvedAt`. */
+export interface ActiveFlag {
+  id: string;
+  amount: number;
+  approvedAt: number;
+}
+
+/** Every active flag on each claim; several on one claim lower it by the largest amount. */
+export type FlagBook = ReadonlyMap<string, readonly ActiveFlag[]>;
+export const NO_FLAGS: FlagBook = new Map();
 
 export interface SnapshotWindow {
   evidenceCutoff: number;
+  /** Compute time: availability cutoff, and the time flags are read as of. */
   asOf: number;
-  /** Pre-referral evidence (dated ≤ datedAtMost) is taken as of a later correction time. Flags stay as of `asOf`. */
+  /** Pre-referral evidence (dated ≤ datedAtMost) is taken as of a later correction time. */
   correction?: { datedAtMost: number; asOf: number };
   /** "standard": submissions and the standard check; "all" adds committee-found evidence. */
   scope: "standard" | "all";
@@ -258,20 +279,19 @@ export interface Snapshot {
   hash: string;
 }
 
-/**
- * s0, optionally as corrected on `correctedAsOf`: the correction only lets in
- * pre-referral evidence that arrived late. Flags are still read as of s0's own
- * compute time, so a correction never re-prices the rest of the snapshot.
- */
+const correctionFor = (t: number, p: Params, correctedAsOf: number | undefined, asOf: number) =>
+  correctedAsOf !== undefined && correctedAsOf > asOf
+    ? { correction: { datedAtMost: t + p.G, asOf: correctedAsOf } }
+    : {};
+
+/** s0, optionally as corrected on `correctedAsOf` (late pre-referral evidence only). */
 export function s0Window(t: number, p: Params, correctedAsOf?: number): SnapshotWindow {
   const asOf = t + p.G + p.S;
   return {
     evidenceCutoff: t + p.G,
     asOf,
     scope: "standard",
-    ...(correctedAsOf !== undefined && correctedAsOf > asOf
-      ? { correction: { datedAtMost: t + p.G, asOf: correctedAsOf } }
-      : {}),
+    ...correctionFor(t, p, correctedAsOf, asOf),
   };
 }
 
@@ -286,30 +306,41 @@ export function checkpointWindow(
     evidenceCutoff: t + horizon,
     asOf,
     scope: "standard",
-    ...(correctedAsOf !== undefined && correctedAsOf > asOf
-      ? { correction: { datedAtMost: t + p.G, asOf: correctedAsOf } }
-      : {}),
+    ...correctionFor(t, p, correctedAsOf, asOf),
   };
 }
 
-function topMean(values: number[], n: number): number | null {
-  if (values.length === 0) return null;
-  const top = values.sort((x, y) => y - x).slice(0, n);
-  return top.reduce((s, v) => s + v, 0) / top.length;
+/** The N largest values seen so far, kept in descending order without sorting the whole set. */
+class TopN {
+  readonly values: number[] = [];
+  count = 0;
+  constructor(private readonly n: number) {}
+  add(v: number): void {
+    this.count++;
+    const vs = this.values;
+    if (vs.length === this.n && v <= (vs[vs.length - 1] as number)) return;
+    let i = vs.length;
+    while (i > 0 && (vs[i - 1] as number) < v) i--;
+    vs.splice(i, 0, v);
+    if (vs.length > this.n) vs.pop();
+  }
+  mean(): number | null {
+    return this.values.length === 0
+      ? null
+      : this.values.reduce((s, v) => s + v, 0) / this.values.length;
+  }
 }
 
-/** FNV-1a over the included claim ids sorted by id, so arrival order cannot change it. */
-function hashIds(ids: string[]): string {
-  let h = 0x811c9dc5;
-  for (const id of [...ids].sort()) {
-    for (let i = 0; i < id.length; i++) {
-      h ^= id.charCodeAt(i);
-      h = Math.imul(h, 0x01000193) >>> 0;
-    }
-    h ^= 0x2c;
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h.toString(16).padStart(8, "0");
+const idHashes = new WeakMap<EvidenceItem, number>();
+/** FNV-1a of one claim id, cached per claim. */
+function idHash(item: EvidenceItem): number {
+  let h = idHashes.get(item);
+  if (h !== undefined) return h;
+  h = 0x811c9dc5;
+  for (let i = 0; i < item.id.length; i++) h = Math.imul(h ^ item.id.charCodeAt(i), 0x01000193);
+  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) >>> 0;
+  idHashes.set(item, h);
+  return h;
 }
 
 export function includedIn(item: EvidenceItem, w: SnapshotWindow): boolean {
@@ -324,26 +355,30 @@ export function takeSnapshot(
   items: readonly EvidenceItem[],
   w: SnapshotWindow,
   p: Params,
+  flags: FlagBook = NO_FLAGS,
 ): Snapshot {
-  const output: number[] = [];
-  const selection: number[] = [];
-  const ids: string[] = [];
+  const output = new TopN(p.topN);
+  const selection = new TopN(p.topN);
+  // A sum of per-claim hashes: the same included set gives the same hash in any order.
+  let hash = 0;
   for (const item of items) {
     if (!includedIn(item, w)) continue;
-    ids.push(item.id);
-    const flagged = item.flaggedAt !== null && item.flaggedAt <= w.asOf;
-    const value = flagged ? item.value - item.inflation : item.value;
-    (item.kind === "output" ? output : selection).push(value);
+    hash = (hash + idHash(item)) >>> 0;
+    let lowered = 0;
+    for (const flag of flags.get(item.id) ?? []) {
+      if (flag.approvedAt <= w.asOf) lowered = Math.max(lowered, flag.amount);
+    }
+    (item.kind === "output" ? output : selection).add(item.value - lowered);
   }
   return {
-    substance: Math.max(topMean(output, p.topN) ?? p.sFloor, p.sFloor),
-    thin: output.length < p.topN,
-    selection: topMean(selection, p.topN) ?? 0,
-    hash: hashIds(ids),
+    substance: Math.max(output.mean() ?? p.sFloor, p.sFloor),
+    thin: output.count < p.topN,
+    selection: selection.mean() ?? 0,
+    hash: hash.toString(16).padStart(8, "0"),
   };
 }
 
-// §3.6 frozen fit versions -----------------------------------------------------
+// §3.6 frozen fit versions with a neutral centre --------------------------------
 
 export interface Line {
   a: number;
@@ -351,6 +386,8 @@ export interface Line {
 }
 
 export interface FitPoint {
+  /** The candidate the point belongs to, so a settling candidate can be left out. */
+  id: string;
   x: number;
   y: number;
 }
@@ -377,37 +414,29 @@ export function fitLine(points: readonly FitPoint[]): Line {
 
 export const evalLine = (line: Line, x: number): number => line.a + line.b * x;
 
-export function median(values: readonly number[]): number {
-  if (values.length === 0) return 0;
-  const s = [...values].sort((x, y) => x - y);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 ? (s[mid] as number) : ((s[mid - 1] as number) + (s[mid] as number)) / 2;
-}
-
 export function stdev(values: readonly number[]): number {
   if (values.length < 2) return 0;
   const mean = values.reduce((s, v) => s + v, 0) / values.length;
   return Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / (values.length - 1));
 }
 
-/** Normal movement for one checkpoint: e(s), the centre r̃ (r8: the median residual) and the spread σ. */
+/** Normal movement for one checkpoint: e(s), the spread σ and the neutral centre c (in spread units). */
 export interface MovementNorm {
   line: Line;
-  median: number;
   spread: number;
+  centre: number;
 }
 
-export const deadBand = (z: number, h: number): number =>
-  Math.sign(z) * Math.max(Math.abs(z) - h, 0);
-
-/** The centre c at which mean(deadBand((r − c)/σ, h)) over the residuals is 0, by bisection. */
-function neutralCentre(residuals: readonly number[], spread: number, h: number): number {
-  let lo = Math.min(...residuals);
-  let hi = Math.max(...residuals);
-  for (let i = 0; i < 100; i++) {
+/** c such that the mean of g(z − c) over the fit set is 0; g is monotone, so bisect. */
+export function neutralCentre(zs: readonly number[], p: Params): number {
+  if (zs.length === 0) return 0;
+  let lo = Math.min(...zs) - 1;
+  let hi = Math.max(...zs) + 1;
+  for (let i = 0; i < 40; i++) {
     const mid = (lo + hi) / 2;
-    const mean = residuals.reduce((s, r) => s + deadBand((r - mid) / spread, h), 0);
-    if (mean > 0) lo = mid;
+    let sum = 0;
+    for (const z of zs) sum += creditCurve(z - mid, p);
+    if (sum > 0) lo = mid;
     else hi = mid;
   }
   return (lo + hi) / 2;
@@ -418,21 +447,28 @@ export function fitNorm(points: readonly FitPoint[], p: Params): MovementNorm {
   const residuals = points.map((pt) => pt.y - evalLine(line, pt.x));
   const sd = stdev(residuals);
   const spread = sd > 0 ? sd : 1;
-  const centre =
-    p.centre === "neutral" && residuals.length > 0
-      ? neutralCentre(residuals, spread, p.h)
-      : median(residuals);
-  return { line, median: centre, spread };
+  return {
+    line,
+    spread,
+    centre: neutralCentre(
+      residuals.map((r) => r / spread),
+      p,
+    ),
+  };
 }
 
-/** §3.6: z = (r − r̃)/σ, then the dead band h in spread units. */
+/** §3.6 z in spread units, and d = g(z − c). */
+export function movementZ(s0: number, sk: number, norm: MovementNorm): number {
+  return (sk - s0 - evalLine(norm.line, s0)) / norm.spread;
+}
+
 export function movementBeyondNormal(
   s0: number,
   sk: number,
   norm: MovementNorm,
-  h: number,
+  p: Params,
 ): number {
-  return deadBand((sk - s0 - evalLine(norm.line, s0) - norm.median) / norm.spread, h);
+  return creditCurve(movementZ(s0, sk, norm) - norm.centre, p);
 }
 
 // §3.7 accuracy and fade -------------------------------------------------------
@@ -491,7 +527,8 @@ export const EMPTY_TERMS: JudgeTerms = { sumA: 0, sumM: 0, nSettled: 0, accuracy
 /** Σ_u before the soft cap. */
 export function rawTotal(t: JudgeTerms, kappaM: number, p: Params): number {
   const accuracy = fadeShare(t.nSettled, p) * (logit(shrunkAccuracy(t.accuracy, p)) - logit(p.mu0));
-  return t.sumA + accuracy + kappaM * t.sumM;
+  const volume = p.volumeV > 0 && t.nSettled > p.volumeV ? p.volumeV / t.nSettled : 1;
+  return t.sumA + accuracy + kappaM * t.sumM * volume;
 }
 
 export function logitWeight(t: JudgeTerms, kappaM: number, p: Params): number {
@@ -503,22 +540,26 @@ export function weights(logitW: number, p: Params): { w: number; omega: number }
   return { w, omega: w ** p.gamma };
 }
 
+/** The soft-cap ceiling's neighbourhood: tanh(Σ/T) ≥ 0.9. */
+export const nearCeiling = (logitW: number, p: Params): boolean =>
+  logitW - logit(p.mu0) >= 0.9 * p.T;
+
 // §6 the per-event bound, by event kind ----------------------------------------
 
 export type BoundedEvent =
   | "admission"
   | "correct"
   | "accuracy"
-  | "settle12"
-  | "settle24"
+  | "settle"
+  | "resettle"
   | "ramp"
-  | "release";
+  | "flag";
 
 /**
  * Largest change one event of each kind can make to Σ, and so to logit w
  * (tanh is 1-Lipschitz), never more than 2T, the soft cap's whole range.
- * Accuracy: one update can move logit p̂⁰ across its clamp range.
- * Ramp: one step of κ_m shifts the settled sum, which only the soft cap bounds.
+ * Ramp steps and flag events (which can re-price many referrals of one judge
+ * at once) are bounded only by the soft cap.
  */
 export function perEventBound(kind: BoundedEvent, p: Params): number {
   const accuracySpan = logit(1 - p.eps) - logit(p.eps);
@@ -527,10 +568,10 @@ export function perEventBound(kind: BoundedEvent, p: Params): number {
     admission: p.LA,
     correct: 2 * Math.max(p.LA, p.kappa * p.LM),
     accuracy: accuracySpan,
-    settle12: p.LA + p.kappa * p.LM + fadeStep,
-    settle24: 2 * p.kappa * p.LM,
+    settle: p.LA + p.kappa * p.LM + fadeStep,
+    resettle: 2 * p.kappa * p.LM,
     ramp: Number.POSITIVE_INFINITY,
-    release: 0,
+    flag: Number.POSITIVE_INFINITY,
   };
   return Math.min(raw[kind], 2 * p.T);
 }
