@@ -1,9 +1,9 @@
-# Judge weights from admission, accuracy and movement (revision 8, replaces Phase E)
+# Judge weights from admission, accuracy and movement (revision 9, replaces Phase E)
 
-**Status:** revision 8 (r8) of the spec, for review. Not implemented. The Linear doc is the source of truth; this file is a copy so Codex and the PR reviewers can review it as a diff. "Revision" numbers the doc; the engine version it ships as is `judge_reliability@4.0.0`.
+**Status:** revision 9 (r9) of the spec, for review. Not implemented. The Linear doc is the source of truth; this file is a copy so Codex and the PR reviewers can review it as a diff. "Revision" numbers the doc; the engine version it ships as is `judge_reliability@4.0.0`.
 **Replaces:** #20–#27 (Phase E). That work was merged into `cursor/judge-calibration-demo-5d70` and never reached `main`. It is not ported.
 **Builds on:** V2 judge calibration (`judge_reliability@2.0.0`, `src/judges/reliability.ts`), Referral Signal weighting (`src/scoring/weighting.ts`), Club decisions and referral questions (`Decision`, `ClubSnapshot` in `apps/club/lib/types.ts`; SEA-62), the Jev claim and rollup modules (`src/longitudinal/claimValue.ts`, `claimPreprocess.ts`, `personRollup.ts`), and the exploratory under-recognition diagnostic (`src/analysis/underRecognition.ts`).
-**Simulation:** step 0 is built in PR #116 (`bun run sim:judges`). Its r7 results drove most of the changes here.
+**Simulation:** step 0 is built in PR #116 (`bun run sim:judges`). Its r7 and r8 results drove most of the changes here.
 **Grounding:** Rich Zou, ["Out of Distribution"](https://richzou.com/essays/out-of-distribution). The best people often look like bad bets on paper (thin or "incoherent" records, unconventional paths) and are rejected by evaluators who pattern-match on credentials. This spec aims to reward the judges who spot them.
 **Spec versions touched:** registers `judge_reliability@4.0.0` (3.0.0 is reserved by Phase E's `docs/issues/20`). Each delivery step that changes numbers gets its own version and drift report.
 
@@ -12,15 +12,15 @@
 ## 0. Goals
 
 1. **Calibrate a judge's weight as soon as possible.** Served by the admission signal (3.3), which arrives within weeks.
-2. **Once calibrated, change smoothly over time.** Served by the soft cap and per-referral contributions (3.1), settlement one referral at a time (3.4), the centred dead band (3.6), the gated ramp (3.8), and frozen stored results (3.5). **Finding where a judge is strong** (per-role weights) comes in a later version (3.8).
+2. **Once calibrated, change smoothly over time.** Served by the soft cap and per-referral contributions (3.1), settlement one referral at a time (3.4), the smooth noise curve with a neutral centre (3.6), the gated ramp (3.8), and frozen stored results (3.5). **Finding where a judge is strong** (per-role weights) comes in a later version (3.8).
 3. **Reward spotting slope over credentialism and consensus bets, including out-of-distribution people.** Served by:
    - the position schedule, credential gap and recognition bet (3.2);
-   - escrow for contrarian bets, so a credential-biased council can't punish a judge before the evidence is in (3.3);
-   - compressed rather than capped movement, so a breakout counts for more than a modest rise (3.4);
-   - a 24-month checkpoint for contrarian bets, for late bloomers (3.5);
+   - escrow for denied candidates whose substance is ahead of their credentials, so a credential-biased council can't punish a judge before the evidence is in (3.3);
+   - settlements at 12, 24 and 36 months for those candidates, so late bloomers count (3.4);
    - thin starting scores, so people with little conventional evidence can still be scored (3.5);
-   - accuracy fading as movement data arrives (3.7);
-   - the anti-cohort watch: the committee follows up on the people the club passed over (3.11).
+   - accuracy fading as movement data arrives (3.7).
+
+   Separately from judge weights, the **anti-cohort watch** (3.11) helps the club learn from the people it passed over.
 
 ## 1. Summary
 
@@ -30,7 +30,7 @@ People in the club refer candidates. Each referrer ("judge") has a **weight** in
 |---|---|---|
 | **Admission** (council admits or denies the referred candidate) | weeks | early calibration, credited now and settled later |
 | **Accuracy** (V2: did the referral's strength match outcomes) | 6 months | middle term, fades as movement arrives |
-| **Movement** (did the candidate's evidence-backed substance rise beyond normal) | 12 months, and 24 for contrarian bets | the long-run signal: spotting slope |
+| **Movement** (did the candidate's evidence-backed substance rise beyond normal) | 12 months; 24 and 36 for pre-credential candidates | the long-run signal: spotting slope |
 
 **Credit now, settle later.** The council's decision gives the judge early credit or debit. The candidate's movement result later replaces it:
 
@@ -38,18 +38,20 @@ People in the club refer candidates. Each referrer ("judge") has a **weight** in
 - **Admitted and flopped:** the early credit is taken back and replaced by a penalty with the same larger stake.
 - **Denied and rose:** rewarded at the ordinary stake. The council missing someone is not a failure of the judge.
 - **Denied and flopped:** an ordinary penalty.
-- **Contrarian bet denied:** if the judge said the candidate isn't recognised yet, or the candidate's substance is ahead of their credentials, the denial's early debit is **held in escrow** until the evidence is in.
+- **Denied, but Jev shows substance ahead of credentials:** the early debit is **held in escrow** until the movement result arrives.
 
 **Every referral's credit is scaled by three things fixed at referral time:** position (advocate, validator, confirmer), credential gap (pre-credential or consensus), and the judge's recognition answer.
 
-**The anti-cohort watch.** Each quarter, the organising committee checks in by hand on a bounded set of people the club passed over but the best judges bet on. Checkers predict before they look, enter only sourced facts, and flag exaggerated claims. This catches the council's misses, releases escrowed penalties, corrects coached exaggerations, and trains the committee's own judgement.
+**Movement credit uses a smooth curve.** Small results fade smoothly to nearly zero as noise; large results earn full credit. The curve is centred so that a typical candidate earns their judge exactly zero on average, which stops volume alone from earning credit.
+
+**The anti-cohort watch** is a learning tool, not part of the weight maths. Each quarter, the organising committee checks in by hand on a bounded set of people the club passed over. Half the checks follow the judges' bets and half are random, so the club can measure whether the bets point at real misses.
 
 Rules that keep it hard to game and stable over time:
 
-- The candidate score is built **only from evidence judges didn't write**. Committee checkers may add sourced facts and flags, never opinions.
+- The candidate score is built **only from evidence judges didn't write**. Committee members may add sourced facts and, with a second member's approval, flag exaggerations. Never opinions.
 - Every value has **fixed cutoffs and is stored once**. Corrections are explicit and logged.
 - A judge never gets credit from a decision they took part in, or from an admission their own weight caused.
-- **Extra effort can release a penalty but never create a reward.** Judge rewards come only from the standard check every candidate gets.
+- **The judge's own answers never buy protection.** Escrow and extra settlements follow the credential gap Jev measures, not what the judge says.
 - A judge's total moves within a **soft cap**, so weights stay distinguishable and no event reprices a judge's history.
 
 ---
@@ -93,7 +95,7 @@ p̂_u      = n/(n+λ)·p_u + λ/(n+λ)·priorReliability      // priorReliabilit
 Σ_u       = Σ_{unsettled uv} ℓᴬ_uv                       // admission credit (3.3)
           + π_u · (logit p̂⁰_u − logit μ0)                // accuracy, fading share (3.7)
           + κ_m(t) · Σ_{settled uv} ℓᴹ_uv                // movement results (3.4, 3.6)
-logit w_u = logit μ0 + T · tanh(Σ_u / T)                 // μ0 = 0.3; soft cap T (e.g. 3 → w within about 0.02–0.9)
+logit w_u = logit μ0 + T · tanh(Σ_u / T)                 // μ0 = 0.3; soft cap T
 ω_u       = w_u^γ                                        // γ = 2
 contribution_uv = ω_u · R_uv                             // what Referral Signal uses
 ```
@@ -132,11 +134,14 @@ Admin display labels: **pre-credential** (`gap ≥ g0`), **consensus** (high sel
 b_uv = b_notyet | b_soon | b_yes | 1 for "Not sure" or no answer
 ```
 
-The answer is the judge's prediction, never evidence. It is frozen at referral time. The stake is symmetric: a bigger bet means a bigger reward and a bigger loss.
+- The answer is the judge's prediction, never evidence. It is frozen at referral time.
+- It sets **only the stake size**, which is symmetric: a bigger bet means a bigger reward and a bigger loss.
+- It never buys escrow or extra settlements. Answering "Not yet" on everyone therefore buys nothing but larger losses on the flops.
+- Once credential catch-up is measured (3.8), "Not yet" and "Soon" will also be scored as predictions: did the candidate's credentials actually catch up?
 
 **Per-referral weight:** `q_uv = share(k_uv) · c_uv · b_uv`.
 
-A referral is a **contrarian bet** when `b_uv` is "Not yet" or "Soon", or `gap_uv ≥ g0`.
+A referral is **pre-credential** when `gap_uv ≥ g0`. This status depends only on Jev's measurement, never on the judge's answer.
 
 ### 3.3 Admission signal (early calibration)
 
@@ -146,24 +151,21 @@ a_uv  = +1 if the decision standing on v at t_uv + D is "admit", −1 if "deny",
 ℓᴬ_uv = clip( κ_a · q_uv · a_uv · (1 − ρ_uv), −Lᴬ, Lᴬ )
 ```
 
-- **Leave-one-judge-out, admissions only.** Each decision snapshot records, for every referrer, the Referral Signal **without** that referrer (`S_v^{−u}`) next to the full signal (`S_v`). For an admission, early credit counts only the part the judge's own weight didn't cause. A **denial always carries the full early debit**, unless it's escrowed. The judge didn't cause a denial, so their share of the signal is irrelevant.
-- **Escrow for contrarian bets.** If the referral is a contrarian bet (3.2) and the candidate is denied, the early debit is **held, not applied**. It is resolved by whichever comes first:
-  - the referral's movement settlement (3.4), which replaces it as usual;
-  - an anti-cohort check finding the person rose (3.11), which **releases** it to 0.
+- **Leave-one-judge-out, admissions only.** Each decision snapshot records, for every referrer, the Referral Signal **without** that referrer (`S_v^{−u}`) next to the full signal (`S_v`). For an admission, early credit counts only the part the judge's own weight didn't cause. A **denial always carries the full early debit**, unless it's escrowed.
+- **Escrow for denied pre-credential candidates.** If the referral is pre-credential (3.2) and the candidate is denied, the early debit is **held, not applied**. The referral's first movement settlement replaces it as usual. Nothing else resolves it.
 - **Fixed date:** the decision counted is the one standing at `t_uv + D`. A later `reopen` or reversal never changes it, except through a logged correction.
 - **Recusal:** decisions get a new `decidedBy` field. A judge who took part in a decision gets no admission credit from it. Their referral keeps its own position for its stake, takes no position away from others, and settles at stake 1.
 - **Referrals made after a decision** get no admission credit, because the judge could already see the outcome. They still take a position.
-- **Starting snapshot required:** admission credit applies only once the referral has `s0` (3.5), which with thin starting scores means once Jev has run an intake.
+- **Starting snapshot required:** admission credit applies only once the referral has `s0` (3.5), i.e. once Jev has run an intake.
 - **Admins see** each judge's weight and each referral's recognition answer. Members never see judge weights.
 
 ### 3.4 Settlement: movement replaces admission credit
 
-When a referral gets its movement result `d_uv` (3.6), its `ℓᴬ_uv` (applied or escrowed) is removed and its movement term is added:
+When a referral gets a movement result `d_uvk` (3.6), its admission term (applied or escrowed) is removed, and its movement term is set:
 
 ```
 stake_uv = 1 + (β − 1) · ρ_uv     if admitted;   1 otherwise
-ψ(d)     = sign(d) · ln(1 + |d|)                      // compress, don't truncate
-ℓᴹ_uv    = clip( q_uv · stake_uv · ψ(d_uv), −Lᴹ, Lᴹ )  // Lᴹ generous, a backstop for the per-event bound
+ℓᴹ_uv    = clip( q_uv · stake_uv · d_uvk, −Lᴹ, Lᴹ )     // Lᴹ generous, a backstop for the per-event bound
 ```
 
 | Admission | Movement | Effect on the judge |
@@ -172,10 +174,10 @@ stake_uv = 1 + (β − 1) · ρ_uv     if admitted;   1 otherwise
 | admitted | fell beyond normal | early credit taken back and replaced by a penalty, scaled up by reliance |
 | denied | rose beyond normal | early debit (or escrow) replaced by an ordinary reward |
 | denied | fell beyond normal | early debit (or escrow) replaced by an ordinary penalty |
-| either | inside the dead band | early credit or debit removed, nothing added |
+| either | within noise | early credit or debit removed, nothing (or nearly nothing) added |
 
-- **Compression, not truncation:** `ψ` grows slowly, so a breakout counts for more than a modest rise without one result dominating. The soft cap (3.1) bounds the total.
-- **Contrarian bets settle twice.** They settle provisionally at 12 months, then once more at 24 months, when the 24-month result replaces the 12-month term. Other referrals settle at 12 months only.
+- **Settlements for pre-credential referrals:** 12, 24 and 36 months. Each later result **replaces** the earlier movement term, so a breakout in year 2 or 3 still pays the judge. Other referrals settle at 12 months only.
+- If a logged correction makes a referral pre-credential after its 12-month settlement, its 24- and 36-month settlements are scheduled then.
 
 ### 3.5 Evidence-only substance, fixed cutoffs
 
@@ -189,7 +191,7 @@ stake_uv = 1 + (β − 1) · ρ_uv     if admitted;   1 otherwise
   - `committee` claims that are **sourced facts**: they must carry a verifiable source (URL or document) and are judged by Jev like any evidence.
 
   Rejected: `referrer` claims, and any committee assessment or opinion. A runtime validator enforces this.
-- **Committee flags** (3.12) can lower a claim's backing. They never add value.
+- **Committee flags** (3.12) can lower a claim's backing once approved. They never add value.
 - No `trend` parameter. It never reads comparisons, Referral Signal, admission decisions, recognition answers, or anything downstream of judge weights.
 - Each result records `hashInputs` of its input claims **sorted by claim id**, plus its config.
 - V2's outcome labels never include `Outcome` rows derived from note-raised claim values.
@@ -200,38 +202,49 @@ stake_uv = 1 + (β − 1) · ρ_uv     if admitted;   1 otherwise
 |---|---|---|---|
 | `s0_uv` | ≤ `t_uv + G` | `t_uv + G + S` | every referral |
 | `s12_uv` | ≤ `t_uv + 12 months` | `t_uv + 12 months + S` | every referral |
-| `s24_uv` | ≤ `t_uv + 24 months` | `t_uv + 24 months + S` | contrarian bets only |
+| `s24_uv`, `s36_uv` | ≤ `t_uv + 24` / `36 months` | `t_uv + 24` / `36 months + S` | pre-credential referrals |
 
-- **Thin starting scores.** If Jev has run an intake but found little or no output evidence, `s0` is the substance of whatever exists, down to a floor `s_floor`, and is marked **thin**. It is never treated as missing. The normal-movement fit (3.6) includes thin starts, so the typical rise from a thin start is subtracted, and referring empty profiles earns nothing by itself.
-- **Late pre-referral evidence corrects `s0`.** Evidence dated ≤ `t_uv + G` that arrives after `s0` was computed triggers a **logged correction** of `s0`, and of `c_uv`, which depends on it. It also counts in later snapshots. The starting point always reflects everything that existed at referral time, so withholding evidence can't manufacture movement.
-- **Standard check.** At each snapshot's compute time, every referred candidate gets the same automated public-evidence refresh (the Grok company research flow, SEA-75). Judge settlement uses **only** evidence present at a snapshot through the candidate's own submissions and this standard check, so extra effort spent on some candidates never changes their judges' rewards (3.11).
+- **Thin starting scores.** If Jev has run an intake but found little or no output evidence, the snapshot is the substance of whatever exists, down to a floor `s_floor`, and is marked **thin**. The floor applies to every snapshot. A thin snapshot is never treated as missing. The normal-movement fit (3.6) includes thin starts, so the typical rise from a thin start is subtracted, and referring empty profiles earns nothing by itself. A referral made before the candidate's intake has no `s0` until intake runs.
+- **Late pre-referral evidence corrects `s0`.** Evidence dated ≤ `t_uv + G` that arrives after `s0` was computed triggers a **logged correction** of `s0`, and of `c_uv`, which depends on it. The correction reads committee flags as of `s0`'s original compute time. The evidence also counts in later snapshots. Withholding evidence therefore can't manufacture movement.
+- **Standard check.** At each snapshot's compute time, every candidate, referred or not, gets the same automated public-evidence refresh (the Grok company research flow, SEA-75). Fits and settlements both use only evidence from the candidate's own submissions and this standard check, so extra effort spent on some candidates never changes their judges' rewards (3.11).
 - **Timing guard:** evidence dated up to `G` after the referral counts toward the starting score.
 - **Output dates:** each output is dated by when it became observable. Undated output from an in-progress role is dated by the role's `startedAt` (open decision 3).
 - **Unreferred candidates** use their first Jev intake date in place of `t_uv`, with the same rules. They are needed for the fits in 3.2 and 3.6.
 
-### 3.6 Movement against what's normal, centred dead band
+### 3.6 Movement against what's normal: smooth curve, neutral centre
 
-For checkpoint `k ∈ {12, 24}`:
+For checkpoint `k ∈ {12, 24, 36}`:
 
 ```
-m_vk   = substance(s_k) − substance(s0)            // raw movement
-e_k(s) = a_k + b_k·s                                // normal movement for starting substance s
-r_uvk  = m_vk − e_k(s0_uv)                           // movement beyond normal
-z_uvk  = (r_uvk − r̃_k) / σ_k                         // centred on the median residual, scaled by the spread
-d_uvk  = sign(z_uvk) · max(|z_uvk| − h, 0)           // dead band h, in spread units
+m_vk   = substance(s_k) − substance(s0)       // raw movement
+e_k(s) = a_k + b_k·s                           // normal movement for starting substance s
+z_uvk  = (m_vk − e_k(s0_uv)) / σ_k             // movement beyond normal, in spread units
+d_uvk  = g(z_uvk − c_k)                        // credit curve g, neutral centre c_k
 ```
 
-- **Centred dead band.** Substance rarely falls, so residuals are skewed. Centring on the median residual `r̃_k` and scaling by the spread `σ_k` stops the dead band turning noise into net positive credit, which the r7 simulation showed let a sprayer beat an early spotter. It also puts 12- and 24-month results on the same scale.
-- **Frozen versions.** `e_k`, `r̃_k`, `σ_k` and `f` are fitted on candidates who have already settled, and released as numbered versions. A referral settles with the latest version released before its own settlement, which by construction doesn't include it. Each stored result records its version. A new version applies only to results stored after it.
-- A candidate who goes quiet scores flat. That counts against the judge only if flat is more than `h` spreads below the median movement.
+**Neutral centre.** `c_k` is chosen so that the average of `g(z − c_k)` over the fit set is exactly 0. Typical candidates then earn their judges zero in total, and only better-than-typical movement earns anything. Centring on the mean or the median does not do this, because movement is skewed upward. The r8 simulation showed median centring added about +0.3 spreads of free credit to every referral, which let a sprayer reach the top.
+
+**Credit curve `g`.** Three shapes are compared in the simulation (§5), which picks one:
+
+| Shape | `g(x)` | Small results | Large results |
+|---|---|---|---|
+| **G1: hard band, compressed** (r8) | `sign(x) · ln(1 + max(|x| − h, 0))` | exactly 0 inside `±h`, then a kink | grows slowly |
+| **G2: smooth, straight** (recommended) | `x · x² / (x² + h²)` | fades smoothly toward 0 (≈ `x³/h²`) | ≈ `x`: proportional |
+| **G3: smooth, steep** | `sign(x) · (x² / (x² + h²)) · |x|^p`, `p > 1` | fades smoothly toward 0 | grows faster than proportional |
+
+- A smooth curve has no edge for small parameter changes to push results across, which should widen the narrow passing region the r8 simulation found.
+- Straight growth already gives a breakout proportionally more credit, because real outcomes are heavy-tailed.
+- Steep growth rewards breakouts most, but risks one lucky hit deciding a judge's weight. The simulation's "lucky hit" check (§5, S3.d) tests this.
+
+**Frozen versions.** `e_k`, `σ_k`, `c_k` and `f` are fitted on candidates who have already settled, released as numbered versions on a quarterly cadence, and **exclude the settling candidate entirely**, including its intake pair. Each stored result records its version. A new version applies only to results stored after it.
 
 ### 3.7 Accuracy fades as movement arrives
 
 ```
-π_u = λ_f / (λ_f + n_settled,u)       // every settled referral counts, including dead-band results
+π_u = λ_f / (λ_f + n_settled,u)       // every settled referral counts, including within-noise results
 ```
 
-Accuracy is level-based, so it rewards picking already-strong candidates. Fading it on every settled referral means long-run weight comes from spotting slope.
+Accuracy is level-based, so it rewards picking already-strong candidates. Fading it on every settled referral means long-run weight comes from spotting slope. The r8 simulation found `λ_f = 2` works and `λ_f = 8` breaks the worst-case bounds.
 
 ### 3.8 Calibration path
 
@@ -244,66 +257,69 @@ Accuracy is level-based, so it rewards picking already-strong candidates. Fading
 - **Judge label:** **provisional** until `N` scored signals, then **calibrated**. Label only. Admins see it with the weight.
 - **Later versions**, each with its own version bump, drift report and data gate:
   - **Per-role weights** (finding where a judge is strong): role taxonomy, a defined `ŵ_{u,k}`, and a migration of `JudgeCalibration.dimension`.
-  - **Credential catch-up**: for pre-credential candidates, also measure selection rising toward substance, and make normal movement depend on the gap.
+  - **Credential catch-up**: for pre-credential candidates, also measure selection rising toward substance; make normal movement depend on the gap; and score the recognition answers.
 
 ### 3.9 Accepted gaps
 
-- **Collusion.** Two judges can plan to go 1st and 2nd on a candidate. This is accepted: the symmetric stake makes it costly when the candidate doesn't deliver, and committee flags (3.12) correct exaggerated evidence.
+- **Collusion.** Two judges can plan to go 1st and 2nd on a candidate. This is accepted: the symmetric stake makes it costly when the candidate doesn't deliver, and committee flags (3.12) correct exaggerated evidence. The r8 simulation with a neutral centre passes this case.
 - **Culture as the honesty incentive.** Judges aren't shown their stakes. Their personal reputation is on the line, and the symmetric stake makes the maths agree with that.
-- **What evidence can't see.** Traits like resilience or unconventional range show up only in what a judge writes from firsthand knowledge, which never feeds the score. The judge's insight is rewarded later, through movement. Escrow and the 24-month checkpoint stop them being punished in the meantime.
+- **What evidence can't see.** Traits like resilience or unconventional range show up only in what a judge writes from firsthand knowledge, which never feeds the score. The judge's insight is rewarded later, through movement. Escrow and the 36-month settlement stop them being punished in the meantime.
 
 ### 3.10 What is dropped from Phase E
 
 | Phase E piece | What replaces it |
 |---|---|
 | Separate scout number `Ĝ_u` | Movement term inside the single weight (3.4, 3.6) |
-| `forecastKind: "will_compound"` tag | The recognition question, with a symmetric stake (3.2) |
+| `forecastKind: "will_compound"` tag | The recognition question, which sets stake size only (3.2) |
 | Prior-recognition discount `(1 − π_v)` | Position schedule and credential gap (3.2) |
 | Fixed `t0`/`t1` slope window, `minGapDays` | Stored snapshots with fixed cutoffs (3.5) |
-| Upside-only `max(ΔR*, 0)` | Symmetric, compressed, with stakes (3.4) |
+| Upside-only `max(ΔR*, 0)` | Symmetric credit curve with stakes (3.4, 3.6) |
 | Surprise term in comparison selection, trajectory reporting | Not replaced. They don't move a judge's weight |
 
-### 3.11 Anti-cohort watch
+### 3.11 Anti-cohort watch (learning tool)
 
-A bounded, quarterly follow-up on people the club passed over but the best judges bet on.
+A bounded, quarterly follow-up on people the club passed over. **It never changes a judge's weight.** Its value is what the club learns, measured by whether the judges' bets point at real misses better than chance.
 
-**Who goes on the watch:** denied or stalled candidates (no decision, or stuck at "needs data") with at least one contrarian bet, or a first-position referral from a calibrated judge. Admitted members aren't on it.
+**Who is eligible:** denied or stalled candidates (no decision, or stuck at "needs data") who were referred. Admitted members aren't eligible.
 
-**Bounded:**
+**Each quarter's budget `B`** (e.g. 20 checks) is split in two halves:
 
-- **A fixed budget** of `B` checks per quarter (e.g. 20).
-- **Priority:** `Σ over the candidate's referrals of ω_u · b_uv · c_uv`, i.e. how strongly the club's best judges bet on them.
-- **Leaving the watch:** after 36 months, after two flat checks in a row, or once a check finds them risen (a resolved regret case).
+- **Prioritised half:** ranked by **bet size**, `Σ over the candidate's referrals of b_uv · c_uv`. Judge weight is deliberately left out, so the watch doesn't favour top judges' misses.
+- **Random half:** drawn uniformly from all eligible candidates. This is the built-in baseline.
+- **Per-judge cap:** no more than `C` checks a quarter on candidates referred by the same judge.
+
+**Leaving the watch:** after 36 months, or once a check finds the person rose. There is no exit for flat checks: late bloomers look flat until they rise, and the r8 simulation showed a flat-check exit dropped them before they did.
 
 **Committee checks:**
 
-- Each quarter's budget is split across organising-committee members on a rotation.
-- **Recusal:** no one checks a candidate they referred or voted on.
-- **Predict, then look.** Before looking anything up, the checker records a prediction (rose, flat or fell). Afterwards it's compared with what they found. This builds each committee member's track record on exactly the people the club passed over, and it is the point of the exercise: improving the committee's judgement.
-- **Sourced facts only.** Checkers add what they find as `committee`-authored sourced facts (3.5), and may flag exaggerated claims (3.12). No opinions.
+- The budget is split across organising-committee members on a rotation.
+- **Conflicts:** no one checks a candidate they referred, voted on, or have a declared relationship with, or one referred by someone they have a declared relationship with.
+- **Predict, then look.** Before looking anything up, the checker records a prediction (rose, flat or fell), then compares it with what they find. This builds each committee member's judgement on exactly the people the club passed over.
+- **Sourced facts only.** Checkers add what they find as `committee`-authored sourced facts (3.5), and may propose flags (3.12). No opinions.
+- **"Rose"** means substance above normal movement for the time elapsed since intake, by more than a stated margin.
 - Checks need no cooperation from the candidate, so people who don't respond are still covered.
 
-**What the checks feed, and what they don't:**
+**Outputs** (engine analysis functions in `src/analysis/antiCohort.ts`, exploratory like `underRecognition.ts`; the club app renders them and runs the quarterly job):
 
-| Feeds | Never feeds |
+| Output | What it shows |
 |---|---|
-| **Releasing escrow:** a check finding the person rose releases the judge's held contrarian debit | **Judge rewards.** Movement rewards come only from the standard check (3.5). Extra effort can release a penalty, never create a reward |
-| **Regret report:** each denied-then-rose case with its decision snapshot (what the council saw) and which signals pointed the right way (judge bets, gap, position); plus the denial-regret rate by credential level, which measures council credential bias | **Committee members' judge weights.** Checking track records stay in a separate committee calibration report |
-| **Reopen suggestions** for admins. Nothing reopens automatically | |
-| **Committee calibration report:** predictions against findings, per checker | |
-
-The regret and calibration reports are engine analysis functions (`src/analysis/antiCohort.ts`), exploratory like `underRecognition.ts`. The club app renders them and runs the quarterly job.
+| **Lift over random** | Real misses found per check in the prioritised half ÷ the same in the random half. Lift well above 1 means the judges' bets point at real misses. Lift near 1 means prioritisation adds nothing, and the watch should be simplified to random checks or dropped. |
+| **Checks per miss found** | Whether the committee's time is well spent. |
+| **Coverage by judge weight** | Whether low-weight judges' bets get checked as often as high-weight judges'. |
+| **Regret report** | Each denied-then-rose case, with its decision snapshot (what the council saw) and the signals that pointed the right way (judge bets, gap, position). Also the denial-regret rate by credential level, which measures council credential bias. |
+| **Reopen suggestions** | For admins. Nothing reopens automatically. |
+| **Committee calibration** | Each checker's predictions against findings. Never feeds their judge weight. |
 
 ### 3.12 Committee correction of exaggerated claims
 
-A committee checker, on the watch or in normal review, can **flag** a claim as unsupported or exaggerated, for example a launch that didn't happen or a role smaller than described.
+A committee member, on the watch or in normal review, can **propose a flag** on a claim as unsupported or exaggerated, for example a launch that didn't happen or a role smaller than described.
 
-- A flag must cite a source.
-- The checker can't be a judge who referred the candidate, and recusal applies.
-- A flag lowers only that claim's backing in Jev. It never changes a person's score directly and never adds value.
-- Flags are logged and reversible by another committee member with a source.
+- **Two-person approval.** A flag takes effect only when a second committee member independently confirms it. Both must be free of conflicts (3.11).
+- **Structured evidence.** A flag records the contradicting source and what it contradicts.
+- **Effect:** an approved flag lowers only that claim's backing in Jev. It never changes a person's score directly and never adds value.
+- **Reversal:** another committee pair can reverse a flag with a source. Reversal is a logged correction: it recomputes every affected snapshot and re-settles every affected referral.
 
-This is the correction mechanism that coached evidence needs. The r7 simulation showed that without it, colluders who coach outrank honest spotters.
+This is the correction mechanism coached evidence needs.
 
 ---
 
@@ -311,67 +327,71 @@ This is the correction mechanism that coached evidence needs. The r7 simulation 
 
 Each step is its own PR and can be verified on its own:
 
-0. **Simulation harness** (PR #116, built for r7). Update it to r8 and add S6 (§5).
+0. **Simulation harness** (PR #116, at r8). Update it to r9: the three credit curves, the new checks (§5), and a wider sweep around the passing region.
 1. **Weight scale.** `μ0`, `γ`, the soft cap, the log-odds form with only the accuracy term, the V2 compatibility branch, and `judgeWeighting` using `ω_u`. Register `judge_reliability@4.0.0` with a drift report.
-2. **Admission, position and recognition.** `decidedBy`, per-referrer leave-one-judge-out signals on decision snapshots, the recognition question, position ranking, `q_uv` without the gap, `ℓᴬ`, escrow. This delivers goal 1. Its own version and drift report.
-3. **Evidence-only substance.** `author` field (including committee sourced facts) and runtime validator, committee flags, `outputOnlyRollup`, output dating, sorted hashing, the truth-label guard. No weight changes.
-4. **Stored snapshots.** `s0` (including thin starts), `s12`, `s24` for contrarian bets, the standard check, and the logged correction operation, on referrals and on unreferred candidates' intake. No weight changes.
-5. **Movement, settlement, gap and fading.** Versioned fits, the centred dead band, compression, stakes and settlement, the credential gap, the accuracy fade, the gate and ramp, the judge label. Its own version and drift report.
-6. **Anti-cohort watch.** Watch selection and budget, committee rotation and recusal, predict-then-look, escrow release, the regret and committee calibration reports, reopen suggestions.
-7. **Credential catch-up.** Its own version and drift report.
+2. **Admission, position and recognition.** `decidedBy`, per-referrer leave-one-judge-out signals on decision snapshots, the recognition question, position ranking, `q_uv` without the gap, `ℓᴬ`. This delivers goal 1. Its own version and drift report.
+3. **Evidence-only substance.** `author` field (including committee sourced facts) and runtime validator, two-person committee flags with reversal, `outputOnlyRollup`, output dating, sorted hashing, the truth-label guard. No weight changes.
+4. **Stored snapshots.** `s0` (including thin starts), `s12`, and `s24`/`s36` for pre-credential referrals, the standard check for all candidates, and the logged correction operation. No weight changes.
+5. **Movement, settlement, gap, escrow and fading.** Versioned fits, the neutral centre and the chosen credit curve, stakes and settlement, the credential gap, escrow, the accuracy fade, the gate and ramp, the judge label. Its own version and drift report.
+6. **Anti-cohort watch.** Eligibility, the split budget, the per-judge cap, committee rotation and conflicts, predict-then-look, and the outputs in 3.11.
+7. **Credential catch-up** and scoring of recognition answers. Its own version and drift report.
 
 ## 5. Simulation scenarios
 
-Synthetic clubs with known judge skill, run through the whole pipeline. Each scenario states its data-generating process before it runs. r7 results are from PR #116 at its chosen parameters.
+Synthetic clubs with known judge skill, run through the whole pipeline. Each scenario states its data-generating process before it runs. Results are from PR #116 at its chosen parameters, 5 seeds. "r8 + neutral" is r8 rerun with the neutral centre.
 
-| # | Scenario | Pass if | r7 result |
-|---|---|---|---|
-| S1 | **Best case:** honest, skilled judges, fair council | Skill order recovered (Spearman ≥ 0.7 at 36 months, ≥ 0.5 at 12) | pass, thin margin (0.75) |
-| S2 | **Mostly good:** plus a consensus-picker | Consensus-picker ends below early spotters of equal accuracy | pass |
-| S3 | **Mixed:** early spotter, consensus-picker, sprayer, noisy judge, slow evidence | Skill order recovered; the sprayer ends below every honest judge | pass |
-| S4 | **Adversarial:** colluding pair, coached evidence, withheld evidence, credential-biased council. **r8 adds committee flags at a stated detection rate** | Colluders don't outrank honest spotters; withheld evidence never creates movement; denied-but-rose judges gain | 2 fails, at every parameter set |
-| S5 | **Worst case:** most judges game, council follows visible weight, little evidence, tiny cohort | Bounds hold; no runaway; movement off below the gate | pass |
-| S6 | **Out of distribution (new):** thin, unconventional evidence, a credential-biased council that denies them, heavy-tailed rises arriving over 18–36 months. Run with the anti-cohort watch on and off | Judges who back them end above consensus-pickers by month 36; escrow keeps them from dropping below `μ0` in the meantime; the regret report finds most denied-then-rose cases within its budget | new |
+| # | Scenario | Pass if | r7 | r8 | r8 + neutral |
+|---|---|---|---|---|---|
+| S1 | **Best case:** honest, skilled judges, fair council | Skill order recovered: Spearman ≥ 0.7 at 36 months, ≥ 0.5 at 12 | pass (0.75 / 0.58) | fail (0.55 / 0.40) | pass (0.77 / 0.52) |
+| S2 | **Mostly good:** plus a consensus-picker | Consensus-picker ends below early spotters of equal accuracy | pass | pass | pass |
+| S3 | **Mixed:** early spotter, consensus-picker, sprayer, noisy judge, slow evidence. **New in r9: S3.d, a one-hit judge** with a single breakout and otherwise noise | Skill order recovered; the sprayer ends below every honest judge; **the one-hit judge ends below a consistent spotter** | pass | fail | pass (S3.d new) |
+| S4 | **Adversarial:** colluding pair, coached evidence with committee flags, withheld evidence, a credential-biased council. **New in r9: S4.d everyone answers "Not yet"; S4.e a malicious committee member** | Colluders don't outrank honest spotters; withheld evidence never creates movement; denied-but-rose judges gain; **universal "Not yet" gains nothing over honest answers; a single malicious flagger has no effect, and an approved-then-reversed flag leaves no trace** | 2 fails | 1 fail | pass (S4.d, S4.e new) |
+| S5 | **Worst case:** most judges game, council follows visible weight, little evidence, tiny cohort | Bounds hold; no runaway; movement off below the gate | pass | pass | pass |
+| S6 | **Out of distribution:** thin, unconventional evidence; a credential-biased council that denies them; heavy-tailed rises over 18–36 months | Backers end above consensus-pickers by month 36; escrow keeps them from dropping below `μ0` in the meantime; **breakouts in months 25–36 improve their judges' weights on their own** | — | pass (25–36 not tested) | pass (25–36 new) |
 
-Parameters are chosen as the values that pass S1–S4 and S6 with the widest margin and keep S5 within bounds.
+**Robustness (new in r9):** a design passes only if a stated share of the parameter sets around the chosen one also pass, not just the single best set. r8 with the neutral centre passed at only 4 of 288 sets, with a 0.018 margin.
+
+**Curve comparison (new in r9):** G1, G2 and G3 (3.6) are each run through S1–S6. The spec adopts the shape with the widest robust passing region that also passes S3.d.
+
+**Watch metrics (reported, not pass/fail for weights):** lift over random, checks per miss found, and coverage by judge weight, in S6 and S3. The r8 simulation found the watch never changes weights, as intended.
 
 ## 6. Invariants (tests)
 
 - **V2 compatibility:** `mode: "v2"` returns V2's outputs exactly. Runs still on V2 keep their golden run ids.
 - **Bounds:** `w_u` and `ω_u` are always strictly inside (0, 1), including in floating point, and `judgeWeighting` never throws.
-- **Per-event bound:** every kind of event (adding, settling, correcting or re-settling a referral, an accuracy update, a ramp step, an escrow release) changes any judge's `logit w` by at most a stated bound.
+- **Per-event bound:** every kind of event (adding, settling, correcting or re-settling a referral, a flag or its reversal, an accuracy update, a ramp step) changes any judge's `logit w` by at most a stated bound for that kind.
 - **Recusal:** a decision the judge took part in never gives that judge admission credit.
 - **No self-caused credit:** an admission that rested entirely on judge `u` (`ρ = 1`) gives `u` no early credit.
 - **Denials:** a denial's early debit doesn't depend on `ρ`.
-- **Escrow:** a denied contrarian bet's debit is not applied before settlement or release.
-- **Release, never reward:** committee findings can change an escrowed debit to 0 but can never raise a judge's weight above what it would be without them.
+- **Escrow:** a denied pre-credential referral's debit is not applied before its first settlement. A recognition answer never changes whether a referral is escrowed.
 - **No permanent credit:** a referral without `s0` never carries admission credit.
-- **Settlement:** after a referral settles, its admission credit is gone and only its movement term remains.
+- **Settlement:** after a referral settles, its admission term is gone and only its movement term remains. A later settlement replaces the earlier movement term.
 - **Position:** with everything else equal, an earlier position earns at least as much as a later one, for rewards and penalties alike.
 - **Symmetric bets:** for any recognition answer, the reward for a rise and the penalty for an equal fall have the same size.
-- **No drift from the dead band:** with movement drawn from the fitted normal, the expected `d` is 0 for any `h`.
-- **Compression:** a larger rise always earns at least as much as a smaller one, up to the per-referral backstop.
+- **Neutral centre:** on each fit version's own data, the average credit `g(z − c_k)` is 0. Out of sample, a judge's average credit per referral doesn't grow with how many referrals they make.
+- **Monotone curve:** a larger rise always earns at least as much as a smaller one, up to the per-referral backstop.
 - **No judge input:** referrer notes, referrer-authored claims, a `trend` value, an admission decision or a recognition answer never change `evidenceScore`.
-- **Committee input:** a committee claim without a source is rejected; a committee flag never raises `evidenceScore`.
+- **Committee input:** a committee claim without a source is rejected; a flag without a second approval has no effect; a flag never raises `evidenceScore`; reversing a flag restores every affected snapshot and settlement exactly.
 - **Truth labels:** V2 outcome labels never include rows derived from note-raised claim values.
 - **No manufactured movement:** withholding pre-referral evidence and submitting it later gives the same movement result as submitting it on time.
-- **Equal effort:** anti-cohort checks never change any judge's movement reward.
+- **Watch never changes weights:** every judge's weight is identical with the watch on or off.
 - **Arrival order:** the same evidence in different batches or orders gives the same snapshots, after corrections, and the same hashes.
-- **Refit:** a new fit version never changes an already-stored result.
+- **Refit:** a new fit version never changes an already-stored result, and never includes the settling candidate.
 - **Fade:** `π_u` falls monotonically with every settled referral.
 - **Gate:** below `M`, or with too little spread in starting scores, the movement term is 0.
-- **Watch budget:** a quarter never schedules more than `B` checks, and no checker is assigned a candidate they referred or voted on.
+- **Watch budget:** a quarter never schedules more than `B` checks, half of them random, and never more than `C` per judge; no checker is assigned a candidate they conflict with.
 - **Committee separation:** a committee member's checking record never changes their judge weight.
-- **Simulations:** S1–S6 pass (§5).
+- **Simulations:** S1–S6 pass, robustly (§5).
 
 ## 7. Open decisions
 
-1. **Parameter values:** `μ0 = 0.3` and `γ = 2` are chosen. The rest come from the simulations: `T`, `α`, `φ`, `β_g`, `c_min`, `c_max`, `g0`, the `b` values, `β`, `D`, `G`, `S`, `h`, `s_floor`, `κ_a`, `κ`, `Lᴬ`, `Lᴹ`, `M`, `σ_min`, `N`, `λ`, `λ_f`, `B`.
-2. **Fade padding:** a judge with poor accuracy could speed up the fade with many unremarkable referrals. Each one needs a real candidate with evidence over 12 months. Is that enough, or should the fade also be capped by time?
+1. **Credit curve:** G1, G2 or G3, chosen by the simulation (3.6, §5). G2 is the expectation.
+2. **Parameter values:** `μ0 = 0.3`, `γ = 2` and `λ_f = 2` are chosen. The rest come from the simulations: `T`, `α`, `φ`, `β_g`, `c_min`, `c_max`, `g0`, the `b` values, `β`, `D`, `G`, `S`, `h`, `p` (for G3), `s_floor`, `κ_a`, `κ`, `Lᴬ`, `Lᴹ`, `M`, `σ_min`, `N`, `λ`, `B`, `C`.
 3. **Undated in-progress output:** dating it by the role's `startedAt` can miss real growth in a long-running role. To be decided later.
-4. **Watch size and cadence:** `B` per quarter, and how many checks each committee member can reasonably do.
-5. **Display bands** (C … A) for admins: separate from this spec.
-6. **Referral-volume signal** (many referrals plus passing evaluations means a name is spreading): a candidate signal, tracked separately.
+4. **Ties at the top:** the soft cap bounds the total but not the volume effect. If ties at the ceiling persist with the neutral centre, scale each judge's movement sum by their referral volume. The simulation checks this.
+5. **Watch size:** `B` per quarter and `C` per judge, set from committee capacity and the lift results.
+6. **Display bands** (C … A) for admins: separate from this spec.
+7. **Referral-volume signal** (many referrals plus passing evaluations means a name is spreading): a candidate signal, tracked separately.
 
 ## 8. Review history
 
@@ -381,27 +401,26 @@ Parameters are chosen as the values that pass S1–S4 and S6 with the widest mar
 - **Round 3 (Kimi K3 max, Grok 4.7 xhigh, r4):** weight above 1; shrinkage toward 1; version clash; V2 description; judge inputs; hash order; resume-date exploit; hidden truth-label path; coached evidence; undefined per-role; mixed horizons; winner's curse; minimum cohort; `h` units; timing; value vs substance; name clash.
 - **Round 4 (Codex, r5):** late evidence manufactured movement; accuracy rewarded credentialism; no early calibration; abrupt club gate; goal 2 not delivered; V2 equivalence false at `p̂ = 1`.
 - **Round 5 (Codex, r6):** admission fed itself; permanent unsettled credit; ramp before the fit; fade missed normal movers; settlement repriced history; no consensus discount.
-- **Round 6 (simulation, r7; PR #116), the "Out of Distribution" essay, and Sean's decisions, handled in r8:**
-  - Dead band drifted upward on skewed movement → centred on the median residual, in spread units (3.6).
-  - Withheld evidence still created movement → late pre-referral evidence corrects `s0` (3.5).
-  - Coaching decided S4 → committee flags (3.12), and S4 models them.
-  - No volume cap; weights saturated near 1 → soft cap `T·tanh(Σ/T)` (3.1).
-  - `ρ` ignored the decision's direction → admissions only; denials carry the full debit (3.3).
-  - Per-event bound missed accuracy updates and ramp steps → covers every event kind (§6).
-  - Spec gaps the simulation surfaced → recusal keeps position and settles at stake 1; factors fixed at `t + max(D, G+S)`; post-decision referrals get no admission credit; gap per referral; frozen fit versions instead of per-candidate leave-one-out; the ramp simplified (3.2–3.8).
-  - Credential-biased councils punish contrarian judges early → escrow (3.3).
-  - Caps cut off breakouts → compression `ψ` (3.4).
-  - Late bloomers → 24-month checkpoint for contrarian bets (3.4, 3.5).
-  - Thin evidence was invisible → thin starting scores (3.5).
-  - People the club passed over → anti-cohort watch with committee checks: predict then look, sourced facts only, release but never reward (3.11).
-  - No out-of-distribution test → S6 (§5).
+- **Round 6 (simulation on r7, the "Out of Distribution" essay, Sean's decisions; r8):** dead-band drift; withheld evidence; coaching; no volume cap; `ρ` direction; per-event bound; spec gaps; escrow; compression; late bloomers; thin evidence; anti-cohort watch; S6.
+- **Round 7 (Codex on r8, simulation on r8, Sean's decisions), handled in r9:**
+  - Median centring drifts upward; both Codex and the simulation found it, and the simulation measured it → neutral centre (3.6).
+  - Hard band edges make the design fragile (4 of 288 sets pass) → smooth credit curve, with three shapes compared, and a robustness criterion (3.6, §5).
+  - Year-3 breakouts couldn't pay → 36-month settlement for pre-credential referrals (3.4).
+  - "Not yet" bought escrow and a second settlement → escrow and extra settlements follow the measured gap only; the answer sets stake size; universal "Not yet" scenario (3.2, 3.3, S4.d).
+  - The watch protected top judges → priority by bet size, not weight; half random; per-judge cap; coverage by judge weight (3.11).
+  - One committee member could change evidence → two-person approval, structured evidence, broader conflicts, reversal recomputes and re-settles (3.12, S4.e).
+  - The watch never changes weights, so "release" did nothing → the watch is a learning tool; release removed (3.3, 3.11).
+  - The flat-check exit dropped late bloomers → removed (3.11).
+  - "Find half the misses" was arbitrary and mostly measured the budget → replaced by lift over random (3.11, §5).
+  - A one-hit judge might win under a steep curve → S3.d.
+  - Simulation spec-gap readings adopted: corrections read flags as of the original compute time; fits exclude the settling candidate entirely; the standard check covers all candidates; the floor applies to every snapshot; late corrections schedule later settlements; "rose" is relative to the elapsed time.
 
-## 9. Questions for reviewers (round 7)
+## 9. Questions for reviewers (round 8)
 
-1. **Out of distribution:** read against the "Out of Distribution" essay, does r8 reward the judges who spot people who look like bad bets on paper? Where does it still favour credentials?
-2. **Escrow:** can a judge game "contrarian bet" status, e.g. by answering "Not yet" on everyone to avoid early debits? The symmetric stake makes "Not yet" a bigger loss on a flop. Is that enough?
-3. **Thin starting scores:** does including thin starts in the normal-movement fit stop "refer empty profiles and wait for any evidence" from paying?
-4. **Release, never reward:** is it right that committee findings can only release penalties? Does that leave out-of-distribution judges under-rewarded when only the committee can see the rise?
-5. **Committee flags:** can a committee member use flags to damage a candidate, or a judge, they dislike? Are a cited source plus logging and reversal enough?
-6. **Watch priority:** does prioritising by the best judges' bets entrench those judges, since they get more of their misses checked?
+1. **Out of distribution:** read against the "Out of Distribution" essay, does r9 reward the judges who spot people who look like bad bets on paper? Where does it still favour credentials?
+2. **Neutral centre:** is choosing the centre so that the fit set's average credit is zero sound, given that the fit set grows and shifts over time?
+3. **Credit curve:** which of G1, G2 and G3 would you choose, and why?
+4. **Escrow from the gap only:** does tying escrow and extra settlements to Jev's measured gap leave out real out-of-distribution people whose gap Jev can't see because their evidence is thin?
+5. **Watch:** is lift over random, with a built-in random half, the right way to judge whether the watch is worth the committee's time?
+6. **Committee flags:** are two-person approval, structured evidence and recompute-on-reversal enough?
 7. **Anything still gameable or circular.**
