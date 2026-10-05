@@ -24,6 +24,8 @@ import {
   takeSnapshot,
   weights,
 } from "../scripts/judgeWeightSim/model.ts";
+import { FOUNDERS, runPipeline } from "../scripts/judgeWeightSim/pipeline.ts";
+import { PIPELINE_PARAMS } from "../scripts/judgeWeightSim/pipelineReport.ts";
 import { boundSlack, preselected, SCENARIOS } from "../scripts/judgeWeightSim/scenarios.ts";
 import { latestSettlement, type RunResult, simulate } from "../scripts/judgeWeightSim/sim.ts";
 import {
@@ -693,5 +695,91 @@ describe("r10 storage invariants on a full scenario", () => {
     expect(run.judges.every((j) => j.label === "provisional")).toBe(true);
     const calibrated = simulate(s3, { ...R10_DEFAULTS, N: 1 });
     expect(calibrated.judges.some((j) => j.label === "calibrated")).toBe(true);
+  });
+});
+
+describe("r10 club pipeline", () => {
+  const params = PIPELINE_PARAMS;
+  const config = { name: "club", seed: 1, inboundMode: "spread", options: 2 } as const;
+  const b = runPipeline({ ...config, hardNo: "recorded" }, params);
+  const a = runPipeline({ ...config, hardNo: "scored" }, params);
+
+  test("centred admission: a judge admitted at the channel's base rate earns 0 on average", () => {
+    for (const r of [0.02, 0.08, 0.3, 0.5]) {
+      const admit = admissionCredit(1, "admit", 0, P, r);
+      const deny = admissionCredit(1, "deny", 0, P, r);
+      expect(r * admit + (1 - r) * deny).toBeCloseTo(0, 12);
+      expect(deny).toBeLessThan(0);
+    }
+    expect(admissionCredit(1, "deny", 0, P)).toBe(-admissionCredit(1, "admit", 0, P));
+  });
+
+  test("class year in the fits: a fit with year recovers a known year effect exactly", () => {
+    const points: FitPoint[] = [];
+    for (let i = 0; i < 40; i++) {
+      const x = 0.3 + (i % 7) * 0.05;
+      const year = 1 + (i % 4);
+      points.push({ id: `c${i}`, x, y: 0.1 + 0.2 * x - 0.03 * year, year });
+    }
+    const norm = fitNorm(points, { ...P, yearInFits: true });
+    expect(norm.line.a).toBeCloseTo(0.1, 9);
+    expect(norm.line.b).toBeCloseTo(0.2, 9);
+    expect(norm.line.c).toBeCloseTo(-0.03, 9);
+    expect(fitNorm(points, P).line.c).toBe(0);
+  });
+
+  test("quota council: each round admits exactly its quota, and only from candidates who reached it", () => {
+    const council = b.world.council;
+    if (council.kind !== "quota") throw new Error("expected a quota council");
+    for (const round of council.rounds) {
+      const admitted = round.candidates.filter((id) => b.run.decided.get(id) === "admit");
+      expect(admitted.length).toBe(Math.min(round.quota, round.candidates.length));
+    }
+    const reached = new Set(council.rounds.flatMap((r) => r.candidates));
+    for (const [id] of b.run.decided) expect(reached.has(id)).toBe(true);
+    for (const d of b.run.councilDiffs) expect(d.differ).toBeLessThanOrEqual(d.quota);
+  });
+
+  test("a hard no ends the candidacy: the candidate never reaches the council", () => {
+    const council = b.world.council;
+    if (council.kind !== "quota") throw new Error("expected a quota council");
+    const reached = new Set(council.rounds.flatMap((r) => r.candidates));
+    const noed = new Set(b.calls.filter((c) => c.outcome === "no").map((c) => c.candidate));
+    expect(noed.size).toBeGreaterThan(20);
+    for (const id of noed) expect(reached.has(id)).toBe(false);
+  });
+
+  test("members join as judges only after the council admits them", () => {
+    const admittedOn = new Map<string, number>();
+    const council = b.world.council;
+    if (council.kind !== "quota") throw new Error("expected a quota council");
+    for (const round of council.rounds) {
+      for (const id of round.candidates) {
+        if (b.run.decided.get(id) === "admit") admittedOn.set(id, round.day);
+      }
+    }
+    const founders = new Set(FOUNDERS.map((f) => f.id));
+    const joined = b.world.intents.filter((i) => !founders.has(i.judge));
+    expect(joined.length).toBeGreaterThan(20);
+    for (const intent of joined) {
+      expect(intent.day).toBeGreaterThan(admittedOn.get(intent.judge) ?? Number.POSITIVE_INFINITY);
+    }
+  });
+
+  test("hard no A is a counter-bet: it pays when the candidate falls and costs when it rises", () => {
+    const noes = a.run.referrals.filter((r) => r.intent.stance === "no" && r.settlements[0]);
+    expect(noes.length).toBeGreaterThan(10);
+    for (const r of noes) {
+      const s = r.settlements[0] as NonNullable<(typeof r.settlements)[number]>;
+      if (s.d !== 0) expect(Math.sign(s.ell)).toBe(-Math.sign(s.d));
+      expect(r.admission?.state).toBe("none");
+    }
+    expect(b.run.referrals.some((r) => r.intent.stance === "no")).toBe(false);
+  });
+
+  test("determinism: one seed gives one pipeline", () => {
+    const again = runPipeline({ ...config, hardNo: "recorded" }, params);
+    expect(again.calls).toEqual(b.calls);
+    expect(again.run.judges).toEqual(b.run.judges);
   });
 });

@@ -57,6 +57,7 @@ import {
 type EventKind =
   | "refer"
   | "decide"
+  | "round"
   | "reverse"
   | "release"
   | "watch"
@@ -74,6 +75,7 @@ type EventKind =
 const ORDER: readonly EventKind[] = [
   "refer",
   "decide",
+  "round",
   "reverse",
   "propose",
   "approve",
@@ -217,6 +219,13 @@ export interface RunResult {
   kappaM: number;
   versions: FitVersion[];
   flags: FlagRecord[];
+  /**
+   * Quota rounds: how many of the admitted would change if the council had
+   * used the unweighted Referral Signal (every judge at μ0) instead.
+   */
+  councilDiffs: { day: number; quota: number; differ: number }[];
+  /** Every candidate's latest standing decision. */
+  decided: Map<string, Decision>;
   watch: {
     checks: CheckRecord[];
     /** Candidates a check found risen: the regret report. */
@@ -285,6 +294,11 @@ export function simulate(world: World, p: Params): RunResult {
     schedule({ kind: "intake_s12", day: Math.max(0, c.intakeDay + H12 + p.S), key: c.id });
   }
   for (const r of world.intents) schedule({ kind: "refer", day: r.day, key: r.id });
+  if (world.council.kind === "quota") {
+    world.council.rounds.forEach((round, i) => {
+      schedule({ kind: "round", day: round.day, key: String(i) });
+    });
+  }
   for (const r of world.reversals) {
     schedule({ kind: "reverse", day: r.day, key: r.candidate, decision: r.decision });
   }
@@ -299,6 +313,23 @@ export function simulate(world: World, p: Params): RunResult {
   const flagsById = new Map(world.flags.map((f) => [f.id, f]));
 
   const kappaM = (): number => movementScale(K, spread, p);
+  const yearOf = (id: string): number => candidates.get(id)?.year ?? 3;
+  const channelOf = (id: string) => candidates.get(id)?.channel ?? "inbound";
+  /** Each channel's council record so far, for the centred admission credit. */
+  const channelStats = new Map<string, { decided: number; admitted: number }>();
+  const recordDecision = (candidate: string, decision: Decision) => {
+    const stats = channelStats.get(channelOf(candidate)) ?? { decided: 0, admitted: 0 };
+    stats.decided++;
+    if (decision === "admit") stats.admitted++;
+    channelStats.set(channelOf(candidate), stats);
+  };
+  /** The channel's admit rate, shrunk toward the club's 12-of-150 target with ten pseudo-decisions. */
+  const baseRate = (candidate: string): number | null => {
+    if (!p.centredAdmission) return null;
+    const stats = channelStats.get(channelOf(candidate)) ?? { decided: 0, admitted: 0 };
+    return (stats.admitted + 0.08 * 10) / (stats.decided + 10);
+  };
+  const councilDiffs: RunResult["councilDiffs"] = [];
   const termsOf = (judge: string): JudgeTerms => terms.get(judge) as JudgeTerms;
   const logitOf = (judge: string): number => logitWeight(termsOf(judge), kappaM(), p);
   const bump = (judge: string): void => {
@@ -331,11 +362,14 @@ export function simulate(world: World, p: Params): RunResult {
     return norm;
   }
   function fFor(v: FitVersion | null, leaveOut: string): Line {
-    if (!v) return { a: 0, b: 0 };
+    if (!v) return { a: 0, b: 0, c: 0 };
     const key = `f:${leaveOut}`;
     const hit = v.cache.get(key);
     if (hit) return hit as Line;
-    const line = fitLine(v.f.filter((pt) => pt.id !== leaveOut));
+    const line = fitLine(
+      v.f.filter((pt) => pt.id !== leaveOut),
+      p.yearInFits,
+    );
     v.cache.set(key, line);
     return line;
   }
@@ -346,11 +380,12 @@ export function simulate(world: World, p: Params): RunResult {
     for (const c of world.candidates) {
       if (c.intakeDay + p.G + p.S > day) continue;
       const s0 = intakeS0(c, day);
-      f.push({ id: c.id, x: s0.selection, y: s0.substance });
+      const year = c.year ?? 3;
+      f.push({ id: c.id, x: s0.selection, y: s0.substance, year });
       p.horizons.forEach((horizon, k) => {
         if (c.intakeDay + horizon + p.S > day) return;
         const sk = snapshot(c, checkpointWindow(c.intakeDay, horizon, p, day));
-        e[k]?.push({ id: c.id, x: s0.substance, y: sk.substance - s0.substance });
+        e[k]?.push({ id: c.id, x: s0.substance, y: sk.substance - s0.substance, year });
       });
     }
     return { version, releasedAt: day, f, e, starts: f.map((pt) => pt.y), cache: new Map() };
@@ -395,16 +430,19 @@ export function simulate(world: World, p: Params): RunResult {
     const horizon = p.horizons[k] as number;
     const norm = normFor(version, k, c.id);
     const sk = snapshot(c, checkpointWindow(t, horizon, p, correctedAsOf)).substance;
-    const z = movementZ(f.s0.substance, sk, norm) - norm.centre;
+    const year = yearOf(c.id);
+    const z = movementZ(f.s0.substance, sk, norm, year) - norm.centre;
     const d = creditCurve(z, p);
     let dOnTime: number | null = null;
     if (c.onTimeItems) {
       const s0 = takeSnapshot(c.onTimeItems, s0Window(t, p), p, book).substance;
       const skOnTime = takeSnapshot(c.onTimeItems, checkpointWindow(t, horizon, p), p, book);
-      dOnTime = movementBeyondNormal(s0, skOnTime.substance, norm, p);
+      dOnTime = movementBeyondNormal(s0, skOnTime.substance, norm, p, year);
     }
     const admitted = admission.decision === "admit" && !f.recused;
-    const stake = f.recused ? 1 : settlementStake(admitted, admission.rho, p);
+    // A hard no is a counter-bet at stake 0.5: it pays when the candidate falls.
+    const stake =
+      r.intent.stance === "no" ? -0.5 : f.recused ? 1 : settlementStake(admitted, admission.rho, p);
     return {
       storedAt,
       correctedAsOf,
@@ -438,12 +476,18 @@ export function simulate(world: World, p: Params): RunResult {
           id: x.intent.id,
           judge: x.intent.judge,
           day: x.intent.day,
-          eligible: x === r || !recusedOf(x),
+          eligible: x === r || (!recusedOf(x) && x.intent.stance !== "no"),
         })),
     );
     const position = positions.get(r.intent.id) ?? 1;
-    const gap = s0 ? s0.substance - evalLine(fFor(fVersion, candidate), s0.selection) : 0;
-    const q = referralWeight(position, gap, r.intent.answer, p);
+    const gap = s0
+      ? s0.substance - evalLine(fFor(fVersion, candidate), s0.selection, yearOf(candidate))
+      : 0;
+    // A hard no takes no position: its stake is the gap and answer factors alone.
+    const q =
+      r.intent.stance === "no"
+        ? referralWeight(1, gap, r.intent.answer, p)
+        : referralWeight(position, gap, r.intent.answer, p);
     const preCredential = isPreCredential(gap, p);
     r.factors = {
       s0,
@@ -456,14 +500,15 @@ export function simulate(world: World, p: Params): RunResult {
       recused,
     };
 
-    const scored = standing !== null && !recused && !r.afterDecision && s0 !== null;
+    const scored =
+      standing !== null && !recused && !r.afterDecision && s0 !== null && r.intent.stance !== "no";
     if (!scored) {
       r.admission = { decision: standing?.decision ?? null, rho: 0, ell: 0, state: "none" };
       return;
     }
     const part = standing.parts.get(judge) ?? 0;
     const rho = reliance(standing.decision, standing.signal, standing.signal - part);
-    const ell = admissionCredit(q, standing.decision, rho, p);
+    const ell = admissionCredit(q, standing.decision, rho, p, baseRate(candidate));
     const settled = r.settlements.some((s) => s !== null);
     const held = standing.decision === "deny" && preCredential;
     r.admission = {
@@ -538,7 +583,8 @@ export function simulate(world: World, p: Params): RunResult {
       const from = conflicts.get(intent.candidate) ?? new Set<string>();
       from.add(intent.judge);
       conflicts.set(intent.candidate, from);
-      if (!decisions.has(intent.candidate) && !pendingDecision.has(intent.candidate)) {
+      const quota = world.council.kind === "quota";
+      if (!quota && !decisions.has(intent.candidate) && !pendingDecision.has(intent.candidate)) {
         pendingDecision.add(intent.candidate);
         schedule({ kind: "decide", day: e.day + world.decisionLag, key: intent.candidate });
       }
@@ -558,6 +604,7 @@ export function simulate(world: World, p: Params): RunResult {
         signal += part;
       }
       let decision: Decision;
+      if (world.council.kind === "quota") return;
       if (world.council.kind === "scripted") {
         decision = world.council.decisions.get(e.key) ?? "deny";
       } else {
@@ -573,9 +620,70 @@ export function simulate(world: World, p: Params): RunResult {
       }
       const decidedBy = world.deciders.get(e.key) ?? [];
       decisions.set(e.key, [{ day: e.day, decision, decidedBy, signal, parts }]);
+      recordDecision(e.key, decision);
       const from = conflicts.get(e.key) ?? new Set<string>();
       for (const id of decidedBy) from.add(id);
       conflicts.set(e.key, from);
+    },
+
+    round(e) {
+      // A quota council ranks every candidate in the round and admits the top
+      // `quota`; it also ranks them on the unweighted signal, for comparison.
+      const council = world.council;
+      if (council.kind !== "quota") return;
+      const round = council.rounds[Number(e.key)];
+      if (!round) return;
+      const z = (x: number) => (x - world.population.meanA) / world.population.sdA;
+      const unweighted = p.mu0 ** p.gamma;
+      const scored = round.candidates.map((candidate) => {
+        const parts = new Map<string, number>();
+        let signal = 0;
+        let flat = 0;
+        for (const r of byCandidate.get(candidate) ?? []) {
+          if (r.intent.day > e.day || r.intent.stance === "no") continue;
+          const part = weights(logitOf(r.intent.judge), p).omega * r.intent.strength;
+          parts.set(r.intent.judge, (parts.get(r.intent.judge) ?? 0) + part);
+          signal += part;
+          flat += unweighted * r.intent.strength;
+        }
+        const seen = visible(candidates.get(candidate) as CandidateSpec, e.day);
+        const base =
+          council.substance * z(seen.substance) +
+          council.credentials * z(seen.selection) +
+          (council.noise.get(candidate) ?? 0);
+        return {
+          candidate,
+          parts,
+          signal,
+          score: council.signal * (signal / unweighted) + base,
+          flatScore: council.signal * (flat / unweighted) + base,
+        };
+      });
+      const top = (key: "score" | "flatScore") =>
+        new Set(
+          [...scored]
+            .sort((a, b) => b[key] - a[key] || (a.candidate < b.candidate ? -1 : 1))
+            .slice(0, round.quota)
+            .map((x) => x.candidate),
+        );
+      const admitted = top("score");
+      const admittedFlat = top("flatScore");
+      councilDiffs.push({
+        day: e.day,
+        quota: round.quota,
+        differ: [...admitted].filter((c) => !admittedFlat.has(c)).length,
+      });
+      for (const x of scored) {
+        const decision: Decision = admitted.has(x.candidate) ? "admit" : "deny";
+        const decidedBy = world.deciders.get(x.candidate) ?? [];
+        decisions.set(x.candidate, [
+          { day: e.day, decision, decidedBy, signal: x.signal, parts: x.parts },
+        ]);
+        recordDecision(x.candidate, decision);
+        const from = conflicts.get(x.candidate) ?? new Set<string>();
+        for (const id of decidedBy) from.add(id);
+        conflicts.set(x.candidate, from);
+      }
     },
 
     reverse(e) {
@@ -701,7 +809,9 @@ export function simulate(world: World, p: Params): RunResult {
           const s0 = intakeS0(c, e.day).substance;
           const norm = normFor(version, 0, "");
           const z =
-            (visible(c, e.day, "all").substance - s0 - evalLine(norm.line, s0) * years) /
+            (visible(c, e.day, "all").substance -
+              s0 -
+              evalLine(norm.line, s0, c.year ?? 3) * years) /
             norm.spread;
           const finding: Finding = z > p.watchRiseZ ? "rose" : z < -p.watchRiseZ ? "fell" : "flat";
           checks.push({ day: e.day, candidate, checker, half, prediction, finding });
@@ -752,6 +862,7 @@ export function simulate(world: World, p: Params): RunResult {
 
     accuracy(e) {
       const record = referrals.get(e.key) as ReferralRecord;
+      if (record.intent.stance === "no") return;
       const c = candidates.get(record.intent.candidate) as CandidateSpec;
       const starts = latest(e.day + 1)?.starts ?? [];
       if (starts.length === 0) return;
@@ -849,6 +960,10 @@ export function simulate(world: World, p: Params): RunResult {
     kappaM: kappaM(),
     versions,
     flags: [...flagRecords.values()],
+    councilDiffs,
+    decided: new Map(
+      [...decisions].map(([id, history]) => [id, (history.at(-1) as DecisionRecord).decision]),
+    ),
     watch: { checks, regret, eligible: eligibleEver, conflicts },
   };
 }

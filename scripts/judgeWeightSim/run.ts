@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * bun run sim:judges [-- --seed <n>] [--reps <n>] [--detail-reps <n>] [--curve G1|G2|G3]
+ * bun run sim:judges [-- --report pipeline|invite] [--seed <n>] [--reps <n>] [--detail-reps <n>] [--curve G1|G2|G3]
  *
  * Delivery step 0 of the r10 judge-weight spec (docs/issues/28), invite-only:
  * runs S1–S6 at the r10 set on the broad pool and on a pre-selected pool,
@@ -16,6 +16,7 @@
  */
 
 import { type Curve, type Params, R10_DEFAULTS } from "./model.ts";
+import { printPipeline, printPipelineSweep } from "./pipelineReport.ts";
 import {
   atCeiling,
   type CriterionResult,
@@ -314,16 +315,27 @@ interface Args {
   reps: number;
   detailReps: number;
   curve: Curve;
+  /** "pipeline": the club's real funnel (default). "invite": the r10 invite-only pools and small clubs. */
+  report: "pipeline" | "invite";
 }
 
 function parseArgs(argv: string[]): Args {
-  const out: Args = { seed: 1, reps: 3, detailReps: 5, curve: R10_DEFAULTS.curve };
+  const out: Args = {
+    seed: 1,
+    reps: 3,
+    detailReps: 5,
+    curve: R10_DEFAULTS.curve,
+    report: "pipeline",
+  };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const value = argv[i + 1];
     const next = Number(value);
     const key = { "--seed": "seed", "--reps": "reps", "--detail-reps": "detailReps" }[arg ?? ""];
-    if (arg === "--curve" && (value === "G1" || value === "G2" || value === "G3")) {
+    if (arg === "--report" && (value === "pipeline" || value === "invite")) {
+      out.report = value;
+      i++;
+    } else if (arg === "--curve" && (value === "G1" || value === "G2" || value === "G3")) {
       out.curve = value;
       i++;
     } else if (key && Number.isInteger(next) && next > 0) {
@@ -341,6 +353,14 @@ if (import.meta.main) {
   const args = parseArgs(process.argv.slice(2));
   const seeds = Array.from({ length: args.reps }, (_, i) => args.seed + i);
   const detailSeeds = Array.from({ length: args.detailReps }, (_, i) => args.seed + i);
+  if (args.report === "pipeline") {
+    console.log(
+      `judge-weight r10 simulation (club pipeline): detail seeds ${detailSeeds.join(", ")}`,
+    );
+    printPipeline(detailSeeds);
+    printPipelineSweep(seeds);
+    process.exit(0);
+  }
   const base: Params = { ...R10_DEFAULTS, curve: args.curve };
   console.log(
     `judge-weight r10 simulation (invite-only): curve ${base.curve}; sweep seeds ${seeds.join(", ")}; detail seeds ${detailSeeds.join(", ")}`,

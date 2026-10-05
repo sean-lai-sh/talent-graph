@@ -36,6 +36,10 @@ export interface CandidateSpec {
   items: EvidenceItem[];
   /** The same evidence submitted on time; set only for candidates who withheld some. */
   onTimeItems: EvidenceItem[] | null;
+  /** Club pipeline: class year at intake (1 = freshman). Absent means an upperclassman (3). */
+  year?: number;
+  /** Club pipeline: how the candidate entered. Absent means inbound. */
+  channel?: "inbound" | "outbound";
 }
 
 export interface ReferralIntent {
@@ -46,6 +50,8 @@ export interface ReferralIntent {
   /** R_uv, the referral's stated strength in (0, 1]. */
   strength: number;
   answer: Recognition;
+  /** Club pipeline: an interviewer's hard no, scored as a counter-bet (variant A). */
+  stance?: "no";
 }
 
 export type Council =
@@ -60,7 +66,16 @@ export type Council =
       threshold: number;
       noise: ReadonlyMap<string, number>;
     }
-  | { kind: "scripted"; decisions: ReadonlyMap<string, Decision> };
+  | { kind: "scripted"; decisions: ReadonlyMap<string, Decision> }
+  | {
+      /** Club pipeline: each round ranks its candidates and admits the top `quota`. */
+      kind: "quota";
+      signal: number;
+      substance: number;
+      credentials: number;
+      noise: ReadonlyMap<string, number>;
+      rounds: { day: number; quota: number; candidates: string[] }[];
+    };
 
 /**
  * A committee flag as it happens in the world (§3.12). Honest flags target
@@ -557,4 +572,39 @@ export function generateWorld(cfg: WorldConfig, seed: number): World {
     flags: flags.sort((x, y) => x.proposedAt - y.proposedAt || (x.id < y.id ? -1 : 1)),
     population: { meanA: pool.meanA, sdA: pool.sdA, meanG: pool.meanG },
   };
+}
+
+/**
+ * One candidate for the club pipeline, drawn like any other: `cfg` sets the
+ * channel's pool (pre-selection, evidence rate, late risers). Freshmen have
+ * near-zero credentials: their selection sits 0.2 below their level and never
+ * catches up, like the unconventional path.
+ */
+export function drawCandidate(
+  rng: Rng,
+  cfg: WorldConfig,
+  id: string,
+  intakeDay: number,
+  year: number,
+  channel: "inbound" | "outbound",
+): CandidateSpec {
+  const latent = drawLatent(rng, id, intakeDay, cfg);
+  if (year === 1) latent.credential = "unconventional";
+  const items = drawItems(rng, latent, cfg);
+  const { gap0: _gap0, premium: _premium, slow: _slow, ...rest } = latent;
+  return { ...rest, items, onTimeItems: null, year, channel };
+}
+
+/** A judge's perceived z of a candidate against a pool, with deterministic per-pair noise. */
+export function perceiveZ(
+  c: CandidateSpec,
+  levelNoise: number,
+  slopeNoise: number,
+  pool: { meanA: number; sdA: number; meanG: number; sdG: number },
+  noise: () => number,
+  foresight = 0,
+): number {
+  const seen = c.A + levelNoise * noise() + c.g + slopeNoise * noise() + foresight;
+  const sd = Math.sqrt(pool.sdA ** 2 + pool.sdG ** 2 + levelNoise ** 2 + slopeNoise ** 2);
+  return (seen - pool.meanA - pool.meanG) / sd;
 }

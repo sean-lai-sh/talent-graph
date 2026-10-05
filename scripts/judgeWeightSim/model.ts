@@ -80,6 +80,13 @@ export interface Params {
   watch: boolean;
   /** Deferred in r10, off by default: committee flags with two-person approval (§3.12). */
   flags: boolean;
+  /**
+   * Club pipeline: admission credit centred on each channel's base rate,
+   * +1 if admitted and −r/(1−r) if denied, so admitting at the base rate earns 0.
+   */
+  centredAdmission: boolean;
+  /** Club pipeline: class year enters e_k(s, year) and f(selection, year). */
+  yearInFits: boolean;
 }
 
 /**
@@ -129,6 +136,8 @@ export const R10_DEFAULTS: Params = {
   volumeV: 10,
   watch: false,
   flags: false,
+  centredAdmission: false,
+  yearInFits: false,
 };
 
 export const clip = (x: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, x));
@@ -205,8 +214,25 @@ export function reliance(decision: Decision, full: number, withoutJudge: number)
   return clip((full - withoutJudge) / full, 0, 1);
 }
 
-export function admissionCredit(q: number, decision: Decision, rho: number, p: Params): number {
-  const a = decision === "admit" ? 1 : -1;
+/**
+ * a_uv: +1 for an admission, −1 for a denial; centred on the channel's admit
+ * rate r, a denial is −r/(1−r), so a judge admitted at the base rate earns 0.
+ */
+export function admissionSign(decision: Decision, baseRate: number | null): number {
+  if (decision === "admit") return 1;
+  if (baseRate === null) return -1;
+  const r = clip(baseRate, 1e-3, 1 - 1e-3);
+  return -r / (1 - r);
+}
+
+export function admissionCredit(
+  q: number,
+  decision: Decision,
+  rho: number,
+  p: Params,
+  baseRate: number | null = null,
+): number {
+  const a = admissionSign(decision, baseRate);
   return clip(p.kappaA * q * a * (1 - rho), -p.LA, p.LA);
 }
 
@@ -390,6 +416,8 @@ export function takeSnapshot(
 export interface Line {
   a: number;
   b: number;
+  /** Class-year coefficient; 0 unless the fit includes class year. */
+  c: number;
 }
 
 export interface FitPoint {
@@ -397,12 +425,55 @@ export interface FitPoint {
   id: string;
   x: number;
   y: number;
+  /** Class year, for fits that include it. */
+  year?: number;
 }
 
-/** Ordinary least squares; flat at the mean (or 0 with no points) when x has no spread. */
-export function fitLine(points: readonly FitPoint[]): Line {
+/** Solves the 3×3 normal equations of y ~ a + b·x + c·year; null when singular. */
+function fitWithYear(points: readonly FitPoint[]): Line | null {
+  const m = [
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+  ];
+  for (const pt of points) {
+    const v = [1, pt.x, pt.year ?? 0];
+    for (let i = 0; i < 3; i++) {
+      const row = m[i] as number[];
+      for (let j = 0; j < 3; j++) row[j] = (row[j] as number) + (v[i] as number) * (v[j] as number);
+      row[3] = (row[3] as number) + (v[i] as number) * pt.y;
+    }
+  }
+  for (let col = 0; col < 3; col++) {
+    let pivot = col;
+    for (let r = col + 1; r < 3; r++) {
+      if (Math.abs(m[r]?.[col] as number) > Math.abs(m[pivot]?.[col] as number)) pivot = r;
+    }
+    if (Math.abs(m[pivot]?.[col] as number) < 1e-9) return null;
+    [m[col], m[pivot]] = [m[pivot] as number[], m[col] as number[]];
+    for (let r = 0; r < 3; r++) {
+      if (r === col) continue;
+      const f = (m[r]?.[col] as number) / (m[col]?.[col] as number);
+      for (let c = col; c < 4; c++) {
+        (m[r] as number[])[c] = (m[r]?.[c] as number) - f * (m[col]?.[c] as number);
+      }
+    }
+  }
+  const solve = (i: number) => (m[i]?.[3] as number) / (m[i]?.[i] as number);
+  return { a: solve(0), b: solve(1), c: solve(2) };
+}
+
+/**
+ * Ordinary least squares of y on x, and on class year too when `withYear`;
+ * flat at the mean (or 0 with no points) when the regressors have no spread.
+ */
+export function fitLine(points: readonly FitPoint[], withYear = false): Line {
   const n = points.length;
-  if (n === 0) return { a: 0, b: 0 };
+  if (n === 0) return { a: 0, b: 0, c: 0 };
+  if (withYear) {
+    const line = fitWithYear(points);
+    if (line) return line;
+  }
   let sx = 0;
   let sy = 0;
   let sxx = 0;
@@ -414,12 +485,13 @@ export function fitLine(points: readonly FitPoint[]): Line {
     sxy += pt.x * pt.y;
   }
   const varX = sxx - (sx * sx) / n;
-  if (n < 2 || varX <= 1e-12) return { a: sy / n, b: 0 };
+  if (n < 2 || varX <= 1e-12) return { a: sy / n, b: 0, c: 0 };
   const b = (sxy - (sx * sy) / n) / varX;
-  return { a: (sy - b * sx) / n, b };
+  return { a: (sy - b * sx) / n, b, c: 0 };
 }
 
-export const evalLine = (line: Line, x: number): number => line.a + line.b * x;
+export const evalLine = (line: Line, x: number, year = 0): number =>
+  line.a + line.b * x + line.c * year;
 
 export function stdev(values: readonly number[]): number {
   if (values.length < 2) return 0;
@@ -450,8 +522,8 @@ export function neutralCentre(zs: readonly number[], p: Params): number {
 }
 
 export function fitNorm(points: readonly FitPoint[], p: Params): MovementNorm {
-  const line = fitLine(points);
-  const residuals = points.map((pt) => pt.y - evalLine(line, pt.x));
+  const line = fitLine(points, p.yearInFits);
+  const residuals = points.map((pt) => pt.y - evalLine(line, pt.x, pt.year ?? 0));
   const sd = stdev(residuals);
   const spread = sd > 0 ? sd : 1;
   return {
@@ -465,8 +537,8 @@ export function fitNorm(points: readonly FitPoint[], p: Params): MovementNorm {
 }
 
 /** §3.6 z in spread units, and d = g(z − c). */
-export function movementZ(s0: number, sk: number, norm: MovementNorm): number {
-  return (sk - s0 - evalLine(norm.line, s0)) / norm.spread;
+export function movementZ(s0: number, sk: number, norm: MovementNorm, year = 0): number {
+  return (sk - s0 - evalLine(norm.line, s0, year)) / norm.spread;
 }
 
 export function movementBeyondNormal(
@@ -474,8 +546,9 @@ export function movementBeyondNormal(
   sk: number,
   norm: MovementNorm,
   p: Params,
+  year = 0,
 ): number {
-  return creditCurve(movementZ(s0, sk, norm) - norm.centre, p);
+  return creditCurve(movementZ(s0, sk, norm, year) - norm.centre, p);
 }
 
 // §3.7 accuracy and fade -------------------------------------------------------
