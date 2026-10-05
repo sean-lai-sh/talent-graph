@@ -268,6 +268,10 @@ export function displayClaimValue(claimValue: number): number {
 /**
  * Accepted claims become outcomes. A selection is an outcome whose `value`
  * is its claim value. Review claims are left out. No opportunity is written.
+ *
+ * These outcomes can become V2 judge-calibration truth labels, so `claimValue`
+ * must be scored without referrer notes: a judge's note must not raise the
+ * outcome that judge is graded against.
  */
 export function claimValuesToLongitudinalRecords(claims: readonly ValuedClaim[]): {
   outcomes: Outcome[];
