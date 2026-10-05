@@ -85,8 +85,10 @@ Directory control). Full dashboard and CLI steps:
   [`talent_white_paper.pdf`](docs/theory/talent_white_paper.pdf)
 - Scope reference: [`docs/mvp-coding-prompt.md`](docs/mvp-coding-prompt.md)
 - Build plan and invariants: [`PLAN.md`](PLAN.md)
-- Issue briefs: [`docs/issues/`](docs/issues/) · spec history:
-  [`docs/models/CHANGELOG.md`](docs/models/CHANGELOG.md)
+- Specs and issues now live in Linear, not this repo. Start with
+  "Judge weights explained (start here)" and the r10 judge-weight spec; the
+  implementation is tracked under SEA-77. [`docs/issues/`](docs/issues/) is
+  historical. Spec history: [`docs/models/CHANGELOG.md`](docs/models/CHANGELOG.md)
 
 ## 1. What this is
 

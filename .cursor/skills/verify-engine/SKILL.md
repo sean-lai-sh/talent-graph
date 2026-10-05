@@ -72,7 +72,7 @@ bun run drift -- --kind bradley_terry --before 1.0.0 --after 1.0.0
 TG_TOP_K_REFERRALS=1 bun run drift -- --kind referral_signal --before 0.1.0 --after env
 ```
 
-Registered versions today: Referral Signal `0.1.0`, Bradley–Terry `1.0.0`, judge reliability `2.0.0`. `env` means the current spec with `TG_*` applied.
+Registered versions today: Referral Signal `0.1.0`, Bradley–Terry `1.0.0`, judge reliability `2.0.0`. `env` means the current spec with `TG_*` applied. Judge reliability `4.x` (the r10 judge-weight design, Linear SEA-77) is being added in steps; when a step registers a version, update this line and add a `drift` example for it. Specs live in Linear, not `docs/issues/`.
 
 Literal stdout handles (assert these strings, not internal fields):
 
