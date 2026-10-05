@@ -178,6 +178,7 @@ const BASE: Omit<WorldConfig, "name" | "judges" | "council"> = {
   relations: [],
   withholdUntil: null,
   ood: null,
+  preselect: null,
 };
 
 /** S4's stated probability that an exaggerated claim gets a flag proposed (§3.12). */
@@ -550,6 +551,7 @@ const S4E_SOLO: Scenario = {
   name: "Malicious flagger alone",
   config: s4Malice("S4e1", null, null),
   counterfactual: withoutMalice,
+  params: { flags: true },
   sweep: false,
   criteria: [
     {
@@ -570,6 +572,7 @@ const S4E_REVERSED: Scenario = {
   name: "Malicious pair, reversed",
   config: s4Malice("S4e2", "acc", 90),
   counterfactual: withoutMalice,
+  params: { flags: true },
   sweep: false,
   criteria: [
     {
@@ -600,6 +603,7 @@ const S4E_PAIR: Scenario = {
   name: "Malicious pair, unreversed",
   config: s4Malice("S4e3", "acc", null),
   counterfactual: withoutMalice,
+  params: { flags: true },
   sweep: false,
   criteria: [
     {
@@ -789,14 +793,14 @@ const S6: Scenario = {
     },
     {
       id: "S6.b",
-      claim: "Escrow keeps the backers from dropping below μ0 in the meantime",
-      threshold: "worst monthly min w(backers) − μ0 ≥ −0.02",
+      claim: "Backers' lowest monthly weight relative to μ0 (informational in r10)",
+      threshold: "worst monthly min w(backers) − μ0",
       aggregate: "worst",
       measure: (run, _w, p) =>
         Math.min(...S6_BACKERS.flatMap((id) => run.monthly.get(id) ?? [])) - p.mu0,
       floor: -0.02,
       scale: 0.05,
-      kind: "binary",
+      kind: "report",
     },
   ],
 };
@@ -853,27 +857,77 @@ const S6L: Scenario = {
   ],
 };
 
-export const SCENARIOS: readonly Scenario[] = [
-  S1,
-  S2,
-  S3,
-  S4,
+/** The r10 default report: S4.e and the watch are deferred. */
+export const SCENARIOS: readonly Scenario[] = [S1, S2, S3, S4, S5, S6, S6L];
+
+/** Deferred in r10, kept runnable with their switches on: committee flags (S4.e) and the watch. */
+export const DEFERRED: readonly Scenario[] = [
   S4E_SOLO,
   S4E_REVERSED,
   S4E_PAIR,
-  S5,
-  S6,
-  S6L,
+  {
+    ...S6,
+    id: "S6w",
+    name: "Out of distribution, watch on",
+    params: { watch: true },
+    sweep: false,
+  },
 ];
 
-/** S6 with the anti-cohort watch switched off (B = 0), reported beside S6. */
-export const S6_WATCH_OFF: Scenario = {
-  ...S6,
-  id: "S6-off",
-  name: "Out of distribution, watch off",
-  params: { B: 0 },
-  sweep: false,
-};
+// --- invite-only variants (r10) ---------------------------------------------------
+
+/** The invite-only pool's share of the population: the top quarter on level plus a year of slope. */
+export const PRESELECT_SHARE = 0.25;
+
+/**
+ * The same scenario drawn from a pre-selected pool: every candidate comes
+ * from the top PRESELECT_SHARE of the population on level plus one year of
+ * slope, and judges and council calibrate to that pool, so the system ranks
+ * strong people against each other.
+ */
+export function preselected(s: Scenario): Scenario {
+  return {
+    ...s,
+    id: `${s.id}p`,
+    name: `${s.name}, pre-selected`,
+    config: (p) => ({ ...s.config(p), preselect: PRESELECT_SHARE }),
+  };
+}
+
+export interface SmallClub {
+  candidates: number;
+  judges: number;
+}
+
+/** Realistic small clubs: candidates arriving evenly over 36 months, honest judges of spread skill. */
+export const SMALL_CLUBS: readonly SmallClub[] = [
+  { candidates: 30, judges: 5 },
+  { candidates: 60, judges: 10 },
+  { candidates: 120, judges: 15 },
+];
+
+/**
+ * A small club: `judges` honest judges with skill spread evenly from 0.95 to
+ * 0.25 (every third one an admin, two admins deciding each case), a fair
+ * council, and `candidates` people arriving evenly over the 36 months.
+ */
+export function smallClubConfig(club: SmallClub, preselect: number | null): WorldConfig {
+  const skills = Array.from(
+    { length: club.judges },
+    (_, i) => 0.95 - (0.7 * i) / Math.max(1, club.judges - 1),
+  );
+  return {
+    ...BASE,
+    name: `club${club.candidates}x${club.judges}`,
+    candidates: club.candidates,
+    arrivalDays: 36 * 30,
+    judges: skills.map((skill, i) => honest(`j${i + 1}`, skill, { admin: i % 3 === 1 })),
+    council: FAIR_COUNCIL,
+    preselect,
+  };
+}
+
+export { skillOrder, skillOrderAt };
 
 // --- the watch as a learning tool (§3.11) ------------------------------------------
 

@@ -17,14 +17,14 @@ import {
   movementCredit,
   movementScale,
   type Params,
-  R9_DEFAULTS,
+  R10_DEFAULTS,
   type Recognition,
   rankPositions,
   referralWeight,
   takeSnapshot,
   weights,
 } from "../scripts/judgeWeightSim/model.ts";
-import { boundSlack, SCENARIOS } from "../scripts/judgeWeightSim/scenarios.ts";
+import { boundSlack, preselected, SCENARIOS } from "../scripts/judgeWeightSim/scenarios.ts";
 import { latestSettlement, type RunResult, simulate } from "../scripts/judgeWeightSim/sim.ts";
 import {
   type CandidateSpec,
@@ -37,7 +37,7 @@ import {
 import { mulberry32, shuffle } from "../src/seed/prng.ts";
 
 /** A small club: the gate opens once three candidates have both snapshots. */
-const P: Params = { ...R9_DEFAULTS, M: 3, sigmaMin: 0 };
+const P: Params = { ...R10_DEFAULTS, M: 3, sigmaMin: 0 };
 const ANSWERS: Recognition[] = ["not_yet", "soon", "yes", "not_sure"];
 const CURVES: { curve: Curve; h: number; p: number }[] = [
   { curve: "G1", h: 0.3, p: 1 },
@@ -162,10 +162,10 @@ const monthly = (run: RunResult, judge: string): number[] => run.monthly.get(jud
 // Factors and admission credit land on day 160 and accuracy on day 280, so month 6 (day 179) shows admission alone.
 const MONTH6 = 5;
 
-describe("r9 invariants (§6) on every scenario", () => {
+describe("r10 invariants (§6) on every scenario", () => {
   for (const scenario of SCENARIOS) {
-    const world = generateWorld(scenario.config(R9_DEFAULTS), 1);
-    const run = simulate(world, R9_DEFAULTS);
+    const world = generateWorld(scenario.config(R10_DEFAULTS), 1);
+    const run = simulate(world, R10_DEFAULTS);
 
     test(`${scenario.id}: w and ω stay strictly inside (0, 1) at every event`, () => {
       expect(run.bounds.minW).toBeGreaterThan(0);
@@ -177,15 +177,15 @@ describe("r9 invariants (§6) on every scenario", () => {
     test(`${scenario.id}: every event kind stays within its per-event bound`, () => {
       expect(run.maxEventDelta.factors).toBeGreaterThan(0);
       expect(run.maxEventDelta.settle).toBeGreaterThan(0);
-      expect(boundSlack(run, R9_DEFAULTS)).toBeGreaterThanOrEqual(0);
+      expect(boundSlack(run, R10_DEFAULTS)).toBeGreaterThanOrEqual(0);
     });
   }
 });
 
-describe("r9 weight scale", () => {
+describe("r10 weight scale", () => {
   test("soft cap: no total, however large, rounds w or ω to 0 or 1 in floating point", () => {
     for (const T of [2, 3, 5]) {
-      const p = { ...R9_DEFAULTS, T };
+      const p = { ...R10_DEFAULTS, T };
       for (const sumA of [-1e9, -1e3, -40, 40, 1e3, 1e9]) {
         const { w, omega } = weights(logitWeight({ ...EMPTY_TERMS, sumA }, 0, p), p);
         expect(w).toBeGreaterThan(0);
@@ -199,15 +199,15 @@ describe("r9 weight scale", () => {
   test("soft cap: one event moves logit w by no more than it moves Σ", () => {
     for (let s = -10; s <= 10; s += 0.5) {
       for (const step of [-2, -0.3, 0.3, 2]) {
-        const before = logitWeight({ ...EMPTY_TERMS, sumA: s }, 0, R9_DEFAULTS);
-        const after = logitWeight({ ...EMPTY_TERMS, sumA: s + step }, 0, R9_DEFAULTS);
+        const before = logitWeight({ ...EMPTY_TERMS, sumA: s }, 0, R10_DEFAULTS);
+        const after = logitWeight({ ...EMPTY_TERMS, sumA: s + step }, 0, R10_DEFAULTS);
         expect(Math.abs(after - before)).toBeLessThanOrEqual(Math.abs(step) + 1e-12);
       }
     }
   });
 });
 
-describe("r9 invariants (§6) on a small club", () => {
+describe("r10 invariants (§6) on a small club", () => {
   test("recusal: a decision the judge took part in never gives that judge admission credit", () => {
     const run = (decision: Decision, deciders: string[]) =>
       simulate(club({ intents: [refer("a", "x"), refer("b", "x")], decision, deciders }), P);
@@ -366,7 +366,7 @@ describe("r9 invariants (§6) on a small club", () => {
   });
 });
 
-describe("r9 frozen fits (§3.6)", () => {
+describe("r10 frozen fits (§3.6)", () => {
   test("refit: a fit never includes the settling candidate, not even its intake pair", () => {
     // Referred on day 500, long after the day-60 intake: x's own intake pair is in the fit it settles under.
     const run = simulate(club({ intents: [refer("a", "x", 500)] }), P);
@@ -395,7 +395,7 @@ describe("r9 frozen fits (§3.6)", () => {
   });
 });
 
-describe("r9 committee flags (§3.12) on a small club", () => {
+describe("r10 committee flags (§3.12) on a small club", () => {
   // x's best claim in the year after the day-100 referral, lowered by 0.2.
   const target = "x:o420";
   const flag = (accomplice: string | null, reverseAfter: number | null): FlagIntent => ({
@@ -409,8 +409,17 @@ describe("r9 committee flags (§3.12) on a small club", () => {
     accomplice,
     reverseAfter,
   });
-  const run = (flags: FlagIntent[]) => simulate(club({ intents: [refer("a", "x")], flags }), P);
+  // Deferred in r10: flags only run with their switch on.
+  const PF: Params = { ...P, flags: true };
+  const run = (flags: FlagIntent[], p: Params = PF) =>
+    simulate(club({ intents: [refer("a", "x")], flags }), p);
   const none = run([]);
+
+  test("flags are off by default: even an approved pair's flag never runs", () => {
+    const off = run([flag("m2", null)], P);
+    expect(off.flags).toEqual([]);
+    expect(off.referrals).toEqual(none.referrals);
+  });
 
   test("a flag without a second approval has no effect", () => {
     const solo = run([flag(null, null)]);
@@ -444,14 +453,14 @@ describe("r9 committee flags (§3.12) on a small club", () => {
   });
 });
 
-describe("r9 invariants (§6) on the formulas", () => {
+describe("r10 invariants (§6) on the formulas", () => {
   test("position: an earlier position earns at least as much, for rewards and penalties alike", () => {
     for (const [alpha, phi] of [
       [0.75, 0.2],
       [1.5, 0.1],
       [0.3, 0.5],
     ] as const) {
-      const p = { ...R9_DEFAULTS, alpha, phi };
+      const p = { ...R10_DEFAULTS, alpha, phi };
       for (const answer of ANSWERS) {
         for (let k = 1; k < 12; k += 0.5) {
           const early = referralWeight(k, 0.05, answer, p);
@@ -489,7 +498,7 @@ describe("r9 invariants (§6) on the formulas", () => {
 
   test("symmetric bets: for every answer and curve a rise and an equal fall pay the same size", () => {
     for (const shape of CURVES) {
-      const p = { ...R9_DEFAULTS, ...shape };
+      const p = { ...R10_DEFAULTS, ...shape };
       for (const answer of ANSWERS) {
         const q = referralWeight(1, 0.05, answer, p);
         for (const z of [0.4, 1, 4]) {
@@ -504,7 +513,7 @@ describe("r9 invariants (§6) on the formulas", () => {
 
   test("monotone curve: a larger rise always earns at least as much, for every shape", () => {
     for (const shape of CURVES) {
-      const p = { ...R9_DEFAULTS, ...shape };
+      const p = { ...R10_DEFAULTS, ...shape };
       let previous = Number.NEGATIVE_INFINITY;
       for (let z = -20; z <= 20; z += 0.05) {
         const credit = movementCredit(1.2, 1, creditCurve(z, p), p);
@@ -522,7 +531,7 @@ describe("r9 invariants (§6) on the formulas", () => {
       points.push({ id: `c${i}`, x, y: 0.1 * x + rng() ** 3 * 0.2 });
     }
     for (const shape of CURVES) {
-      const p = { ...R9_DEFAULTS, ...shape };
+      const p = { ...R10_DEFAULTS, ...shape };
       const norm = fitNorm(points, p);
       const mean =
         points.reduce((s, pt) => {
@@ -535,9 +544,9 @@ describe("r9 invariants (§6) on the formulas", () => {
 
   test("neutral centre: out of sample, a sprayer's credit per referral stays near 0 however many it makes", () => {
     const s3 = SCENARIOS.find((s) => s.id === "S3");
-    const world = generateWorld(s3?.config(R9_DEFAULTS) as never, 1);
+    const world = generateWorld(s3?.config(R10_DEFAULTS) as never, 1);
     for (const shape of CURVES) {
-      const run = simulate(world, { ...R9_DEFAULTS, ...shape });
+      const run = simulate(world, { ...R10_DEFAULTS, ...shape });
       const ds = run.referrals
         .filter((r) => r.intent.judge === "spray")
         .map((r) => latestSettlement(r)?.d)
@@ -551,11 +560,12 @@ describe("r9 invariants (§6) on the formulas", () => {
   });
 });
 
-describe("r9 anti-cohort watch (§3.11) on the out-of-distribution scenario", () => {
+describe("r10 anti-cohort watch (§3.11) on the out-of-distribution scenario", () => {
   const s6 = SCENARIOS.find((s) => s.id === "S6");
-  const world = generateWorld(s6?.config(R9_DEFAULTS) as never, 1);
-  const on = simulate(world, R9_DEFAULTS);
-  const off = simulate(world, { ...R9_DEFAULTS, B: 0 });
+  const world = generateWorld(s6?.config(R10_DEFAULTS) as never, 1);
+  // Deferred in r10: the watch only runs with its switch on.
+  const on = simulate(world, { ...R10_DEFAULTS, watch: true });
+  const off = simulate(world, R10_DEFAULTS);
 
   test("the watch runs, and never changes any judge's weight or movement result", () => {
     expect(on.watch.checks.length).toBeGreaterThan(0);
@@ -571,7 +581,7 @@ describe("r9 anti-cohort watch (§3.11) on the out-of-distribution scenario", ()
   });
 
   test("budget: never more than B a quarter, half of them random, never more than C per judge, never a conflict", () => {
-    const p = { ...R9_DEFAULTS, B: 6, C: 1 };
+    const p = { ...R10_DEFAULTS, watch: true, B: 6, C: 1 };
     const run = simulate(world, p);
     const quarters = new Map<number, typeof run.watch.checks>();
     for (const check of run.watch.checks) {
@@ -606,8 +616,41 @@ describe("r9 anti-cohort watch (§3.11) on the out-of-distribution scenario", ()
   });
 });
 
-describe("r9 storage invariants on a full scenario", () => {
-  const s3 = generateWorld(SCENARIOS[2]?.config(R9_DEFAULTS) as never, 7);
+describe("r10 trims", () => {
+  test('recognition answers no longer change the stake: universal "Not yet" changes nothing', () => {
+    const s4 = SCENARIOS.find((s) => s.id === "S4") as (typeof SCENARIOS)[number];
+    const config = s4.config(R10_DEFAULTS);
+    const honest = simulate(generateWorld(config, 1), R10_DEFAULTS);
+    const notYet = simulate(generateWorld(s4.counterfactual?.(config) ?? config, 1), R10_DEFAULTS);
+    expect(notYet.monthly).toEqual(honest.monthly);
+    const answers = (run: RunResult) => run.referrals.map((r) => r.intent.answer);
+    expect(answers(notYet)).not.toEqual(answers(honest));
+  });
+
+  test("volume scaling: past V settled referrals, the movement sum is scaled by V / n", () => {
+    const p = { ...R10_DEFAULTS, T: 1e6 };
+    const at = (nSettled: number) =>
+      logitWeight({ ...EMPTY_TERMS, sumM: 1, nSettled }, 1, p) -
+      logitWeight({ ...EMPTY_TERMS, sumM: 0, nSettled }, 1, p);
+    expect(at(5)).toBeCloseTo(1, 6);
+    expect(at(10)).toBeCloseTo(1, 6);
+    expect(at(20)).toBeCloseTo(0.5, 6);
+    expect(at(40)).toBeCloseTo(0.25, 6);
+  });
+
+  test("pre-selection: every candidate comes from the top quarter on level plus a year of slope", () => {
+    const s1 = SCENARIOS[0] as (typeof SCENARIOS)[number];
+    const score = (c: CandidateSpec) => (c.A + c.g - 0.52) / Math.hypot(0.12, 0.08);
+    const pre = generateWorld(preselected(s1).config(R10_DEFAULTS), 1);
+    const broad = generateWorld(s1.config(R10_DEFAULTS), 1);
+    expect(Math.min(...pre.candidates.map(score))).toBeGreaterThanOrEqual(0.674);
+    expect(broad.candidates.filter((c) => score(c) < 0.674).length).toBeGreaterThan(80);
+    expect(pre.population.sdA).toBeLessThan(broad.population.sdA);
+  });
+});
+
+describe("r10 storage invariants on a full scenario", () => {
+  const s3 = generateWorld(SCENARIOS[2]?.config(R10_DEFAULTS) as never, 7);
 
   test("arrival order: the same evidence in any order gives the same snapshots and results", () => {
     const rng = mulberry32(99);
@@ -615,17 +658,17 @@ describe("r9 storage invariants on a full scenario", () => {
       ...s3,
       candidates: s3.candidates.map((c) => ({ ...c, items: shuffle(rng, c.items) })),
     };
-    const a = simulate(s3, R9_DEFAULTS);
-    const b = simulate(shuffled, R9_DEFAULTS);
+    const a = simulate(s3, R10_DEFAULTS);
+    const b = simulate(shuffled, R10_DEFAULTS);
     expect(b.referrals).toEqual(a.referrals);
     expect(b.judges).toEqual(a.judges);
   });
 
   test("refit: later fit versions never change a result already stored", () => {
     // S1 has no late evidence, so no logged correction may legitimately re-settle a referral.
-    const world = generateWorld(SCENARIOS[0]?.config(R9_DEFAULTS) as never, 7);
-    const full = simulate(world, R9_DEFAULTS);
-    const early = simulate({ ...world, days: 720 }, R9_DEFAULTS);
+    const world = generateWorld(SCENARIOS[0]?.config(R10_DEFAULTS) as never, 7);
+    const full = simulate(world, R10_DEFAULTS);
+    const early = simulate({ ...world, days: 720 }, R10_DEFAULTS);
     const stored = early.referrals.filter((r) => r.settlements[0] !== null);
     expect(stored.length).toBeGreaterThan(10);
     for (const r of stored) {
@@ -640,15 +683,15 @@ describe("r9 storage invariants on a full scenario", () => {
   });
 
   test("determinism: one seed gives one world and one run", () => {
-    const again = generateWorld(SCENARIOS[2]?.config(R9_DEFAULTS) as never, 7);
+    const again = generateWorld(SCENARIOS[2]?.config(R10_DEFAULTS) as never, 7);
     expect(again).toEqual(s3);
-    expect(simulate(again, R9_DEFAULTS)).toEqual(simulate(s3, R9_DEFAULTS));
+    expect(simulate(again, R10_DEFAULTS)).toEqual(simulate(s3, R10_DEFAULTS));
   });
 
   test("label: a judge is provisional until N scored signals", () => {
-    const run = simulate(s3, { ...R9_DEFAULTS, N: 1_000_000 });
+    const run = simulate(s3, { ...R10_DEFAULTS, N: 1_000_000 });
     expect(run.judges.every((j) => j.label === "provisional")).toBe(true);
-    const calibrated = simulate(s3, { ...R9_DEFAULTS, N: 1 });
+    const calibrated = simulate(s3, { ...R10_DEFAULTS, N: 1 });
     expect(calibrated.judges.some((j) => j.label === "calibrated")).toBe(true);
   });
 });

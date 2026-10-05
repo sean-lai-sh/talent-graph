@@ -15,6 +15,7 @@ import {
   type BoundedEvent,
   checkpointWindow,
   credentialStake,
+  creditCurve,
   type Decision,
   EMPTY_TERMS,
   evalLine,
@@ -30,6 +31,7 @@ import {
   movementBeyondNormal,
   movementCredit,
   movementScale,
+  movementZ,
   type Params,
   rankPositions,
   recognitionStake,
@@ -155,6 +157,8 @@ export interface AdmissionResult {
 export interface SettlementResult {
   storedAt: number;
   correctedAsOf: number;
+  /** z − c: movement beyond normal in spread units, minus the neutral centre; d = g(z − c). */
+  z: number;
   d: number;
   /** d had withheld evidence been submitted on time, under the same frozen version. */
   dOnTime: number | null;
@@ -284,10 +288,12 @@ export function simulate(world: World, p: Params): RunResult {
   for (const r of world.reversals) {
     schedule({ kind: "reverse", day: r.day, key: r.candidate, decision: r.decision });
   }
-  for (const f of world.flags) schedule({ kind: "propose", day: f.proposedAt, key: f.id });
+  if (p.flags) {
+    for (const f of world.flags) schedule({ kind: "propose", day: f.proposedAt, key: f.id });
+  }
   for (let day = p.quarter; day < world.days; day += p.quarter) {
     schedule({ kind: "release", day, key: "fits" });
-    schedule({ kind: "watch", day, key: "watch" });
+    if (p.watch) schedule({ kind: "watch", day, key: "watch" });
   }
   const intentsById = new Map(world.intents.map((r) => [r.id, r]));
   const flagsById = new Map(world.flags.map((f) => [f.id, f]));
@@ -389,7 +395,8 @@ export function simulate(world: World, p: Params): RunResult {
     const horizon = p.horizons[k] as number;
     const norm = normFor(version, k, c.id);
     const sk = snapshot(c, checkpointWindow(t, horizon, p, correctedAsOf)).substance;
-    const d = movementBeyondNormal(f.s0.substance, sk, norm, p);
+    const z = movementZ(f.s0.substance, sk, norm) - norm.centre;
+    const d = creditCurve(z, p);
     let dOnTime: number | null = null;
     if (c.onTimeItems) {
       const s0 = takeSnapshot(c.onTimeItems, s0Window(t, p), p, book).substance;
@@ -401,6 +408,7 @@ export function simulate(world: World, p: Params): RunResult {
     return {
       storedAt,
       correctedAsOf,
+      z,
       d,
       dOnTime,
       stake,

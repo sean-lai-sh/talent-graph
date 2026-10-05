@@ -1,5 +1,5 @@
 /**
- * The r9 judge-weight maths (docs/issues/28-judge-band-crossing.md §3), as
+ * The r10 judge-weight maths (docs/issues/28-judge-band-crossing.md §3), as
  * pure functions over plain numbers. No engine types: substance and selection
  * are synthetic numbers on Jev's [0, 1]-ish scale, and time is in days.
  *
@@ -74,15 +74,20 @@ export interface Params {
   watchRiseZ: number;
   /** §3.11 days a candidate stays eligible. */
   watchMaxDays: number;
-  /**
-   * Open decision 4: when > 0, a judge's movement sum is scaled by
-   * min(1, V / n_settled), so volume past V stops adding. 0 is the spec as written.
-   */
+  /** §3.1 volume scaling: a judge's movement sum is scaled by min(1, V / n_settled); 0 turns it off. */
   volumeV: number;
+  /** Deferred in r10, off by default: the anti-cohort watch (§3.11). */
+  watch: boolean;
+  /** Deferred in r10, off by default: committee flags with two-person approval (§3.12). */
+  flags: boolean;
 }
 
-/** μ0, γ, λ_f are the spec's; the rest are r9's "e.g." values or earlier harness choices. */
-export const R9_DEFAULTS: Params = {
+/**
+ * r10: G3 with p = 1.25 and the r9 harness's recommended set; volume scaling at
+ * V = 10; recognition answers collected but every stake 1 until they can be
+ * scored as predictions; the watch and committee flags deferred.
+ */
+export const R10_DEFAULTS: Params = {
   mu0: 0.3,
   gamma: 2,
   T: 3,
@@ -93,16 +98,16 @@ export const R9_DEFAULTS: Params = {
   cMin: 0.5,
   cMax: 1.5,
   g0: 0.05,
-  b: { not_yet: 1.2, soon: 1.1, yes: 0.8 },
+  b: { not_yet: 1, soon: 1, yes: 1 },
   beta: 1.25,
   D: 60,
   G: 30,
   S: 30,
   horizons: [365, 730, 1095],
   sFloor: 0.3,
-  curve: "G2",
-  h: 0.5,
-  p: 1.5,
+  curve: "G3",
+  h: 0.25,
+  p: 1.25,
   kappaA: 0.25,
   LA: 0.75,
   kappa: 0.3,
@@ -121,7 +126,9 @@ export const R9_DEFAULTS: Params = {
   C: 4,
   watchRiseZ: 1,
   watchMaxDays: 1080,
-  volumeV: 0,
+  volumeV: 10,
+  watch: false,
+  flags: false,
 };
 
 export const clip = (x: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, x));

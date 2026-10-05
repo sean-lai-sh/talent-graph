@@ -194,6 +194,12 @@ export interface WorldConfig {
   /** Friends of coaching judges hold back their two best pre-intake outputs until intake + this. */
   withholdUntil: number | null;
   ood: OodConfig | null;
+  /**
+   * Invite-only pre-selection: keep only candidates in this top share of
+   * level plus one year of slope (e.g. 0.25), by rejection. Null draws from
+   * the whole population.
+   */
+  preselect: number | null;
 }
 
 const POP = { meanA: 0.5, sdA: 0.12, meanG: 0.02, sdG: 0.08 };
@@ -246,9 +252,29 @@ function selectionLevel(c: Latent, day: number): number {
 /** Pareto(1.5) excess: heavy-tailed, mean 2. */
 const paretoExcess = (rng: Rng): number => (1 - rng()) ** (-1 / 1.5) - 1;
 
+/** z such that a standard normal exceeds it with probability `share`. */
+function upperQuantile(share: number): number {
+  let lo = -8;
+  let hi = 8;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (1 - normalCdf(mid) > share) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
 function drawLatent(rng: Rng, id: string, intakeDay: number, cfg: WorldConfig): Latent {
-  const A = POP.meanA + POP.sdA * gaussian(rng);
-  const g = POP.meanG + POP.sdG * gaussian(rng);
+  let A = POP.meanA + POP.sdA * gaussian(rng);
+  let g = POP.meanG + POP.sdG * gaussian(rng);
+  if (cfg.preselect !== null) {
+    const cut = upperQuantile(cfg.preselect);
+    const score = () => (A + g - PERCEIVED_MEAN) / Math.hypot(POP.sdA, POP.sdG);
+    while (score() < cut) {
+      A = POP.meanA + POP.sdA * gaussian(rng);
+      g = POP.meanG + POP.sdG * gaussian(rng);
+    }
+  }
   const gap0 = uniform(rng, 0.12, 0.25);
   const premium = uniform(rng, 0.03, 0.15);
   const slow = rng() < cfg.slowShare;
@@ -328,11 +354,31 @@ function honestAnswer(perceivedGap: number, perceivedG: number): Recognition {
   return "not_sure";
 }
 
+/** The pool a judge and the council calibrate to: the population, or the pre-selected pool. */
+interface Pool {
+  meanA: number;
+  sdA: number;
+  meanG: number;
+  sdG: number;
+}
+
+function poolOf(latents: readonly Latent[]): Pool {
+  const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
+  const sd = (xs: number[]) => {
+    const m = mean(xs);
+    return Math.sqrt(xs.reduce((s, x) => s + (x - m) ** 2, 0) / Math.max(1, xs.length - 1));
+  };
+  const as = latents.map((c) => c.A);
+  const gs = latents.map((c) => c.g);
+  return { meanA: mean(as), sdA: sd(as), meanG: mean(gs), sdG: sd(gs) };
+}
+
 function judgeIntent(
   rng: Rng,
   j: JudgeArchetype,
   c: Latent,
   friend: boolean,
+  pool: Pool,
 ): Omit<ReferralIntent, "id"> | null {
   const base = { judge: j.id, candidate: c.id };
   if (j.spray || friend || (j.luckyHit && c.id === LUCKY_CANDIDATE)) {
@@ -345,14 +391,14 @@ function judgeIntent(
   const seenG = c.g + j.slopeNoise * gaussian(rng) + foresight;
   const sel = selectionLevel(c, day);
   const perceived = (1 - j.consensus) * (seenA + seenG) + j.consensus * sel;
-  // Each judge refers the same share of candidates as it perceives them, so
+  // Each judge refers the same share of the pool as it perceives it, so
   // perception noise changes which candidates a judge picks, not how many.
   const ownSd = Math.sqrt(
-    POP.sdA ** 2 +
-      (1 - j.consensus) ** 2 * (POP.sdG ** 2 + j.levelNoise ** 2 + j.slopeNoise ** 2) +
+    pool.sdA ** 2 +
+      (1 - j.consensus) ** 2 * (pool.sdG ** 2 + j.levelNoise ** 2 + j.slopeNoise ** 2) +
       (j.consensus * 0.06) ** 2,
   );
-  const z = (perceived - PERCEIVED_MEAN) / ownSd;
+  const z = (perceived - pool.meanA - pool.meanG) / ownSd;
   if (z <= j.pickZ) return null;
   const answer = rng() < j.honesty ? honestAnswer(seenA + foresight - sel, seenG) : "not_yet";
   return { ...base, day, strength: Math.min(1, Math.max(0.05, normalCdf(z))), answer };
@@ -373,6 +419,8 @@ export function generateWorld(cfg: WorldConfig, seed: number): World {
     lucky.breakout = { day: lucky.intakeDay + 200, jump: 0.35 };
   }
 
+  // A broad pool keeps the population's own parameters; a pre-selected one is measured.
+  const pool: Pool = cfg.preselect === null ? POP : poolOf(latents);
   const intents: ReferralIntent[] = [];
   const coachedFrom = new Map<string, number>();
   const withholders = new Set<string>();
@@ -381,7 +429,7 @@ export function generateWorld(cfg: WorldConfig, seed: number): World {
     for (const j of cfg.judges) {
       if (j.follows) continue;
       const friend = rng() < (j.friendsShare ?? 0);
-      const intent = judgeIntent(rng, j, c, friend);
+      const intent = judgeIntent(rng, j, c, friend, pool);
       if (!intent) continue;
       own.push({ ...intent, id: `${j.id}>${c.id}` });
       if (j.coaches) {
@@ -507,6 +555,6 @@ export function generateWorld(cfg: WorldConfig, seed: number): World {
     committee,
     relations: cfg.relations,
     flags: flags.sort((x, y) => x.proposedAt - y.proposedAt || (x.id < y.id ? -1 : 1)),
-    population: { meanA: POP.meanA, sdA: POP.sdA, meanG: POP.meanG },
+    population: { meanA: pool.meanA, sdA: pool.sdA, meanG: pool.meanG },
   };
 }
