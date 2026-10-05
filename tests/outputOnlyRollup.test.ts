@@ -1,0 +1,422 @@
+import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
+import {
+  CANDIDATE_AUTHORED_SOURCES,
+  CLAIM_VALUE_V1_2_0,
+  type ClaimAuthor,
+  evidenceDateFor,
+  OUTPUT_ONLY_ROLLUP_V1_0_0,
+  type OutputOnlyClaim,
+  outputOnlyRollup,
+  scoreClaimValueV12,
+  validateClaimAuthor,
+  validateEvidenceClaim,
+} from "../src/index.ts";
+import type { JobDateFields } from "../src/longitudinal/claimPreprocess.ts";
+import type { LevelDistribution, RoleDistribution } from "../src/longitudinal/claimRubricV12.ts";
+import type { JevJudgmentRecord, JevRawScoreAnswer } from "../src/longitudinal/records.ts";
+
+const PERSON = "person-1";
+const CUTOFF = new Date("2025-01-01T00:00:00.000Z");
+
+type Level = 0 | 1 | 2 | 3 | 4;
+
+function level(at: Level): LevelDistribution {
+  const probabilities: [number, number, number, number, number] = [0, 0, 0, 0, 0];
+  probabilities[at] = 1;
+  return { score: at, confidence: 1, probabilities };
+}
+
+function raw(at: Level): JevRawScoreAnswer {
+  return { ...level(at), probabilities: [...level(at).probabilities], legend: [] };
+}
+
+const MAJOR: RoleDistribution = {
+  choice: "major_contributor",
+  confidence: 1,
+  probabilities: { original_author: 0, major_contributor: 1, maintainer: 0, minor_part: 0 },
+};
+
+function record(id: string, answers: JevJudgmentRecord["answers"]): JevJudgmentRecord {
+  return {
+    id,
+    kind: "claim",
+    personId: PERSON,
+    evidenceKey: `${PERSON}|${id}|2024-06-01|hash`,
+    requestFingerprint: `fp-${id}`,
+    specId: "career_evidence@1.2.0:rubric",
+    requestedModel: "model",
+    respondedModel: "model",
+    requestId: null,
+    answers,
+    usage: { inputTokens: 1, outputTokens: 1 },
+    observedAt: "2024-06-01T00:00:00.000Z",
+  };
+}
+
+function outputRecord(id: string, at: Level = 4) {
+  return record(id, { difficulty: raw(at), scale: raw(at), role: MAJOR });
+}
+
+function selectionRecord(id: string, at: Level = 4) {
+  return record(id, { selectivity: raw(at), pool_strength: raw(at) });
+}
+
+function dates(partial: Partial<JobDateFields> = {}): JobDateFields {
+  return { startedAt: "2023-01-01", endedAt: "2023-06-01", publishedAt: null, ...partial };
+}
+
+function claim(id: string, partial: Partial<OutputOnlyClaim> = {}): OutputOnlyClaim {
+  return {
+    id,
+    personId: PERSON,
+    recordId: `rec-${id}`,
+    claimClass: "output",
+    status: "accepted",
+    source: "resume",
+    evidenceTier: "self_reported",
+    jobDates: dates(),
+    companyEvidence: null,
+    ...partial,
+  };
+}
+
+const OUTPUT_LEVELS: Level[] = [4, 3, 4, 2];
+
+function fixture() {
+  const records = [
+    ...OUTPUT_LEVELS.map((at, i) => outputRecord(`rec-o${i + 1}`, at)),
+    selectionRecord("rec-s1", 4),
+  ];
+  const claims = [
+    ...OUTPUT_LEVELS.map((_, i) => claim(`o${i + 1}`)),
+    claim("s1", { claimClass: "selection", jobDates: dates({ endedAt: null }) }),
+  ];
+  return { records, claims };
+}
+
+function run(claims: OutputOnlyClaim[], records: JevJudgmentRecord[], cutoff = CUTOFF) {
+  return outputOnlyRollup({ personId: PERSON, records, claims, evidenceCutoff: cutoff });
+}
+
+function outputSubject(at: Level) {
+  return {
+    claimClass: "output" as const,
+    difficulty: level(at),
+    scale: level(at),
+    role: MAJOR,
+  };
+}
+
+describe("outputOnlyRollup referrer notes", () => {
+  test("a referrer note does lift a claim value in scoreClaimValueV12 (the lift being shut out)", () => {
+    const bare = scoreClaimValueV12(outputSubject(4), "self_reported", { claimId: "o1" });
+    const noted = scoreClaimValueV12(outputSubject(4), "self_reported", {
+      claimId: "o1",
+      notes: [{ claimId: "o1", referrerName: "Alice" }],
+    });
+    expect(noted.claimValue).toBeGreaterThan(bare.claimValue);
+  });
+
+  test("notes never change the output, even when slipped into the input", () => {
+    const { records, claims } = fixture();
+    const base = run(claims, records);
+    const withNotes = outputOnlyRollup({
+      personId: PERSON,
+      records,
+      claims,
+      evidenceCutoff: CUTOFF,
+      notes: claims.map((c) => ({ claimId: c.id, referrerName: "Alice" })),
+      trend: 1,
+    } as never);
+    expect(JSON.stringify(withNotes)).toBe(JSON.stringify(base));
+  });
+
+  test("substance is the no-note top-3 mean of claim values", () => {
+    const { records, claims } = fixture();
+    const unnoted = OUTPUT_LEVELS.map(
+      (at) =>
+        scoreClaimValueV12(outputSubject(at), "self_reported", { config: CLAIM_VALUE_V1_2_0 })
+          .claimValue,
+    );
+    const top3 = unnoted.sort((a, b) => b - a).slice(0, 3);
+    const expected = top3.reduce((a, b) => a + b, 0) / 3;
+    expect(run(claims, records).substance).toBeCloseTo(expected, 12);
+  });
+
+  test("finished claim values are not an input", () => {
+    const { records, claims } = fixture();
+    const withValue = claims.map((c) => ({ ...c, claimValue: 1 }));
+    expect(JSON.stringify(run(withValue, records))).toBe(JSON.stringify(run(claims, records)));
+  });
+});
+
+describe("outputOnlyRollup claim authors", () => {
+  test("a referrer-authored claim is rejected", () => {
+    const { records, claims } = fixture();
+    const bad = [...claims, claim("o5", { author: "referrer", recordId: "rec-o1" })];
+    expect(() => run(bad, records)).toThrow(/referrer/);
+  });
+
+  test("a committee-authored claim is rejected", () => {
+    const { records, claims } = fixture();
+    const bad = [...claims, claim("o5", { author: "committee", recordId: "rec-o1" })];
+    expect(() => run(bad, records)).toThrow(/committee/);
+  });
+
+  test("candidate and system authors are accepted", () => {
+    const { records, claims } = fixture();
+    const ok = claims.map((c, i) => ({
+      ...c,
+      author: (i % 2 === 0 ? "candidate" : "system") as ClaimAuthor,
+    }));
+    expect(run(ok, records).claimCount).toBe(5);
+  });
+});
+
+describe("validateClaimAuthor", () => {
+  test("accepts candidate and system, rejects referrer, committee and unknown", () => {
+    expect(validateClaimAuthor({ author: "candidate", source: "resume" }).ok).toBe(true);
+    expect(validateClaimAuthor({ author: "system", source: "resume" }).ok).toBe(true);
+    expect(validateClaimAuthor({ author: "referrer", source: "resume" }).ok).toBe(false);
+    expect(validateClaimAuthor({ author: "committee", source: "resume" }).ok).toBe(false);
+    expect(validateClaimAuthor({ author: "judge", source: "resume" }).ok).toBe(false);
+  });
+
+  test("an absent author defaults to candidate for exactly the candidate-published sources", () => {
+    expect([...CANDIDATE_AUTHORED_SOURCES].sort()).toEqual<string[]>(
+      [
+        "company_site",
+        "github",
+        "grok_web",
+        "openalex",
+        "orcid",
+        "package_registry",
+        "personal_site",
+        "resume",
+        "x",
+      ].sort(),
+    );
+    for (const source of CANDIDATE_AUTHORED_SOURCES) {
+      expect(validateClaimAuthor({ source }).ok).toBe(true);
+    }
+    expect(validateClaimAuthor({ source: "other" }).ok).toBe(false);
+  });
+
+  test("validateEvidenceClaim rejects a stated referrer or committee author, accepts none stated", () => {
+    const base = {
+      personId: PERSON,
+      statement: "Shipped a compiler",
+      identityDecision: "same",
+      identityConfidence: 0.9,
+      provenance: {
+        source: "resume",
+        sourceId: "resume-1",
+        url: "https://example.com/resume",
+        publisher: "Example",
+        publishedAt: new Date("2024-01-01T00:00:00.000Z"),
+        retrievedAt: new Date("2024-02-01T00:00:00.000Z"),
+        quotedText: "Shipped a compiler",
+        contentHash: "abc",
+      },
+    };
+    expect(validateEvidenceClaim(base as never).ok).toBe(true);
+    expect(validateEvidenceClaim({ ...base, author: "candidate" } as never).ok).toBe(true);
+    for (const author of ["referrer", "committee"]) {
+      const result = validateEvidenceClaim({ ...base, author } as never);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.join(" ")).toContain(author);
+    }
+  });
+});
+
+describe("outputOnlyRollup ordering and determinism", () => {
+  test("claims in any order give the same output and inputHash", () => {
+    const { records, claims } = fixture();
+    const forward = run(claims, records);
+    const reversed = run([...claims].reverse(), [...records].reverse());
+    const shuffled = run([claims[2]!, claims[4]!, claims[0]!, claims[3]!, claims[1]!], records);
+    expect(JSON.stringify(reversed)).toBe(JSON.stringify(forward));
+    expect(JSON.stringify(shuffled)).toBe(JSON.stringify(forward));
+    expect(reversed.inputHash).toBe(forward.inputHash);
+  });
+
+  test("a different claim set changes the inputHash", () => {
+    const { records, claims } = fixture();
+    expect(run(claims.slice(1), records).inputHash).not.toBe(run(claims, records).inputHash);
+  });
+
+  test("a changed judgment record changes the inputHash", () => {
+    const { records, claims } = fixture();
+    const changed = records.map((r) => (r.id === "rec-o1" ? outputRecord("rec-o1", 1) : r));
+    expect(run(claims, changed).inputHash).not.toBe(run(claims, records).inputHash);
+  });
+
+  test("same input twice is byte-identical", () => {
+    const { records, claims } = fixture();
+    expect(JSON.stringify(run(claims, records))).toBe(JSON.stringify(run(claims, records)));
+  });
+
+  test("configHash is stable and moves with the config", () => {
+    const { records, claims } = fixture();
+    const first = run(claims, records);
+    expect(first.configHash).toMatch(/^[0-9a-f]{64}$/);
+    const other = outputOnlyRollup({
+      personId: PERSON,
+      records,
+      claims,
+      evidenceCutoff: CUTOFF,
+      config: { ...OUTPUT_ONLY_ROLLUP_V1_0_0, sFloor: 0.4 },
+    });
+    expect(other.configHash).not.toBe(first.configHash);
+  });
+});
+
+describe("outputOnlyRollup evidence cutoff", () => {
+  test("a claim dated after the cutoff is excluded", () => {
+    const { records, claims } = fixture();
+    const before = run(claims, records);
+    const late = claim("o5", {
+      jobDates: dates({ startedAt: "2024-12-01", endedAt: "2025-03-01" }),
+    });
+    const after = run([...claims, late], [...records, outputRecord("rec-o5", 4)]);
+    expect(after.claimCount).toBe(before.claimCount);
+    expect(after.substance).toBe(before.substance);
+  });
+
+  test("a claim dated on the cutoff counts, one a day later does not", () => {
+    const { records } = fixture();
+    const on = claim("o1", { jobDates: dates({ endedAt: "2025-01-01" }) });
+    const next = claim("o1", { jobDates: dates({ endedAt: "2025-01-02" }) });
+    expect(run([on], records).claimCount).toBe(1);
+    expect(run([next], records).claimCount).toBe(0);
+  });
+
+  test("an in-progress role started before the cutoff counts, though the resume was published after", () => {
+    const { records } = fixture();
+    const ongoing = claim("o1", {
+      jobDates: dates({
+        startedAt: "2024-06-01",
+        endedAt: null,
+        publishedAt: "2025-06-01T00:00:00.000Z",
+      }),
+    });
+    expect(run([ongoing], records).claimCount).toBe(1);
+    expect(evidenceDateFor(ongoing)?.toISOString()).toBe("2024-06-01T00:00:00.000Z");
+  });
+
+  test("an in-progress role started after the cutoff is excluded", () => {
+    const { records } = fixture();
+    const ongoing = claim("o1", {
+      jobDates: dates({
+        startedAt: "2025-02-01",
+        endedAt: null,
+        publishedAt: "2024-01-01T00:00:00.000Z",
+      }),
+    });
+    expect(run([ongoing], records).claimCount).toBe(0);
+  });
+
+  test("a finished role is dated by its end, not its start", () => {
+    const { records } = fixture();
+    const finished = claim("o1", {
+      jobDates: dates({ startedAt: "2024-01-01", endedAt: "2025-06-01" }),
+    });
+    expect(run([finished], records).claimCount).toBe(0);
+  });
+
+  test("a selection claim is dated by its start, not its end", () => {
+    const { records } = fixture();
+    const hired = claim("s1", {
+      claimClass: "selection",
+      jobDates: dates({ startedAt: "2024-01-01", endedAt: "2025-06-01" }),
+    });
+    expect(run([hired], records).claimCount).toBe(1);
+    const later = claim("s1", {
+      claimClass: "selection",
+      jobDates: dates({ startedAt: "2025-02-01", endedAt: null }),
+    });
+    expect(run([later], records).claimCount).toBe(0);
+  });
+
+  test("a claim whose needed date is not stated is excluded, not counted", () => {
+    const { records } = fixture();
+    const undated = claim("o1", { jobDates: dates({ startedAt: null, endedAt: null }) });
+    expect(run([undated], records).claimCount).toBe(0);
+  });
+
+  test("a non-accepted claim is not counted", () => {
+    const { records, claims } = fixture();
+    const held = claims.map((c) => (c.id === "o1" ? { ...c, status: "review" as const } : c));
+    expect(run(held, records).claimCount).toBe(run(claims, records).claimCount - 1);
+  });
+});
+
+describe("outputOnlyRollup thin candidates", () => {
+  test("no claims gives s_floor and thin, never a missing value", () => {
+    const result = run([], []);
+    expect(result.substance).toBe(0.3);
+    expect(result.thin).toBe(true);
+    expect(result.selection).toBeNull();
+    expect(result.claimCount).toBe(0);
+  });
+
+  test("all claims after the cutoff gives s_floor and thin", () => {
+    const { records, claims } = fixture();
+    const result = run(claims, records, new Date("2000-01-01T00:00:00.000Z"));
+    expect(result.substance).toBe(0.3);
+    expect(result.thin).toBe(true);
+  });
+
+  test("weak output claims are raised to s_floor and marked thin", () => {
+    const records = [outputRecord("rec-a", 0), outputRecord("rec-b", 0), outputRecord("rec-c", 0)];
+    const claims = [claim("a"), claim("b"), claim("c")];
+    const result = run(claims, records);
+    expect(result.substance).toBe(0.3);
+    expect(result.thin).toBe(true);
+    expect(result.claimCount).toBe(3);
+  });
+
+  test("fewer output claims than the minimum is thin even when strong", () => {
+    const records = [outputRecord("rec-a", 4), outputRecord("rec-b", 4)];
+    const result = run([claim("a"), claim("b")], records);
+    expect(result.thin).toBe(true);
+    expect(result.substance).toBeGreaterThanOrEqual(0.3);
+  });
+
+  test("enough strong output claims is not thin and keeps its own substance", () => {
+    const { records, claims } = fixture();
+    const result = run(claims, records);
+    expect(result.thin).toBe(false);
+    expect(result.substance).toBeGreaterThan(0.3);
+    expect(result.selection).not.toBeNull();
+  });
+
+  test("selection claims do not count toward the output minimum", () => {
+    const records = [
+      outputRecord("rec-a", 4),
+      outputRecord("rec-b", 4),
+      selectionRecord("rec-s1"),
+      selectionRecord("rec-s2"),
+    ];
+    const claims = [
+      claim("a"),
+      claim("b"),
+      claim("s1", { claimClass: "selection" }),
+      claim("s2", { claimClass: "selection" }),
+    ];
+    expect(run(claims, records).thin).toBe(true);
+  });
+});
+
+describe("truth-label guard", () => {
+  test("claimValuesToLongitudinalRecords has no callers outside its definition", () => {
+    const root = join(import.meta.dir, "..");
+    const result = Bun.spawnSync(
+      ["git", "grep", "-l", "claimValuesToLongitudinalRecords", "--", ".", ":!tests", ":!docs"],
+      { cwd: root },
+    );
+    const files = new TextDecoder().decode(result.stdout).trim().split("\n").filter(Boolean);
+    expect(files).toEqual(["src/longitudinal/claimValue.ts"]);
+  });
+});
