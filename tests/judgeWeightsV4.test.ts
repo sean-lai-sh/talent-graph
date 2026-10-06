@@ -317,7 +317,7 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
   /** R_uv alone: the plain mean of one referral is its strength. */
   const strengthOf = (ref: Referral) => computeReferralSignal("cand", [ref], { spec: PLAIN }).s;
 
-  test("a low-weight referral never lowers the signal", () => {
+  test("while the Top-K has room, a referral at or above the current signal never lowers it", () => {
     const r = rng(83);
     let checked = 0;
     for (let i = 0; i < 4000; i++) {
@@ -402,7 +402,7 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
     }
   });
 
-  test("monotone: raising a judge's ω never lowers the signal when their R is at or above it", () => {
+  test("while every referral fits in the Top-K, raising ω for a judge whose R is at or above the signal never lowers it", () => {
     const r = rng(85);
     let checked = 0;
     for (let i = 0; i < 4000; i++) {
