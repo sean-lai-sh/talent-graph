@@ -98,7 +98,10 @@ export function computeWorld(input: ClubState, specs: LoadedSpecs = loadSpecs())
     comparisons,
     outcomes,
     opportunities,
-    admission: admissionObservations(state),
+    // Only a spec with an admission term (4.1+) reads the council's decisions.
+    ...(specs.judge_reliability.admission === undefined
+      ? {}
+      : { admission: admissionObservations(state) }),
     now,
     specs,
   });
