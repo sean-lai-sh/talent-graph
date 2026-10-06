@@ -15,6 +15,7 @@ import {
   judgeWeightedSignalOptions,
   type ScoredPrediction,
   toJudgeCalibration,
+  weightNormalizedReferralSpec,
 } from "../src/judges/reliability.ts";
 import { runJudgeCalibration } from "../src/models/definitions/judgeReliability.ts";
 import { runReferralSignals } from "../src/models/definitions/referralSignal.ts";
@@ -24,7 +25,12 @@ import {
   REFERRAL_SIGNAL_V0_1_0,
   REFERRAL_SIGNAL_V0_2_0,
 } from "../src/models/registry.ts";
-import { assertSpec, type JudgeReliabilitySpec, validateSpec } from "../src/models/spec.ts";
+import {
+  assertSpec,
+  type JudgeReliabilitySpec,
+  type ReferralSignalSpec,
+  validateSpec,
+} from "../src/models/spec.ts";
 import { hashInputs } from "../src/provenance/hash.ts";
 import { computeAllReferralSignals, computeReferralSignal } from "../src/scoring/referralSignal.ts";
 import { generateSeed } from "../src/seed/generate.ts";
@@ -513,5 +519,32 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
         pseudoWeight: c0,
       }).id;
     expect(run(0.09)).not.toBe(run(0.5));
+  });
+});
+
+describe("weightNormalizedReferralSpec (SEA-83)", () => {
+  const reversed = (o: object) => Object.fromEntries(Object.entries(o).reverse());
+
+  test("0.1.0 with its keys in another order maps to the registered 0.2.0, not +env", () => {
+    const reordered = reversed(
+      Object.fromEntries(
+        Object.entries(REFERRAL_SIGNAL_V0_1_0).map(([k, v]) => [
+          k,
+          typeof v === "object" ? reversed(v) : v,
+        ]),
+      ),
+    ) as ReferralSignalSpec;
+    expect(weightNormalizedReferralSpec(reordered)).toBe(REFERRAL_SIGNAL_V0_2_0);
+  });
+
+  test("0.1.0 with an env override maps to 0.2.0+env and keeps the override", () => {
+    const got = weightNormalizedReferralSpec({
+      ...REFERRAL_SIGNAL_V0_1_0,
+      version: "0.1.0+env",
+      topK: 3,
+    });
+    expect(got.version).toBe("0.2.0+env");
+    expect(got.topK).toBe(3);
+    expect(got.aggregation).toBe("weight_normalized");
   });
 });

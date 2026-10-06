@@ -43,6 +43,7 @@ import {
   judgeWeightV4,
   type ReferralSignalSpec,
 } from "../models/spec.ts";
+import { stableStringify } from "../provenance/hash.ts";
 import { referralStrength } from "../scoring/referralStrength.ts";
 import { type AdmissionObservations, type AdmissionResult, computeAdmission } from "./admission.ts";
 import {
@@ -371,7 +372,7 @@ export function weightNormalizedReferralSpec(spec: ReferralSignalSpec): Referral
     version: base.version,
     aggregation: "weight_normalized",
   };
-  return JSON.stringify(derived) === JSON.stringify(base)
+  return stableStringify(derived) === stableStringify(base)
     ? base
     : { ...derived, version: `${base.version}+env` };
 }
