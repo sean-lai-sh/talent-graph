@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import schema from "../apps/club/convex/schema.ts";
 import { admissionObservations } from "../apps/club/lib/engine/admission.ts";
-import { addCall, addReferral, decide, emptyState } from "../apps/club/lib/engine.ts";
+import { addCall, addPerson, addReferral, decide, emptyState } from "../apps/club/lib/engine.ts";
 import { clubToReferral, reviveState } from "../apps/club/lib/serialize.ts";
 import type { ClubState, ReferralRecognition } from "../apps/club/lib/types.ts";
 import type { Person, Referral } from "../src/domain/types.ts";
@@ -298,16 +298,15 @@ describe("position", () => {
 
 function club(): ClubState {
   const s = emptyState(day(0).toISOString());
-  const row = (id: string, channel?: Channel): ClubState["people"][number] => ({
+  const row = (id: string): ClubState["people"][number] => ({
     id,
     name: id,
     status: "candidate",
     reviewStatus: "new",
     createdAt: s.now,
     updatedAt: s.now,
-    ...(channel ? { channel } : {}),
   });
-  s.people.push(row("alice"), row("carol"), row("bob"), row("rec"), row("dee", "outbound"));
+  s.people.push(row("alice"), row("carol"), row("bob"), row("rec"));
   return s;
 }
 
@@ -401,13 +400,33 @@ describe("recognition answer, calls, recruiters", () => {
 
   test("a recruiter never gains or loses weight, whether the candidate is admitted or denied", () => {
     for (const verdict of ["admit", "deny"] as const) {
-      const s = club();
-      const decided = decide(s, "dee", verdict).state;
-      const run = calibrate(decided);
+      const selected = addPerson(club(), { name: "Dee", channel: "outbound" });
+      expect(selected.error).toBeUndefined();
+      const dee = selected.state.people.find((p) => p.name === "Dee")?.id as string;
+      let s = { ...selected.state, now: day(1).toISOString() };
+      const yes = addCall(s, {
+        candidateId: dee,
+        callerId: "carol",
+        order: 1,
+        outcome: "yes",
+        referral: RATINGS,
+      });
+      expect(yes.error).toBeUndefined();
+      s = { ...yes.state, now: day(30).toISOString() };
+      const run = calibrate(decide(s, dee, verdict, undefined, { decidedBy: "rec" }).state);
+
+      expect(run.admission?.positions.size).toBe(1);
+      expect([...(run.admission?.positions.values() ?? [])][0]).toMatchObject({
+        judgeId: "carol",
+        position: 1,
+      });
+      expect(run.admission?.terms.map((t) => t.judgeId)).toEqual(["carol"]);
+      const carol = run.admission?.terms[0];
+      if (verdict === "admit") expect(carol?.reliance).toBe(1);
+      else expect(carol?.credit as number).toBeLessThan(0);
       expect(run.estimates.get("rec")?.weight).toBe(0.3);
       expect(run.estimates.get("rec")?.admissionCredit).toBe(0);
       expect(run.admission?.sumByJudge.has("rec")).toBe(false);
-      expect(run.admission?.terms).toEqual([]);
     }
   });
 });
