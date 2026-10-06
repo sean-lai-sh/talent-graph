@@ -425,7 +425,7 @@ export function judgeWeightedSignalOptions(
   const weights = run.options.applyBiasCorrection
     ? { judgeReliability, judgeBias: biasCorrections(run) }
     : { judgeReliability };
-  if (judgeSpec.mode !== "v4") return { spec: referralSpec, ...weights };
+  if (specMode === "v2") return { spec: referralSpec, ...weights };
   return {
     spec: weightNormalizedReferralSpec(referralSpec),
     ...weights,
