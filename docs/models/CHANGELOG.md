@@ -125,7 +125,8 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   (one per judge; self-referrals and repeats take none; equal times share the
   average share), `share(k) = max(φ, 1/k^α)`. Per referral,
   `a = +1` if admitted, `−r/(1−r)` if denied (r = the candidate's channel
-  admit rate); `ρ = clip((S − S⁻ᵘ)/S, 0, 1)` for an admit and a denial alike;
+  admit rate); `ρ = clip((S − S⁻ᵘ)/S, 0, 1)` for an admit and a denial alike,
+  and `ρ = 1` when `S ≤ 0`;
   `ℓᴬ = clip(κ_a · share · a · (1 − ρ), −Lᴬ, Lᴬ)`. `Σ ℓᴬ` is added to Σ before
   the soft cap, so `logit w = logit μ0 + T·tanh((Σ_acc + Σ ℓᴬ)/T)`. No credit
   for a referral made after the decision, for the person who recorded the
@@ -149,11 +150,14 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   (ρ = 1) gets 0 either way and is calibrated at settlement.
 - **Admission credit timing:** a referral without a Jev starting snapshot would
   wait for step 4; until it exists the credit applies once the decision stands.
-- **Accepted for now:** two choices stand until the pipeline simulation
+- **Accepted for now:** three choices stand until the pipeline simulation
   (PR #116) checks them, before 4.1.0 becomes current.
   - The admit-rate prior is a blend of 150 pseudo-decisions at 12/150 with
     the channel's history.
   - ρ uses the rounded display signals, not the unrounded ones.
+  - Clipping each referral at ±Lᴬ breaks the zero-expectation property only
+    for admit rates r > 0.75 at share 1: at r = 0.9 the expected credit is
+    +0.15. No change for 4.1.0; revisit in the simulation tuning pass.
 - **Not current:** `CURRENT_SPECS.judge_reliability` stays 2.0.0.
 - **Drift:** on the seed, which has no council decisions and so no admission
   credit; re-run after per-referral centring, unchanged. `--before 4.0.0 --after 4.1.0`: STABLE on all five reports (τ_b 1.000,
