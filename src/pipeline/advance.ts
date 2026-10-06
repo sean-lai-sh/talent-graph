@@ -35,7 +35,8 @@ import {
 import type { LoadedSpecs } from "../config.ts";
 import { DIMENSIONS } from "../domain/constants.ts";
 import type { Comparison, Opportunity, Outcome, Person, Referral } from "../domain/types.ts";
-import { judgeWeightOptions } from "../judges/reliability.ts";
+import type { AdmissionObservations } from "../judges/admission.ts";
+import { councilSignalOptions } from "../judges/reliability.ts";
 import { runCapabilityVectors } from "../models/definitions/bradleyTerry.ts";
 import { runJudgeCalibration } from "../models/definitions/judgeReliability.ts";
 import { runReferralSignals } from "../models/definitions/referralSignal.ts";
@@ -49,6 +50,8 @@ export interface Observations {
   comparisons: readonly Comparison[];
   outcomes: readonly Outcome[];
   opportunities: readonly Opportunity[];
+  /** Council decisions and channels, for a calibration spec with an admission term. */
+  admission?: AdmissionObservations;
 }
 
 /**
@@ -181,7 +184,7 @@ export function advance(
   now: Date,
   opts: AdvanceOptions = {},
 ): AdvanceResult {
-  const { people, comparisons, outcomes, opportunities } = observations;
+  const { people, comparisons, outcomes, opportunities, admission } = observations;
   const referrals =
     opts.asOf === true ? referralsAsOf(observations.referrals, now) : observations.referrals;
 
@@ -202,6 +205,7 @@ export function advance(
     referrals,
     outcomes,
     opportunities,
+    ...(admission === undefined ? {} : { admission }),
     now,
     spec: specs.judge_reliability,
     referralSpec: specs.referral_signal,
@@ -210,11 +214,19 @@ export function advance(
   // …then the weights it produced, applied to the same Referral Signal spec.
   // The calibration run is named as lineage, so the two runs of this kind are
   // distinguishable by provenance rather than by a version tag.
-  const weighted = runReferralSignals(people, referrals, now, {
-    spec: specs.referral_signal,
-    ...judgeWeightOptions(calibration.outputs),
-    judgeRunId: calibration.id,
-  });
+  //
+  // Under shadow mode the weights are reported but the council's signal stays
+  // unweighted, so the weighted run *is* the baseline run: nothing is
+  // recomputed, no lineage claims a calibration that changed no number, and
+  // the run list below does not carry one run twice.
+  const shadow = calibration.outputs.options.shadowMode === true;
+  const weighted = shadow
+    ? signals
+    : runReferralSignals(people, referrals, now, {
+        spec: specs.referral_signal,
+        ...councilSignalOptions(calibration.outputs),
+        judgeRunId: calibration.id,
+      });
 
   const state: EngineState = {
     runs: {
@@ -224,7 +236,9 @@ export function advance(
     },
     judgeWeighted: weighted,
   };
-  const runs: readonly ModelRun[] = [signals, capability, calibration, weighted];
+  const runs: readonly ModelRun[] = shadow
+    ? [signals, capability, calibration]
+    : [signals, capability, calibration, weighted];
 
   return { state, runs, drift: driftReports(prev, state, opts.drift) };
 }

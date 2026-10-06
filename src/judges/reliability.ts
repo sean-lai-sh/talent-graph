@@ -12,6 +12,7 @@
  *   p̂_u      = n/(n+λ)·p_u + λ/(n+λ)·μ_p     shrinkage against instant oracles
  *   (mode "v4" only, on the r10 scale, μ0 = μ_p:)
  *   Σ_u      = logit(clamp(p̂_u, ε, 1−ε)) − logit μ0
+ *   (spec 4.1.0 adds the admission term: Σ_u += Σ ℓᴬ_uv, see admission.ts)
  *   logit w_u = logit μ0 + T·tanh(Σ_u / T)         soft-capped, so w_u ∈ (0, 1)
  *   ω_u      = w_u^γ                               what the signal is weighted by
  *   b_u     ← (1 − η)·b_u + η·(x_uv − truth_uv)   signed bias, shrunk toward 0
@@ -43,6 +44,7 @@ import {
   type ReferralSignalSpec,
 } from "../models/spec.ts";
 import { referralStrength } from "../scoring/referralStrength.ts";
+import { type AdmissionObservations, type AdmissionResult, computeAdmission } from "./admission.ts";
 import {
   buildOutcomeCohort,
   labelForPrediction,
@@ -98,6 +100,8 @@ export interface JudgeReliabilityEstimate {
   weight?: number;
   /** ω_u = w_u^γ under mode "v4" (what the signal uses); absent under "v2". */
   omega?: number;
+  /** Σ ℓᴬ over this judge's scored referrals; present only when the spec has an admission term. */
+  admissionCredit?: number;
   /** Running signed error, or null when nothing has been evaluated. */
   rawBias: number | null;
   /** b̂_u after shrinkage toward 0. */
@@ -124,7 +128,11 @@ export interface JudgeCalibrationRun {
     applyBiasCorrection: boolean;
     /** Present only under "v4"; absent under "v2" so v2 outputs and run ids are unchanged. */
     reliabilityMode?: "v4";
+    /** Present only when the spec sets it, like `reliabilityMode`. */
+    shadowMode?: true;
   };
+  /** Positions and admission terms; present only when the spec has an admission term. */
+  admission?: AdmissionResult;
 }
 
 export interface JudgeCalibrationInput {
@@ -136,6 +144,8 @@ export interface JudgeCalibrationInput {
   spec?: JudgeReliabilitySpec;
   /** Spec under which x_uv is computed; defaults to CURRENT_SPECS.referral_signal. */
   referralSpec?: ReferralSignalSpec;
+  /** Council decisions and channels. Read only when the spec has an admission term. */
+  admission?: AdmissionObservations;
 }
 
 /**
@@ -228,6 +238,8 @@ export function estimateJudgeReliability(
   judgeIds: readonly string[],
   predictions: readonly ScoredPrediction[],
   spec: JudgeReliabilitySpec,
+  /** Σ ℓᴬ per judge. Judges with credit but no predictions still get an estimate. */
+  admissionSums: ReadonlyMap<string, number> = new Map(),
 ): Map<string, JudgeReliabilityEstimate> {
   const eta = spec.learningRate;
   const v4 =
@@ -247,10 +259,13 @@ export function estimateJudgeReliability(
     }
   }
 
-  const ids = new Set<string>([...judgeIds, ...acc.keys()]);
+  const ids = new Set<string>([...judgeIds, ...acc.keys(), ...admissionSums.keys()]);
+  const withAdmission = spec.admission !== undefined;
   const out = new Map<string, JudgeReliabilityEstimate>();
   for (const judgeId of [...ids].sort()) {
     const a = acc.get(judgeId);
+    const credit = admissionSums.get(judgeId) ?? 0;
+    const creditField = withAdmission ? { admissionCredit: credit } : {};
     if (!a) {
       out.set(judgeId, {
         judgeId,
@@ -258,7 +273,8 @@ export function estimateJudgeReliability(
         meanSquaredError: null,
         rawReliability: null,
         reliability: spec.priorReliability,
-        ...(v4 ? judgeWeightV4(spec.priorReliability, v4) : {}),
+        ...(v4 ? judgeWeightV4(spec.priorReliability, v4, credit) : {}),
+        ...creditField,
         rawBias: null,
         bias: 0,
         predictionIds: [],
@@ -273,7 +289,8 @@ export function estimateJudgeReliability(
       meanSquaredError: a.e,
       rawReliability: raw,
       reliability,
-      ...(v4 ? judgeWeightV4(reliability, v4) : {}),
+      ...(v4 ? judgeWeightV4(reliability, v4, credit) : {}),
+      ...creditField,
       rawBias: a.b,
       bias: shrink(a.n, a.b, 0, spec.shrinkage),
       predictionIds: a.ids,
@@ -288,10 +305,15 @@ export function computeJudgeCalibration(input: JudgeCalibrationInput): JudgeCali
   const referralSpec = assertSpec(input.referralSpec ?? CURRENT_SPECS.referral_signal);
   const cohort = buildOutcomeCohort(input.outcomes, input.opportunities ?? [], spec, input.now);
   const { predictions, skipped } = scoreReferralPredictions(input.referrals, cohort, referralSpec);
+  const admission =
+    spec.admission !== undefined && input.admission !== undefined
+      ? computeAdmission(input.referrals, input.admission, spec.admission, input.now)
+      : undefined;
   const estimates = estimateJudgeReliability(
     input.people.map((p) => p.id),
     predictions,
     spec,
+    admission?.sumByJudge,
   );
   const withEvidence = [...estimates.values()].filter((e) => e.rawReliability !== null);
   const populationMeanReliability =
@@ -312,7 +334,9 @@ export function computeJudgeCalibration(input: JudgeCalibrationInput): JudgeCali
       judgesWithEvidence: withEvidence.length,
       applyBiasCorrection: spec.applyBiasCorrection,
       ...(spec.mode === "v4" ? { reliabilityMode: "v4" as const } : {}),
+      ...(spec.shadowMode === true ? { shadowMode: true as const } : {}),
     },
+    ...(admission === undefined ? {} : { admission }),
   };
 }
 
@@ -328,6 +352,17 @@ export function judgeWeightOptions(run: JudgeCalibrationRun): {
   return run.options.applyBiasCorrection
     ? { judgeReliability, judgeBias: biasCorrections(run) }
     : { judgeReliability };
+}
+
+/**
+ * What the council's Referral Signal is computed with. Under shadow mode the
+ * weights exist (admins can read them) but the signal stays unweighted, so no
+ * option is passed and the run is the V0 baseline; otherwise `judgeWeightOptions`.
+ */
+export function councilSignalOptions(
+  run: JudgeCalibrationRun,
+): ReturnType<typeof judgeWeightOptions> | Record<string, never> {
+  return run.options.shadowMode === true ? {} : judgeWeightOptions(run);
 }
 
 /**

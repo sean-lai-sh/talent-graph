@@ -60,6 +60,22 @@ export interface BradleyTerrySpec {
  *   p̂_u    = n/(n+λ)·p_u + λ/(n+λ)·μ_p            shrunk toward the prior
  *   b_u    ← (1 − η)·b_u + η·(x_uv − truth_uv)    signed bias, shrunk the same way
  */
+/** Parameters of the admission term ℓᴬ and of the position share. */
+export interface AdmissionSpec {
+  /** κ_a > 0: scale of one referral's admission credit. */
+  kappa: number;
+  /** Lᴬ > 0: cap on |ℓᴬ| for one referral. */
+  limit: number;
+  /** α ≥ 0: position share(k) = max(φ, 1/k^α). */
+  positionExponent: number;
+  /** φ ∈ [0, 1]: floor of the position share. */
+  positionFloor: number;
+  /** Admit rate used before a channel has decisions (12 of about 150). */
+  priorAdmitRate: number;
+  /** Pseudo-decisions behind `priorAdmitRate`: the observed rate takes over as real decisions pile up. */
+  priorAdmitWeight: number;
+}
+
 export interface JudgeReliabilitySpec {
   kind: "judge_reliability";
   /** Semver, e.g. "2.0.0". */
@@ -88,6 +104,16 @@ export interface JudgeReliabilitySpec {
   softCap?: number;
   /** γ > 0, "v4" only: ω_u = w_u^γ. */
   weightExponent?: number;
+  /**
+   * "v4" only. Early credit from the council's decisions (src/judges/admission.ts).
+   * Absent means no admission term, so 4.0.0 is unchanged.
+   */
+  admission?: AdmissionSpec;
+  /**
+   * "v4" only. When true the weights are computed and reported, but the Referral
+   * Signal the council sees stays unweighted (see `councilSignalOptions`).
+   */
+  shadowMode?: boolean;
   /**
    * Opportunity-count thresholds that bucket people for the expectation
    * E[R_v | O_v]. `[1, 2, 3]` ⇒ buckets {0}, {1}, {2}, {3+}. Empty ⇒ one
@@ -308,20 +334,41 @@ function logit(p: number): number {
 /**
  * w_u and ω_u from p̂_u on the r10 scale (μ0 = priorReliability):
  *   Σ = logit(clamp(p̂, ε, 1−ε)) − logit μ0,  logit w = logit μ0 + T·tanh(Σ/T),  ω = w^γ.
+ * `extraSigma` (the summed admission credit, 4.1.0) adds to Σ before the cap.
  * No evidence (Σ = 0) returns μ0 exactly, not a logit round trip.
  */
 export function judgeWeightV4(
   shrunk: number,
   spec: JudgeReliabilityV4Params,
+  /** Σ ℓᴬ: admission credit, added to Σ before the soft cap. */
+  extraSigma = 0,
 ): { weight: number; omega: number } {
   const mu0 = spec.priorReliability;
   const eps = JUDGE_WEIGHT_LOGIT_EPS;
-  const sigma = logit(Math.min(1 - eps, Math.max(eps, shrunk))) - logit(mu0);
+  const sigma = logit(Math.min(1 - eps, Math.max(eps, shrunk))) - logit(mu0) + extraSigma;
   const weight =
     sigma === 0
       ? mu0
       : 1 / (1 + Math.exp(-(logit(mu0) + spec.softCap * Math.tanh(sigma / spec.softCap))));
   return { weight, omega: weight ** spec.weightExponent };
+}
+
+function validateAdmissionSpec(a: AdmissionSpec, errors: string[]): void {
+  const positive = (v: number) => isFiniteNumber(v) && v > 0;
+  if (!positive(a.kappa)) errors.push("admission.kappa (κ_a) must be a finite number > 0");
+  if (!positive(a.limit)) errors.push("admission.limit (Lᴬ) must be a finite number > 0");
+  if (!isFiniteNumber(a.positionExponent) || a.positionExponent < 0) {
+    errors.push("admission.positionExponent (α) must be a finite number ≥ 0");
+  }
+  if (!isFiniteNumber(a.positionFloor) || a.positionFloor < 0 || a.positionFloor > 1) {
+    errors.push("admission.positionFloor (φ) must be in [0, 1]");
+  }
+  if (!isFiniteNumber(a.priorAdmitRate) || a.priorAdmitRate <= 0 || a.priorAdmitRate >= 1) {
+    errors.push("admission.priorAdmitRate must be in (0, 1)");
+  }
+  if (!positive(a.priorAdmitWeight)) {
+    errors.push("admission.priorAdmitWeight must be a finite number > 0");
+  }
 }
 
 function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string[]): void {
@@ -379,8 +426,17 @@ function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string
         }
       }
     }
-  } else if (spec.softCap !== undefined || spec.weightExponent !== undefined) {
-    errors.push('softCap and weightExponent apply only under mode "v4"');
+    if (spec.admission !== undefined) validateAdmissionSpec(spec.admission, errors);
+    if (spec.shadowMode !== undefined && typeof spec.shadowMode !== "boolean") {
+      errors.push("shadowMode must be a boolean");
+    }
+  } else if (
+    spec.softCap !== undefined ||
+    spec.weightExponent !== undefined ||
+    spec.admission !== undefined ||
+    spec.shadowMode !== undefined
+  ) {
+    errors.push('softCap, weightExponent, admission and shadowMode apply only under mode "v4"');
   }
   if (!Array.isArray(spec.opportunityBuckets)) {
     errors.push("opportunityBuckets must be an array of thresholds");
