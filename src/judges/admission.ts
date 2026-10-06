@@ -19,7 +19,10 @@
  * deny) — the council decides once a semester, so a fixed window after the
  * referral would usually close before any decision exists. A later reopen or
  * reversal never changes it. A referral made after that decision, or by the
- * person who recorded it, earns nothing, and a decision recorded before the
+ * person who recorded it, earns nothing. When the club could not tell who
+ * recorded it (`unresolvedDecider`), every referrer who was an admin at that
+ * moment earns nothing from it: fail closed, since any of them may have
+ * clicked. A decision recorded before the
  * leave-one-judge-out signal was kept (`signalWithout` absent) is not scored:
  * what is unknown is not read as low.
  *
@@ -43,6 +46,12 @@ export interface CouncilDecision {
   at: Date;
   /** The person who recorded the decision; they earn nothing from it. */
   decidedBy?: string;
+  /**
+   * Set instead of `decidedBy` when the recording admin could not be resolved
+   * to exactly one person. `adminReferrers` are the candidate's referrers who
+   * were admins at decision time; none of them earns credit from it.
+   */
+  unresolvedDecider?: { adminReferrers: readonly string[] };
   /** S_v the council saw, on the same scale as `signalWithout`; null when it had none. */
   signal: number | null;
   /**
@@ -204,6 +213,7 @@ export function computeAdmission(
     if (pos === undefined || d === undefined) continue;
     if (r.createdAt.getTime() > d.at.getTime()) continue; // after the decision: position only
     if (d.decidedBy === r.referrerId) continue; // recusal
+    if (d.unresolvedDecider?.adminReferrers.includes(r.referrerId)) continue; // fail closed
     if (d.signalWithout === undefined) continue; // recorded before the signal was kept
     let reliance = 0;
     if (d.outcome === "admitted") {
