@@ -9,7 +9,12 @@ import {
   toJudgeCalibration,
 } from "../src/judges/reliability.ts";
 import { JUDGE_RELIABILITY_V2_0_0, JUDGE_RELIABILITY_V4_0_0 } from "../src/models/registry.ts";
-import { assertSpec, type JudgeReliabilitySpec, validateSpec } from "../src/models/spec.ts";
+import {
+  assertSpec,
+  JUDGE_WEIGHT_LOGIT_EPS,
+  type JudgeReliabilitySpec,
+  validateSpec,
+} from "../src/models/spec.ts";
 import { computeAllReferralSignals } from "../src/scoring/referralSignal.ts";
 
 const T0 = new Date("2026-01-01T00:00:00.000Z");
@@ -123,6 +128,20 @@ describe('judge_reliability@4.0.0 (mode "v4")', () => {
     }
     expect(validateSpec({ ...V4, softCap: 1e6 }).ok).toBe(true);
     expect(validateSpec({ ...V4, softCap: 1e6, weightExponent: 1 }).ok).toBe(true);
+  });
+
+  test("validateSpec rejects a v4 μ0 outside the p̂ clamp, and every accepted μ0 maps no evidence to w = μ0", () => {
+    for (const priorReliability of [1e-7, 1 - 1e-7]) {
+      const res = validateSpec({ ...V4, priorReliability });
+      expect(res.ok, `μ0 = ${priorReliability}`).toBe(false);
+    }
+    for (const priorReliability of [JUDGE_WEIGHT_LOGIT_EPS, 1 - JUDGE_WEIGHT_LOGIT_EPS, 0.3]) {
+      const spec = { ...V4, priorReliability };
+      expect(validateSpec(spec).ok, `μ0 = ${priorReliability}`).toBe(true);
+      const est = estimateJudgeReliability(["silent"], [], spec).get("silent");
+      expect(est?.weight).toBe(priorReliability);
+      expect(est?.omega).toBe(priorReliability ** 2);
+    }
   });
 
   test("a judge with no scored referrals gets w = 0.3 and ω = 0.09", () => {
