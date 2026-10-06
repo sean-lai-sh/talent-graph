@@ -1,14 +1,13 @@
 import { rankPercentiles } from "../domain/rank.ts";
 import { expectedFromBucketMeans, opportunityBucket } from "../judges/outcomes.ts";
-import { deepFreeze } from "../models/freeze.ts";
-import { loadProjectConfig } from "../projectConfig/load.ts";
+import { PROJECT_CONFIG } from "../projectConfig/generated.ts";
 import { type PersonRollupConfig, parsePersonRollup } from "../projectConfig/parse.ts";
 import { hashInputs } from "../provenance/hash.ts";
 
 export type { PersonRollupConfig } from "../projectConfig/parse.ts";
 export { PINNED_PERSON_ROLLUP_HASH } from "../projectConfig/personRollupPin.ts";
 
-export const PERSON_ROLLUP: PersonRollupConfig = deepFreeze(loadProjectConfig().person_rollup);
+export const PERSON_ROLLUP: PersonRollupConfig = PROJECT_CONFIG.person_rollup;
 
 export type RollupClaimStatus = "accepted" | "review" | "no_work_described";
 
