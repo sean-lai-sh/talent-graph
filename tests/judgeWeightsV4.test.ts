@@ -3,6 +3,7 @@ import type { Outcome, Person, Referral } from "../src/domain/types.ts";
 import {
   computeJudgeCalibration,
   estimateJudgeReliability,
+  type JudgeReliabilityEstimate,
   judgeWeightOptions,
   reliabilityWeights,
   type ScoredPrediction,
@@ -165,6 +166,14 @@ describe('judge_reliability@4.0.0 (mode "v4")', () => {
     }
     const good = run.estimates.get("good");
     expect(good?.omega).not.toBe(good?.reliability);
+  });
+
+  test('a mode "v4" run whose estimate lacks ω throws instead of weighting that judge fully', () => {
+    const run = computeJudgeCalibration({ people, referrals, outcomes, now: NOW, spec: V4 });
+    const { omega: _, ...noOmega } = run.estimates.get("good") as JudgeReliabilityEstimate;
+    const broken = { ...run, estimates: new Map([...run.estimates, ["good", noOmega]]) };
+    expect(() => reliabilityWeights(broken)).toThrow(/good has no omega/);
+    expect(() => judgeWeightOptions(broken)).toThrow(/good has no omega/);
   });
 
   test("w is monotone in p_u", () => {

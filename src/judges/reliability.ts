@@ -332,12 +332,21 @@ export function judgeWeightOptions(run: JudgeCalibrationRun): {
 
 /**
  * The per-judge weight in the form `computeReferralSignal` accepts: ω_u under
- * mode "v4", p̂_u exactly (no clamp) under "v2".
+ * mode "v4", p̂_u exactly (no clamp) under "v2". A "v4" estimate without ω is a
+ * broken run, and throws rather than falling through to full weight.
  */
 export function reliabilityWeights(run: JudgeCalibrationRun): Map<string, number> {
   const v4 = run.options.reliabilityMode === "v4";
   return new Map(
-    [...run.estimates.values()].map((e) => [e.judgeId, v4 ? (e.omega as number) : e.reliability]),
+    [...run.estimates.values()].map((e) => {
+      if (!v4) return [e.judgeId, e.reliability];
+      if (e.omega === undefined) {
+        throw new Error(
+          `judge ${e.judgeId} has no omega in a mode "v4" run (${run.options.specVersion})`,
+        );
+      }
+      return [e.judgeId, e.omega];
+    }),
   );
 }
 
