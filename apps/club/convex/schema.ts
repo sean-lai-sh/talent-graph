@@ -58,6 +58,19 @@ export const rubricScore = v.union(
   v.null(),
 );
 
+export const clubChannel = v.union(v.literal("inbound"), v.literal("outbound"));
+
+export const referralOrigin = v.union(v.literal("referral"), v.literal("interview"));
+
+export const referralRecognition = v.union(
+  v.literal("not_yet"),
+  v.literal("soon"),
+  v.literal("yes"),
+  v.literal("not_sure"),
+);
+
+export const callOutcome = v.union(v.literal("yes"), v.literal("maybe"), v.literal("no"));
+
 const clubPersonFields = {
   id: v.string(),
   name: v.string(),
@@ -73,6 +86,8 @@ const clubPersonFields = {
   github: v.optional(v.string()),
   website: v.optional(v.string()),
   status: personStatus,
+  // How the candidate entered the process. Absent reads as inbound.
+  channel: v.optional(clubChannel),
   reviewStatus: v.optional(reviewStatus),
   createdAt: v.string(),
   updatedAt: v.string(),
@@ -87,8 +102,22 @@ const clubReferralFields = {
   relationshipDepth: scale5,
   evidenceType,
   evidenceText: v.string(),
+  // Absent reads as "referral". "interview" marks the referral a call's yes creates.
+  origin: v.optional(referralOrigin),
+  // Stored only; no weight reads it.
+  recognition: v.optional(referralRecognition),
   createdAt: v.string(),
   updatedAt: v.string(),
+};
+
+// A pre-council call: up to 2 per candidate.
+const clubCallFields = {
+  id: v.string(),
+  candidateId: v.string(),
+  callerId: v.string(),
+  order: v.union(v.literal(1), v.literal(2)),
+  outcome: callOutcome,
+  createdAt: v.string(),
 };
 
 const clubComparisonFields = {
@@ -159,6 +188,12 @@ const clubSnapshotFields = {
       judge_reliability: v.string(),
     }),
   ),
+  // Person id of the admin who recorded the decision (recusal).
+  decidedBy: v.optional(v.string()),
+  // The council-facing Referral Signal without each referrer at decision time.
+  signalWithout: v.optional(
+    v.array(v.object({ referrerId: v.string(), signalWithout: v.number() })),
+  ),
 };
 
 const clubFeedbackRequestFields = {
@@ -204,6 +239,9 @@ export default defineSchema({
     .index("by_club_and_phone", ["clubId", "phone"])
     .index("by_club_and_status", ["clubId", "status"]),
   clubReferrals: defineTable({ clubId, ...clubReferralFields })
+    .index("by_club", ["clubId"])
+    .index("by_club_and_domain_id", ["clubId", "id"]),
+  clubCalls: defineTable({ clubId, ...clubCallFields })
     .index("by_club", ["clubId"])
     .index("by_club_and_domain_id", ["clubId", "id"]),
   clubComparisons: defineTable({ clubId, ...clubComparisonFields })

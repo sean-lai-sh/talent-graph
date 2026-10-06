@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { adminRead, type ClubRole, extraAdminEmailsFromEnv, resolveRole } from "../lib/clubRole.ts";
 import { type Club, ensureClub, loadClub, loadState, saveState } from "../lib/clubStore.ts";
 import {
+  addCall as addCallEngine,
   addPerson as addPersonEngine,
   addReferral as addReferralEngine,
   computeView,
@@ -19,6 +20,8 @@ import type { DataModel, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { authComponent } from "./auth";
 import {
+  callOutcome,
+  clubChannel,
   comparisonOutcome,
   dimension,
   evidenceType,
@@ -114,6 +117,24 @@ async function ensureOrg(
   return { orgId, name: clubName, state, view: computeView(state) };
 }
 
+/**
+ * The person id behind the signed-in admin's email, or undefined when the
+ * admin has no person row (or more than one matches). Recorded as `decidedBy`
+ * so a judge who is also the deciding admin earns no credit from the decision.
+ */
+async function signedInAdminPersonId(ctx: MutationCtx): Promise<string | undefined> {
+  const user = await requireAdmin(ctx);
+  const email = typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
+  const club = await loadClub(ctx.db);
+  if (email === "" || !club) return undefined;
+  const matches = await ctx.db
+    .query("clubPeople")
+    .withIndex("by_club_and_email", (q) => q.eq("clubId", club._id).eq("email", email))
+    .take(2);
+  const only = matches.length === 1 ? matches[0] : undefined;
+  return only?.id;
+}
+
 async function applyEngine(
   ctx: MutationCtx,
   fn: (state: ClubState) => EngineResult,
@@ -177,6 +198,7 @@ export const addPerson = mutation({
     linkedin: optionalName,
     resume: optionalName,
     status: v.optional(personStatus),
+    channel: v.optional(clubChannel),
   },
   handler: async (ctx, args) => {
     return await applyEngine(ctx, (state) => addPersonEngine(state, args));
@@ -205,7 +227,39 @@ export const decide = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    return await applyEngine(ctx, (state) => decideEngine(state, args.personId, args.decision));
+    const decidedBy = await signedInAdminPersonId(ctx);
+    return await applyEngine(ctx, (state) =>
+      decideEngine(state, args.personId, args.decision, undefined, decidedBy),
+    );
+  },
+});
+
+/**
+ * A pre-council call. A yes also creates the caller's engine referral
+ * (origin "interview"); a maybe takes no position; a hard no is stored and
+ * never scored.
+ */
+export const addCall = mutation({
+  args: {
+    candidateId: v.string(),
+    callerId: v.string(),
+    order: v.union(v.literal(1), v.literal(2)),
+    outcome: callOutcome,
+    referral: v.optional(
+      v.object({
+        conviction: scale5,
+        confidence: scale5,
+        relationshipDepth: scale5,
+        evidenceType,
+        evidenceText: v.string(),
+      }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const { referral, ...call } = args;
+    return await applyEngine(ctx, (state) =>
+      addCallEngine(state, { ...call, ...(referral ? { referral } : {}) }),
+    );
   },
 });
 

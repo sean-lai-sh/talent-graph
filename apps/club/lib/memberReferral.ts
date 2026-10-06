@@ -26,6 +26,7 @@ import {
   REFERRAL_Q2_ROLES,
   REFERRAL_Q3_GROUP_SIZES,
   REFERRAL_Q3_RANKS,
+  REFERRAL_RECOGNITIONS,
 } from "./types.ts";
 
 export const NOT_LINKED_ERROR =
@@ -121,12 +122,15 @@ export function memberReferralAnswers(raw: {
   role: string;
   rank: string;
   groupSize: string;
+  recognition?: string | undefined;
 }): MemberReferralAnswers | null {
   if (!includes(REFERRAL_Q1_CONTEXTS, raw.context)) return null;
   if (!includes(REFERRAL_Q1_LENGTHS, raw.length)) return null;
   if (!includes(REFERRAL_Q2_ROLES, raw.role)) return null;
   if (!includes(REFERRAL_Q3_RANKS, raw.rank)) return null;
   if (!includes(REFERRAL_Q3_GROUP_SIZES, raw.groupSize)) return null;
+  const recognition = raw.recognition ?? "not_sure";
+  if (!includes(REFERRAL_RECOGNITIONS, recognition)) return null;
   const stakes: ReferralQ1Stake[] = [];
   for (const stake of raw.stakes) {
     if (!includes(REFERRAL_Q1_STAKES, stake)) return null;
@@ -142,6 +146,7 @@ export function memberReferralAnswers(raw: {
     role: raw.role,
     rank: raw.rank,
     groupSize: raw.groupSize,
+    recognition,
   };
 }
 
@@ -254,6 +259,10 @@ export function commitMemberReferral(input: {
       relationshipDepth: mapped.referral.relationshipDepth,
       evidenceType: mapped.referral.evidenceType,
       evidenceText: mapped.referral.evidenceText,
+      // A member's own referral. An existing row keeps the origin it had, so
+      // a member who interviewed the candidate stays an interview yes.
+      origin: existing?.origin ?? "referral",
+      recognition: input.answers.recognition ?? "not_sure",
     },
   );
   if (result.error !== undefined) return fail(result.error);

@@ -13,6 +13,7 @@ import type {
   ReferralQ2Role,
   ReferralQ3GroupSize,
   ReferralQ3Rank,
+  ReferralRecognition,
 } from "./types.ts";
 import {
   REFERRAL_Q1_CONTEXTS,
@@ -38,6 +39,17 @@ export const Q3_GROUP_CHOICES: readonly { label: string; value: ReferralQ3GroupS
   { label: "30-100", value: "30 to 100" },
   { label: "100+", value: "100+" },
 ];
+
+export const RECOGNITION_CHOICES: readonly { label: string; value: ReferralRecognition }[] = [
+  { label: "Not yet", value: "not_yet" },
+  { label: "Soon", value: "soon" },
+  { label: "Yes", value: "yes" },
+  { label: "Not sure", value: "not_sure" },
+];
+
+export function recognitionPrompt(name: string): string {
+  return `Has ${name} received the recognition they deserve?`;
+}
 
 export const Q1_CONTEXTS: readonly ReferralQ1Context[] = REFERRAL_Q1_CONTEXTS;
 export const Q1_STAKES: readonly ReferralQ1Stake[] = REFERRAL_Q1_STAKES;
@@ -89,6 +101,8 @@ export type QuestionDraft = {
   role: ReferralQ2Role | null;
   groupSize: ReferralQ3GroupSize | null;
   rank: ReferralQ3Rank | null;
+  /** Optional: left unanswered it is sent as "not_sure". */
+  recognition: ReferralRecognition | null;
 };
 
 export function emptyQuestionDraft(): QuestionDraft {
@@ -102,6 +116,7 @@ export function emptyQuestionDraft(): QuestionDraft {
     role: null,
     groupSize: null,
     rank: null,
+    recognition: null,
   };
 }
 
@@ -153,5 +168,6 @@ export function questionsToAnswers(draft: QuestionDraft): MemberReferralAnswers 
     role: draft.role,
     rank: draft.rank,
     groupSize: draft.groupSize,
+    recognition: draft.recognition ?? "not_sure",
   };
 }

@@ -28,6 +28,7 @@ function arrayPaths(node: Node, path: string): string[] {
 const BOUNDED_LISTS: Record<string, string> = {
   "clubs.config.requiredDimensions": "one entry per dimension, at most 7",
   "clubSnapshots.modelRunIds": "one run id per model in a pass",
+  "clubSnapshots.signalWithout": "one entry per referrer of the decided candidate, a handful",
 };
 
 describe("club schema holds no growing lists", () => {
