@@ -79,6 +79,33 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   `bun run demo` shows the weighted vs unweighted Referral Signal side by side).
 - **PR:** #17.
 
+## judge_reliability@4.0.0 — r10 weight scale
+
+- **What:** Same accuracy term as 2.0.0 (window, η, τ, λ, buckets unchanged),
+  moved onto the r10 scale. New spec fields `mode "v4"`, `softCap T = 3` and
+  `weightExponent γ = 2`; `priorReliability` becomes `μ0 = 0.3`. After the
+  existing shrink toward μ0: `Σ = logit(clamp(p̂, ε, 1−ε)) − logit μ0`,
+  `logit w = logit μ0 + T·tanh(Σ/T)`, `ω = w^γ`. The estimate keeps both `w`
+  (`weight`, for admins) and `ω` (`omega`); under `mode "v4"`,
+  `reliabilityWeights` and `judgeWeightOptions` hand ω to the Referral Signal.
+  A judge with no evaluated predictions has `w = 0.3`, `ω = 0.09`. 2.0.0 is
+  unedited and its absent `mode` reads as `"v2"`, which still passes p̂ through
+  with no clamp, so its run ids do not move. 3.0.0 is skipped (reserved by
+  Phase E).
+- **Why:** Judges start low and earn weight; squaring makes a proven judge
+  count several times a new one. The soft cap keeps `w` strictly inside (0, 1)
+  for any accuracy. Admission credit and movement arrive in later steps.
+- **Referral Signal:** `referral_signal@0.1.0` is unchanged; only the weights
+  it is given differ.
+- **Not current:** `CURRENT_SPECS.judge_reliability` stays 2.0.0 until Sean
+  decides after reading the drift report.
+- **Drift:** `bun run drift -- --kind judge_reliability --before 2.0.0 --after
+  4.0.0` on the seed: BREAKING overall. Reliability 2.0.0 → 4.0.0 Kendall τ_b
+  0.578, mean |shift| 43.64; bias STABLE; weighted referral signals REVIEW
+  (τ_b 0.746, mean |shift| 29.45, max 67.62). Movement is expected: judges with
+  no data drop from weight 1 to ω 0.09.
+- **PR:** SEA-78.
+
 ## career_evidence@1.0.0 — initial (career-evidence rubric)
 
 - **What:** The rubric levels, question text, event taxonomy and gate

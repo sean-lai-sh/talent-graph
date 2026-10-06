@@ -76,8 +76,18 @@ export interface JudgeReliabilitySpec {
   errorScale: number;
   /** λ ≥ 0: evaluated predictions needed before an estimate outweighs the prior. */
   shrinkage: number;
-  /** μ_p ∈ [0, 1]: reliability of a judge with no evaluated predictions. */
+  /** μ_p ∈ [0, 1]: reliability of a judge with no evaluated predictions. Under `mode: "v4"` this is μ0 ∈ (0, 1). */
   priorReliability: number;
+  /**
+   * How p̂_u becomes the weight the signal uses. "v2" (absent means "v2")
+   * passes p̂_u through unchanged; "v4" maps it through a soft-capped logit
+   * to w_u and weights the signal by ω_u = w_u^γ.
+   */
+  mode?: "v2" | "v4";
+  /** T > 0, "v4" only: soft cap on the logit distance from μ0 in logit w = logit μ0 + T·tanh(Σ/T). */
+  softCap?: number;
+  /** γ > 0, "v4" only: ω_u = w_u^γ. */
+  weightExponent?: number;
   /**
    * Opportunity-count thresholds that bucket people for the expectation
    * E[R_v | O_v]. `[1, 2, 3]` ⇒ buckets {0}, {1}, {2}, {3+}. Empty ⇒ one
@@ -301,6 +311,21 @@ function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string
     spec.priorReliability > 1
   ) {
     errors.push("priorReliability (μ_p) must be in [0, 1]");
+  }
+  if (spec.mode !== undefined && spec.mode !== "v2" && spec.mode !== "v4") {
+    errors.push('mode must be "v2" or "v4"');
+  } else if (spec.mode === "v4") {
+    if (spec.priorReliability <= 0 || spec.priorReliability >= 1) {
+      errors.push('priorReliability (μ0) must be in (0, 1) under mode "v4"');
+    }
+    if (!isFiniteNumber(spec.softCap) || spec.softCap <= 0) {
+      errors.push('softCap (T) must be a finite number > 0 under mode "v4"');
+    }
+    if (!isFiniteNumber(spec.weightExponent) || spec.weightExponent <= 0) {
+      errors.push('weightExponent (γ) must be a finite number > 0 under mode "v4"');
+    }
+  } else if (spec.softCap !== undefined || spec.weightExponent !== undefined) {
+    errors.push('softCap and weightExponent apply only under mode "v4"');
   }
   if (!Array.isArray(spec.opportunityBuckets)) {
     errors.push("opportunityBuckets must be an array of thresholds");
