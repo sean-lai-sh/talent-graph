@@ -406,7 +406,7 @@ describe("history and old documents", () => {
     let s = club();
     s = refer(s, "alice", "bob");
     s = refer(s, "carol", "bob");
-    const done = decide(s, "bob", "admit", undefined, "rec");
+    const done = decide(s, "bob", "admit", undefined, { decidedBy: "rec" });
     const snap = done.state.snapshots[0];
     expect(snap?.decidedBy).toBe("rec");
     expect(snap?.signalWithout?.map((x) => x.referrerId).sort()).toEqual(["alice", "carol"]);

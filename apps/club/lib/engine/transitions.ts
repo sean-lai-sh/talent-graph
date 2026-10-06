@@ -53,6 +53,7 @@ import type {
   AddPersonInput,
   AddReferralInput,
   CandidateRow,
+  ClubDecider,
   ClubEvaluation,
   ClubPerson,
   ClubSnapshot,
@@ -121,7 +122,7 @@ function recordSnapshot(
   person: ClubPerson,
   decision: string,
   deps: EngineDeps,
-  decidedBy?: string,
+  decider?: ClubDecider,
 ): ClubView {
   const { view, provenance, signalWithout } = deps.computeWorld(next);
   const dossier = view.people.find((p) => p.id === person.id);
@@ -148,7 +149,13 @@ function recordSnapshot(
     // What the council saw without each referrer, so a judge earns no early
     // credit for an admission their own referral carried.
     signalWithout: signalWithout(person.id),
-    ...(decidedBy === undefined ? {} : { decidedBy }),
+    ...(decider === undefined
+      ? {}
+      : "decidedBy" in decider
+        ? { decidedBy: decider.decidedBy }
+        : {
+            unresolvedDecider: { adminReferrers: [...decider.unresolvedDecider.adminReferrers] },
+          }),
   };
   next.snapshots = [snapshot, ...next.snapshots];
   // Cloned, not shared: the view a caller holds may not be a live handle on
@@ -211,15 +218,17 @@ export function setStatus(
 
 /**
  * Council decision. Review status drives the engine status, never the reverse.
- * `decidedBy` is the person id of the admin who clicked decide, when they have
- * one; that person earns no admission credit from this decision.
+ * `decider` is who clicked decide: their person id (`decidedBy`), who then
+ * earns no admission credit from this decision, or, when their email resolved
+ * to no person or several, the `unresolvedDecider` marker naming the referrers
+ * who were admins at that moment, none of whom earns credit from it.
  */
 export function decide(
   state: ClubState,
   personId: string,
   decision: Decision,
   deps: EngineDeps = DEFAULT_DEPS,
-  decidedBy?: string,
+  decider?: ClubDecider,
 ): EngineResult {
   const next = reviveState(state);
   const person = knownPerson(next, personId);
@@ -232,7 +241,7 @@ export function decide(
   person.reviewStatus = target;
   person.status = statusForReview(target);
   person.updatedAt = next.now;
-  return { state: next, view: recordSnapshot(next, person, target, deps, decidedBy) };
+  return { state: next, view: recordSnapshot(next, person, target, deps, decider) };
 }
 
 export function addReferral(state: ClubState, input: AddReferralInput): EngineResult {

@@ -190,6 +190,9 @@ const clubSnapshotFields = {
   ),
   // Person id of the admin who recorded the decision (recusal).
   decidedBy: v.optional(v.string()),
+  // Set instead of `decidedBy` when the deciding admin did not resolve to one
+  // person: the candidate's referrers who were admins then earn no credit.
+  unresolvedDecider: v.optional(v.object({ adminReferrers: v.array(v.string()) })),
   // The council-facing Referral Signal without each referrer at decision time.
   signalWithout: v.optional(
     v.array(v.object({ referrerId: v.string(), signalWithout: v.number() })),

@@ -28,6 +28,9 @@ export function admissionObservations(state: ClubState): AdmissionObservations {
       at: new Date(s.createdAt),
       signal: s.values.referralSignal,
       ...(s.decidedBy === undefined ? {} : { decidedBy: s.decidedBy }),
+      ...(s.unresolvedDecider === undefined
+        ? {}
+        : { unresolvedDecider: { adminReferrers: [...s.unresolvedDecider.adminReferrers] } }),
       ...(s.signalWithout === undefined
         ? {}
         : { signalWithout: s.signalWithout.map((x) => ({ ...x })) }),

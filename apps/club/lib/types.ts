@@ -177,11 +177,29 @@ export interface ClubSnapshot {
   /** Person id of the admin who recorded the decision, when they have a person row. */
   decidedBy?: string;
   /**
+   * Set when the recording admin's email matched no person row or several, so
+   * `decidedBy` is absent. Lists the candidate's referrers who were admins at
+   * that moment; none of them earns admission credit from this decision.
+   * Absent on older snapshots and whenever `decidedBy` is set.
+   */
+  unresolvedDecider?: ClubUnresolvedDecider;
+  /**
    * The council-facing Referral Signal without each referrer, at decision time,
    * on the scale of `values.referralSignal`. Absent on older snapshots.
    */
   signalWithout?: ClubSignalWithout[];
 }
+
+export interface ClubUnresolvedDecider {
+  /** Person ids, admin status as of the decision. May be empty. */
+  adminReferrers: string[];
+}
+
+/**
+ * Who recorded a council decision, as the engine is told: a person id, or the
+ * marker that it could not be resolved to exactly one person.
+ */
+export type ClubDecider = { decidedBy: string } | { unresolvedDecider: ClubUnresolvedDecider };
 
 export interface ClubSignalWithout {
   referrerId: string;
