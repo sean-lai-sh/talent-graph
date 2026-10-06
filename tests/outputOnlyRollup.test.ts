@@ -301,6 +301,18 @@ describe("outputOnlyRollup ordering and determinism", () => {
     expect(JSON.stringify(run(claims, records))).toBe(JSON.stringify(run(claims, records)));
   });
 
+  test("the fixture's roll-up is pinned across runs and versions", () => {
+    const { records, claims } = fixture();
+    expect(run(claims, records)).toEqual({
+      substance: 0.41,
+      selection: 0.6,
+      thin: false,
+      claimCount: 5,
+      inputHash: "fa810fd67fec9ceffabdaac149db12405104c14b5f749edc9af183613bc83f67",
+      configHash: "746d4711ed0e0b51234bae724ce37bc4b5d7f460cf5d754c5b2828d1d4b835be",
+    });
+  });
+
   test("configHash is stable and moves with the config", () => {
     const { records, claims } = fixture();
     const first = run(claims, records);
