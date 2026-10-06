@@ -333,17 +333,32 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
     return new Map(Array.from({ length: n }, (_, i) => [`u${i}`, 0.02 + r() * 0.95]));
   }
 
-  const weighted = (refs: Referral[], om: ReadonlyMap<string, number>, c0 = C0) =>
+  /** b̂ per judge u0..u(n-1), both signs, so adjusted R differs from R. */
+  function biases(r: Rng, n: number): Map<string, number> {
+    return new Map(Array.from({ length: n }, (_, i) => [`u${i}`, -0.3 + r() * 0.6]));
+  }
+
+  const weighted = (
+    refs: Referral[],
+    om: ReadonlyMap<string, number>,
+    c0 = C0,
+    bias?: ReadonlyMap<string, number>,
+  ) =>
     computeReferralSignal("cand", refs, {
       spec: NORMALIZED,
       judgeReliability: om,
+      ...(bias === undefined ? {} : { judgeBias: bias }),
       pseudoWeight: c0,
     });
 
   /** R_uv alone: the plain mean of one referral is its strength. */
   const strengthOf = (ref: Referral) => computeReferralSignal("cand", [ref], { spec: PLAIN }).s;
 
-  test("while the Top-K has room, a referral at or above the current signal never lowers it", () => {
+  /** clip(R_uv − b̂_u, 0, 1), the R the promise is stated on. */
+  const adjustedOf = (ref: Referral, bias: ReadonlyMap<string, number>) =>
+    Math.min(1, Math.max(0, strengthOf(ref) - (bias.get(ref.referrerId) ?? 0)));
+
+  test("while the Top-K has room, a referral whose adjusted R is at or above the current signal never lowers it", () => {
     const r = rng(83);
     let checked = 0;
     for (let i = 0; i < 4000; i++) {
@@ -353,13 +368,30 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
       const existing = Array.from({ length: Math.floor(r() * K) }, (_, j) => aim(`u${j}`, r));
       const added = aim(`u${existing.length}`, r);
       const om = omegas(r, existing.length + 1);
-      const before = weighted(existing, om).s;
-      if (strengthOf(added) < before) continue; // only a referral at or above the signal is promised
+      const bias = biases(r, existing.length + 1);
+      const before = weighted(existing, om, C0, bias).s;
+      if (adjustedOf(added, bias) < before) continue; // only adjusted R at or above the signal is promised
       checked++;
-      const after = weighted([...existing, added], om).s;
+      const after = weighted([...existing, added], om, C0, bias).s;
       expect(after, `case ${i}`).toBeGreaterThanOrEqual(before - 1e-12);
     }
     expect(checked).toBeGreaterThan(500);
+  });
+
+  test("raw R at or above the signal is not the promise: bias can pull adjusted R below it", () => {
+    const top = (from: string): Referral => ({
+      ...referral(from, "cand", 5),
+      confidence: 5,
+      relationshipDepth: 5,
+    });
+    const om = new Map([
+      ["a", 0.81],
+      ["b", 0.5],
+    ]);
+    const bias = new Map([["b", 0.9]]);
+    const before = weighted([top("a")], om, C0, bias).s;
+    expect(strengthOf(top("b"))).toBeGreaterThanOrEqual(before);
+    expect(weighted([top("a"), top("b")], om, C0, bias).s).toBeLessThan(before);
   });
 
   test("the issue's own case: a new member's equal-R referral beside a proven judge", () => {
@@ -428,20 +460,23 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
     }
   });
 
-  test("while every referral fits in the Top-K, raising ω for a judge whose R is at or above the signal never lowers it", () => {
+  test("while every referral fits in the Top-K, raising ω for a judge whose adjusted R is at or above the signal never lowers it", () => {
     const r = rng(85);
     let checked = 0;
     for (let i = 0; i < 4000; i++) {
       const refs = Array.from({ length: 1 + Math.floor(r() * K) }, (_, j) => aim(`u${j}`, r));
       const om = omegas(r, refs.length);
+      const bias = biases(r, refs.length);
       const j = Math.floor(r() * refs.length);
-      const before = weighted(refs, om).s;
-      if (strengthOf(refs[j] as Referral) < before) continue;
+      const before = weighted(refs, om, C0, bias).s;
+      if (adjustedOf(refs[j] as Referral, bias) < before) continue;
       checked++;
       const raised = new Map(om);
       const was = om.get(`u${j}`) as number;
       raised.set(`u${j}`, was + r() * (0.999 - was));
-      expect(weighted(refs, raised).s, `case ${i}`).toBeGreaterThanOrEqual(before - 1e-12);
+      expect(weighted(refs, raised, C0, bias).s, `case ${i}`).toBeGreaterThanOrEqual(
+        before - 1e-12,
+      );
     }
     expect(checked).toBeGreaterThan(500);
   });

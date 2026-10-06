@@ -223,12 +223,13 @@ function signalFromScoredEdges(
     .slice(0, topK)
     .map((x) => x.c);
   const sum = contributing.reduce((acc, c) => acc + c.strength, 0);
-  // What weight-normalised promises (SEA-83): while the Top-K has room, adding
-  // a referral whose R is at or above the current signal never lowers it; while
-  // every referral fits in the Top-K, neither does raising ω for a judge whose
-  // R is at or above it. A referral below the signal may lower it, and once
-  // the Top-K is full a heavier entry can evict a lighter, higher-R one;
-  // neither is promised.
+  // What weight-normalised promises (SEA-83), stated on the bias-adjusted
+  // clip(R − b̂, 0, 1), which is R when no bias map is given: while the Top-K
+  // has room, adding a referral whose adjusted R is at or above the current
+  // signal never lowers it; while every referral fits in the Top-K, neither
+  // does raising ω for a judge whose adjusted R is at or above it. A referral
+  // below the signal may lower it, and once the Top-K is full a heavier entry
+  // can evict a lighter, higher-R one; neither is promised.
   const s =
     contributing.length === 0
       ? 0
