@@ -34,6 +34,7 @@ import {
   BRADLEY_TERRY_V1_0_0,
   JUDGE_RELIABILITY_V2_0_0,
   REFERRAL_SIGNAL_V0_1_0,
+  REFERRAL_SIGNAL_V0_2_0,
 } from "../src/models/registry.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 import {
@@ -163,14 +164,16 @@ const PROBES: Record<string, Probe> = {
   referral_signal_v0: {
     input: { people: data.people, referrals: data.referrals },
     opts: {
-      spec: REFERRAL_SIGNAL_V0_1_0,
+      // 0.2.0, so pseudoWeight (which 0.1.0 refuses) can be probed too.
+      spec: REFERRAL_SIGNAL_V0_2_0,
       topK: 5,
       judgeReliability: new Map([["p-001", 0.5]]),
       judgeBias: new Map([["p-001", 0.1]]),
+      pseudoWeight: 0.09,
       judgeRunId: "judge_reliability/judge_reliability_v2@2.0.0:deadbeefcafe:01234567",
     },
     now: NOW,
-    perturb: { spec: () => ({ ...REFERRAL_SIGNAL_V0_1_0, version: "0.1.1" }) },
+    perturb: { spec: () => ({ ...REFERRAL_SIGNAL_V0_2_0, version: "0.2.1" }) },
   },
   bradley_terry_v1: {
     input: { people: data.people, comparisons: data.comparisons },

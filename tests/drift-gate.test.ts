@@ -343,8 +343,8 @@ describe("drift gate: end to end", () => {
       edit(
         dir,
         "src/models/registry.ts",
-        "  CAREER_EVIDENCE_V1_2_4,\n]);",
-        "  CAREER_EVIDENCE_V1_2_4,\n  CAREER_EVIDENCE_V1_0_1,\n]);",
+        "  REFERRAL_SIGNAL_V0_2_0,\n]);",
+        "  REFERRAL_SIGNAL_V0_2_0,\n  CAREER_EVIDENCE_V1_0_1,\n]);",
       );
       edit(
         dir,
@@ -373,9 +373,9 @@ describe("drift gate: end to end", () => {
         "src/models/registry.ts",
         "/** Every spec version ever shipped. Append only. */",
         "/** Same numbers, new version. */\n" +
-          "const REFERRAL_SIGNAL_V0_2_0 = deepFreeze({\n" +
+          "const REFERRAL_SIGNAL_V0_3_0 = deepFreeze({\n" +
           "  ...REFERRAL_SIGNAL_V0_1_0,\n" +
-          '  version: "0.2.0",\n' +
+          '  version: "0.3.0",\n' +
           "});\n\n" +
           "/** Every spec version ever shipped. Append only. */",
       );
@@ -383,17 +383,17 @@ describe("drift gate: end to end", () => {
         dir,
         "src/models/registry.ts",
         "  REFERRAL_SIGNAL_V0_1_0,\n  BRADLEY",
-        "  REFERRAL_SIGNAL_V0_1_0,\n  REFERRAL_SIGNAL_V0_2_0,\n  BRADLEY",
+        "  REFERRAL_SIGNAL_V0_1_0,\n  REFERRAL_SIGNAL_V0_3_0,\n  BRADLEY",
       );
       edit(
         dir,
         "src/models/registry.ts",
         "referral_signal: REFERRAL_SIGNAL_V0_1_0,",
-        "referral_signal: REFERRAL_SIGNAL_V0_2_0,",
+        "referral_signal: REFERRAL_SIGNAL_V0_3_0,",
       );
     });
-    expect(output).toContain("=== referral_signal 0.1.0 → 0.2.0");
-    expect(output).toContain("Drift report — referral_signal (0.1.0 → 0.2.0)");
+    expect(output).toContain("=== referral_signal 0.1.0 → 0.3.0");
+    expect(output).toContain("Drift report — referral_signal (0.1.0 → 0.3.0)");
     expect(output).not.toContain("skipped referral_signal");
     expect(exitCode).toBe(0);
   }, 120_000);
