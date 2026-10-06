@@ -16,6 +16,7 @@ import {
 import type { JobDateFields } from "../src/longitudinal/claimPreprocess.ts";
 import type { LevelDistribution, RoleDistribution } from "../src/longitudinal/claimRubricV12.ts";
 import type { JevJudgmentRecord, JevRawScoreAnswer } from "../src/longitudinal/records.ts";
+import { SOURCE_KINDS, type SourceKind } from "../src/longitudinal/types.ts";
 import {
   CAREER_EVIDENCE_V1_2_0,
   CAREER_EVIDENCE_V1_2_1,
@@ -193,23 +194,17 @@ describe("validateClaimAuthor", () => {
   });
 
   test("an absent author defaults to candidate for exactly the candidate-published sources", () => {
-    expect([...CANDIDATE_AUTHORED_SOURCES].sort()).toEqual<string[]>(
-      [
-        "company_site",
-        "github",
-        "grok_web",
-        "openalex",
-        "orcid",
-        "package_registry",
-        "personal_site",
-        "resume",
-        "x",
-      ].sort(),
-    );
+    // Every source kind is decided here, so adding one to SOURCE_KINDS fails
+    // this test until someone says whether its claims default to the candidate.
+    const NOT_CANDIDATE_AUTHORED: readonly SourceKind[] = ["other"];
+    const expected = SOURCE_KINDS.filter((source) => !NOT_CANDIDATE_AUTHORED.includes(source));
+    expect([...CANDIDATE_AUTHORED_SOURCES].sort()).toEqual([...expected].sort());
+    for (const source of SOURCE_KINDS) {
+      expect(validateClaimAuthor({ source }).ok).toBe(!NOT_CANDIDATE_AUTHORED.includes(source));
+    }
     for (const source of CANDIDATE_AUTHORED_SOURCES) {
       expect(validateClaimAuthor({ source }).ok).toBe(true);
     }
-    expect(validateClaimAuthor({ source: "other" }).ok).toBe(false);
   });
 
   test("validateEvidenceClaim rejects a stated referrer or committee author, accepts none stated", () => {
@@ -416,11 +411,94 @@ describe("outputOnlyRollup accepted specs", () => {
       "career_evidence@1.2.0:rubric",
       "career_evidence@1.2.5:fafb7d39",
       "career_evidence@1.1.0:cd500b05",
+      "career_evidence@1.0.0:cd500b05",
+      "career_evidence@1.0.0",
+      "career_evidence@1.3.0:fafb7d39",
+      "career_evidence@1.3:fafb7d39",
+      "career_evidence@1.3",
       `${valid}x`,
       valid.split(":")[0]!,
     ]) {
       const rec = { ...outputRecord("rec-o1"), specId };
       expect(() => run([claim("o1")], [rec])).toThrow(/not an accepted career_evidence 1.2/);
+    }
+  });
+});
+
+describe("outputOnlyRollup structural errors", () => {
+  test("a duplicate claim id throws, whatever order the claims arrive in", () => {
+    const { records, claims } = fixture();
+    const twin = { ...claims[0]! };
+    expect(() => run([...claims, twin], records)).toThrow(
+      /output-only roll-up: duplicate claim id "o1"/,
+    );
+    expect(() => run([twin, ...claims], records)).toThrow(
+      /output-only roll-up: duplicate claim id "o1"/,
+    );
+  });
+
+  test("a duplicate claim id throws even when the claims are not accepted", () => {
+    const { records, claims } = fixture();
+    const held = claim("o9", { status: "review" });
+    expect(() => run([...claims, held, { ...held }], records)).toThrow(
+      /output-only roll-up: duplicate claim id "o9"/,
+    );
+  });
+
+  test("a claim for another person throws", () => {
+    const { records, claims } = fixture();
+    const stray = claim("o9", { personId: "person-2", recordId: "rec-o1" });
+    expect(() => run([...claims, stray], records)).toThrow(/person-2's, not person-1's/);
+  });
+
+  test("a claim for another person throws even when it is not accepted", () => {
+    const { records, claims } = fixture();
+    const stray = claim("o9", { personId: "person-2", status: "review" });
+    expect(() => run([...claims, stray], records)).toThrow(/person-2's, not person-1's/);
+  });
+
+  test("a record for another person throws", () => {
+    const { records, claims } = fixture();
+    const foreign = records.map((r) => (r.id === "rec-o1" ? { ...r, personId: "person-2" } : r));
+    expect(() => run(claims, foreign)).toThrow(/record rec-o1 is person-2's/);
+  });
+
+  test("a record that is not a claim record throws", () => {
+    const { records, claims } = fixture();
+    const wrongKind = records.map((r) => (r.id === "rec-o1" ? { ...r, kind: "review" } : r));
+    expect(() => run(claims, wrongKind as never)).toThrow(/not a claim one/);
+  });
+
+  test("two different records sharing an id throw", () => {
+    const { records, claims } = fixture();
+    expect(() => run(claims, [...records, outputRecord("rec-o1", 0)])).toThrow(/share id rec-o1/);
+  });
+
+  test("an accepted claim naming a missing record throws", () => {
+    const { records, claims } = fixture();
+    const orphan = claim("o9", { recordId: "rec-missing" });
+    expect(() => run([...claims, orphan], records)).toThrow(/claim o9 names missing record/);
+  });
+
+  test("an invalid evidence cutoff throws", () => {
+    const { records, claims } = fixture();
+    expect(() => run(claims, records, new Date(Number.NaN))).toThrow(/evidenceCutoff/);
+    expect(() => run(claims, records, "2025-01-01" as never)).toThrow(/evidenceCutoff/);
+    expect(() => outputOnlyRollup({ personId: PERSON, records, claims } as never)).toThrow(
+      /evidenceCutoff/,
+    );
+  });
+
+  test("an out-of-range config throws", () => {
+    const { records, claims } = fixture();
+    for (const config of [
+      { ...OUTPUT_ONLY_ROLLUP_V1_0_0, sFloor: 1.5 },
+      { ...OUTPUT_ONLY_ROLLUP_V1_0_0, sFloor: -0.1 },
+      { ...OUTPUT_ONLY_ROLLUP_V1_0_0, minOutputClaims: 1.5 },
+    ]) {
+      expect(() =>
+        outputOnlyRollup({ personId: PERSON, records, claims, evidenceCutoff: CUTOFF, config }),
+      ).toThrow(/output-only roll-up/);
     }
   });
 });
