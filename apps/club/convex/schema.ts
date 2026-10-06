@@ -282,6 +282,11 @@ export default defineSchema({
     nextDueAt: v.union(v.number(), v.null()),
     // Epoch ms of the last check that completed; a GitHub fetch failure leaves it as it was.
     lastCheckedAt: v.optional(v.number()),
+    // Checks started since the last one that completed, and the epoch ms before
+    // which the daily cron does not schedule another. Both cleared when a check
+    // completes. Backoff only: `nextDueAt` and `lastCheckedAt` stay the due state.
+    attempts: v.optional(v.number()),
+    retryAfter: v.optional(v.number()),
   })
     .index("by_person", ["personId"])
     .index("by_next_due", ["nextDueAt"])

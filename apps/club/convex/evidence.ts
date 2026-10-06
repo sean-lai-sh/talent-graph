@@ -59,7 +59,7 @@ import { snapshotKind } from "./schema";
 /** Company research is asked again for an org only after this long. */
 const COMPANY_RESEARCH_FRESH_MS = 90 * 24 * 60 * 60 * 1000;
 /** How many candidates one cron run schedules. The rest wait for the next run. */
-const DAILY_BATCH = 200;
+export const DAILY_BATCH = 200;
 /**
  * A candidate whose last completed check is older than this is checked again
  * even with no snapshot due, so evidence that grows between snapshots is
@@ -67,6 +67,15 @@ const DAILY_BATCH = 200;
  */
 const RECHECK_DAYS = 14;
 const DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * A check that has not completed (a failed GitHub fetch, or a throw) is not
+ * scheduled again for 2, 4, 8, then 14 days. The first wait is longer than the
+ * cron's period, so candidates that keep failing step aside for at least one
+ * run, and the rest of the due and stale rows get the batch.
+ */
+function retryBackoffMs(attempts: number): number {
+  return Math.min(2 ** attempts, RECHECK_DAYS) * DAY_MS;
+}
 
 // ---------------------------------------------------------------------------
 // Reads
@@ -378,9 +387,32 @@ export const writeSnapshots = internalMutation({
       await ctx.db.patch(intake._id, {
         nextDueAt: nextSnapshot(new Date(intake.intakeAt), kinds)?.dueAt.getTime() ?? null,
         lastCheckedAt: Date.now(),
+        attempts: undefined,
+        retryAfter: undefined,
       });
     }
     return written;
+  },
+});
+
+/**
+ * A check is starting: back the candidate off until it completes. A check
+ * that completes clears this in `writeSnapshots`; one that fails or throws
+ * leaves it, so the cron passes over the candidate until `retryAfter`.
+ */
+export const beginCheck = internalMutation({
+  args: { personId: v.string() },
+  handler: async (ctx, { personId }) => {
+    const intake = await ctx.db
+      .query("evidenceIntakes")
+      .withIndex("by_person", (q) => q.eq("personId", personId))
+      .unique();
+    if (!intake) return;
+    const attempts = (intake.attempts ?? 0) + 1;
+    await ctx.db.patch(intake._id, {
+      attempts,
+      retryAfter: Date.now() + retryBackoffMs(attempts),
+    });
   },
 });
 
@@ -407,6 +439,7 @@ export const recordCompanyResearch = internalMutation({
  * intake row here. Then every candidate whose next snapshot is due, and every
  * candidate not checked for `RECHECK_DAYS` (or never), gets a `check` of
  * their own, so one failure does not stop the others. Due candidates go first.
+ * Candidates whose last check did not complete wait out `retryBackoffMs`.
  */
 export const daily = internalMutation({
   args: {},
@@ -419,15 +452,19 @@ export const daily = internalMutation({
       .collect();
     for (const person of candidates) await ensureIntakeRow(ctx, club._id, person);
     const now = Date.now();
-    const due = await ctx.db
-      .query("evidenceIntakes")
-      .withIndex("by_next_due", (q) => q.gte("nextDueAt", 0).lte("nextDueAt", now))
-      .take(DAILY_BATCH);
+    const due = await notBackedOff(
+      ctx.db
+        .query("evidenceIntakes")
+        .withIndex("by_next_due", (q) => q.gte("nextDueAt", 0).lte("nextDueAt", now)),
+      now,
+    );
     // Never-checked rows have no `lastCheckedAt`, which sorts before every number.
-    const stale = await ctx.db
-      .query("evidenceIntakes")
-      .withIndex("by_last_checked", (q) => q.lt("lastCheckedAt", now - RECHECK_DAYS * DAY_MS))
-      .take(DAILY_BATCH);
+    const stale = await notBackedOff(
+      ctx.db
+        .query("evidenceIntakes")
+        .withIndex("by_last_checked", (q) => q.lt("lastCheckedAt", now - RECHECK_DAYS * DAY_MS)),
+      now,
+    );
     const personIds = [...new Set([...due, ...stale].map((intake) => intake.personId))].slice(
       0,
       DAILY_BATCH,
@@ -438,6 +475,24 @@ export const daily = internalMutation({
     return { scheduled: personIds.length, due: due.length };
   },
 });
+
+/**
+ * The first `DAILY_BATCH` rows of an index range whose `retryAfter` has
+ * passed. Rows still backing off are read past, not counted, so they cannot
+ * fill the batch day after day.
+ */
+async function notBackedOff(
+  rows: AsyncIterable<Doc<"evidenceIntakes">>,
+  now: number,
+): Promise<Doc<"evidenceIntakes">[]> {
+  const picked: Doc<"evidenceIntakes">[] = [];
+  for await (const intake of rows) {
+    if (intake.retryAfter !== undefined && intake.retryAfter > now) continue;
+    picked.push(intake);
+    if (picked.length >= DAILY_BATCH) break;
+  }
+  return picked;
+}
 
 /** When a candidate enters the process: record `t`, then score their evidence once. */
 export const intake = internalAction({
@@ -464,6 +519,7 @@ async function loadContext(ctx: ActionCtx, personId: string) {
 async function runCheck(ctx: ActionCtx, personId: string) {
   let found = await loadContext(ctx, personId);
   if (!found?.intake) return null;
+  await ctx.runMutation(internal.evidence.beginCheck, { personId });
   const versionAdded = await pickUpResume(ctx, found);
   if (versionAdded) found = (await loadContext(ctx, personId)) ?? found;
   const github = await fetchGitHub(ctx, found);
@@ -471,8 +527,9 @@ async function runCheck(ctx: ActionCtx, personId: string) {
   const scored = await scoreNewClaims(ctx, found, github ?? []);
   if (github === null) {
     // The GitHub evidence is partial: write no snapshot from it, and leave
-    // `nextDueAt` and `lastCheckedAt` as they are, so the next daily run
-    // checks this candidate again. Resume claims scored above are kept.
+    // `nextDueAt` and `lastCheckedAt` as they are, so the candidate stays due
+    // and is checked again once `beginCheck`'s backoff has passed. Resume
+    // claims scored above are kept.
     return { versionAdded, scored: scored.length, snapshots: 0, githubFailed: true };
   }
   // Snapshots read only stored records, reloaded after storing: a concurrent

@@ -13,6 +13,7 @@ import {
   expect,
   mock,
   setSystemTime,
+  spyOn,
   test,
 } from "bun:test";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -205,11 +206,13 @@ function repo(partial: Partial<Repo> = {}): Repo {
   };
 }
 
-function world(options: { github?: string | null } = {}) {
+function world(options: { github?: string | null; before?: string[] } = {}) {
   const state = {
     texts: new Map<string, string>(),
     repos: [] as Repo[],
     githubFails: false,
+    /** GitHub handles whose fetch always fails. */
+    failingHandles: new Set<string>(),
     urls: [] as string[],
     storageCount: 0,
     jev: new FakeJev(),
@@ -222,29 +225,37 @@ function world(options: { github?: string | null } = {}) {
       [getFunctionName(internal.evidenceNode.extractResumeText)]: async (args) =>
         state.texts.get((args as { storageId: string }).storageId) ?? null,
       [getFunctionName(internal.evidenceNode.fetchGitHub)]: async (args) => {
-        if (state.githubFails) throw new Error("GitHub request failed: 503");
-        return await fetchGitHubArtifacts(
-          (args as { username: string }).username,
-          new Date(0),
-          new Date(),
-          async (url) => {
-            state.urls.push(url);
-            return url.includes("/repos")
-              ? state.repos.map((r) => ({
-                  ...r,
-                  full_name: `alice/${r.name}`,
-                  html_url: `https://github.com/alice/${r.name}`,
-                  fork: false,
-                }))
-              : [];
-          },
-        );
+        const { username } = args as { username: string };
+        if (state.githubFails || state.failingHandles.has(username)) {
+          throw new Error("GitHub request failed: 503");
+        }
+        return await fetchGitHubArtifacts(username, new Date(0), new Date(), async (url) => {
+          state.urls.push(url);
+          return url.includes("/repos")
+            ? state.repos.map((r) => ({
+                ...r,
+                full_name: `alice/${r.name}`,
+                html_url: `https://github.com/alice/${r.name}`,
+                fork: false,
+              }))
+            : [];
+        });
       },
       [getFunctionName(internal.evidenceNode.requestCompanyResearch)]: async () => ({ runs: 0 }),
     },
   });
   const ready = (async () => {
     const clubId = await d.db.insert("clubs", { name: "Club" });
+    // Candidates created ahead of p1, so their rows come first in every index range.
+    for (const id of options.before ?? []) {
+      await d.db.insert("clubPeople", {
+        clubId,
+        id,
+        status: "candidate",
+        github: id,
+        createdAt: T0.toISOString(),
+      });
+    }
     await d.db.insert("clubPeople", {
       clubId,
       id: PERSON,
@@ -285,12 +296,16 @@ function world(options: { github?: string | null } = {}) {
     },
     /** The daily cron, then the checks it scheduled. */
     async daily() {
+      return (await this.dailyPeople()).length;
+    },
+    /** The daily cron, then the checks it scheduled; who was scheduled. */
+    async dailyPeople() {
       await ready;
       d.scheduled.length = 0;
       await d.call("evidence:daily", {});
       const runs = d.scheduled.filter((entry) => entry.name === "evidence:check");
       for (const run of runs) await d.call("evidence:check", run.args);
-      return runs.length;
+      return runs.map((run) => (run.args as { personId: string }).personId);
     },
     /** In insertion order: `computedAt` is the action's clock and orders nothing. */
     snapshots(kind?: string) {
@@ -303,8 +318,8 @@ function world(options: { github?: string | null } = {}) {
       const rows = d.db.rows("evidenceSnapshots") as unknown as StoredSnapshot[];
       return currentSnapshot(rows, kind)?.id ?? null;
     },
-    intakeRow() {
-      const row = d.db.rows("evidenceIntakes")[0];
+    intakeRow(personId = PERSON) {
+      const row = d.db.rows("evidenceIntakes").find((intake) => intake.personId === personId);
       if (!row) throw new Error("no intake row");
       return row;
     },
@@ -324,11 +339,18 @@ function world(options: { github?: string | null } = {}) {
   };
 }
 
+const cleanups: (() => void)[] = [];
+/** Undo something when the current test ends, pass or fail. */
+function afterEachOnce(cleanup: () => void) {
+  cleanups.push(cleanup);
+}
+
 beforeEach(() => {
   setSystemTime(day(1));
 });
 afterEach(() => {
   setSystemTime();
+  for (const cleanup of cleanups.splice(0)) cleanup();
 });
 
 // Without the 1.2 path's pieces, in memory: claim lines to judgments.
@@ -814,12 +836,57 @@ describe("the daily check", () => {
     // The resume was still scored and kept.
     expect(w.judgments().length).toBeGreaterThan(0);
 
-    // The next daily run tries again, and writes once GitHub answers.
+    // Two failed checks on day 61 (the cron's and the one above): backed off
+    // 4 days. Retried once that has passed, and writes once GitHub answers.
     w.state.githubFails = false;
-    setSystemTime(day(62));
+    setSystemTime(day(64));
+    expect(await w.daily()).toBe(0);
+    setSystemTime(day(65));
     expect(await w.daily()).toBe(1);
     expect(w.snapshots("s0").length).toBe(1);
     expect(Number(w.intakeRow().nextDueAt)).toBeGreaterThan(Number(before.nextDueAt));
+    expect(w.intakeRow().retryAfter).toBeUndefined();
+  });
+
+  test("more than a batch of candidates whose GitHub always fails do not starve the rest", async () => {
+    const failing = Array.from({ length: evidence.DAILY_BATCH + 5 }, (_, i) => `f${i}`);
+    const w = world({ github: null, before: failing });
+    for (const handle of failing) w.state.failingHandles.add(handle);
+    await w.upload(RESUME_ONE);
+    // Every failed fetch warns; hundreds of them are expected here.
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    afterEachOnce(() => warn.mockRestore());
+
+    // Day 61: every candidate is due and never checked; the failing ones come
+    // first in every index range and take the whole batch.
+    setSystemTime(day(61));
+    const first = await w.dailyPeople();
+    expect(first.length).toBe(evidence.DAILY_BATCH);
+    expect(first).not.toContain(PERSON);
+    const f0 = w.intakeRow("f0");
+    expect(w.snapshots().length).toBe(0);
+
+    // Day 62: they are backing off, so the rest get the batch.
+    setSystemTime(day(62));
+    const second = await w.dailyPeople();
+    expect(second).toContain(PERSON);
+    expect(second).toContain(`f${evidence.DAILY_BATCH}`);
+    expect(second).not.toContain("f0");
+    expect(w.snapshots("s0").filter((row) => row.candidateId === PERSON).length).toBe(1);
+    // Failing stays fail-closed: still due, never marked checked.
+    expect(w.intakeRow("f0").nextDueAt).toBe(f0.nextDueAt);
+    expect(w.intakeRow("f0").lastCheckedAt).toBeUndefined();
+
+    // Day 63: the backoff has passed, and the failing ones are retried.
+    setSystemTime(day(63));
+    const third = await w.dailyPeople();
+    expect(third).toContain("f0");
+    expect(third).not.toContain(PERSON);
+    // A second failure waits longer: 4 days, not 2.
+    setSystemTime(day(65));
+    expect(await w.dailyPeople()).not.toContain("f0");
+    setSystemTime(day(67));
+    expect(await w.dailyPeople()).toContain("f0");
   });
 
   test("two concurrent checks with different model answers produce one reproducible snapshot from stored records", async () => {

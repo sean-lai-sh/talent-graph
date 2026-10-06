@@ -72,6 +72,9 @@ class FakeQuery {
   async collect() {
     return this.rows().map((row) => ({ ...row }));
   }
+  async *[Symbol.asyncIterator]() {
+    for (const row of this.rows()) yield { ...row };
+  }
   async take(n: number) {
     return (await this.collect()).slice(0, n);
   }
