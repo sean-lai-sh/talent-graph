@@ -84,7 +84,7 @@ export interface OutputOnlyRollupInput {
 export interface OutputOnlyRollup {
   /** Top-N mean of accepted output claim values, never below `sFloor`. */
   substance: number;
-  /** Top-N mean of accepted selection claim values; `null` when there are none. */
+  /** Top-N mean of accepted selection claim values. `null` means no accepted selection claims, never 0. */
   selection: number | null;
   /** Too few output claims, or substance raised to `sFloor`. Thin is not missing. */
   thin: boolean;

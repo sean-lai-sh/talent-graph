@@ -313,6 +313,13 @@ describe("outputOnlyRollup ordering and determinism", () => {
     });
   });
 
+  test("selection is null without selection claims and a number with one", () => {
+    const { records, claims } = fixture();
+    const outputsOnly = claims.filter((c) => c.claimClass === "output");
+    expect(run(outputsOnly, records).selection).toBeNull();
+    expect(run(claims, records).selection).toBeGreaterThan(0);
+  });
+
   test("configHash is stable and moves with the config", () => {
     const { records, claims } = fixture();
     const first = run(claims, records);
