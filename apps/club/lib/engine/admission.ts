@@ -2,6 +2,7 @@ import type {
   AdmissionObservations,
   Channel,
   CouncilDecision,
+  ReferralOrigin,
 } from "../../../../src/judges/admission.ts";
 import type { ClubState } from "../types.ts";
 
@@ -25,5 +26,7 @@ export function admissionObservations(state: ClubState): AdmissionObservations {
   }
   const channels = new Map<string, Channel>();
   for (const p of state.people) if (p.channel !== undefined) channels.set(p.id, p.channel);
-  return { decisions, channels };
+  const origins = new Map<string, ReferralOrigin>();
+  for (const r of state.referrals) if (r.origin !== undefined) origins.set(r.id, r.origin);
+  return { decisions, channels, origins };
 }

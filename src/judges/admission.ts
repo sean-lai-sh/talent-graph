@@ -5,6 +5,20 @@ export type Channel = "inbound" | "outbound";
 
 export const DEFAULT_CHANNEL: Channel = "inbound";
 
+/** How a referral row came in. A row without one predates the field and is a "referral". */
+export type ReferralOrigin = "referral" | "interview";
+
+export const DEFAULT_ORIGIN: ReferralOrigin = "referral";
+
+/**
+ * Which referrals may take a position, by the candidate's channel. An outbound
+ * candidate was sourced by the club, so only an interviewer's yes ranks there.
+ */
+export const ELIGIBLE_ORIGINS: Record<Channel, readonly ReferralOrigin[]> = {
+  inbound: ["referral", "interview"],
+  outbound: ["interview"],
+};
+
 export interface CouncilDecision {
   candidateId: string;
   outcome: "admitted" | "denied";
@@ -18,7 +32,11 @@ export interface CouncilDecision {
 export interface AdmissionObservations {
   decisions: readonly CouncilDecision[];
   channels: ReadonlyMap<string, Channel>;
+  /** Referral id to origin; a missing id is DEFAULT_ORIGIN. */
+  origins: ReadonlyMap<string, ReferralOrigin>;
 }
+
+export type Eligibility = Pick<AdmissionObservations, "channels" | "origins">;
 
 export interface ReferralPosition {
   referralId: string;
@@ -56,13 +74,20 @@ export function positionShare(
   return Math.max(spec.positionFloor, 1 / k ** spec.positionExponent);
 }
 
+export function isEligible(r: Referral, eligibility: Eligibility): boolean {
+  const channel = eligibility.channels.get(r.candidateId) ?? DEFAULT_CHANNEL;
+  return ELIGIBLE_ORIGINS[channel].includes(eligibility.origins.get(r.id) ?? DEFAULT_ORIGIN);
+}
+
 export function referralPositions(
   referrals: readonly Referral[],
+  eligibility: Eligibility,
   spec: Pick<AdmissionSpec, "positionExponent" | "positionFloor">,
 ): Map<string, ReferralPosition> {
   const byCandidate = new Map<string, Referral[]>();
   for (const r of [...referrals].sort(byTimeThenId)) {
     if (r.referrerId === r.candidateId) continue;
+    if (!isEligible(r, eligibility)) continue;
     const list = byCandidate.get(r.candidateId) ?? [];
     if (list.some((o) => o.referrerId === r.referrerId)) continue;
     list.push(r);
@@ -131,7 +156,7 @@ export function computeAdmission(
   spec: AdmissionSpec,
   now: Date,
 ): AdmissionResult {
-  const positions = referralPositions(referrals, spec);
+  const positions = referralPositions(referrals, observations, spec);
   const first = firstDecisions(observations.decisions, now);
   const admitRate = channelAdmitRates(first, observations.channels, spec);
   const terms: AdmissionTerm[] = [];

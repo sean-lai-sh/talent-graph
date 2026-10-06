@@ -50,7 +50,7 @@ describe("a club pass under spec 4.1.0 uses the weighted signal", () => {
       comparisons: data.comparisons,
       outcomes: data.outcomes,
       opportunities: data.opportunities,
-      admission: { decisions: [], channels: new Map() },
+      admission: { decisions: [], channels: new Map(), origins: new Map() },
       now: T,
       specs: V4_1,
     });
@@ -76,6 +76,7 @@ describe("2.0.0 run ids do not move when the club hands over admission observati
       { candidateId: candidate.id, outcome: "admitted", at: T, signal: 1, signalWithout: [] },
     ],
     channels: new Map<string, Channel>([[candidate.id, "outbound"]]),
+    origins: new Map(),
   };
 
   test("runJudgeCalibration: calibration and weighted run ids match the golden", () => {
