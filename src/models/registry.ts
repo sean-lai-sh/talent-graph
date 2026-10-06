@@ -44,6 +44,18 @@ export const REFERRAL_SIGNAL_V0_1_0: ReferralSignalSpec = deepFreeze({
 });
 
 /**
+ * 0.1.0's strengths and Top-K, aggregated as a weight-normalised mean:
+ * S_v = Σ(ω_u·R_uv) / (Σ ω_u + c0) over the Top-K by ω·R (SEA-83). Used only
+ * by the judge-weighted run under a mode "v4" judge spec, which supplies
+ * c0 = μ0^γ; the V0 baseline and every V2 run stay on 0.1.0.
+ */
+export const REFERRAL_SIGNAL_V0_2_0: ReferralSignalSpec = deepFreeze({
+  ...REFERRAL_SIGNAL_V0_1_0,
+  version: "0.2.0",
+  aggregation: "weight_normalized",
+});
+
+/**
  * V1 Bradley–Terry as specified in PLAN.md §5. λ = 0.1 is a modest default
  * that keeps single-comparison nodes near 0 on the seed data; it is **not**
  * theoretically optimal and has not been tuned against outcomes.
@@ -129,6 +141,7 @@ export const SPEC_HISTORY: readonly ModelSpec[] = deepFreeze([
   CAREER_EVIDENCE_V1_2_2,
   CAREER_EVIDENCE_V1_2_3,
   CAREER_EVIDENCE_V1_2_4,
+  REFERRAL_SIGNAL_V0_2_0,
 ]);
 
 /** The version used when a caller does not pass a spec explicitly. */

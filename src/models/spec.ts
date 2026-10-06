@@ -26,6 +26,13 @@ export interface ReferralSignalSpec {
   evidenceMultiplier: Record<EvidenceType, number>;
   /** Number of strongest incoming referrals averaged into S_v. */
   topK: number;
+  /**
+   * How the Top-K contributions become S_v. Absent (every version before
+   * 0.2.0) is the plain mean. `"weight_normalized"` (0.2.0) is
+   * Σ(ω_u·R_uv) / (Σ ω_u + c0), with the pseudo-weight c0 supplied by the run
+   * (`pseudoWeight`), because it is derived from the judge spec.
+   */
+  aggregation?: "weight_normalized";
 }
 
 /** Parameters of the V1 Bradley–Terry fit. */
@@ -290,6 +297,9 @@ function validateReferralSignalSpec(spec: ReferralSignalSpec, errors: string[]):
   }
 
   if (!isPositiveInteger(spec.topK)) errors.push("topK must be a positive integer");
+  if (spec.aggregation !== undefined && spec.aggregation !== "weight_normalized") {
+    errors.push('aggregation must be absent or "weight_normalized"');
+  }
 }
 
 function validateBradleyTerrySpec(spec: BradleyTerrySpec, errors: string[]): void {
