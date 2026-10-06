@@ -350,6 +350,23 @@ describe("outputOnlyRollup evidence cutoff", () => {
     const held = claims.map((c) => (c.id === "o1" ? { ...c, status: "review" as const } : c));
     expect(run(held, records).claimCount).toBe(run(claims, records).claimCount - 1);
   });
+
+  test("a non-accepted claim without a record is excluded, not an error", () => {
+    const { records, claims } = fixture();
+    for (const status of ["review", "no_work_described"] as const) {
+      const orphan = claim("o9", { status, recordId: "rec-missing" });
+      const result = run([...claims, orphan], records);
+      expect(result.claimCount).toBe(run(claims, records).claimCount);
+      expect(result.inputHash).not.toBe(run(claims, records).inputHash);
+      expect(run([orphan, ...claims], records).inputHash).toBe(result.inputHash);
+    }
+  });
+
+  test("an accepted claim without a record still throws", () => {
+    const { records, claims } = fixture();
+    const orphan = claim("o9", { recordId: "rec-missing" });
+    expect(() => run([...claims, orphan], records)).toThrow(/missing record/);
+  });
 });
 
 describe("outputOnlyRollup thin candidates", () => {

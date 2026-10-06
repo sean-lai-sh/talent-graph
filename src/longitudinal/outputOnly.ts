@@ -147,7 +147,7 @@ export function outputOnlyRollup(input: OutputOnlyRollupInput): OutputOnlyRollup
   }
   const records = recordsById(input.records);
   const claims = [...input.claims].sort((a, b) => compareIds(a.id, b.id));
-  const hashed: { claim: Required<OutputOnlyClaim>; record: string }[] = [];
+  const hashed: { claim: Required<OutputOnlyClaim>; record: string | null }[] = [];
   const counted: RollupClaim[] = [];
   let outputCount = 0;
   let previousId: string | null = null;
@@ -166,10 +166,14 @@ export function outputOnlyRollup(input: OutputOnlyRollupInput): OutputOnlyRollup
     if (!author.ok) {
       throw new Error(`output-only roll-up: claim ${claim.id}: ${author.errors.join("; ")}`);
     }
+    // A claim that is not accepted is never scored, so it needs no record.
+    if (claim.status !== "accepted") {
+      hashed.push({ claim: hashedFields(claim), record: null });
+      continue;
+    }
     const record = recordFor(claim, records);
     hashed.push({ claim: hashedFields(claim), record: recordContent(record) });
 
-    if (claim.status !== "accepted") continue;
     const evidenceDate = evidenceDateFor(claim);
     if (evidenceDate === null || evidenceDate.getTime() > cutoff.getTime()) continue;
     const scored = scoreClaimValueV12(subjectOf(claim, record), claim.evidenceTier, {
