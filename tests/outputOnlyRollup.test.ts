@@ -165,6 +165,30 @@ describe("outputOnlyRollup referrer notes", () => {
   });
 });
 
+describe("outputOnlyRollup evidence tiers", () => {
+  test("a corroborated claim is rejected, whatever its status", () => {
+    const { records, claims } = fixture();
+    for (const status of ["accepted", "review"] as const) {
+      const raised = claims.map((c) =>
+        c.id === "o1" ? { ...c, status, evidenceTier: "corroborated" as const } : c,
+      );
+      expect(() => run(raised, records)).toThrow(JudgmentInvariantError);
+      expect(() => run(raised, records)).toThrow(/claim o1 .*corroborated/);
+    }
+  });
+
+  test("self_reported and externally_verified claims are accepted and scored at their tier", () => {
+    const { records } = fixture();
+    for (const evidenceTier of ["self_reported", "externally_verified"] as const) {
+      const claims = [claim("o1", { evidenceTier })];
+      const expected = scoreClaimValueV12(outputSubject(4), evidenceTier).claimValue;
+      const result = run(claims, records);
+      expect(result.claimCount).toBe(1);
+      expect(result.substance).toBeCloseTo(Math.max(expected, 0.3), 12);
+    }
+  });
+});
+
 describe("outputOnlyRollup claim authors", () => {
   test("a referrer-authored claim is rejected", () => {
     const { records, claims } = fixture();

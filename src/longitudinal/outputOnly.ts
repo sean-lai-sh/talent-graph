@@ -102,6 +102,11 @@ export const OUTPUT_ONLY_ACCEPTED_SPEC_IDS: ReadonlySet<string> = new Set([
   "career_evidence@1.2.4:fafb7d39",
 ]);
 
+const EVIDENCE_ONLY_TIERS: ReadonlySet<EvidenceTier> = new Set([
+  "self_reported",
+  "externally_verified",
+]);
+
 export function outputOnlyRollupConfigHash(
   config: OutputOnlyRollupConfig = OUTPUT_ONLY_ROLLUP_V1_0_0,
 ): string {
@@ -161,6 +166,11 @@ export function outputOnlyRollup(input: OutputOnlyRollupInput): OutputOnlyRollup
     const author = validateClaimAuthor({ author: claim.author, source: claim.source });
     if (!author.ok) {
       throw new Error(`output-only roll-up: claim ${claim.id}: ${author.errors.join("; ")}`);
+    }
+    if (!EVIDENCE_ONLY_TIERS.has(claim.evidenceTier)) {
+      throw new JudgmentInvariantError(
+        `output-only roll-up: claim ${claim.id} has evidence tier "${claim.evidenceTier}"; only ${[...EVIDENCE_ONLY_TIERS].join(" and ")} are accepted, since a referrer note is what raises self_reported to corroborated`,
+      );
     }
     if (claim.status !== "accepted") {
       hashed.push({ claim: hashedFields(claim), record: null });
