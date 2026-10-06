@@ -468,8 +468,7 @@ describe("recognition answer, calls, recruiters", () => {
     const yesBy = (s: ClubState, callerId: string, order: 1 | 2) =>
       addCall(s, { candidateId: "bob", callerId, order, outcome: "yes", referral: RATINGS });
 
-    // inbound referrer who also interviews
-    let s = { ...refer(club(), "alice", "bob"), now: day(1).toISOString() };
+    const s = { ...refer(club(), "alice", "bob"), now: day(1).toISOString() };
     const inbound = yesBy(s, "alice", 1);
     expect(inbound.error).toBeUndefined();
     expect(inbound.state.calls).toHaveLength(1);
@@ -477,7 +476,6 @@ describe("recognition answer, calls, recruiters", () => {
     expect(inbound.state.referrals).toHaveLength(s.referrals.length);
     expect(outcomeOf(inbound.state)).toEqual(outcomeOf(s));
 
-    // call-2 yes by the call-1 caller
     const first = yesBy(s, "carol", 1);
     expect(first.error).toBeUndefined();
     const second = yesBy(first.state, "carol", 2);
