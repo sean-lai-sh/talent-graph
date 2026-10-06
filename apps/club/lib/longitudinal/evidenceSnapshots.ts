@@ -1,0 +1,173 @@
+/**
+ * Evidence-only snapshots at fixed dates after intake (SEA-81).
+ *
+ * `t` is the candidate's intake date. `G = S = 30` days.
+ *
+ * | kind       | evidence dated     | computed at        |
+ * | ---------- | ------------------ | ------------------ |
+ * | s0         | <= t + G           | t + G + S          |
+ * | s12        | <= t + 12 months   | t + 12 months + S  |
+ * | s24, s36   | <= t + 24/36 months| + S                |
+ *
+ * s24 and s36 are for pre-credential candidates. Who qualifies is step 5's
+ * call, so every candidate gets them for now and step 5 filters.
+ *
+ * A snapshot row never changes. Evidence dated on or before a cutoff that
+ * arrives after that snapshot was written adds a correction row
+ * (`correctsSnapshotId`), and the newest correction is the one read, so
+ * withholding evidence cannot create movement.
+ */
+
+import {
+  evidenceDateFor,
+  type OutputOnlyClaim,
+  type OutputOnlyRollup,
+  outputOnlyRollup,
+} from "../../../../src/longitudinal/outputOnly.ts";
+import type { JevJudgmentRecord } from "../../../../src/longitudinal/records.ts";
+
+export const SNAPSHOT_KINDS = ["s0", "s12", "s24", "s36"] as const;
+export type SnapshotKind = (typeof SNAPSHOT_KINDS)[number];
+
+/** `G`: how long after intake evidence still counts as the starting point. */
+export const GRACE_DAYS = 30;
+/** `S`: how long after a cutoff late-arriving evidence is waited for. */
+export const SETTLE_DAYS = 30;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MONTHS: Record<Exclude<SnapshotKind, "s0">, number> = { s12: 12, s24: 24, s36: 36 };
+
+function addMonths(at: Date, months: number): Date {
+  const next = new Date(at.getTime());
+  const day = next.getUTCDate();
+  next.setUTCDate(1);
+  next.setUTCMonth(next.getUTCMonth() + months);
+  // Jan 31 + 1 month is the last day of February, not March 3.
+  const last = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate();
+  next.setUTCDate(Math.min(day, last));
+  return next;
+}
+
+export function evidenceCutoff(intakeAt: Date, kind: SnapshotKind): Date {
+  if (kind === "s0") return new Date(intakeAt.getTime() + GRACE_DAYS * DAY_MS);
+  return addMonths(intakeAt, MONTHS[kind]);
+}
+
+export function snapshotDueAt(intakeAt: Date, kind: SnapshotKind): Date {
+  return new Date(evidenceCutoff(intakeAt, kind).getTime() + SETTLE_DAYS * DAY_MS);
+}
+
+/** The first snapshot not written yet and its due date, or null once s36 is written. */
+export function nextSnapshot(
+  intakeAt: Date,
+  written: ReadonlySet<SnapshotKind>,
+): { kind: SnapshotKind; dueAt: Date } | null {
+  const kind = SNAPSHOT_KINDS.find((candidate) => !written.has(candidate));
+  return kind === undefined ? null : { kind, dueAt: snapshotDueAt(intakeAt, kind) };
+}
+
+/** The snapshot kinds due by `now`. */
+export function dueSnapshotKinds(intakeAt: Date, now: Date): SnapshotKind[] {
+  return SNAPSHOT_KINDS.filter((kind) => snapshotDueAt(intakeAt, kind).getTime() <= now.getTime());
+}
+
+export interface StoredSnapshot {
+  id: string;
+  kind: SnapshotKind;
+  inputHash: string;
+  classYear: number | null;
+  computedAt: string;
+  correctsSnapshotId?: string;
+}
+
+export interface SnapshotRow {
+  id: string;
+  candidateId: string;
+  kind: SnapshotKind;
+  evidenceCutoff: string;
+  computedAt: string;
+  substance: number;
+  selection: number | null;
+  thin: boolean;
+  claimCount: number;
+  classYear: number | null;
+  inputHash: string;
+  configHash: string;
+  correctsSnapshotId?: string;
+}
+
+/**
+ * The claims a snapshot reads: those whose evidence is dated on or before the
+ * cutoff. Undated claims never count, and are left out of the hash too, so a
+ * claim arriving after the cutoff does not change an earlier snapshot's
+ * `inputHash`.
+ */
+export function claimsAtCutoff(
+  claims: readonly OutputOnlyClaim[],
+  cutoff: Date,
+): OutputOnlyClaim[] {
+  return claims.filter((claim) => {
+    const dated = evidenceDateFor(claim);
+    return dated !== null && dated.getTime() <= cutoff.getTime();
+  });
+}
+
+/** The newest row of a kind: the latest correction, else the original. */
+export function currentSnapshot<T extends StoredSnapshot>(
+  rows: readonly T[],
+  kind: SnapshotKind,
+): T | null {
+  const ofKind = rows.filter((row) => row.kind === kind);
+  if (ofKind.length === 0) return null;
+  return ofKind.reduce((latest, row) => (row.computedAt > latest.computedAt ? row : latest));
+}
+
+/**
+ * The row to write for one snapshot kind, or null when nothing changed.
+ *
+ * No row yet: the snapshot. A row whose evidence is the same (same
+ * `inputHash`): nothing, so a rerun writes nothing. A row whose evidence
+ * changed: a correction pointing at the row it supersedes.
+ */
+export function planSnapshot(input: {
+  candidateId: string;
+  kind: SnapshotKind;
+  intakeAt: Date;
+  now: Date;
+  claims: readonly OutputOnlyClaim[];
+  records: readonly JevJudgmentRecord[];
+  existing: readonly StoredSnapshot[];
+  /** The candidate's class year now; used only when no s0 recorded one. */
+  classYear: number | null;
+  newId: () => string;
+}): SnapshotRow | null {
+  const cutoff = evidenceCutoff(input.intakeAt, input.kind);
+  const claims = claimsAtCutoff(input.claims, cutoff);
+  const recordIds = new Set(claims.map((claim) => claim.recordId));
+  const rollup: OutputOnlyRollup = outputOnlyRollup({
+    personId: input.candidateId,
+    records: input.records.filter((record) => recordIds.has(record.id)),
+    claims,
+    evidenceCutoff: cutoff,
+  });
+  const current = currentSnapshot(input.existing, input.kind);
+  if (current !== null && current.inputHash === rollup.inputHash) return null;
+  // Class year as recorded at s0, so every kind compares freshmen with freshmen.
+  const s0 = currentSnapshot(input.existing, "s0");
+  const row: SnapshotRow = {
+    id: input.newId(),
+    candidateId: input.candidateId,
+    kind: input.kind,
+    evidenceCutoff: cutoff.toISOString(),
+    computedAt: input.now.toISOString(),
+    substance: rollup.substance,
+    selection: rollup.selection,
+    thin: rollup.thin,
+    claimCount: rollup.claimCount,
+    classYear: s0 ? s0.classYear : input.classYear,
+    inputHash: rollup.inputHash,
+    configHash: rollup.configHash,
+  };
+  if (current !== null) row.correctsSnapshotId = current.id;
+  return row;
+}
