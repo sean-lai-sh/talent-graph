@@ -346,13 +346,19 @@ export function biasCorrections(run: JudgeCalibrationRun): Map<string, number> {
   return new Map([...run.estimates.values()].map((e) => [e.judgeId, e.bias]));
 }
 
-/** Persistable JudgeCalibration record for an application's store. */
+/**
+ * Persistable JudgeCalibration record for an application's store.
+ * `reliability` stays p̂ (p̂⁰ under "v4"); w and ω are added only when the
+ * estimate carries them, so a "v2" record has exactly the keys it always had.
+ */
 export function toJudgeCalibration(e: JudgeReliabilityEstimate, updatedAt: Date): JudgeCalibration {
   return {
     id: `jc:${e.judgeId}`,
     judgeId: e.judgeId,
     dimension: null,
     reliability: e.reliability,
+    ...(e.weight !== undefined ? { weight: e.weight } : {}),
+    ...(e.omega !== undefined ? { omega: e.omega } : {}),
     observationCount: e.evaluatedCount,
     updatedAt: new Date(updatedAt.getTime()),
   };

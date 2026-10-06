@@ -12,6 +12,7 @@ import {
   judgeWeightOptions,
   reliabilityWeights,
   type ScoredPrediction,
+  toJudgeCalibration,
 } from "../src/judges/reliability.ts";
 import { JUDGE_RELIABILITY_V2_0_0, JUDGE_RELIABILITY_V4_0_0 } from "../src/models/registry.ts";
 import { assertSpec, type JudgeReliabilitySpec, validateSpec } from "../src/models/spec.ts";
@@ -219,6 +220,33 @@ describe('judge_reliability@4.0.0 (mode "v4")', () => {
           for (const s of out.values()) expect(Number.isFinite(s.signal)).toBe(true);
         }).not.toThrow();
       });
+    }
+  });
+});
+
+describe("persisted JudgeCalibration carries w and ω (SEA-78 b)", () => {
+  test('mode "v4": reliability stays p̂⁰, w and ω are new fields', () => {
+    const run = computeJudgeCalibration({ people, referrals, outcomes, now: NOW, spec: V4 });
+    for (const e of run.estimates.values()) {
+      const jc = toJudgeCalibration(e, NOW);
+      expect(jc.reliability).toBe(e.reliability);
+      expect(jc.weight).toBe(e.weight as number);
+      expect(jc.omega).toBe(e.omega as number);
+      // An evaluated judge's w is p̂ mapped through the soft cap, not p̂ itself.
+      if (e.evaluatedCount >= 1) expect(jc.weight).not.toBe(jc.reliability);
+    }
+    const silent = toJudgeCalibration(run.estimates.get("silent") as never, NOW);
+    expect(silent.weight).toBe(0.3);
+    expect(silent.omega).toBeCloseTo(0.09, 12);
+  });
+
+  test('mode "v2": the record has exactly the keys it always had', () => {
+    const run = computeJudgeCalibration({ people, referrals, outcomes, now: NOW, spec: V2 });
+    for (const e of run.estimates.values()) {
+      const jc = toJudgeCalibration(e, NOW);
+      expect(Object.keys(jc).sort()).toEqual(
+        ["dimension", "id", "judgeId", "observationCount", "reliability", "updatedAt"].sort(),
+      );
     }
   });
 });
