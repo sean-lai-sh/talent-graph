@@ -265,7 +265,7 @@ export function estimateJudgeReliability(
   const out = new Map<string, JudgeReliabilityEstimate>();
   for (const judgeId of [...ids].sort()) {
     const a = acc.get(judgeId);
-    const credit = admissionSums.get(judgeId) ?? 0;
+    const credit = withAdmission ? (admissionSums.get(judgeId) ?? 0) : 0;
     const creditField = withAdmission ? { admissionCredit: credit } : {};
     if (!a) {
       out.set(judgeId, {
