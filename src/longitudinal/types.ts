@@ -21,11 +21,7 @@ export const SOURCE_KINDS = [
 
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
-/**
- * Who wrote a claim, as opposed to `SourceKind`, which says where it was found.
- * A referrer's note on a resume line is still a resume source, but a referrer
- * wrote it, and a judge must never be scored on evidence they wrote.
- */
+/** Who wrote a claim; `SourceKind` is where it was found. */
 export const CLAIM_AUTHORS = ["candidate", "referrer", "committee", "system"] as const;
 
 export type ClaimAuthor = (typeof CLAIM_AUTHORS)[number];
@@ -138,7 +134,7 @@ export interface EvidenceClaim {
    * Absent (not empty) otherwise, so claims carry no vacuous field.
    */
   reviewReasons?: ReviewReason[];
-  /** Absent on claims written before the field existed; see `validateClaimAuthor`. */
+  /** Absent on claims stored before this field existed. */
   author?: ClaimAuthor;
   createdAt: Date;
 }

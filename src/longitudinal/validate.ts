@@ -102,8 +102,6 @@ export function validateEvidenceClaim(claim: EvidenceClaim): LongitudinalValidat
   }
   const provenance = validateProvenance(claim.provenance);
   if (!provenance.ok) errors.push(...provenance.errors);
-  // Only a stated author is checked here: claims written before the field
-  // existed stay valid whatever their source.
   if (claim.author !== undefined) {
     const author = validateClaimAuthor({ author: claim.author, source: claim.provenance.source });
     if (!author.ok) errors.push(...author.errors);
@@ -112,13 +110,8 @@ export function validateEvidenceClaim(claim: EvidenceClaim): LongitudinalValidat
 }
 
 /**
- * Whether a claim may feed evidence-only substance.
- *
- * `candidate` and `system` are accepted. `referrer` is refused: a judge is
- * never scored on evidence they wrote. `committee` is refused until committee
- * facts are designed. A claim with no `author` is a candidate's when its
- * source is one the candidate publishes; any other source has no author to
- * default to.
+ * Whether a claim's author may feed evidence-only substance. An absent
+ * `author` defaults to candidate for sources in `CANDIDATE_AUTHORED_SOURCES`.
  */
 export function validateClaimAuthor(claim: {
   author?: unknown;

@@ -198,8 +198,7 @@ describe("validateClaimAuthor", () => {
   });
 
   test("an absent author defaults to candidate for exactly the candidate-published sources", () => {
-    // Every source kind is decided here, so adding one to SOURCE_KINDS fails
-    // this test until someone says whether its claims default to the candidate.
+    // Fails when a new SOURCE_KINDS entry is not classified.
     const NOT_CANDIDATE_AUTHORED: readonly SourceKind[] = ["other"];
     const expected = SOURCE_KINDS.filter((source) => !NOT_CANDIDATE_AUTHORED.includes(source));
     expect([...CANDIDATE_AUTHORED_SOURCES].sort()).toEqual([...expected].sort());
