@@ -14,7 +14,7 @@ import type * as comparisonStep from "../comparisonStep.js";
 import type * as crons from "../crons.js";
 import type * as devSeed from "../devSeed.js";
 import type * as evidence from "../evidence.js";
-import type * as evidenceResearch from "../evidenceResearch.js";
+import type * as evidenceNode from "../evidenceNode.js";
 import type * as grokCompanyResearch from "../grokCompanyResearch.js";
 import type * as http from "../http.js";
 import type * as referral from "../referral.js";
@@ -32,7 +32,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   devSeed: typeof devSeed;
   evidence: typeof evidence;
-  evidenceResearch: typeof evidenceResearch;
+  evidenceNode: typeof evidenceNode;
   grokCompanyResearch: typeof grokCompanyResearch;
   http: typeof http;
   referral: typeof referral;

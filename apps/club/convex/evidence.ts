@@ -26,7 +26,6 @@ import {
   rawResumeLines,
   rebuildResumeLines,
 } from "../lib/longitudinal/resumeLines.ts";
-import { fetchGitHubEvidence, type JsonFetcher } from "../lib/longitudinal/sources.ts";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -416,7 +415,7 @@ async function runCheck(ctx: ActionCtx, personId: string) {
   if (!found?.intake) return null;
   const versionAdded = await pickUpResume(ctx, found);
   if (versionAdded) found = (await loadContext(ctx, personId)) ?? found;
-  const github = await fetchGitHub(found);
+  const github = await fetchGitHub(ctx, found);
   await requestCompanyResearch(ctx, found);
   const scored = await scoreNewClaims(ctx, found, github);
   const snapshots = await writeDueSnapshots(ctx, found, [...found.judgments, ...scored]);
@@ -455,21 +454,11 @@ async function pickUpResume(ctx: ActionCtx, found: Context): Promise<boolean> {
 }
 
 /** Step 2: public GitHub artifacts from the candidate's `github` field. */
-async function fetchGitHub(found: Context): Promise<GrokEvidenceItem[]> {
+async function fetchGitHub(ctx: ActionCtx, found: Context): Promise<GrokEvidenceItem[]> {
   const username = githubUsername(found.person.github ?? undefined);
   if (!username) return [];
-  const token = process.env.GITHUB_TOKEN;
-  const fetchJson: JsonFetcher = async (url, init) => {
-    const response = await fetch(url, {
-      ...init,
-      headers: { ...(init?.headers ?? {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    });
-    if (!response.ok) throw new Error(`GitHub request failed: ${response.status} ${url}`);
-    return response.json();
-  };
   try {
-    // Every artifact up to now; each is dated by its own creation or push date.
-    return await fetchGitHubEvidence(username, new Date(0), new Date(), fetchJson);
+    return await ctx.runAction(internal.evidenceNode.fetchGitHub, { username });
   } catch (error) {
     // A GitHub outage must not hold back the resume claims or a due snapshot.
     console.warn(`evidence: GitHub fetch for ${found.person.id} failed: ${String(error)}`);
@@ -498,7 +487,7 @@ async function requestCompanyResearch(ctx: ActionCtx, found: Context): Promise<v
     .map(([, item]) => ({ org: item.org, titles: item.titles, startedAt: item.earliestStartedAt }));
   if (worklist.length === 0) return;
   try {
-    await ctx.runAction(internal.evidenceResearch.requestCompanyResearch, { worklist });
+    await ctx.runAction(internal.evidenceNode.requestCompanyResearch, { worklist });
   } catch (error) {
     // Research is context for later scoring, merged into config.yml by hand; it never blocks a check.
     console.warn(`evidence: company research request failed: ${String(error)}`);

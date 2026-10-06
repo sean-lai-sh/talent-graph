@@ -3,13 +3,42 @@
 import { v } from "convex/values";
 import { GROK_COMPANY_RESEARCH_DELIVERY, triggerGrokRoutine } from "../lib/longitudinal/grok.ts";
 import { grokCallbackToken, grokCallbackUrl } from "../lib/longitudinal/grokCallback.ts";
+import { fetchGitHubEvidence, type JsonFetcher } from "../lib/longitudinal/sources.ts";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 
 /**
+ * Node-runtime actions for evidence intake (SEA-81): `lib/longitudinal/grok.ts`
+ * imports `node:crypto`, and `sources.ts` imports it in turn.
+ */
+
+/**
+ * Public GitHub artifacts for one username, every one up to now. Each item is
+ * dated by the artifact's own date (repo creation, release or push), which
+ * `githubEvidence` turns into job dates; never the fetch date.
+ */
+export const fetchGitHub = internalAction({
+  args: { username: v.string() },
+  handler: async (_ctx, { username }) => {
+    const token = process.env.GITHUB_TOKEN;
+    const fetchJson: JsonFetcher = async (url, init) => {
+      const response = await fetch(url, {
+        ...init,
+        headers: {
+          ...(init?.headers ?? {}),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (!response.ok) throw new Error(`GitHub request failed: ${response.status} ${url}`);
+      return response.json();
+    };
+    return await fetchGitHubEvidence(username, new Date(0), new Date(), fetchJson);
+  },
+});
+
+/**
  * Trigger the SEA-75 company-research routine for employers intake found with
- * no seed entry. Node runtime because `lib/longitudinal/grok.ts` imports
- * `node:crypto`.
+ * no seed entry.
  *
  * The reply posts back to `grokCompanyResearch` (the callback route) and stays
  * there: merging it into `config.yml` is still done by hand
