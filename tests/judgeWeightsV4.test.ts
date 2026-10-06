@@ -507,6 +507,13 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
     expect(() => judgeWeightedSignalOptions(v2Run, v4AsV2, PLAIN)).toThrow(/mode "v2".*mode "v4"/);
   });
 
+  test('a mode "v2" judge spec refuses a weight-normalised referral spec up front', () => {
+    const v2Run = computeJudgeCalibration({ people, referrals, outcomes, now: NOW, spec: V2 });
+    expect(() => judgeWeightedSignalOptions(v2Run, V2, NORMALIZED)).toThrow(
+      /judge_reliability@2\.0\.0 is mode "v2".*referral_signal@0\.2\.0/,
+    );
+  });
+
   test("a different c0 gives a different signal and a different run id", () => {
     const refs = [aim("u0", rng(1))];
     const om = new Map([["u0", 0.25]]);

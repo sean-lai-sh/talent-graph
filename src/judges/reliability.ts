@@ -389,7 +389,8 @@ export function weightNormalizedReferralSpec(spec: ReferralSignalSpec): Referral
  * `referral_signal@0.2.0` with c0 = `judgePseudoWeight(judgeSpec)` (SEA-83):
  * the plain mean of ω·R would let a new judge's ω 0.09 drag a candidate's
  * signal down. Under "v2" it is `referralSpec` unchanged and no pseudo-weight,
- * so V2 weighted runs keep the plain mean and their ids.
+ * so V2 weighted runs keep the plain mean and their ids; a weight-normalised
+ * `referralSpec` is refused there, since "v2" has no c0 to give it.
  */
 export function judgeWeightedSignalOptions(
   run: JudgeCalibrationRun,
@@ -413,6 +414,11 @@ export function judgeWeightedSignalOptions(
   if (runMode !== specMode) {
     throw new Error(
       `calibration ran in judge_reliability mode "${runMode}", but judge_reliability@${judgeSpec.version} is mode "${specMode}"`,
+    );
+  }
+  if (specMode === "v2" && referralSpec.aggregation === "weight_normalized") {
+    throw new Error(
+      `judge_reliability@${judgeSpec.version} is mode "v2", which keeps the plain mean and supplies no pseudo-weight, so it cannot run referral_signal@${referralSpec.version}`,
     );
   }
   const judgeReliability = reliabilityWeights(run);
