@@ -10,7 +10,7 @@ import {
   test,
 } from "bun:test";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -1031,19 +1031,15 @@ describe("resume intake", () => {
   });
 });
 
+const JEV_TS_SHA256_ON_MAIN = "f9622bf9954fe653becb5eaebc4bb388913305e85193f8d40fe8a44a87cb40e9";
+
 describe("createJevJudgmentService", () => {
   test("is unchanged: still the 1.0 path, and does not touch the 1.2 one", () => {
     const source = readFileSync(join(root, "apps/club/lib/longitudinal/jev.ts"), "utf8");
     expect(source).toContain("export function createJevJudgmentService");
     expect(source).not.toMatch(/claimJudgmentV12|career_evidence@1\.2|V12/);
-    let diff = "";
-    try {
-      diff = execFileSync("git", ["diff", "main", "--", "apps/club/lib/longitudinal/jev.ts"], {
-        cwd: root,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      });
-    } catch {}
-    expect(diff).toBe("");
+    // Pinned to the file as it is on main. A deliberate edit to jev.ts must update this hash.
+    const digest = createHash("sha256").update(source).digest("hex");
+    expect(digest).toBe(JEV_TS_SHA256_ON_MAIN);
   });
 });
