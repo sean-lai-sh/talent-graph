@@ -250,21 +250,34 @@ describe("persisted JudgeCalibration carries w and ω (SEA-78 b)", () => {
   test('mode "v4": reliability stays p̂⁰, w and ω are new fields', () => {
     const run = computeJudgeCalibration({ people, referrals, outcomes, now: NOW, spec: V4 });
     for (const e of run.estimates.values()) {
-      const jc = toJudgeCalibration(e, NOW);
+      const jc = toJudgeCalibration(e, run.options, NOW);
       expect(jc.reliability).toBe(e.reliability);
       expect(jc.weight).toBe(e.weight as number);
       expect(jc.omega).toBe(e.omega as number);
       if (e.evaluatedCount >= 1) expect(jc.weight).not.toBe(jc.reliability);
     }
-    const silent = toJudgeCalibration(run.estimates.get("silent") as never, NOW);
+    const silent = toJudgeCalibration(run.estimates.get("silent") as never, run.options, NOW);
     expect(silent.weight).toBe(0.3);
     expect(silent.omega).toBeCloseTo(0.09, 12);
+  });
+
+  test('a mode "v4" estimate lacking w or ω throws instead of persisting a v2-shaped record', () => {
+    const run = computeJudgeCalibration({ people, referrals, outcomes, now: NOW, spec: V4 });
+    const good = run.estimates.get("good") as JudgeReliabilityEstimate;
+    const { omega: _o, ...noOmega } = good;
+    const { weight: _w, ...noWeight } = good;
+    expect(() => toJudgeCalibration(noOmega, run.options, NOW)).toThrow(
+      /good has no omega.*4\.0\.0/,
+    );
+    expect(() => toJudgeCalibration(noWeight, run.options, NOW)).toThrow(
+      /good has no weight.*4\.0\.0/,
+    );
   });
 
   test('mode "v2": the record has exactly the keys it always had', () => {
     const run = computeJudgeCalibration({ people, referrals, outcomes, now: NOW, spec: V2 });
     for (const e of run.estimates.values()) {
-      const jc = toJudgeCalibration(e, NOW);
+      const jc = toJudgeCalibration(e, run.options, NOW);
       expect(Object.keys(jc).sort()).toEqual(
         ["dimension", "id", "judgeId", "observationCount", "reliability", "updatedAt"].sort(),
       );

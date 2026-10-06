@@ -381,17 +381,28 @@ export function biasCorrections(run: JudgeCalibrationRun): Map<string, number> {
 
 /**
  * Persistable JudgeCalibration record for an application's store.
- * `reliability` stays p̂ (p̂⁰ under "v4"); w and ω are added only when the
- * estimate carries them, so a "v2" record has exactly the keys it always had.
+ * `reliability` stays p̂ (p̂⁰ under "v4"). Under mode "v4" w and ω are required
+ * and a missing one throws, so a broken run never persists as a "v2" record;
+ * under "v2" the record has exactly the keys it always had.
  */
-export function toJudgeCalibration(e: JudgeReliabilityEstimate, updatedAt: Date): JudgeCalibration {
+export function toJudgeCalibration(
+  e: JudgeReliabilityEstimate,
+  options: JudgeCalibrationRun["options"],
+  updatedAt: Date,
+): JudgeCalibration {
+  const v4 = options.reliabilityMode === "v4";
+  if (v4 && (e.weight === undefined || e.omega === undefined)) {
+    const missing = e.weight === undefined ? "weight" : "omega";
+    throw new Error(
+      `judge ${e.judgeId} has no ${missing} in a mode "v4" run (${options.specVersion})`,
+    );
+  }
   return {
     id: `jc:${e.judgeId}`,
     judgeId: e.judgeId,
     dimension: null,
     reliability: e.reliability,
-    ...(e.weight !== undefined ? { weight: e.weight } : {}),
-    ...(e.omega !== undefined ? { omega: e.omega } : {}),
+    ...(v4 ? { weight: e.weight, omega: e.omega } : {}),
     observationCount: e.evaluatedCount,
     updatedAt: new Date(updatedAt.getTime()),
   };
