@@ -28,6 +28,7 @@ import {
   DEFAULT_DRIFT_THRESHOLDS,
   type DriftReport,
   type DriftThresholds,
+  JUDGE_WEIGHT_MEASURES,
   judgeReliabilityDrift,
   judgeWeightedSignalDrift,
   referralSignalDrift,
@@ -303,7 +304,15 @@ function driftReports(
   const beforeJudges = prev.runs.judge_reliability;
   const afterJudges = next.runs.judge_reliability;
   if (beforeJudges !== undefined && afterJudges !== undefined) {
-    for (const measure of ["reliability", "bias"] as const) {
+    // w and ω are reported only when a side is mode "v4": between two "v2"
+    // runs they are p̂ again, and the report list stays what it always was.
+    const v4 =
+      beforeJudges.outputs.options.reliabilityMode === "v4" ||
+      afterJudges.outputs.options.reliabilityMode === "v4";
+    const measures = v4
+      ? (["reliability", "bias", ...JUDGE_WEIGHT_MEASURES] as const)
+      : (["reliability", "bias"] as const);
+    for (const measure of measures) {
       reports.push(judgeReliabilityDrift(beforeJudges.outputs, afterJudges.outputs, measure, t));
     }
     reports.push(

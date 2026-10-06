@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { CONFIG_ENV_KEYS, loadSpecs } from "../src/config.ts";
 import { DIMENSIONS } from "../src/domain/constants.ts";
 import type { Referral } from "../src/domain/types.ts";
+import { JUDGE_RELIABILITY_V4_0_0 } from "../src/models/registry.ts";
 import {
   advance,
   baselineReferralRun,
@@ -242,6 +243,18 @@ describe("drift", () => {
     for (const r of second.drift.filter((d) => d.kind === "judge_reliability")) {
       expect(r.verdict, r.measure).toBe("stable");
     }
+  });
+
+  test("a mode v4 calibration adds the w and ω arms", () => {
+    const v4 = { ...specs, judge_reliability: JUDGE_RELIABILITY_V4_0_0 };
+    const second = advance(first.state, observations, v4, T);
+    expect(judgeArms(second)).toEqual([
+      "reliability",
+      "bias",
+      "weight",
+      "omega",
+      "weighted referral signals",
+    ]);
   });
 
   /**
