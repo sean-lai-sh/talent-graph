@@ -29,7 +29,7 @@ import { computeView } from "../apps/club/lib/engine.ts";
 import { signalText } from "../apps/club/lib/format.ts";
 import { commitMemberReferral, referralAnswersToEngine } from "../apps/club/lib/memberReferral.ts";
 import { clubToComparison, clubToPerson } from "../apps/club/lib/serialize.ts";
-import type { ClubPerson, ClubState } from "../apps/club/lib/types.ts";
+import type { ClubCall, ClubPerson, ClubState } from "../apps/club/lib/types.ts";
 import { computeCapabilityVectors } from "../src/inference/capabilityVector.ts";
 import { selectComparisons } from "../src/inference/comparisonSelection.ts";
 
@@ -392,6 +392,30 @@ describe("example workload", () => {
     expect(devSeed).not.toContain("adminEmail");
     expect(script).not.toContain("adminEmail");
     expect(script).not.toContain("admin login");
+  });
+
+  test("reset deletes calls on example people and keeps the rest", () => {
+    const { state } = seeded();
+    const applicant = EXAMPLE_APPLICANTS[0]?.id as string;
+    const referrer = EXAMPLE_REFERRERS[0]?.id as string;
+    const call = (id: string, candidateId: string, callerId: string): ClubCall => ({
+      id,
+      candidateId,
+      callerId,
+      order: 1,
+      outcome: "yes",
+      createdAt: EXAMPLE_NOW,
+    });
+    state.calls = [
+      call("call-example-candidate", applicant, "p-keep"),
+      call("call-example-caller", "p-keep", referrer),
+      call("call-kept", "p-keep", "p-keep"),
+    ];
+    expect(resetExampleState(state).calls.map((row) => row.id)).toEqual(["call-kept"]);
+    // The Convex reset deletes the same rows.
+    const body = read("apps/club/convex/devSeed.ts").split("async function deleteExampleRows")[1];
+    expect(body).toContain('.query("clubCalls")');
+    expect(body).toContain("isExamplePersonId(row.candidateId) || isExamplePersonId(row.callerId)");
   });
 });
 

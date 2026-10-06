@@ -349,6 +349,7 @@ export function resetExampleState(state: ClubState): ClubState {
     ...state,
     people: state.people.filter((person) => keep(person.id)),
     referrals: state.referrals.filter((row) => keep(row.referrerId) && keep(row.candidateId)),
+    calls: state.calls.filter((row) => keep(row.candidateId) && keep(row.callerId)),
     comparisons: state.comparisons.filter(
       (row) => keep(row.evaluatorId) && keep(row.personAId) && keep(row.personBId),
     ),
