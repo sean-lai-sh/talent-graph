@@ -102,7 +102,7 @@ describe("validateSpec: judge_reliability", () => {
   test("registered and current", () => {
     expect(CURRENT_SPECS.judge_reliability).toBe(JUDGE_RELIABILITY_V2_0_0);
     expect(getSpec("judge_reliability", "2.0.0")).toBe(JUDGE_RELIABILITY_V2_0_0);
-    expect(specVersions("judge_reliability")).toEqual(["2.0.0"]);
+    expect(specVersions("judge_reliability")).toEqual(["2.0.0", "4.0.0"]);
     expect(JUDGE_RELIABILITY_V2_0_0.priorReliability).toBe(1);
     expect(Object.isFrozen(JUDGE_RELIABILITY_V2_0_0.opportunityBuckets)).toBe(true);
   });

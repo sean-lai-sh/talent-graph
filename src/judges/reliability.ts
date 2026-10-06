@@ -10,6 +10,10 @@
  *   Ē_u     ← (1 − η)·Ē_u + η·E_uv          in chronological order of evaluation
  *   p_u      = exp(−τ·Ē_u)
  *   p̂_u      = n/(n+λ)·p_u + λ/(n+λ)·μ_p     shrinkage against instant oracles
+ *   (mode "v4" only, on the r10 scale, μ0 = μ_p:)
+ *   Σ_u      = logit(clamp(p̂_u, ε, 1−ε)) − logit μ0
+ *   logit w_u = logit μ0 + T·tanh(Σ_u / T)         soft-capped, so w_u ∈ (0, 1)
+ *   ω_u      = w_u^γ                               what the signal is weighted by
  *   b_u     ← (1 − η)·b_u + η·(x_uv − truth_uv)   signed bias, shrunk toward 0
  *
  * Observation model: one prediction per (judge, candidate) pair — the earliest
@@ -43,6 +47,8 @@ import {
 } from "./outcomes.ts";
 
 const DAY = 86_400_000;
+/** Keeps logit(p̂) finite when a judge's raw reliability is exactly 1 or 0. */
+const LOGIT_EPS = 1e-6;
 
 export interface ScoredPrediction {
   referralId: string;
@@ -85,6 +91,10 @@ export interface JudgeReliabilityEstimate {
   rawReliability: number | null;
   /** p̂_u after shrinkage; equals the prior when nothing has been evaluated. */
   reliability: number;
+  /** w_u under mode "v4" (what admins see); null under "v2". */
+  weight: number | null;
+  /** ω_u = w_u^γ under mode "v4" (what the signal uses); null under "v2". */
+  omega: number | null;
   /** Running signed error, or null when nothing has been evaluated. */
   rawBias: number | null;
   /** b̂_u after shrinkage toward 0. */
@@ -109,6 +119,7 @@ export interface JudgeCalibrationRun {
     evaluatedReferrals: number;
     judgesWithEvidence: number;
     applyBiasCorrection: boolean;
+    reliabilityMode: "v2" | "v4";
   };
 }
 
@@ -208,6 +219,24 @@ function shrink(n: number, value: number, prior: number, lambda: number): number
   return (n / (n + lambda)) * value + (lambda / (n + lambda)) * prior;
 }
 
+function logit(p: number): number {
+  return Math.log(p / (1 - p));
+}
+
+/** w_u and ω_u from p̂_u. No evidence (Σ = 0) returns μ0 exactly, not a logit round trip. */
+function v4Weights(
+  shrunk: number,
+  spec: JudgeReliabilitySpec & { softCap: number; weightExponent: number },
+): { weight: number; omega: number } {
+  const mu0 = spec.priorReliability;
+  const sigma = logit(Math.min(1 - LOGIT_EPS, Math.max(LOGIT_EPS, shrunk))) - logit(mu0);
+  const weight =
+    sigma === 0
+      ? mu0
+      : 1 / (1 + Math.exp(-(logit(mu0) + spec.softCap * Math.tanh(sigma / spec.softCap))));
+  return { weight, omega: weight ** spec.weightExponent };
+}
+
 /** Fold scored predictions into per-judge reliability and bias estimates. */
 export function estimateJudgeReliability(
   judgeIds: readonly string[],
@@ -215,6 +244,10 @@ export function estimateJudgeReliability(
   spec: JudgeReliabilitySpec,
 ): Map<string, JudgeReliabilityEstimate> {
   const eta = spec.learningRate;
+  const v4 =
+    spec.mode === "v4" && spec.softCap !== undefined && spec.weightExponent !== undefined
+      ? { ...spec, softCap: spec.softCap, weightExponent: spec.weightExponent }
+      : null;
   const acc = new Map<string, { n: number; e: number; b: number; ids: string[] }>();
   for (const p of predictions) {
     const cur = acc.get(p.judgeId);
@@ -239,6 +272,7 @@ export function estimateJudgeReliability(
         meanSquaredError: null,
         rawReliability: null,
         reliability: spec.priorReliability,
+        ...(v4 ? v4Weights(spec.priorReliability, v4) : { weight: null, omega: null }),
         rawBias: null,
         bias: 0,
         predictionIds: [],
@@ -246,12 +280,14 @@ export function estimateJudgeReliability(
       continue;
     }
     const raw = Math.exp(-spec.errorScale * a.e);
+    const reliability = shrink(a.n, raw, spec.priorReliability, spec.shrinkage);
     out.set(judgeId, {
       judgeId,
       evaluatedCount: a.n,
       meanSquaredError: a.e,
       rawReliability: raw,
-      reliability: shrink(a.n, raw, spec.priorReliability, spec.shrinkage),
+      reliability,
+      ...(v4 ? v4Weights(reliability, v4) : { weight: null, omega: null }),
       rawBias: a.b,
       bias: shrink(a.n, a.b, 0, spec.shrinkage),
       predictionIds: a.ids,
@@ -289,12 +325,13 @@ export function computeJudgeCalibration(input: JudgeCalibrationInput): JudgeCali
       evaluatedReferrals: predictions.length,
       judgesWithEvidence: withEvidence.length,
       applyBiasCorrection: spec.applyBiasCorrection,
+      reliabilityMode: spec.mode ?? "v2",
     },
   };
 }
 
 /**
- * The V2 options to pass to `computeReferralSignal` / `computeAllReferralSignals`:
+ * The options to pass to `computeReferralSignal` / `computeAllReferralSignals`:
  * reliability always, bias only when the spec enables the correction.
  */
 export function judgeWeightOptions(run: JudgeCalibrationRun): {
@@ -307,9 +344,15 @@ export function judgeWeightOptions(run: JudgeCalibrationRun): {
     : { judgeReliability };
 }
 
-/** p̂_u per judge, in the form `computeReferralSignal` accepts. */
+/**
+ * The per-judge weight in the form `computeReferralSignal` accepts: ω_u under
+ * mode "v4", p̂_u exactly (no clamp) under "v2".
+ */
 export function reliabilityWeights(run: JudgeCalibrationRun): Map<string, number> {
-  return new Map([...run.estimates.values()].map((e) => [e.judgeId, e.reliability]));
+  const v4 = run.options.reliabilityMode === "v4";
+  return new Map(
+    [...run.estimates.values()].map((e) => [e.judgeId, v4 ? (e.omega as number) : e.reliability]),
+  );
 }
 
 /** b̂_u per judge, in the form `computeReferralSignal` accepts. */
