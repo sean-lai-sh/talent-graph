@@ -213,6 +213,9 @@ export function computeAdmission(
       if (without === undefined || d.signal === null) continue;
       reliance = relianceOn(d.signal, without.signalWithout);
     }
+    // NOTE (SEA-79): admission credit for a referral without a Jev starting
+    // snapshot waits for step 4, which does not exist yet. Until then the
+    // credit applies as soon as the first council decision stands.
     const rate = admitRate[observations.channels.get(r.candidateId) ?? DEFAULT_CHANNEL];
     const sign = admissionSign(d.outcome, rate);
     const credit = Math.min(
