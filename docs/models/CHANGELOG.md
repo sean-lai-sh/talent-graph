@@ -125,7 +125,7 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   (one per judge; self-referrals and repeats take none; equal times share the
   average share), `share(k) = max(φ, 1/k^α)`. Per referral,
   `a = +1` if admitted, `−r/(1−r)` if denied (r = the candidate's channel
-  admit rate); `ρ = clip((S − S⁻ᵘ)/S, 0, 1)` if admitted, 0 if denied;
+  admit rate); `ρ = clip((S − S⁻ᵘ)/S, 0, 1)` for an admit and a denial alike;
   `ℓᴬ = clip(κ_a · share · a · (1 − ρ), −Lᴬ, Lᴬ)`. `Σ ℓᴬ` is added to Σ before
   the soft cap, so `logit w = logit μ0 + T·tanh((Σ_acc + Σ ℓᴬ)/T)`. No credit
   for a referral made after the decision, for the person who recorded the
@@ -143,19 +143,20 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   deciding, instead of after a 180-day observation window. Centring on the
   channel's admit rate keeps a judge whose candidates are admitted at the
   normal rate at 0.
+- **Centred per referral:** an admit earns `+(1 − ρ)` and a denial
+  `−r·(1 − ρ)/(1 − r)`, both times `κ_a · share`. Expected early credit is 0
+  at the base rate for every referral, whatever its ρ. A sole advocate
+  (ρ = 1) gets 0 either way and is calibrated at settlement.
 - **Admission credit timing:** a referral without a Jev starting snapshot would
   wait for step 4; until it exists the credit applies once the decision stands.
-- **Accepted for now:** three choices stand until the pipeline simulation
+- **Accepted for now:** two choices stand until the pipeline simulation
   (PR #116) checks them, before 4.1.0 becomes current.
-  - A sole advocate has an expected admission credit of about `−κ_a · r`, about
-    −0.02 per candidate at the base rate. With no other referrer, ρ = 1, so an
-    admission earns 0, while a denial still pays the full centred debit.
   - The admit-rate prior is a blend of 150 pseudo-decisions at 12/150 with
     the channel's history.
   - ρ uses the rounded display signals, not the unrounded ones.
 - **Not current:** `CURRENT_SPECS.judge_reliability` stays 2.0.0.
 - **Drift:** on the seed, which has no council decisions and so no admission
-  credit. `--before 4.0.0 --after 4.1.0`: STABLE on all five reports (τ_b 1.000,
+  credit; re-run after per-referral centring, unchanged. `--before 4.0.0 --after 4.1.0`: STABLE on all five reports (τ_b 1.000,
   no shift). `--before 2.0.0 --after 4.1.0`: BREAKING overall, the same numbers
   as 2.0.0 → 4.0.0 (reliability τ_b 0.578, mean |shift| 43.64; weighted referral
   signals REVIEW, τ_b 0.746, mean |shift| 29.45, max 67.62). Re-run against
