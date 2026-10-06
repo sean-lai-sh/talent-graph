@@ -39,6 +39,7 @@ import { CURRENT_SPECS } from "../models/registry.ts";
 import {
   assertSpec,
   type JudgeReliabilitySpec,
+  type JudgeReliabilityV4Params,
   judgeWeightV4,
   type ReferralSignalSpec,
 } from "../models/spec.ts";
@@ -223,6 +224,16 @@ function shrink(n: number, value: number, prior: number, lambda: number): number
   return (n / (n + lambda)) * value + (lambda / (n + lambda)) * prior;
 }
 
+function v4Params(spec: JudgeReliabilitySpec): JudgeReliabilityV4Params {
+  const { priorReliability, softCap, weightExponent } = spec;
+  if (softCap === undefined || weightExponent === undefined) {
+    throw new Error(
+      `judge_reliability@${spec.version} is mode "v4" without softCap or weightExponent`,
+    );
+  }
+  return { priorReliability, softCap, weightExponent };
+}
+
 /** Fold scored predictions into per-judge reliability and bias estimates. */
 export function estimateJudgeReliability(
   judgeIds: readonly string[],
@@ -230,10 +241,7 @@ export function estimateJudgeReliability(
   spec: JudgeReliabilitySpec,
 ): Map<string, JudgeReliabilityEstimate> {
   const eta = spec.learningRate;
-  const v4 =
-    spec.mode === "v4" && spec.softCap !== undefined && spec.weightExponent !== undefined
-      ? { ...spec, softCap: spec.softCap, weightExponent: spec.weightExponent }
-      : null;
+  const v4 = spec.mode === "v4" ? v4Params(spec) : null;
   const acc = new Map<string, { n: number; e: number; b: number; ids: string[] }>();
   for (const p of predictions) {
     const cur = acc.get(p.judgeId);

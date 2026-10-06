@@ -176,6 +176,13 @@ describe('judge_reliability@4.0.0 (mode "v4")', () => {
     expect(() => judgeWeightOptions(broken)).toThrow(/good has no omega/);
   });
 
+  test('mode "v4" alone selects v4: a spec missing softCap or weightExponent throws, never v2-shaped output', () => {
+    for (const missing of ["softCap", "weightExponent"] as const) {
+      const spec = { ...V4, [missing]: undefined };
+      expect(() => estimateJudgeReliability(["silent"], [], spec)).toThrow(/mode "v4" without/);
+    }
+  });
+
   test("w is monotone in p_u", () => {
     const errors = [0, 0.01, 0.05, 0.1, 0.2, 0.35, 0.5, 0.75, 1];
     const ests = estimateJudgeReliability(
