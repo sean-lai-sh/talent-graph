@@ -72,7 +72,6 @@ const clubPersonFields = {
   x: v.optional(v.string()),
   github: v.optional(v.string()),
   website: v.optional(v.string()),
-  // Set at intake or by an admin; recorded on each evidence snapshot (SEA-81).
   classYear: v.optional(v.number()),
   status: personStatus,
   reviewStatus: v.optional(reviewStatus),
@@ -272,41 +271,30 @@ export default defineSchema({
     body: v.string(),
     receivedAt: v.number(),
   }).index("by_run", ["runId"]),
-  // Evidence intake (SEA-81). `personId` is the clubPeople domain id. One row
-  // per candidate who entered the process; `intakeAt` is `t` for snapshots.
   evidenceIntakes: defineTable({
     clubId,
     personId: v.string(),
     intakeAt: v.string(),
-    // Epoch ms the daily cron next has work for this candidate; null once s36 is written.
     nextDueAt: v.union(v.number(), v.null()),
-    // Epoch ms of the last check that completed; a GitHub fetch failure leaves it as it was.
     lastCheckedAt: v.optional(v.number()),
-    // Checks started since the last one that completed, and the epoch ms before
-    // which the daily cron does not schedule another. Both cleared when a check
-    // completes. Backoff only: `nextDueAt` and `lastCheckedAt` stay the due state.
     attempts: v.optional(v.number()),
     retryAfter: v.optional(v.number()),
   })
     .index("by_person", ["personId"])
     .index("by_next_due", ["nextDueAt"])
     .index("by_last_checked", ["lastCheckedAt"]),
-  // One row per uploaded resume file. A new upload is a new version; earlier ones stay.
   resumeVersions: defineTable({
     clubId,
     personId: v.string(),
     storageId: v.id("_storage"),
     uploadedAt: v.string(),
     extractedAt: v.string(),
-    // The PDF's text as extracted, kept beside the lines built from it.
     rawText: v.string(),
-    // True when the lines needed the Jev labelling pass to parse.
     normalized: v.boolean(),
     lineCount: v.number(),
   })
     .index("by_person", ["personId"])
     .index("by_storage", ["storageId"]),
-  // The claim lines of one resume version, one row per line, in order.
   resumeLines: defineTable({
     resumeVersionId: v.id("resumeVersions"),
     index: v.number(),
@@ -314,8 +302,6 @@ export default defineSchema({
     statement: v.string(),
     publishedAt: v.string(),
   }).index("by_version", ["resumeVersionId", "index"]),
-  // Raw `career_evidence` 1.2 JevJudgmentRecords, one per claim. Immutable:
-  // never updated; a rerun appends. JSON strings keep the record byte for byte.
   jevJudgments: defineTable({
     clubId,
     personId: v.string(),
@@ -326,13 +312,10 @@ export default defineSchema({
     source: v.string(),
     author: v.union(v.literal("candidate"), v.literal("system")),
     claimId: v.string(),
-    // JevJudgmentRecord, OutputOnlyClaim and the answers behind them, as JSON.
     record: v.string(),
     claim: v.string(),
     answer: v.string(),
     probe: v.union(v.string(), v.null()),
-    // claim_value@1.2.0 config hash and company seed hash at scoring time, so a
-    // later config.yml merge never silently changes what a record was scored under.
     configHash: v.string(),
     companySeedHash: v.string(),
     writtenAt: v.string(),
@@ -358,9 +341,6 @@ export default defineSchema({
   })
     .index("by_candidate_and_kind", ["candidateId", "kind"])
     .index("by_domain_id", ["id"]),
-  // Company research requested for an employer (SEA-75 routine), so an org is
-  // not asked about again while its research is recent. Results land in
-  // grokCompanyResearch and are merged into config.yml by hand.
   companyResearchRequests: defineTable({
     orgKey: v.string(),
     org: v.string(),

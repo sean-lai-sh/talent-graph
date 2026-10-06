@@ -42,37 +42,10 @@ import {
 import { requireAdmin } from "./club";
 import { snapshotKind } from "./schema";
 
-/**
- * Evidence intake, Jev 1.2 records and evidence-only snapshots (SEA-81).
- *
- * Intake runs once when a candidate enters the process (`intake`). The daily
- * cron (`crons.ts` → `daily`) schedules `check` for every candidate whose
- * next snapshot is due, and for every candidate not checked for
- * `RECHECK_DAYS`. `check` is the standard check every candidate gets: pick up
- * a newly uploaded resume, refetch GitHub, ask for company research on
- * unknown employers, score only new or materially changed claims, and
- * recompute every snapshot kind already due, so evidence dated before a
- * cutoff that turns up later adds a correction row. ORCID is out of scope (no
- * field for it).
- */
-
-/** Company research is asked again for an org only after this long. */
 const COMPANY_RESEARCH_FRESH_MS = 90 * 24 * 60 * 60 * 1000;
-/** How many candidates one cron run schedules. The rest wait for the next run. */
 export const DAILY_BATCH = 200;
-/**
- * A candidate whose last completed check is older than this is checked again
- * even with no snapshot due, so evidence that grows between snapshots is
- * picked up near when it happened, and late evidence corrects due snapshots.
- */
 const RECHECK_DAYS = 14;
 const DAY_MS = 24 * 60 * 60 * 1000;
-/**
- * A check that has not completed (a failed GitHub fetch, or a throw) is not
- * scheduled again for 2, 4, 8, then 14 days. The first wait is longer than the
- * cron's period, so candidates that keep failing step aside for at least one
- * run, and the rest of the due and stale rows get the batch.
- */
 function retryBackoffMs(attempts: number): number {
   return Math.min(2 ** attempts, RECHECK_DAYS) * DAY_MS;
 }
@@ -135,9 +108,7 @@ export const context = internalQuery({
         ? { storageId: upload._id, uploadedAt: new Date(upload._creationTime).toISOString() }
         : null,
       resumes,
-      // As stored strings: a parsed record crossing the query boundary can come back
-      // with its object keys reordered, which changes `recordContent` and so the
-      // snapshot `inputHash`. The action parses them.
+      // Strings: Convex can reorder object keys across the query boundary, changing `inputHash`.
       judgments: judgments.map(storedJudgment),
       snapshots: snapshots.map((row) => ({
         id: row.id,
@@ -203,7 +174,6 @@ async function ensureIntakeRow(
     .withIndex("by_person", (q) => q.eq("personId", person.id))
     .unique();
   if (existing) return false;
-  // `t` is the date the candidate entered the process: their row's creation.
   const intakeAt = new Date(person.createdAt);
   await ctx.db.insert("evidenceIntakes", {
     clubId,
@@ -264,13 +234,6 @@ export const storeResumeVersion = internalMutation({
   },
 });
 
-/**
- * Append-only: a judgment whose record id or evidence key is already stored is
- * skipped. Returns the stored row for every judgment passed in, as stored
- * strings: the one just written, or the one already there. A concurrent check
- * can score the same evidence first with a different answer, and the caller
- * must read that stored record, not its own unstored one.
- */
 export const storeJudgments = internalMutation({
   args: {
     clubId: v.id("clubs"),
@@ -344,12 +307,6 @@ const snapshotRow = v.object({
   correctsSnapshotId: v.optional(v.string()),
 });
 
-/**
- * Write planned snapshot rows. Rows are never patched. A row is skipped when
- * the current row of its kind already has its `inputHash` (a rerun), or when
- * it was planned against a row that is no longer current (a concurrent run
- * got there first).
- */
 export const writeSnapshots = internalMutation({
   args: { clubId: v.id("clubs"), personId: v.string(), rows: v.array(snapshotRow) },
   handler: async (ctx, { clubId, personId, rows }) => {
@@ -389,11 +346,6 @@ export const writeSnapshots = internalMutation({
   },
 });
 
-/**
- * A check is starting: back the candidate off until it completes. A check
- * that completes clears this in `writeSnapshots`; one that fails or throws
- * leaves it, so the cron passes over the candidate until `retryAfter`.
- */
 export const beginCheck = internalMutation({
   args: { personId: v.string() },
   handler: async (ctx, { personId }) => {
@@ -425,13 +377,6 @@ export const recordCompanyResearch = internalMutation({
   },
 });
 
-/**
- * The daily cron. Candidates who entered before intake existed get their
- * intake row here. Then every candidate whose next snapshot is due, and every
- * candidate not checked for `RECHECK_DAYS` (or never), gets a `check` of
- * their own, so one failure does not stop the others. Due candidates go first.
- * Candidates whose last check did not complete wait out `retryBackoffMs`.
- */
 export const daily = internalMutation({
   args: {},
   handler: async (ctx) => {
@@ -449,7 +394,6 @@ export const daily = internalMutation({
         .withIndex("by_next_due", (q) => q.gte("nextDueAt", 0).lte("nextDueAt", now)),
       now,
     );
-    // Never-checked rows have no `lastCheckedAt`, which sorts before every number.
     const stale = await notBackedOff(
       ctx.db
         .query("evidenceIntakes")
@@ -467,11 +411,6 @@ export const daily = internalMutation({
   },
 });
 
-/**
- * The first `DAILY_BATCH` rows of an index range whose `retryAfter` has
- * passed. Rows still backing off are read past, not counted, so they cannot
- * fill the batch day after day.
- */
 async function notBackedOff(
   rows: AsyncIterable<Doc<"evidenceIntakes">>,
   now: number,
@@ -485,7 +424,6 @@ async function notBackedOff(
   return picked;
 }
 
-/** When a candidate enters the process: record `t`, then score their evidence once. */
 export const intake = internalAction({
   args: { personId: v.string() },
   handler: async (ctx, { personId }) => {
@@ -494,7 +432,6 @@ export const intake = internalAction({
   },
 });
 
-/** The standard check, then any snapshot that is due. */
 export const check = internalAction({
   args: { personId: v.string() },
   handler: async (ctx, { personId }) => await runCheck(ctx, personId),
@@ -517,33 +454,25 @@ async function runCheck(ctx: ActionCtx, personId: string) {
   await requestCompanyResearch(ctx, found);
   const scored = await scoreNewClaims(ctx, found, github ?? []);
   if (github === null) {
-    // The GitHub evidence is partial: write no snapshot from it, and leave
-    // `nextDueAt` and `lastCheckedAt` as they are, so the candidate stays due
-    // and is checked again once `beginCheck`'s backoff has passed. Resume
-    // claims scored above are kept.
+    // Fails closed: partial GitHub evidence writes no snapshot, so the
+    // candidate stays due and is retried after `beginCheck`'s backoff.
     return { versionAdded, scored: scored.length, snapshots: 0, githubFailed: true };
   }
-  // Snapshots read only stored records, reloaded after storing: a concurrent
-  // check may have stored a different answer for the same evidence first.
   const stored = scored.length > 0 ? ((await loadContext(ctx, personId)) ?? found) : found;
   const snapshots = await writeDueSnapshots(ctx, stored, stored.judgments);
   return { versionAdded, scored: scored.length, snapshots, githubFailed: false };
 }
 
-/** Step 1: read a resume upload not seen before into claim lines, one version per file. */
 async function pickUpResume(ctx: ActionCtx, found: Context): Promise<boolean> {
   const resume = found.resume;
   if (!resume || found.resumes.some((version) => version.storageId === resume.storageId)) {
     return false;
   }
-  // unpdf fails in the default runtime ("structuredClone with transfer not
-  // supported" from pdf.js), so the text is extracted in a Node action.
   const rawText = await ctx.runAction(internal.evidenceNode.extractResumeText, {
     storageId: resume.storageId,
   });
   if (rawText === null) return false;
   const raw = rawResumeLines(rawText);
-  // The Jev labelling pass runs only when the text does not already parse.
   const normalized = !parsesAsResume(raw);
   const lines = normalized
     ? rebuildResumeLines(raw, await labelResumeLines(raw, createJevClient()))
@@ -564,24 +493,17 @@ async function pickUpResume(ctx: ActionCtx, found: Context): Promise<boolean> {
   return true;
 }
 
-/**
- * Step 2: public GitHub artifacts from the candidate's `github` field, or
- * null when the fetch failed. No handle, or a handle with no such user, is
- * an empty list, not a failure.
- */
 async function fetchGitHub(ctx: ActionCtx, found: Context): Promise<GitHubArtifact[] | null> {
   const username = githubUsername(found.person.github ?? undefined);
   if (!username) return [];
   try {
     return await ctx.runAction(internal.evidenceNode.fetchGitHub, { username });
   } catch (error) {
-    // The resume claims are still scored; the caller writes no snapshot.
     console.warn(`evidence: GitHub fetch for ${found.person.id} failed: ${String(error)}`);
     return null;
   }
 }
 
-/** Step 3: ask the SEA-75 routine about employers with no seed entry and no recent request. */
 async function requestCompanyResearch(ctx: ActionCtx, found: Context): Promise<void> {
   const work = found.resumes.flatMap((version) => companyWorklist(version.lines));
   const unseeded = new Map<string, (typeof work)[number]>();
@@ -604,17 +526,10 @@ async function requestCompanyResearch(ctx: ActionCtx, found: Context): Promise<v
   try {
     await ctx.runAction(internal.evidenceNode.requestCompanyResearch, { worklist });
   } catch (error) {
-    // Research is context for later scoring, merged into config.yml by hand; it never blocks a check.
     console.warn(`evidence: company research request failed: ${String(error)}`);
   }
 }
 
-/**
- * Step 4: score only claims whose evidence key has no record, and store the
- * records. GitHub artifacts are scored only when new or materially changed
- * since their latest stored version (`githubVersionsToScore`), so an
- * unchanged repository costs no Jev call.
- */
 async function scoreNewClaims(
   ctx: ActionCtx,
   found: Context,
@@ -659,7 +574,6 @@ async function scoreNewClaims(
   return written;
 }
 
-/** Step 5: `outputOnlyRollup` at each due cutoff; a new row only when the evidence changed. */
 async function writeDueSnapshots(
   ctx: ActionCtx,
   found: Context,
@@ -687,7 +601,6 @@ async function writeDueSnapshots(
     });
     if (row === null) continue;
     rows.push(row);
-    // A later kind reads s0's class year from the row just planned.
     existing.push(row);
   }
   return await ctx.runMutation(internal.evidence.writeSnapshots, {
@@ -697,7 +610,6 @@ async function writeDueSnapshots(
   });
 }
 
-/** Class year, set by an admin. Evidence snapshots record it at s0. */
 export const setClassYear = mutation({
   args: { personId: v.string(), classYear: v.union(v.number(), v.null()) },
   handler: async (ctx, { personId, classYear }) => {

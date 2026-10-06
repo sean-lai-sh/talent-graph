@@ -1,12 +1,3 @@
-/**
- * An in-memory stand-in for a Convex deployment, enough to run the real
- * `convex/evidence.ts` handlers (SEA-81): a table store with the query
- * surface they use, one lock so each query and mutation is atomic as in
- * Convex, and `runQuery` / `runMutation` / `runAction` dispatching to the
- * real handlers by function name. Node-runtime actions (`evidenceNode`) and
- * the Jev client are supplied by the test.
- */
-
 // biome-ignore lint/suspicious/noExplicitAny: handlers are looked up by name
 type Handler = (ctx: any, args: any) => Promise<any>;
 
@@ -143,9 +134,7 @@ export class FakeDb {
 
 export interface FakeDeployment {
   db: FakeDb;
-  /** `evidence:daily` scheduled `evidence:check` for these people, in order. */
   scheduled: { name: string; args: unknown }[];
-  /** Run an exported handler of `convex/evidence.ts`, as the named function would run. */
   actionCtx(options?: { before?: (name: string) => Promise<void> }): unknown;
   mutationCtx(): unknown;
   call(
@@ -156,10 +145,8 @@ export interface FakeDeployment {
 }
 
 export function createDeployment(input: {
-  /** `evidence` exports, by function name. */
   evidence: Record<string, { _handler: Handler }>;
   getFunctionName: (ref: unknown) => string;
-  /** Node actions and anything else outside `convex/evidence.ts`, by `module:name`. */
   external: Record<string, (args: unknown) => Promise<unknown>>;
 }): FakeDeployment {
   const db = new FakeDb();

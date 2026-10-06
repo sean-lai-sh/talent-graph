@@ -1,14 +1,3 @@
-/**
- * Resume PDF → claim lines (SEA-81).
- *
- * `preprocessJobClaims` reads resume form: a job header (`Title at Org
- * (dates)`, see `parseHeader`) followed by bullet lines (`isBullet`). The PDF's
- * own text is used as is when it already reads that way. Only when no job
- * header parses does a Jev pass label each line (title, organization, dates,
- * bullet, other) so the lines can be rebuilt into that form. The raw text is
- * always kept next to the result. PDF text extraction is `./resumePdf.ts`.
- */
-
 import {
   choice,
   type Questions,
@@ -21,10 +10,8 @@ import {
   parseHeader,
 } from "../../../../src/longitudinal/claimPreprocess.ts";
 
-/** Bullet glyphs PDFs use that `isBullet` does not read; they become `- `. */
 const BULLET_GLYPHS = /^\s*[●◦▪▫■□○◆◇►▸‣⁃–—·∙]\s*/u;
 
-/** The text's non-empty lines, with bullet glyphs written as `- `. No model involved. */
 export function rawResumeLines(text: string): string[] {
   return text
     .split(/\r?\n/)
@@ -33,17 +20,10 @@ export function rawResumeLines(text: string): string[] {
     .map((line) => (BULLET_GLYPHS.test(line) ? `- ${line.replace(BULLET_GLYPHS, "")}` : line));
 }
 
-/** True when at least one line is a job header `parseHeader` reads. */
 export function parsesAsResume(lines: readonly string[]): boolean {
   return lines.some((line) => !isBullet(line) && parseHeader(line) !== null);
 }
 
-/**
- * The claim lines Jev scores: job headers and bullets. Any other line (a name,
- * a section heading, a skills list) is blanked rather than dropped, because a
- * blank line ends the open job, so bullets after a "Projects" heading are not
- * read as the previous job's.
- */
 export function claimLines(lines: readonly string[], publishedAt: string): JobClaimLine[] {
   return lines.map((line, index) => ({
     id: `L${index}`,
@@ -64,7 +44,6 @@ export const LINE_ROLES = {
 
 export type LineRole = keyof typeof LINE_ROLES;
 
-/** The client surface the labelling pass calls. `createJevClient()` satisfies it. */
 export interface ResumeLineClient {
   systemOne<Q extends Questions>(
     request: SystemOneRequest<Q>,
@@ -73,7 +52,6 @@ export interface ResumeLineClient {
 
 const LABEL_BATCH = 40;
 
-/** One Jev request per batch of lines: a choice question per line. */
 export async function labelResumeLines(
   lines: readonly string[],
   client: ResumeLineClient,
@@ -120,11 +98,6 @@ function splitDates(text: string): { rest: string; dates: string | null } {
   return { rest, dates: match[0].replace(/\s*(–|—|to)\s*/i, " - ").trim() };
 }
 
-/**
- * Rebuild labelled lines into resume form. A job header is emitted once its
- * title and organization are both known and a bullet follows; a header that
- * `parseHeader` would not read is left out, so its bullets stay free lines.
- */
 export function rebuildResumeLines(lines: readonly string[], roles: readonly LineRole[]): string[] {
   const out: string[] = [];
   let pending: { title: string | null; org: string | null; dates: string | null } = {
@@ -156,7 +129,6 @@ export function rebuildResumeLines(lines: readonly string[], roles: readonly Lin
       return;
     }
     if (headerOpen) {
-      // A new job starts; the blank line closes the previous one.
       out.push("");
       headerOpen = false;
       reset();

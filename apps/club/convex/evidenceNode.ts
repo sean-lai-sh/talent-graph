@@ -8,13 +8,8 @@ import { fetchGitHubArtifacts, type JsonFetcher } from "../lib/longitudinal/sour
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 
-/**
- * Node-runtime actions for evidence intake (SEA-81). `lib/longitudinal/grok.ts`
- * imports `node:crypto`, and `sources.ts` imports it in turn; unpdf's pdf.js
- * fails in the default runtime ("structuredClone with transfer not supported").
- */
+// unpdf's pdf.js fails in the default Convex runtime ("structuredClone with transfer not supported").
 
-/** The text of an uploaded resume PDF, or null when the file is gone. */
 export const extractResumeText = internalAction({
   args: { storageId: v.id("_storage") },
   handler: async (ctx, { storageId }): Promise<string | null> => {
@@ -24,12 +19,7 @@ export const extractResumeText = internalAction({
   },
 });
 
-/**
- * Public GitHub artifacts for one username, every one up to now, each with its
- * stable identity and its own creation and last-change dates (repo
- * `created_at` / `updated_at`, the event's date), which `githubVersionsToScore`
- * turns into version dates; never the fetch date.
- */
+// Dates are each artifact's own (`created_at` / `updated_at`, the event's date), never the fetch date.
 export const fetchGitHub = internalAction({
   args: { username: v.string() },
   handler: async (_ctx, { username }) => {
@@ -42,7 +32,6 @@ export const fetchGitHub = internalAction({
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
-      // No such user: the handle has no public evidence, which is an answer, not a failure.
       if (response.status === 404) return [];
       if (!response.ok) throw new Error(`GitHub request failed: ${response.status} ${url}`);
       return response.json();
@@ -51,18 +40,6 @@ export const fetchGitHub = internalAction({
   },
 });
 
-/**
- * Trigger the SEA-75 company-research routine for employers intake found with
- * no seed entry.
- *
- * The reply posts back to `grokCompanyResearch` (the callback route) and stays
- * there: merging it into `config.yml` is still done by hand
- * (`scripts/jev-company-worklist.ts --from` / `--apply`). Scoring reads only
- * what is merged, and each Jev record stores the config hash it was scored
- * under.
- */
-
-/** The routine's batch size, as in `scripts/jev-company-worklist.ts`. */
 const BATCH = 10;
 
 const workItem = v.object({

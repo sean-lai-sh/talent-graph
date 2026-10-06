@@ -1,18 +1,3 @@
-/**
- * The minimal `career_evidence` 1.2 claim-judgment path (SEA-81, taken from
- * SEA-40): score claim lines with `scoreClaimRubricV12` and write one
- * `JevJudgmentRecord` per claim, in the shape `outputOnlyRollup` reads.
- *
- * Separate from `createJevJudgmentService` (`./jev.ts`), which asks the 1.0
- * questions and writes 1.0 records that `outputOnlyRollup` rejects.
- *
- * `scoreClaimRubricV12` is synchronous and asks through a `respond` callback.
- * A request with no answer yet throws `Pending`; the loop fetches that one
- * answer and runs the scorer again, as `scripts/jev-claim-smoke-v12.ts` does.
- * Answers already stored for this person seed the cache, so evidence that
- * already has a record costs no call.
- */
-
 import type {
   APIPromise,
   Questions,
@@ -58,15 +43,8 @@ import type { CareerEvidenceV12Spec } from "../../../../src/models/spec.ts";
 import { claimQuestionsV12, type JevClaimQuestionsV12 } from "./jevClient.ts";
 import { rawScoreAnswer } from "./jevRecord.ts";
 
-/** The rubric new claim records are judged under. */
 export const CLAIM_JUDGMENT_SPEC: CareerEvidenceV12Spec = CAREER_EVIDENCE_V1_2_4;
 
-/**
- * The client surface the 1.2 path calls: one `systemOne` over any subset of
- * the 1.2 claim questions. `createJevClient()` satisfies it. It is its own
- * port rather than a third overload on `JevClient`, whose test doubles are
- * typed against exactly the two 1.0 overloads.
- */
 export interface JevClaimClientV12 {
   systemOne<Q extends Questions & Partial<JevClaimQuestionsV12>>(
     request: SystemOneRequest<Q>,
@@ -74,26 +52,20 @@ export interface JevClaimClientV12 {
   ): Pick<APIPromise<SystemOneResult<Q>>, "withResponse">;
 }
 
-/** One answer as it came back, so a later run can replay the request from storage. */
 export interface StoredAnswer {
   requestFingerprint: string;
   respondedModel: string;
   requestId: string | null;
   usage: { inputTokens: number; outputTokens: number };
-  /** The SDK's `answers`, verbatim. */
   answers: unknown;
   observedAt: string;
 }
 
-/** What is stored per claim: the record, the claim that reads it, and the answers behind it. */
 export interface ClaimJudgment {
   record: JevJudgmentRecord;
   claim: OutputOnlyClaim;
-  /** The scoring answer the record was written from. */
   answer: StoredAnswer;
-  /** The class probe asked first for a claim with no job header, or null. */
   probe: StoredAnswer | null;
-  /** `claim_value@1.2.0` config hash, company seed included, at scoring time. */
   configHash: string;
   companySeedHash: string;
 }
@@ -103,22 +75,13 @@ export interface ClaimEvidence {
   source: SourceKind;
   author: ClaimAuthor;
   evidenceTier: EvidenceTier;
-  /**
-   * The evidence item a scored claim is about, for its evidence key. The
-   * caller knows the source's identity and date rules (resume line, GitHub
-   * artifact); this module does not.
-   */
   evidenceItemFor(claim: ScoredClaimV12, line: JobClaimLine): GrokEvidenceItem;
-  /** The claim's job dates, when the source dates it differently from the line. */
   jobDatesFor?(claim: ScoredClaimV12, line: JobClaimLine): JobDateFields;
 }
 
 export interface ClaimJudgmentRun {
-  /** Records for evidence keys with no stored record yet. */
   written: ClaimJudgment[];
-  /** Evidence keys skipped because a record already exists. */
   skipped: number;
-  /** Claims dropped because their answer broke an invariant. */
   failed: { claimId: string; error: string }[];
   calls: number;
 }
@@ -134,7 +97,6 @@ class Pending extends Error {
   }
 }
 
-/** The state the model is shown: exactly the fields the smoke sends. */
 function wireState(request: ClaimRubricV12Request) {
   return {
     source: request.state.source,
@@ -148,7 +110,6 @@ function wireState(request: ClaimRubricV12Request) {
   };
 }
 
-/** The SDK questions for one rubric request, built from the spec. */
 function wireQuestions(
   spec: CareerEvidenceV12Spec,
   request: ClaimRubricV12Request,
@@ -168,11 +129,6 @@ function isProbe(request: ClaimRubricV12Request): boolean {
   return !("selectivity" in request.questions) && !("difficulty" in request.questions);
 }
 
-/**
- * Score `evidence.lines` and return a record for every claim whose evidence
- * key has none yet. `known` is this person's stored judgments: their answers
- * are replayed rather than asked again, and their evidence keys are skipped.
- */
 export async function judgeClaimsV12(input: {
   personId: string;
   evidence: ClaimEvidence;
@@ -249,7 +205,6 @@ export async function judgeClaimsV12(input: {
         });
         continue;
       }
-      // An answer the rubric cannot read: drop that request's claims, keep the rest.
       if (
         error instanceof JudgmentInvariantError &&
         lastFingerprint !== null &&
@@ -287,7 +242,6 @@ export async function judgeClaimsV12(input: {
     const claim = scored[scoringIndex];
     scoringIndex += 1;
     if (claim === undefined) continue;
-    // A claim under a job header is asked once; a free line is probed for its class first.
     const probeFingerprint =
       claim.titleHint === null && probeIndex >= 0 ? sequence[probeIndex]?.fingerprint : undefined;
     const failure =
@@ -323,7 +277,6 @@ export async function judgeClaimsV12(input: {
       observedAt: answer.observedAt,
     });
     const outputClaim: OutputOnlyClaim = {
-      // One claim per evidence key, so the same line in a later resume version is the same claim.
       id: `claim-${contentFingerprint(evidenceKey).slice(0, 24)}`,
       personId: input.personId,
       recordId: record.id,
@@ -351,7 +304,6 @@ export async function judgeClaimsV12(input: {
   return run;
 }
 
-/** The line a scored claim came from: its parent, or the parent's first physical line. */
 function lineFor(claim: ScoredClaimV12, lines: ReadonlyMap<string, JobClaimLine>): JobClaimLine {
   let id = claim.parentId;
   while (id.length > 0) {
@@ -367,11 +319,6 @@ function lineFor(claim: ScoredClaimV12, lines: ReadonlyMap<string, JobClaimLine>
 const SCORE_KEYS = ["selectivity", "pool_strength", "difficulty", "scale"] as const;
 const CHOICE_KEYS = ["claim_class", "role"] as const;
 
-/**
- * The SDK answers as record answers, whole: score answers keep their
- * un-rounded score, the five-level probability vector and the legend, read
- * off the spec's levels; choice answers keep the full probability map.
- */
 function recordAnswers(spec: CareerEvidenceV12Spec, raw: unknown): Record<string, JevAnswer> {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
     throw new JudgmentInvariantError("jev: claim answers must be an object");
@@ -410,7 +357,6 @@ function recordAnswers(spec: CareerEvidenceV12Spec, raw: unknown): Record<string
   return out;
 }
 
-/** Keeps the scorer moving past a request whose answer broke; that claim is dropped. */
 function placeholderAnswer(request: ClaimRubricV12Request): unknown {
   const level = {
     score: 0,

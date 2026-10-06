@@ -1,10 +1,3 @@
-/**
- * SEA-81: evidence intake, Jev 1.2 records and stored snapshots.
- *
- * The Convex handlers in `apps/club/convex/evidence.ts` run for real against
- * an in-memory deployment (`fixtures/fakeConvex.ts`). Only the edges are
- * faked: the Jev client, the GitHub API, PDF text extraction and the clock.
- */
 import {
   afterAll,
   afterEach,
@@ -47,9 +40,6 @@ import { createDeployment, type FakeDeployment } from "./fixtures/fakeConvex.ts"
 
 const root = join(import.meta.dir, "..");
 
-// ---------------------------------------------------------------------------
-// Wiring: the real handlers, a fake Jev client behind `createJevClient`.
-
 const realJevClient = await import("../apps/club/lib/longitudinal/jevClient.ts");
 const als = new AsyncLocalStorage<string>();
 let jevFactory: () => FakeJev = () => {
@@ -67,13 +57,8 @@ afterAll(() => {
   mock.module("../apps/club/lib/longitudinal/jevClient.ts", () => realJevClient);
 });
 
-// ---------------------------------------------------------------------------
-// Fake Jev: answers by keyword in the claim text, so a test decides a claim's
-// score by how it words the claim.
-
 interface JevOptions {
   model?: string;
-  /** Difficulty (and scale) of an output claim, from its text. */
   level?: (text: string) => number;
   delay?: () => Promise<void>;
 }
@@ -164,9 +149,6 @@ class FakeJev {
   }
 }
 
-// ---------------------------------------------------------------------------
-// A world: the deployment plus the outside it talks to.
-
 const T0 = new Date("2025-01-10T00:00:00.000Z");
 const day = (n: number) => new Date(T0.getTime() + n * 24 * 60 * 60 * 1000);
 const PERSON = "p1";
@@ -192,7 +174,6 @@ const RESUME_TWO = [
   "- Designed an ambitious experiment on protein folding",
 ].join("\n");
 
-/** Text a PDF yields that `parseHeader` does not read: title, organization, dates on their own lines. */
 const RESUME_UNPARSED = [
   "Software Engineer Intern",
   "Acme Corp",
@@ -206,7 +187,6 @@ function repo(partial: Partial<Repo> = {}): Repo {
     name: "lamp",
     description: "A small lamp controller",
     created_at: "2025-01-10T10:00:00Z",
-    // The description was written two days after the repository: its own version.
     updated_at: "2025-01-12T10:00:00Z",
     ...partial,
   };
@@ -217,7 +197,6 @@ function world(options: { github?: string | null; before?: string[] } = {}) {
     texts: new Map<string, string>(),
     repos: [] as Repo[],
     githubFails: false,
-    /** GitHub handles whose fetch always fails. */
     failingHandles: new Set<string>(),
     urls: [] as string[],
     storageCount: 0,
@@ -252,7 +231,6 @@ function world(options: { github?: string | null; before?: string[] } = {}) {
   });
   const ready = (async () => {
     const clubId = await d.db.insert("clubs", { name: "Club" });
-    // Candidates created ahead of p1, so their rows come first in every index range.
     for (const id of options.before ?? []) {
       await d.db.insert("clubPeople", {
         clubId,
@@ -300,11 +278,9 @@ function world(options: { github?: string | null; before?: string[] } = {}) {
       await ready;
       return await d.call("evidence:intake", { personId });
     },
-    /** The daily cron, then the checks it scheduled. */
     async daily() {
       return (await this.dailyPeople()).length;
     },
-    /** The daily cron, then the checks it scheduled; who was scheduled. */
     async dailyPeople() {
       await ready;
       d.scheduled.length = 0;
@@ -313,13 +289,11 @@ function world(options: { github?: string | null; before?: string[] } = {}) {
       for (const run of runs) await d.call("evidence:check", run.args);
       return runs.map((run) => (run.args as { personId: string }).personId);
     },
-    /** In insertion order: `computedAt` is the action's clock and orders nothing. */
     snapshots(kind?: string) {
       return d.db
         .rows("evidenceSnapshots")
         .filter((row) => kind === undefined || row.kind === kind);
     },
-    /** The id of the current row of a kind, as every reader resolves it. */
     current(kind: SnapshotKind) {
       const rows = d.db.rows("evidenceSnapshots") as unknown as StoredSnapshot[];
       return currentSnapshot(rows, kind)?.id ?? null;
@@ -346,7 +320,6 @@ function world(options: { github?: string | null; before?: string[] } = {}) {
 }
 
 const cleanups: (() => void)[] = [];
-/** Undo something when the current test ends, pass or fail. */
 function afterEachOnce(cleanup: () => void) {
   cleanups.push(cleanup);
 }
@@ -359,7 +332,6 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
 });
 
-// Without the 1.2 path's pieces, in memory: claim lines to judgments.
 async function judge(text: string, client = new FakeJev(), known: ClaimJudgment[] = []) {
   const run = await judgeClaimsV12({
     personId: PERSON,
@@ -387,9 +359,6 @@ function plan(judgments: readonly ClaimJudgment[], kind: "s0" | "s12" = "s0"): S
   return row;
 }
 
-// ---------------------------------------------------------------------------
-// The issue's Tests section.
-
 describe("snapshots are frozen", () => {
   test("a snapshot's numbers never change after it is written; only a new correction row supersedes it", async () => {
     const w = world();
@@ -401,7 +370,6 @@ describe("snapshots are frozen", () => {
     expect(s0).toBeDefined();
     const frozen = structuredClone(s0);
 
-    // Later checks, a later snapshot, and late evidence for the first one.
     setSystemTime(day(80));
     await w.upload(RESUME_TWO);
     await w.daily();
@@ -413,7 +381,6 @@ describe("snapshots are frozen", () => {
     expect(s0Rows[0]).toEqual(frozen);
     expect(s0Rows[1]?.correctsSnapshotId).toBe(String(frozen?.id));
     expect(s0Rows[1]?.inputHash).not.toBe(frozen?.inputHash);
-    // The newest correction is the one read.
     expect(w.current("s0")).toBe(String(s0Rows[1]?.id));
   });
 });
@@ -450,7 +417,6 @@ describe("snapshot inputs", () => {
     const withLate = plan([...early, ...late]);
     expect(withLate.inputHash).toBe(without.inputHash);
     expect(withLate.claimCount).toBe(without.claimCount);
-    // Control: a cutoff after the late job does take it in.
     expect(plan([...early, ...late], "s12").inputHash).not.toBe(plan(early, "s12").inputHash);
   });
 });
@@ -466,7 +432,6 @@ describe("corrections and reruns", () => {
     expect(before.length).toBe(1);
     const original = structuredClone(before[0]);
 
-    // A new upload with an older job (dated before t + G) after s0 was computed.
     setSystemTime(day(65));
     await w.upload(RESUME_TWO);
     await w.check();
@@ -501,7 +466,6 @@ describe("corrections and reruns", () => {
       expect(String(correction?.computedAt) <= String(original.computedAt)).toBe(true);
       expect(w.current("s0")).toBe(String(correction?.id));
 
-      // The original's inputHash is not current again: reruns write nothing.
       await w.check();
       await w.check();
       expect(w.snapshots("s0")).toEqual(rows);
@@ -535,7 +499,6 @@ describe("corrections and reruns", () => {
     expect(s0?.substance).toBe(OUTPUT_ONLY_ROLLUP_V1_0_0.sFloor);
     expect(s0?.claimCount).toBe(0);
 
-    // One weak claim is thin too, and still gets the snapshot.
     const one = world({ github: null });
     await one.upload(
       ["Software Engineer Intern at Acme Corp (Jun 2024 - Aug 2024)", "- Built a toy script"].join(
@@ -593,7 +556,6 @@ describe("1.2 records", () => {
       expect(row.author).toBe(claim.author);
       expect(claim.author).toBe(row.source === "resume" ? "candidate" : "system");
     }
-    // A claim with no author is refused at the store, not defaulted.
     const [one] = w.parsed();
     if (!one) throw new Error("no judgment");
     const { author: _dropped, ...noAuthor } = one.claim;
@@ -607,9 +569,6 @@ describe("1.2 records", () => {
     ).rejects.toThrow(/author/);
   });
 });
-
-// ---------------------------------------------------------------------------
-// SEA-81 decisions.
 
 describe("GitHub evidence", () => {
   test("claim dates are the artifact's date, never the fetch time", async () => {
@@ -632,7 +591,6 @@ describe("GitHub evidence", () => {
       expect(j.claim.jobDates.endedAt).toBe("2023-03-05");
       expect(j.record.evidenceKey).toContain("2023-03-05T10:00:00Z");
     }
-    // `observedAt` is when Jev answered; the claim and its key carry only artifact dates.
     const everything = JSON.stringify(github.map((j) => [j.claim, j.record.evidenceKey]));
     expect(everything).not.toContain("2025-02-01");
   });
@@ -664,10 +622,8 @@ describe("GitHub evidence", () => {
     w.state.repos = [repo()];
     await w.intake();
     const jevCalls = w.state.jev.claimCalls;
-    // The creation-time version and the description's version.
     expect(w.judgments().filter((r) => r.source === "github").length).toBe(2);
 
-    // Cosmetic edit (case, punctuation, whitespace): same version, nothing scored.
     w.state.repos = [
       repo({ description: "a  small LAMP controller!", updated_at: "2025-01-15T09:00:00Z" }),
     ];
@@ -676,7 +632,6 @@ describe("GitHub evidence", () => {
     expect(w.state.jev.claimCalls).toBe(jevCalls);
     expect(w.judgments().filter((r) => r.source === "github").length).toBe(2);
 
-    // Material edit, every version before the s0 cutoff: three records, one claim counted.
     w.state.repos = [
       repo({
         description: "A lamp controller with a scheduler",
@@ -693,10 +648,8 @@ describe("GitHub evidence", () => {
       evidenceCutoff(T0, "s0"),
     );
     expect(counted.length).toBe(1);
-    // The version counted is the newer one.
     expect(counted[0]?.jobDates.startedAt).toBe("2025-01-25");
 
-    // And in the stored snapshot.
     setSystemTime(day(61));
     await w.daily();
     const s0 = w.snapshots("s0").at(-1);
@@ -714,7 +667,6 @@ describe("GitHub evidence", () => {
     if (!s0) throw new Error("no s0");
     const frozen = structuredClone(s0);
 
-    // The repository grows; its own updated_at says when.
     w.state.repos = [
       repo({
         description: "A lamp controller with an ambitious distributed scheduler",
@@ -723,7 +675,6 @@ describe("GitHub evidence", () => {
     ];
     setSystemTime(day(200));
     await w.check();
-    // Dated after the s0 cutoff: s0 is not touched.
     expect(w.snapshots("s0")).toEqual([frozen]);
 
     setSystemTime(day(400));
@@ -754,7 +705,6 @@ describe("GitHub evidence", () => {
 
   test("a description edited after s0 on a repo created before it stays out of s0 and counts in s12", async () => {
     const w = world();
-    // First seen after the edit: GitHub serves only the current description.
     w.state.repos = [
       repo({
         description: "A lamp controller with an ambitious distributed scheduler",
@@ -765,7 +715,6 @@ describe("GitHub evidence", () => {
     setSystemTime(day(250));
     await w.intake();
     const github = w.parsed().filter((j) => j.claim.source === "github");
-    // Which version of the repository each cutoff counts, by the version digest in its key.
     const creation = versionDigest("alice created the public repository alice/lamp.");
     const edited = versionDigest(
       "alice created the public repository alice/lamp: A lamp controller with an ambitious distributed scheduler",
@@ -795,7 +744,6 @@ describe("GitHub evidence", () => {
       expect(key.versionDigest).toBe(edited);
     }
 
-    // And in the stored snapshots: the edit raises s12, not s0.
     await w.check();
     setSystemTime(day(400));
     await w.daily();
@@ -813,7 +761,6 @@ describe("GitHub evidence", () => {
     expect(github[0]?.claim.jobDates.startedAt).toBe("2025-01-10");
     expect(github[0]?.record.evidenceKey).toContain("2025-01-10T10:00:00Z");
 
-    // A later check with nothing new scores nothing.
     const calls = w.state.jev.claimCalls;
     setSystemTime(day(30));
     await w.check();
@@ -853,7 +800,6 @@ describe("GitHub evidence", () => {
     for (const key of creation) {
       expect(key.versionDigest).toBe(versionDigest(artifact.created.statement));
     }
-    // What Jev was shown: the name alone once, the description only in its own version.
     const shown = w.state.jev.texts;
     expect(shown.some((text) => !text.includes("Zephyrine"))).toBe(true);
     expect(shown.some((text) => text.includes("Zephyrine"))).toBe(true);
@@ -865,7 +811,6 @@ describe("GitHub evidence", () => {
     await w.upload(RESUME_ONE);
     await w.intake();
     const github = w.parsed().filter((j) => j.claim.source === "github");
-    // Two repositories, each a creation-time version and a description version.
     expect(github.length).toBe(4);
     for (const j of github) expect(j.claim.evidenceTier).toBe("self_reported");
     for (const j of w.parsed()) expect(j.claim.evidenceTier).not.toBe("externally_verified");
@@ -908,11 +853,9 @@ describe("the daily check", () => {
     expect(original?.thin).toBe(true);
     expect(w.intakeRow().lastCheckedAt).toBeDefined();
 
-    // Checked 9 days ago, no snapshot due: not scheduled.
     setSystemTime(day(70));
     expect(await w.daily()).toBe(0);
 
-    // A repository created before intake turns up in a later fetch.
     w.state.repos = [
       repo({ created_at: "2024-12-01T08:00:00Z", updated_at: "2024-12-01T08:00:00Z" }),
     ];
@@ -924,7 +867,6 @@ describe("the daily check", () => {
     expect(rows[1]?.correctsSnapshotId).toBe(String(original?.id));
     expect(Number(rows[1]?.claimCount)).toBe(1);
 
-    // Idempotent: nothing is due again, and a forced check changes nothing.
     expect(await w.daily()).toBe(0);
     const calls = w.state.jev.claimCalls;
     await w.check();
@@ -948,11 +890,8 @@ describe("the daily check", () => {
     const after = w.intakeRow();
     expect(after.nextDueAt).toBe(before.nextDueAt);
     expect(after.lastCheckedAt).toBe(lastChecked);
-    // The resume was still scored and kept.
     expect(w.judgments().length).toBeGreaterThan(0);
 
-    // Two failed checks on day 61 (the cron's and the one above): backed off
-    // 4 days. Retried once that has passed, and writes once GitHub answers.
     w.state.githubFails = false;
     setSystemTime(day(64));
     expect(await w.daily()).toBe(0);
@@ -968,12 +907,9 @@ describe("the daily check", () => {
     const w = world({ github: null, before: failing });
     for (const handle of failing) w.state.failingHandles.add(handle);
     await w.upload(RESUME_ONE);
-    // Every failed fetch warns; hundreds of them are expected here.
     const warn = spyOn(console, "warn").mockImplementation(() => {});
     afterEachOnce(() => warn.mockRestore());
 
-    // Day 61: every candidate is due and never checked; the failing ones come
-    // first in every index range and take the whole batch.
     setSystemTime(day(61));
     const first = await w.dailyPeople();
     expect(first.length).toBe(evidence.DAILY_BATCH);
@@ -981,23 +917,19 @@ describe("the daily check", () => {
     const f0 = w.intakeRow("f0");
     expect(w.snapshots().length).toBe(0);
 
-    // Day 62: they are backing off, so the rest get the batch.
     setSystemTime(day(62));
     const second = await w.dailyPeople();
     expect(second).toContain(PERSON);
     expect(second).toContain(`f${evidence.DAILY_BATCH}`);
     expect(second).not.toContain("f0");
     expect(w.snapshots("s0").filter((row) => row.candidateId === PERSON).length).toBe(1);
-    // Failing stays fail-closed: still due, never marked checked.
     expect(w.intakeRow("f0").nextDueAt).toBe(f0.nextDueAt);
     expect(w.intakeRow("f0").lastCheckedAt).toBeUndefined();
 
-    // Day 63: the backoff has passed, and the failing ones are retried.
     setSystemTime(day(63));
     const third = await w.dailyPeople();
     expect(third).toContain("f0");
     expect(third).not.toContain(PERSON);
-    // A second failure waits longer: 4 days, not 2.
     setSystemTime(day(65));
     expect(await w.dailyPeople()).not.toContain("f0");
     setSystemTime(day(67));
@@ -1021,8 +953,6 @@ describe("the daily check", () => {
     const aDone = new Promise<void>((resolve) => {
       aFinished = resolve;
     });
-    // A scored first but stores second; B stores first and holds its snapshot
-    // write until A has finished, so the check that lost the race writes first.
     const hooksA = async (name: string) => {
       if (name === "evidence:storeJudgments") await bStored;
     };
@@ -1042,14 +972,12 @@ describe("the daily check", () => {
     await Promise.all([runA, runB]);
 
     const stored = w2.parsed();
-    // One record per evidence key, all from the check that stored first.
     const keys = stored.map((j) => j.record.evidenceKey);
     expect(new Set(keys).size).toBe(keys.length);
     expect(new Set(stored.map((j) => j.record.respondedModel))).toEqual(new Set(["model-B"]));
 
     const rows = w2.snapshots("s0");
     expect(rows.length).toBe(1);
-    // Reproducible from the stored records alone.
     const again = planSnapshot({
       candidateId: PERSON,
       kind: "s0",
@@ -1098,7 +1026,6 @@ describe("resume intake", () => {
     await w.check();
     expect(w.d.db.rows("resumeVersions").length).toBe(2);
     expect(w.d.db.rows("resumeLines").length).toBeGreaterThan(firstLines);
-    // The repeated lines are the same evidence: scored once.
     const keys = w.parsed().map((j) => j.record.evidenceKey);
     expect(new Set(keys).size).toBe(keys.length);
   });
@@ -1116,9 +1043,7 @@ describe("createJevJudgmentService", () => {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
       });
-    } catch {
-      // No local main (a shallow checkout): the source checks above stand.
-    }
+    } catch {}
     expect(diff).toBe("");
   });
 });
