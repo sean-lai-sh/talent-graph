@@ -43,7 +43,7 @@ import type { CapabilityRun } from "../../../../src/inference/capabilityVector.t
 import type { AdmissionObservations } from "../../../../src/judges/admission.ts";
 import {
   type JudgeCalibrationRun,
-  judgeWeightOptions,
+  judgeWeightedSignalOptions,
 } from "../../../../src/judges/reliability.ts";
 import {
   advance,
@@ -142,10 +142,17 @@ export function runClubPass(input: ClubPassInput): ClubPass {
     calibration: calibration.outputs,
     capability: capability.outputs,
     signalWithout: (candidateId) =>
-      signalWithoutEachReferrer(candidateId, referrals, {
-        spec: specs.referral_signal,
-        ...judgeWeightOptions(calibration.outputs),
-      }),
+      // The same spec, weights and c0 as the council's weighted signal, so
+      // S and S⁻ᵘ are aggregated alike (weight-normalised under a "v4" spec).
+      signalWithoutEachReferrer(
+        candidateId,
+        referrals,
+        judgeWeightedSignalOptions(
+          calibration.outputs,
+          specs.judge_reliability,
+          specs.referral_signal,
+        ),
+      ),
     provenance: {
       modelRunIds: result.runs.map((run) => run.id),
       specVersions: {

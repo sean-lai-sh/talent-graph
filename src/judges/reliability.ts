@@ -36,7 +36,7 @@ import type {
   Person,
   Referral,
 } from "../domain/types.ts";
-import { CURRENT_SPECS } from "../models/registry.ts";
+import { CURRENT_SPECS, REFERRAL_SIGNAL_V0_2_0 } from "../models/registry.ts";
 import {
   assertSpec,
   type JudgeReliabilitySpec,
@@ -349,6 +349,77 @@ export function judgeWeightOptions(run: JudgeCalibrationRun): {
   return run.options.applyBiasCorrection
     ? { judgeReliability, judgeBias: biasCorrections(run) }
     : { judgeReliability };
+}
+
+/**
+ * c0 for the weight-normalised Referral Signal: one new judge's worth of
+ * weight, μ0^γ (0.3² = 0.09 under 4.x). Derived from the judge spec so it
+ * moves with μ0 and γ rather than being a second number to keep in step.
+ */
+export function judgePseudoWeight(spec: JudgeReliabilitySpec): number {
+  if (spec.mode !== "v4" || spec.weightExponent === undefined) {
+    throw new Error(
+      `judge_reliability@${spec.version} is not mode "v4"; it has no pseudo-weight to derive`,
+    );
+  }
+  return spec.priorReliability ** spec.weightExponent;
+}
+
+/**
+ * The weight-normalised counterpart of a plain-mean Referral Signal spec:
+ * `referral_signal@0.2.0` for 0.1.0, or 0.2.0 tagged `+env` when the given
+ * spec is 0.1.0 with env overrides (src/config.ts), carrying them over. A spec
+ * that already aggregates weight-normalised is returned as it is. Any other
+ * version has no registered weight-normalised counterpart, so it throws.
+ */
+export function weightNormalizedReferralSpec(spec: ReferralSignalSpec): ReferralSignalSpec {
+  if (spec.aggregation === "weight_normalized") return spec;
+  const base = REFERRAL_SIGNAL_V0_2_0;
+  if (spec.version !== "0.1.0" && !spec.version.startsWith("0.1.0+")) {
+    throw new Error(
+      `referral_signal@${spec.version} has no weight-normalised counterpart; only 0.1.0 maps to ${base.version}`,
+    );
+  }
+  const derived: ReferralSignalSpec = {
+    ...spec,
+    version: base.version,
+    aggregation: "weight_normalized",
+  };
+  return JSON.stringify(derived) === JSON.stringify(base)
+    ? base
+    : { ...derived, version: `${base.version}+env` };
+}
+
+/**
+ * Everything the judge-weighted Referral Signal run takes from a calibration:
+ * the weights (`judgeWeightOptions`) plus the spec they are aggregated under.
+ *
+ * Under a mode "v4" judge spec (4.x) that is the weight-normalised
+ * `referral_signal@0.2.0` with c0 = `judgePseudoWeight(judgeSpec)` (SEA-83):
+ * the plain mean of ω·R would let a new judge's ω 0.09 drag a candidate's
+ * signal down. Under "v2" it is `referralSpec` unchanged and no pseudo-weight,
+ * so V2 weighted runs keep the plain mean and their ids.
+ */
+export function judgeWeightedSignalOptions(
+  run: JudgeCalibrationRun,
+  judgeSpec: JudgeReliabilitySpec,
+  referralSpec: ReferralSignalSpec,
+): ReturnType<typeof judgeWeightOptions> & {
+  spec: ReferralSignalSpec;
+  pseudoWeight?: number;
+} {
+  if (run.options.specVersion !== judgeSpec.version) {
+    throw new Error(
+      `calibration ran under judge_reliability@${run.options.specVersion}, not @${judgeSpec.version}`,
+    );
+  }
+  const weights = judgeWeightOptions(run);
+  if (judgeSpec.mode !== "v4") return { spec: referralSpec, ...weights };
+  return {
+    spec: weightNormalizedReferralSpec(referralSpec),
+    ...weights,
+    pseudoWeight: judgePseudoWeight(judgeSpec),
+  };
 }
 
 /**
