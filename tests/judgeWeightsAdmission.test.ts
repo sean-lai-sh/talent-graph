@@ -307,7 +307,7 @@ describe("admission credit", () => {
 });
 
 describe("position", () => {
-  test("share is monotone: an earlier position never earns a larger debit or a smaller credit", () => {
+  test("share is monotone: an earlier position never has a smaller share, so a larger credit on an admit and a larger debit on a denial", () => {
     const judges = Array.from({ length: 12 }, (_, i) => `j${i + 1}`);
     const refs = judges.map((j, i) => referral(j, "bob", i + 1));
     const without = judges.map((j) => ({ referrerId: j, signalWithout: 10 }));
