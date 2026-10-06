@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
   CANDIDATE_AUTHORED_SOURCES,
+  CLAIM_AUTHORS,
   CLAIM_VALUE_V1_2_0,
   type ClaimAuthor,
   evidenceDateFor,
@@ -10,7 +11,6 @@ import {
   type OutputOnlyClaim,
   outputOnlyRollup,
   scoreClaimValueV12,
-  validateClaimAuthor,
   validateEvidenceClaim,
 } from "../src/index.ts";
 import type { JobDateFields } from "../src/longitudinal/claimPreprocess.ts";
@@ -190,18 +190,6 @@ describe("outputOnlyRollup evidence tiers", () => {
 });
 
 describe("outputOnlyRollup claim authors", () => {
-  test("a referrer-authored claim is rejected", () => {
-    const { records, claims } = fixture();
-    const bad = [...claims, claim("o5", { author: "referrer", recordId: "rec-o1" })];
-    expect(() => run(bad, records)).toThrow(/referrer/);
-  });
-
-  test("a committee-authored claim is rejected", () => {
-    const { records, claims } = fixture();
-    const bad = [...claims, claim("o5", { author: "committee", recordId: "rec-o1" })];
-    expect(() => run(bad, records)).toThrow(/committee/);
-  });
-
   test("candidate and system authors are accepted", () => {
     const { records, claims } = fixture();
     const ok = claims.map((c, i) => ({
@@ -212,51 +200,76 @@ describe("outputOnlyRollup claim authors", () => {
   });
 });
 
-describe("validateClaimAuthor", () => {
-  test("accepts candidate and system, rejects referrer, committee and unknown", () => {
-    expect(validateClaimAuthor({ author: "candidate", source: "resume" }).ok).toBe(true);
-    expect(validateClaimAuthor({ author: "system", source: "resume" }).ok).toBe(true);
-    expect(validateClaimAuthor({ author: "referrer", source: "resume" }).ok).toBe(false);
-    expect(validateClaimAuthor({ author: "committee", source: "resume" }).ok).toBe(false);
-    expect(validateClaimAuthor({ author: "judge", source: "resume" }).ok).toBe(false);
+function evidenceClaim(source: SourceKind, author?: unknown) {
+  return {
+    personId: PERSON,
+    statement: "Shipped a compiler",
+    identityDecision: "same",
+    identityConfidence: 0.9,
+    provenance: {
+      source,
+      sourceId: "source-1",
+      url: "https://example.com/source",
+      publisher: "Example",
+      publishedAt: new Date("2024-01-01T00:00:00.000Z"),
+      retrievedAt: new Date("2024-02-01T00:00:00.000Z"),
+      quotedText: "Shipped a compiler",
+      contentHash: "abc",
+    },
+    ...(author === undefined ? {} : { author }),
+  } as never;
+}
+
+describe("claim author rules at ingest and in the roll-up", () => {
+  test("ingest stores every claim author, including referrer and committee", () => {
+    for (const author of CLAIM_AUTHORS) {
+      expect(validateEvidenceClaim(evidenceClaim("resume", author))).toEqual({ ok: true });
+      expect(validateEvidenceClaim(evidenceClaim("other", author))).toEqual({ ok: true });
+    }
   });
 
-  test("an absent author defaults to candidate for exactly the candidate-published sources", () => {
+  test("ingest rejects an unknown author", () => {
+    const result = validateEvidenceClaim(evidenceClaim("resume", "judge"));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.join(" ")).toContain("judge");
+  });
+
+  test("ingest rejects an authorless claim from a source outside the candidate-authored ones", () => {
+    const result = validateEvidenceClaim(evidenceClaim("other"));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.join(" ")).toContain('source "other"');
+  });
+
+  test("the roll-up rejects referrer and committee authors that ingest stored", () => {
+    const { records, claims } = fixture();
+    for (const author of ["referrer", "committee"] as const) {
+      expect(validateEvidenceClaim(evidenceClaim("resume", author)).ok).toBe(true);
+      const bad = claims.map((c) => (c.id === "o1" ? { ...c, author } : c));
+      expect(() => run(bad, records)).toThrow(new RegExp(`claim o1: author must not be ${author}`));
+    }
+  });
+
+  test("ingest and the roll-up agree on authorless claims from every source", () => {
     // Fails when a new SOURCE_KINDS entry is not classified.
     const NOT_CANDIDATE_AUTHORED: readonly SourceKind[] = ["other"];
     const expected = SOURCE_KINDS.filter((source) => !NOT_CANDIDATE_AUTHORED.includes(source));
     expect([...CANDIDATE_AUTHORED_SOURCES].sort()).toEqual([...expected].sort());
+    const { records } = fixture();
     for (const source of SOURCE_KINDS) {
-      expect(validateClaimAuthor({ source }).ok).toBe(!NOT_CANDIDATE_AUTHORED.includes(source));
-    }
-    for (const source of CANDIDATE_AUTHORED_SOURCES) {
-      expect(validateClaimAuthor({ source }).ok).toBe(true);
-    }
-  });
-
-  test("validateEvidenceClaim rejects a stated referrer or committee author, accepts none stated", () => {
-    const base = {
-      personId: PERSON,
-      statement: "Shipped a compiler",
-      identityDecision: "same",
-      identityConfidence: 0.9,
-      provenance: {
-        source: "resume",
-        sourceId: "resume-1",
-        url: "https://example.com/resume",
-        publisher: "Example",
-        publishedAt: new Date("2024-01-01T00:00:00.000Z"),
-        retrievedAt: new Date("2024-02-01T00:00:00.000Z"),
-        quotedText: "Shipped a compiler",
-        contentHash: "abc",
-      },
-    };
-    expect(validateEvidenceClaim(base as never).ok).toBe(true);
-    expect(validateEvidenceClaim({ ...base, author: "candidate" } as never).ok).toBe(true);
-    for (const author of ["referrer", "committee"]) {
-      const result = validateEvidenceClaim({ ...base, author } as never);
-      expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.join(" ")).toContain(author);
+      const stored = validateEvidenceClaim(evidenceClaim(source)).ok;
+      const rolled = (() => {
+        try {
+          run([claim("o1", { source })], records);
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+      expect({ source, stored, rolled }).toEqual({
+        source,
+        stored: CANDIDATE_AUTHORED_SOURCES.includes(source),
+        rolled: CANDIDATE_AUTHORED_SOURCES.includes(source),
+      });
     }
   });
 });
