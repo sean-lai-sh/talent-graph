@@ -104,6 +104,19 @@ export interface OutputOnlyRollup {
   configHash: string;
 }
 
+/**
+ * The judgment specs whose claim records the roll-up reads, each pinned to its
+ * rubric hash (`careerEvidenceV12SpecId`). A record under any other spec id,
+ * including a 1.2.x version with a different rubric, is rejected.
+ */
+export const OUTPUT_ONLY_ACCEPTED_SPEC_IDS: ReadonlySet<string> = new Set([
+  "career_evidence@1.2.0:cd500b05",
+  "career_evidence@1.2.1:8170c38a",
+  "career_evidence@1.2.2:b644c4c3",
+  "career_evidence@1.2.3:8119ac21",
+  "career_evidence@1.2.4:fafb7d39",
+]);
+
 export function outputOnlyRollupConfigHash(
   config: OutputOnlyRollupConfig = OUTPUT_ONLY_ROLLUP_V1_0_0,
 ): string {
@@ -277,9 +290,9 @@ function recordFor(
       `output-only roll-up: record ${record.id} is ${record.personId}'s, not ${claim.personId}'s`,
     );
   }
-  if (!record.specId.startsWith("career_evidence@1.2.")) {
+  if (!OUTPUT_ONLY_ACCEPTED_SPEC_IDS.has(record.specId)) {
     throw new JudgmentInvariantError(
-      `output-only roll-up: record ${record.id} was judged under ${record.specId}, not career_evidence 1.2`,
+      `output-only roll-up: record ${record.id} was judged under ${record.specId}, not an accepted career_evidence 1.2 rubric`,
     );
   }
   return record;

@@ -5,6 +5,7 @@ import {
   CLAIM_VALUE_V1_2_0,
   type ClaimAuthor,
   evidenceDateFor,
+  OUTPUT_ONLY_ACCEPTED_SPEC_IDS,
   OUTPUT_ONLY_ROLLUP_V1_0_0,
   type OutputOnlyClaim,
   outputOnlyRollup,
@@ -15,6 +16,14 @@ import {
 import type { JobDateFields } from "../src/longitudinal/claimPreprocess.ts";
 import type { LevelDistribution, RoleDistribution } from "../src/longitudinal/claimRubricV12.ts";
 import type { JevJudgmentRecord, JevRawScoreAnswer } from "../src/longitudinal/records.ts";
+import {
+  CAREER_EVIDENCE_V1_2_0,
+  CAREER_EVIDENCE_V1_2_1,
+  CAREER_EVIDENCE_V1_2_2,
+  CAREER_EVIDENCE_V1_2_3,
+  CAREER_EVIDENCE_V1_2_4,
+  careerEvidenceV12SpecId,
+} from "../src/models/careerEvidenceV12.ts";
 
 const PERSON = "person-1";
 const CUTOFF = new Date("2025-01-01T00:00:00.000Z");
@@ -44,7 +53,7 @@ function record(id: string, answers: JevJudgmentRecord["answers"]): JevJudgmentR
     personId: PERSON,
     evidenceKey: `${PERSON}|${id}|2024-06-01|hash`,
     requestFingerprint: `fp-${id}`,
-    specId: "career_evidence@1.2.0:rubric",
+    specId: careerEvidenceV12SpecId(CAREER_EVIDENCE_V1_2_4),
     requestedModel: "model",
     respondedModel: "model",
     requestId: null,
@@ -375,6 +384,44 @@ describe("outputOnlyRollup evidence cutoff", () => {
     const { records, claims } = fixture();
     const orphan = claim("o9", { recordId: "rec-missing" });
     expect(() => run([...claims, orphan], records)).toThrow(/missing record/);
+  });
+});
+
+describe("outputOnlyRollup accepted specs", () => {
+  const V12_SPECS = [
+    CAREER_EVIDENCE_V1_2_0,
+    CAREER_EVIDENCE_V1_2_1,
+    CAREER_EVIDENCE_V1_2_2,
+    CAREER_EVIDENCE_V1_2_3,
+    CAREER_EVIDENCE_V1_2_4,
+  ];
+
+  test("the allowlist is exactly the shipped 1.2.x specs at their rubric hashes", () => {
+    expect([...OUTPUT_ONLY_ACCEPTED_SPEC_IDS].sort()).toEqual(
+      V12_SPECS.map(careerEvidenceV12SpecId).sort(),
+    );
+  });
+
+  test("a record under each accepted spec is read", () => {
+    for (const spec of V12_SPECS) {
+      const rec = { ...outputRecord("rec-o1"), specId: careerEvidenceV12SpecId(spec) };
+      expect(run([claim("o1")], [rec]).claimCount).toBe(1);
+    }
+  });
+
+  test("a record under any other spec id or rubric hash is rejected", () => {
+    const valid = careerEvidenceV12SpecId(CAREER_EVIDENCE_V1_2_4);
+    for (const specId of [
+      "career_evidence@1.2.4:00000000",
+      "career_evidence@1.2.0:rubric",
+      "career_evidence@1.2.5:fafb7d39",
+      "career_evidence@1.1.0:cd500b05",
+      `${valid}x`,
+      valid.split(":")[0]!,
+    ]) {
+      const rec = { ...outputRecord("rec-o1"), specId };
+      expect(() => run([claim("o1")], [rec])).toThrow(/not an accepted career_evidence 1.2/);
+    }
   });
 });
 
