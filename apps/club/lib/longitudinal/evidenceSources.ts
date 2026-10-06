@@ -131,22 +131,30 @@ export function storedGitHubVersions(
 }
 
 /**
- * The GitHub artifacts to score: new ones, and ones whose text changed
- * materially since their latest stored version. Each comes back as an
+ * The GitHub artifact versions to score: new artifacts, and ones whose text
+ * changed materially since their latest stored version. Each comes back as an
  * evidence item keyed by the artifact's identity and dated at its version:
  *
- * - a new artifact by its own creation date (the repository's `created_at`,
- *   the event's date), as fetched;
- * - a new version of a stored artifact by the artifact's own date of the
- *   change (`changedAt`: the repository's `updated_at`), so growth shows up
- *   as movement at the cutoff it happened before, and the old version stays
- *   for earlier cutoffs.
+ * - the creation-time version of a new artifact (`created`: a repository's
+ *   name, an event) by the artifact's own creation date (the repository's
+ *   `created_at`, the event's date);
+ * - every later version, by the artifact's own date of the change
+ *   (`changedAt`: the repository's `updated_at`). A repository's description
+ *   is one of these even the first time it is seen: GitHub serves only the
+ *   current description, which may have been written long after
+ *   `created_at`, so dating it at creation would let an edit made after a
+ *   cutoff into that cutoff's snapshot. Dated at `updated_at`, it counts only
+ *   from the first cutoff on or after that date (`claimsAtCutoff` takes the
+ *   latest version dated on or before a cutoff), and earlier cutoffs keep the
+ *   creation-time version.
  *
  * Never the fetch time: the daily check refetches every candidate's GitHub,
  * and a fetch-time date would re-date old work as new at every snapshot and
- * manufacture movement. A changed artifact whose own change date is not after
- * its stored version cannot be dated at the change, so it is left out
- * (`undatable`) rather than given a made-up date.
+ * manufacture movement. A version whose own change date is not after the
+ * version before it (a description whose `updated_at` is not after
+ * `created_at`, or an edit whose `updated_at` is not after the stored
+ * version) cannot be dated at the change, so it is left out (`undatable`)
+ * rather than given a made-up date.
  */
 export function githubVersionsToScore(
   artifacts: readonly GitHubArtifact[],
@@ -157,12 +165,16 @@ export function githubVersionsToScore(
   let unchanged = 0;
   for (const artifact of artifacts) {
     const sourceId = `github:${artifact.artifactId}`;
-    const latest = stored.get(sourceId);
+    const current = versionDigest(artifact.item.statement);
+    let latest = stored.get(sourceId);
     if (latest === undefined) {
-      items.push({ ...artifact.item, sourceId });
-      continue;
-    }
-    if (latest.versionDigest === versionDigest(artifact.item.statement)) {
+      items.push({ ...artifact.created, sourceId });
+      latest = {
+        publishedAt: artifact.created.publishedAt,
+        versionDigest: versionDigest(artifact.created.statement),
+      };
+      if (latest.versionDigest === current) continue;
+    } else if (latest.versionDigest === current) {
       unchanged += 1;
       continue;
     }

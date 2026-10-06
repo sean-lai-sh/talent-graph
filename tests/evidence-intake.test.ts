@@ -33,7 +33,12 @@ import {
   type SnapshotRow,
   type StoredSnapshot,
 } from "../apps/club/lib/longitudinal/evidenceSnapshots.ts";
-import { githubUsername, resumeEvidence } from "../apps/club/lib/longitudinal/evidenceSources.ts";
+import {
+  evidenceKeyParts,
+  githubUsername,
+  resumeEvidence,
+  versionDigest,
+} from "../apps/club/lib/longitudinal/evidenceSources.ts";
 import { claimLines, rawResumeLines } from "../apps/club/lib/longitudinal/resumeLines.ts";
 import { fetchGitHubArtifacts } from "../apps/club/lib/longitudinal/sources.ts";
 import { OUTPUT_ONLY_ROLLUP_V1_0_0, outputOnlyRollup } from "../src/longitudinal/outputOnly.ts";
@@ -169,7 +174,7 @@ const PERSON = "p1";
 interface Repo {
   id: number;
   name: string;
-  description: string;
+  description: string | null;
   created_at: string;
   updated_at: string;
   stargazers_count?: number;
@@ -201,7 +206,8 @@ function repo(partial: Partial<Repo> = {}): Repo {
     name: "lamp",
     description: "A small lamp controller",
     created_at: "2025-01-10T10:00:00Z",
-    updated_at: "2025-01-10T10:00:00Z",
+    // The description was written two days after the repository: its own version.
+    updated_at: "2025-01-12T10:00:00Z",
     ...partial,
   };
 }
@@ -658,7 +664,8 @@ describe("GitHub evidence", () => {
     w.state.repos = [repo()];
     await w.intake();
     const jevCalls = w.state.jev.claimCalls;
-    expect(w.judgments().filter((r) => r.source === "github").length).toBe(1);
+    // The creation-time version and the description's version.
+    expect(w.judgments().filter((r) => r.source === "github").length).toBe(2);
 
     // Cosmetic edit (case, punctuation, whitespace): same version, nothing scored.
     w.state.repos = [
@@ -667,9 +674,9 @@ describe("GitHub evidence", () => {
     setSystemTime(day(10));
     await w.check();
     expect(w.state.jev.claimCalls).toBe(jevCalls);
-    expect(w.judgments().filter((r) => r.source === "github").length).toBe(1);
+    expect(w.judgments().filter((r) => r.source === "github").length).toBe(2);
 
-    // Material edit, both versions before the s0 cutoff: two records, one claim counted.
+    // Material edit, every version before the s0 cutoff: three records, one claim counted.
     w.state.repos = [
       repo({
         description: "A lamp controller with a scheduler",
@@ -679,7 +686,7 @@ describe("GitHub evidence", () => {
     setSystemTime(day(20));
     await w.check();
     const github = w.parsed().filter((j) => j.claim.source === "github");
-    expect(github.length).toBe(2);
+    expect(github.length).toBe(3);
     const counted = claimsAtCutoff(
       github.map((j) => j.claim),
       github.map((j) => j.record),
@@ -745,13 +752,121 @@ describe("GitHub evidence", () => {
     expect(w.judgments().length).toBe(records);
   });
 
+  test("a description edited after s0 on a repo created before it stays out of s0 and counts in s12", async () => {
+    const w = world();
+    // First seen after the edit: GitHub serves only the current description.
+    w.state.repos = [
+      repo({
+        description: "A lamp controller with an ambitious distributed scheduler",
+        created_at: "2025-01-10T10:00:00Z",
+        updated_at: "2025-08-01T09:00:00Z",
+      }),
+    ];
+    setSystemTime(day(250));
+    await w.intake();
+    const github = w.parsed().filter((j) => j.claim.source === "github");
+    // Which version of the repository each cutoff counts, by the version digest in its key.
+    const creation = versionDigest("alice created the public repository alice/lamp.");
+    const edited = versionDigest(
+      "alice created the public repository alice/lamp: A lamp controller with an ambitious distributed scheduler",
+    );
+    const versionsAt = (kind: SnapshotKind) => {
+      const ids = new Set(
+        claimsAtCutoff(
+          github.map((j) => j.claim),
+          github.map((j) => j.record),
+          evidenceCutoff(T0, kind),
+        ).map((claim) => claim.id),
+      );
+      return github
+        .filter((j) => ids.has(j.claim.id))
+        .map((j) => evidenceKeyParts(j.record.evidenceKey));
+    };
+    const s0 = versionsAt("s0");
+    expect(s0.length).toBeGreaterThan(0);
+    for (const key of s0) {
+      expect(key.publishedAt).toBe("2025-01-10T10:00:00Z");
+      expect(key.versionDigest).toBe(creation);
+    }
+    const s12 = versionsAt("s12");
+    expect(s12.length).toBeGreaterThan(0);
+    for (const key of s12) {
+      expect(key.publishedAt).toBe("2025-08-01T09:00:00Z");
+      expect(key.versionDigest).toBe(edited);
+    }
+
+    // And in the stored snapshots: the edit raises s12, not s0.
+    await w.check();
+    setSystemTime(day(400));
+    await w.daily();
+    const s0Row = w.snapshots("s0").at(-1);
+    const s12Row = w.snapshots("s12").at(-1);
+    expect(Number(s12Row?.substance)).toBeGreaterThan(Number(s0Row?.substance));
+  });
+
+  test("a repo without a description gives only its creation claim", async () => {
+    const w = world();
+    w.state.repos = [repo({ description: null, updated_at: "2025-03-01T09:00:00Z" })];
+    await w.intake();
+    const github = w.parsed().filter((j) => j.claim.source === "github");
+    expect(github.length).toBe(1);
+    expect(github[0]?.claim.jobDates.startedAt).toBe("2025-01-10");
+    expect(github[0]?.record.evidenceKey).toContain("2025-01-10T10:00:00Z");
+
+    // A later check with nothing new scores nothing.
+    const calls = w.state.jev.claimCalls;
+    setSystemTime(day(30));
+    await w.check();
+    expect(w.state.jev.claimCalls).toBe(calls);
+    expect(w.judgments().length).toBe(1);
+  });
+
+  test("the creation-time claim never contains the description", async () => {
+    const description = "Zephyrine quantum lamp orchestration";
+    const artifacts = await fetchGitHubArtifacts("alice", new Date(0), day(400), async (url) =>
+      url.includes("/repos")
+        ? [
+            {
+              ...repo({ description, updated_at: "2025-06-01T00:00:00Z" }),
+              full_name: "alice/lamp",
+              html_url: "https://github.com/alice/lamp",
+              fork: false,
+            },
+          ]
+        : [],
+    );
+    const [artifact] = artifacts;
+    if (!artifact) throw new Error("no artifact");
+    expect(JSON.stringify(artifact.created)).not.toContain("Zephyrine");
+    expect(artifact.created.publishedAt).toBe("2025-01-10T10:00:00Z");
+    expect(artifact.item.statement).toContain(description);
+
+    const w = world();
+    w.state.repos = [repo({ description, updated_at: "2025-06-01T00:00:00Z" })];
+    await w.intake();
+    const keys = w
+      .parsed()
+      .filter((j) => j.claim.source === "github")
+      .map((j) => evidenceKeyParts(j.record.evidenceKey));
+    const creation = keys.filter((key) => key.publishedAt === "2025-01-10T10:00:00Z");
+    expect(creation.length).toBeGreaterThan(0);
+    for (const key of creation) {
+      expect(key.versionDigest).toBe(versionDigest(artifact.created.statement));
+    }
+    // What Jev was shown: the name alone once, the description only in its own version.
+    const shown = w.state.jev.texts;
+    expect(shown.some((text) => !text.includes("Zephyrine"))).toBe(true);
+    expect(shown.some((text) => text.includes("Zephyrine"))).toBe(true);
+  });
+
   test("GitHub claims are never externally_verified", async () => {
     const w = world();
     w.state.repos = [repo(), repo({ id: 102, name: "other", description: "Another project" })];
     await w.upload(RESUME_ONE);
     await w.intake();
     const github = w.parsed().filter((j) => j.claim.source === "github");
-    expect(github.length).toBe(2);
+    // Two repositories, each a creation-time version and a description version.
+    expect(github.length).toBe(4);
     for (const j of github) expect(j.claim.evidenceTier).toBe("self_reported");
     for (const j of w.parsed()) expect(j.claim.evidenceTier).not.toBe("externally_verified");
   });

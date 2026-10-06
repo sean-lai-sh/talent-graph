@@ -639,7 +639,7 @@ async function scoreNewClaims(
   );
   for (const sourceId of versions.undatable) {
     console.warn(
-      `evidence: ${found.person.id} ${sourceId} changed but has no change date after its stored version; not scored`,
+      `evidence: ${found.person.id} ${sourceId} has text with no change date after its previous version (creation or stored); that version is not scored`,
     );
   }
   const sources = [

@@ -66,9 +66,27 @@ export async function fetchGitHubEvidence(
   return artifacts.map((artifact) => artifact.item);
 }
 
-/** One public GitHub artifact: its evidence item, its stable identity, and when it last changed. */
+/**
+ * One public GitHub artifact: what it was when created, what it is now, its
+ * stable identity, and when it last changed.
+ */
 export interface GitHubArtifact {
+  /**
+   * The artifact as fetched now, dated at its creation (`publishedAt` is the
+   * repository's `created_at`, the event's date). A repository's description
+   * can be edited at any time after creation, so for a repository this is
+   * not what existed at `created_at`: `githubVersionsToScore` dates it at
+   * `changedAt` instead, as a later version of the same artifact.
+   */
   item: GrokEvidenceItem;
+  /**
+   * The minimal statement that existed when the artifact was created, dated
+   * at its creation: for a repository, its name and nothing it can say about
+   * itself later (no description); for an event, the event itself (`item`),
+   * which never changes. GitHub keeps no history of a repository's names, so
+   * the name is the current one: a rename is the one edit this cannot undo.
+   */
+  created: GrokEvidenceItem;
   /**
    * What the artifact is, stable across fetches and edits: GitHub's numeric
    * repository id (it survives a rename) or the event id. Falls back to the
@@ -118,7 +136,7 @@ export async function fetchGitHubArtifacts(
       ) {
         continue;
       }
-      const description = string(repo.description) ?? "No repository description.";
+      const description = string(repo.description);
       const repoId = repo.id;
       const artifactId =
         typeof repoId === "number" || typeof repoId === "string"
@@ -126,20 +144,35 @@ export async function fetchGitHubArtifacts(
           : `repo:${name}`;
       const updatedAt = string(repo.updated_at);
       const changedAt = updatedAt && Number.isFinite(Date.parse(updatedAt)) ? updatedAt : createdAt;
+      const created = item({
+        source: "github",
+        sourceId: `repo:${name}`,
+        url,
+        publisher: username,
+        publishedAt: createdAt,
+        quotedText: name,
+        statement: `${username} created the public repository ${name}.`,
+        proposedEventKind: "open_source_contribution",
+        raw: { id: repoId ?? null, full_name: name, html_url: url, created_at: createdAt },
+      });
       evidence.push({
         artifactId,
         changedAt,
-        item: item({
-          source: "github",
-          sourceId: `repo:${name}`,
-          url,
-          publisher: username,
-          publishedAt: createdAt,
-          quotedText: description,
-          statement: `${username} created the public repository ${name}: ${description}`,
-          proposedEventKind: "open_source_contribution",
-          raw,
-        }),
+        created,
+        item:
+          description === null
+            ? created
+            : item({
+                source: "github",
+                sourceId: `repo:${name}`,
+                url,
+                publisher: username,
+                publishedAt: createdAt,
+                quotedText: description,
+                statement: `${username} created the public repository ${name}: ${description}`,
+                proposedEventKind: "open_source_contribution",
+                raw,
+              }),
       });
     }
   }
@@ -164,20 +197,22 @@ export async function fetchGitHubArtifacts(
       ) {
         continue;
       }
+      const contributed = item({
+        source: "github",
+        sourceId: `event:${id}`,
+        url: `https://github.com/${repoName}`,
+        publisher: username,
+        publishedAt: createdAt,
+        quotedText: contribution,
+        statement: `${username} ${contribution}.`,
+        proposedEventKind: "open_source_contribution",
+        raw,
+      });
       evidence.push({
         artifactId: `event:${id}`,
         changedAt: createdAt,
-        item: item({
-          source: "github",
-          sourceId: `event:${id}`,
-          url: `https://github.com/${repoName}`,
-          publisher: username,
-          publishedAt: createdAt,
-          quotedText: contribution,
-          statement: `${username} ${contribution}.`,
-          proposedEventKind: "open_source_contribution",
-          raw,
-        }),
+        created: contributed,
+        item: contributed,
       });
     }
   }
