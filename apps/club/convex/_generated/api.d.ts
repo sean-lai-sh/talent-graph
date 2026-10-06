@@ -11,7 +11,10 @@
 import type * as auth from "../auth.js";
 import type * as club from "../club.js";
 import type * as comparisonStep from "../comparisonStep.js";
+import type * as crons from "../crons.js";
 import type * as devSeed from "../devSeed.js";
+import type * as evidence from "../evidence.js";
+import type * as evidenceResearch from "../evidenceResearch.js";
 import type * as grokCompanyResearch from "../grokCompanyResearch.js";
 import type * as http from "../http.js";
 import type * as referral from "../referral.js";
@@ -26,7 +29,10 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   club: typeof club;
   comparisonStep: typeof comparisonStep;
+  crons: typeof crons;
   devSeed: typeof devSeed;
+  evidence: typeof evidence;
+  evidenceResearch: typeof evidenceResearch;
   grokCompanyResearch: typeof grokCompanyResearch;
   http: typeof http;
   referral: typeof referral;

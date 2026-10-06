@@ -1,0 +1,600 @@
+import { v } from "convex/values";
+import { companyWorklist } from "../../../src/longitudinal/companyResearch.ts";
+import { normalizeOrgName } from "../../../src/longitudinal/companySeed.ts";
+import type { GrokEvidenceItem } from "../../../src/longitudinal/types.ts";
+import { loadClub } from "../lib/clubStore.ts";
+import { type ClaimJudgment, judgeClaimsV12 } from "../lib/longitudinal/claimJudgmentV12.ts";
+import {
+  dueSnapshotKinds,
+  nextSnapshot,
+  planSnapshot,
+  SNAPSHOT_KINDS,
+  type SnapshotKind,
+  type SnapshotRow,
+} from "../lib/longitudinal/evidenceSnapshots.ts";
+import {
+  githubEvidence,
+  githubUsername,
+  resumeEvidence,
+} from "../lib/longitudinal/evidenceSources.ts";
+import { createJevClient } from "../lib/longitudinal/jevClient.ts";
+import {
+  claimLines,
+  extractPdfText,
+  labelResumeLines,
+  parsesAsResume,
+  rawResumeLines,
+  rebuildResumeLines,
+} from "../lib/longitudinal/resumeLines.ts";
+import { fetchGitHubEvidence, type JsonFetcher } from "../lib/longitudinal/sources.ts";
+import { internal } from "./_generated/api";
+import type { Doc, Id } from "./_generated/dataModel";
+import {
+  type ActionCtx,
+  internalAction,
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+  mutation,
+} from "./_generated/server";
+import { requireAdmin } from "./club";
+import { snapshotKind } from "./schema";
+
+/**
+ * Evidence intake, Jev 1.2 records and evidence-only snapshots (SEA-81).
+ *
+ * Intake runs once when a candidate enters the process (`intake`). The daily
+ * cron (`crons.ts` → `daily`) schedules `check` for every candidate whose
+ * next snapshot is due. `check` is the standard check every candidate gets:
+ * pick up a newly uploaded resume, refetch GitHub, ask for company research on
+ * unknown employers, score only claims with no record yet, and write the
+ * snapshots that are due. ORCID is out of scope (no field for it).
+ */
+
+/** Company research is asked again for an org only after this long. */
+const COMPANY_RESEARCH_FRESH_MS = 90 * 24 * 60 * 60 * 1000;
+/** How many due candidates one cron run schedules. The rest wait for the next run. */
+const DAILY_BATCH = 200;
+
+// ---------------------------------------------------------------------------
+// Reads
+
+export const context = internalQuery({
+  args: { personId: v.string() },
+  handler: async (ctx, { personId }) => {
+    const club = await loadClub(ctx.db);
+    if (!club) return null;
+    const person = await ctx.db
+      .query("clubPeople")
+      .withIndex("by_club_and_domain_id", (q) => q.eq("clubId", club._id).eq("id", personId))
+      .unique();
+    if (!person) return null;
+    const intake = await ctx.db
+      .query("evidenceIntakes")
+      .withIndex("by_person", (q) => q.eq("personId", personId))
+      .unique();
+    const versions = await ctx.db
+      .query("resumeVersions")
+      .withIndex("by_person", (q) => q.eq("personId", personId))
+      .collect();
+    const resumes = await Promise.all(
+      versions.map(async (version) => ({
+        storageId: version.storageId,
+        lines: (
+          await ctx.db
+            .query("resumeLines")
+            .withIndex("by_version", (q) => q.eq("resumeVersionId", version._id))
+            .collect()
+        ).map((line) => ({
+          id: line.lineId,
+          statement: line.statement,
+          publishedAt: line.publishedAt,
+        })),
+      })),
+    );
+    const judgments = await ctx.db
+      .query("jevJudgments")
+      .withIndex("by_person", (q) => q.eq("personId", personId))
+      .collect();
+    const snapshots = await ctx.db
+      .query("evidenceSnapshots")
+      .withIndex("by_candidate_and_kind", (q) => q.eq("candidateId", personId))
+      .collect();
+    const storageId = person.resumeStorageId
+      ? ctx.db.system.normalizeId("_storage", person.resumeStorageId)
+      : null;
+    const upload = storageId ? await ctx.db.system.get("_storage", storageId) : null;
+    return {
+      clubId: club._id,
+      person: {
+        id: person.id,
+        github: person.github ?? null,
+        classYear: person.classYear ?? null,
+        createdAt: person.createdAt,
+      },
+      intake: intake ? { intakeAt: intake.intakeAt } : null,
+      resume: upload
+        ? { storageId: upload._id, uploadedAt: new Date(upload._creationTime).toISOString() }
+        : null,
+      resumes,
+      judgments: judgments.map(toJudgment),
+      snapshots: snapshots.map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        inputHash: row.inputHash,
+        classYear: row.classYear,
+        computedAt: row.computedAt,
+        ...(row.correctsSnapshotId ? { correctsSnapshotId: row.correctsSnapshotId } : {}),
+      })),
+    };
+  },
+});
+
+function toJudgment(row: Doc<"jevJudgments">): ClaimJudgment {
+  return {
+    record: JSON.parse(row.record),
+    claim: JSON.parse(row.claim),
+    answer: JSON.parse(row.answer),
+    probe: row.probe === null ? null : JSON.parse(row.probe),
+    configHash: row.configHash,
+    companySeedHash: row.companySeedHash,
+  };
+}
+
+export const recentCompanyResearch = internalQuery({
+  args: { orgKeys: v.array(v.string()), since: v.number() },
+  handler: async (ctx, { orgKeys, since }) => {
+    const recent: string[] = [];
+    for (const orgKey of orgKeys) {
+      const row = await ctx.db
+        .query("companyResearchRequests")
+        .withIndex("by_org", (q) => q.eq("orgKey", orgKey).gte("requestedAt", since))
+        .first();
+      if (row) recent.push(orgKey);
+    }
+    return recent;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Writes
+
+async function ensureIntakeRow(
+  ctx: MutationCtx,
+  clubId: Id<"clubs">,
+  person: { id: string; createdAt: string },
+): Promise<boolean> {
+  const existing = await ctx.db
+    .query("evidenceIntakes")
+    .withIndex("by_person", (q) => q.eq("personId", person.id))
+    .unique();
+  if (existing) return false;
+  // `t` is the date the candidate entered the process: their row's creation.
+  const intakeAt = new Date(person.createdAt);
+  await ctx.db.insert("evidenceIntakes", {
+    clubId,
+    personId: person.id,
+    intakeAt: intakeAt.toISOString(),
+    nextDueAt: nextSnapshot(intakeAt, new Set())?.dueAt.getTime() ?? null,
+  });
+  return true;
+}
+
+export const ensureIntake = internalMutation({
+  args: { personId: v.string() },
+  handler: async (ctx, { personId }) => {
+    const club = await loadClub(ctx.db);
+    if (!club) return false;
+    const person = await ctx.db
+      .query("clubPeople")
+      .withIndex("by_club_and_domain_id", (q) => q.eq("clubId", club._id).eq("id", personId))
+      .unique();
+    if (!person) return false;
+    await ensureIntakeRow(ctx, club._id, person);
+    return true;
+  },
+});
+
+export const storeResumeVersion = internalMutation({
+  args: {
+    clubId: v.id("clubs"),
+    personId: v.string(),
+    storageId: v.id("_storage"),
+    uploadedAt: v.string(),
+    rawText: v.string(),
+    normalized: v.boolean(),
+    lines: v.array(
+      v.object({ lineId: v.string(), statement: v.string(), publishedAt: v.string() }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("resumeVersions")
+      .withIndex("by_storage", (q) => q.eq("storageId", args.storageId))
+      .first();
+    if (existing) return existing._id;
+    const versionId = await ctx.db.insert("resumeVersions", {
+      clubId: args.clubId,
+      personId: args.personId,
+      storageId: args.storageId,
+      uploadedAt: args.uploadedAt,
+      extractedAt: new Date().toISOString(),
+      rawText: args.rawText,
+      normalized: args.normalized,
+      lineCount: args.lines.length,
+    });
+    for (const [index, line] of args.lines.entries()) {
+      await ctx.db.insert("resumeLines", { resumeVersionId: versionId, index, ...line });
+    }
+    return versionId;
+  },
+});
+
+/** Append-only: a judgment whose record id or evidence key is already stored is skipped. */
+export const storeJudgments = internalMutation({
+  args: {
+    clubId: v.id("clubs"),
+    personId: v.string(),
+    judgments: v.array(v.string()),
+  },
+  handler: async (ctx, { clubId, personId, judgments }) => {
+    let written = 0;
+    for (const raw of judgments) {
+      const judgment = JSON.parse(raw) as ClaimJudgment;
+      const { record, claim } = judgment;
+      if (record.personId !== personId || claim.personId !== personId) {
+        throw new Error(`storeJudgments: record ${record.id} is not ${personId}'s`);
+      }
+      if (claim.author !== "candidate" && claim.author !== "system") {
+        throw new Error(`storeJudgments: claim ${claim.id} has no producer author`);
+      }
+      const byRecord = await ctx.db
+        .query("jevJudgments")
+        .withIndex("by_record", (q) => q.eq("recordId", record.id))
+        .first();
+      const byEvidence = await ctx.db
+        .query("jevJudgments")
+        .withIndex("by_person_and_evidence_key", (q) =>
+          q.eq("personId", personId).eq("evidenceKey", record.evidenceKey),
+        )
+        .first();
+      if (byRecord || byEvidence) continue;
+      await ctx.db.insert("jevJudgments", {
+        clubId,
+        personId,
+        recordId: record.id,
+        evidenceKey: record.evidenceKey,
+        specId: record.specId,
+        kind: "claim",
+        source: claim.source,
+        author: claim.author,
+        claimId: claim.id,
+        record: JSON.stringify(record),
+        claim: JSON.stringify(claim),
+        answer: JSON.stringify(judgment.answer),
+        probe: judgment.probe === null ? null : JSON.stringify(judgment.probe),
+        configHash: judgment.configHash,
+        companySeedHash: judgment.companySeedHash,
+        writtenAt: new Date().toISOString(),
+      });
+      written += 1;
+    }
+    return written;
+  },
+});
+
+const snapshotRow = v.object({
+  id: v.string(),
+  candidateId: v.string(),
+  kind: snapshotKind,
+  evidenceCutoff: v.string(),
+  computedAt: v.string(),
+  substance: v.number(),
+  selection: v.union(v.number(), v.null()),
+  thin: v.boolean(),
+  claimCount: v.number(),
+  classYear: v.union(v.number(), v.null()),
+  inputHash: v.string(),
+  configHash: v.string(),
+  correctsSnapshotId: v.optional(v.string()),
+});
+
+/**
+ * Write planned snapshot rows. Rows are never patched. A row is skipped when
+ * the current row of its kind already has its `inputHash` (a rerun), or when
+ * it was planned against a row that is no longer current (a concurrent run
+ * got there first).
+ */
+export const writeSnapshots = internalMutation({
+  args: { clubId: v.id("clubs"), personId: v.string(), rows: v.array(snapshotRow) },
+  handler: async (ctx, { clubId, personId, rows }) => {
+    let written = 0;
+    for (const row of rows) {
+      if (row.candidateId !== personId) throw new Error("writeSnapshots: wrong candidate");
+      const ofKind = await ctx.db
+        .query("evidenceSnapshots")
+        .withIndex("by_candidate_and_kind", (q) =>
+          q.eq("candidateId", personId).eq("kind", row.kind),
+        )
+        .collect();
+      const current = ofKind.reduce<Doc<"evidenceSnapshots"> | null>(
+        (latest, candidate) =>
+          latest === null || candidate.computedAt > latest.computedAt ? candidate : latest,
+        null,
+      );
+      if (current?.inputHash === row.inputHash) continue;
+      if ((current?.id ?? undefined) !== row.correctsSnapshotId) continue;
+      await ctx.db.insert("evidenceSnapshots", { clubId, ...row });
+      written += 1;
+    }
+    const intake = await ctx.db
+      .query("evidenceIntakes")
+      .withIndex("by_person", (q) => q.eq("personId", personId))
+      .unique();
+    if (intake) {
+      const all = await ctx.db
+        .query("evidenceSnapshots")
+        .withIndex("by_candidate_and_kind", (q) => q.eq("candidateId", personId))
+        .collect();
+      const kinds = new Set<SnapshotKind>(all.map((row) => row.kind));
+      await ctx.db.patch(intake._id, {
+        nextDueAt: nextSnapshot(new Date(intake.intakeAt), kinds)?.dueAt.getTime() ?? null,
+        lastCheckedAt: Date.now(),
+      });
+    }
+    return written;
+  },
+});
+
+export const recordCompanyResearch = internalMutation({
+  args: { runId: v.string(), orgs: v.array(v.string()) },
+  handler: async (ctx, { runId, orgs }) => {
+    const requestedAt = Date.now();
+    for (const org of orgs) {
+      await ctx.db.insert("companyResearchRequests", {
+        orgKey: normalizeOrgName(org),
+        org,
+        runId,
+        requestedAt,
+      });
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Jobs
+
+/**
+ * The daily cron. Candidates who entered before intake existed get their
+ * intake row here; then every candidate whose next snapshot is due gets a
+ * `check` of their own, so one failure does not stop the others.
+ */
+export const daily = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const club = await loadClub(ctx.db);
+    if (!club) return { scheduled: 0 };
+    const candidates = await ctx.db
+      .query("clubPeople")
+      .withIndex("by_club_and_status", (q) => q.eq("clubId", club._id).eq("status", "candidate"))
+      .collect();
+    for (const person of candidates) await ensureIntakeRow(ctx, club._id, person);
+    const due = await ctx.db
+      .query("evidenceIntakes")
+      .withIndex("by_next_due", (q) => q.gte("nextDueAt", 0).lte("nextDueAt", Date.now()))
+      .take(DAILY_BATCH);
+    for (const intake of due) {
+      await ctx.scheduler.runAfter(0, internal.evidence.check, { personId: intake.personId });
+    }
+    return { scheduled: due.length };
+  },
+});
+
+/** When a candidate enters the process: record `t`, then score their evidence once. */
+export const intake = internalAction({
+  args: { personId: v.string() },
+  handler: async (ctx, { personId }) => {
+    if (!(await ctx.runMutation(internal.evidence.ensureIntake, { personId }))) return null;
+    return await runCheck(ctx, personId);
+  },
+});
+
+/** The standard check, then any snapshot that is due. */
+export const check = internalAction({
+  args: { personId: v.string() },
+  handler: async (ctx, { personId }) => await runCheck(ctx, personId),
+});
+
+type Context = NonNullable<Awaited<ReturnType<typeof loadContext>>>;
+
+function loadContext(ctx: ActionCtx, personId: string) {
+  return ctx.runQuery(internal.evidence.context, { personId });
+}
+
+async function runCheck(ctx: ActionCtx, personId: string) {
+  let found = await loadContext(ctx, personId);
+  if (!found?.intake) return null;
+  const versionAdded = await pickUpResume(ctx, found);
+  if (versionAdded) found = (await loadContext(ctx, personId)) ?? found;
+  const github = await fetchGitHub(found);
+  await requestCompanyResearch(ctx, found);
+  const scored = await scoreNewClaims(ctx, found, github);
+  const snapshots = await writeDueSnapshots(ctx, found, [...found.judgments, ...scored]);
+  return { versionAdded, scored: scored.length, snapshots };
+}
+
+/** Step 1: read a resume upload not seen before into claim lines, one version per file. */
+async function pickUpResume(ctx: ActionCtx, found: Context): Promise<boolean> {
+  const resume = found.resume;
+  if (!resume || found.resumes.some((version) => version.storageId === resume.storageId)) {
+    return false;
+  }
+  const blob = await ctx.storage.get(resume.storageId);
+  if (!blob) return false;
+  const rawText = await extractPdfText(new Uint8Array(await blob.arrayBuffer()));
+  const raw = rawResumeLines(rawText);
+  // The Jev labelling pass runs only when the text does not already parse.
+  const normalized = !parsesAsResume(raw);
+  const lines = normalized
+    ? rebuildResumeLines(raw, await labelResumeLines(raw, createJevClient()))
+    : raw;
+  await ctx.runMutation(internal.evidence.storeResumeVersion, {
+    clubId: found.clubId,
+    personId: found.person.id,
+    storageId: resume.storageId,
+    uploadedAt: resume.uploadedAt,
+    rawText,
+    normalized,
+    lines: claimLines(lines, resume.uploadedAt).map((line) => ({
+      lineId: line.id,
+      statement: line.statement,
+      publishedAt: line.publishedAt ?? resume.uploadedAt,
+    })),
+  });
+  return true;
+}
+
+/** Step 2: public GitHub artifacts from the candidate's `github` field. */
+async function fetchGitHub(found: Context): Promise<GrokEvidenceItem[]> {
+  const username = githubUsername(found.person.github ?? undefined);
+  if (!username) return [];
+  const token = process.env.GITHUB_TOKEN;
+  const fetchJson: JsonFetcher = async (url, init) => {
+    const response = await fetch(url, {
+      ...init,
+      headers: { ...(init?.headers ?? {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (!response.ok) throw new Error(`GitHub request failed: ${response.status} ${url}`);
+    return response.json();
+  };
+  try {
+    // Every artifact up to now; each is dated by its own creation or push date.
+    return await fetchGitHubEvidence(username, new Date(0), new Date(), fetchJson);
+  } catch (error) {
+    // A GitHub outage must not hold back the resume claims or a due snapshot.
+    console.warn(`evidence: GitHub fetch for ${found.person.id} failed: ${String(error)}`);
+    return [];
+  }
+}
+
+/** Step 3: ask the SEA-75 routine about employers with no seed entry and no recent request. */
+async function requestCompanyResearch(ctx: ActionCtx, found: Context): Promise<void> {
+  const work = found.resumes.flatMap((version) => companyWorklist(version.lines));
+  const unseeded = new Map<string, (typeof work)[number]>();
+  for (const item of work) {
+    if (item.seeded !== null) continue;
+    const key = normalizeOrgName(item.org);
+    if (!unseeded.has(key)) unseeded.set(key, item);
+  }
+  if (unseeded.size === 0) return;
+  const recent = new Set(
+    await ctx.runQuery(internal.evidence.recentCompanyResearch, {
+      orgKeys: [...unseeded.keys()],
+      since: Date.now() - COMPANY_RESEARCH_FRESH_MS,
+    }),
+  );
+  const worklist = [...unseeded.entries()]
+    .filter(([key]) => !recent.has(key))
+    .map(([, item]) => ({ org: item.org, titles: item.titles, startedAt: item.earliestStartedAt }));
+  if (worklist.length === 0) return;
+  try {
+    await ctx.runAction(internal.evidenceResearch.requestCompanyResearch, { worklist });
+  } catch (error) {
+    // Research is context for later scoring, merged into config.yml by hand; it never blocks a check.
+    console.warn(`evidence: company research request failed: ${String(error)}`);
+  }
+}
+
+/** Step 4: score only claims whose evidence key has no record, and store the records. */
+async function scoreNewClaims(
+  ctx: ActionCtx,
+  found: Context,
+  github: readonly GrokEvidenceItem[],
+): Promise<ClaimJudgment[]> {
+  const sources = [
+    ...found.resumes.map((version) => resumeEvidence(version.lines)),
+    ...(github.length > 0 ? [githubEvidence(github)] : []),
+  ];
+  if (sources.length === 0) return [];
+  const client = createJevClient();
+  const known: ClaimJudgment[] = [...found.judgments];
+  const written: ClaimJudgment[] = [];
+  for (const evidence of sources) {
+    const run = await judgeClaimsV12({ personId: found.person.id, evidence, known, client });
+    for (const failure of run.failed) {
+      console.warn(`evidence: claim ${failure.claimId} not recorded: ${failure.error}`);
+    }
+    if (run.written.length === 0) continue;
+    await ctx.runMutation(internal.evidence.storeJudgments, {
+      clubId: found.clubId,
+      personId: found.person.id,
+      judgments: run.written.map((judgment) => JSON.stringify(judgment)),
+    });
+    known.push(...run.written);
+    written.push(...run.written);
+  }
+  return written;
+}
+
+/** Step 5: `outputOnlyRollup` at each due cutoff; a new row only when the evidence changed. */
+async function writeDueSnapshots(
+  ctx: ActionCtx,
+  found: Context,
+  judgments: readonly ClaimJudgment[],
+): Promise<number> {
+  if (!found.intake) return 0;
+  const intakeAt = new Date(found.intake.intakeAt);
+  const now = new Date();
+  const kinds = dueSnapshotKinds(intakeAt, now);
+  const claims = judgments.map((judgment) => judgment.claim);
+  const records = judgments.map((judgment) => judgment.record);
+  const rows: SnapshotRow[] = [];
+  const existing = [...found.snapshots];
+  for (const kind of SNAPSHOT_KINDS.filter((candidate) => kinds.includes(candidate))) {
+    const row = planSnapshot({
+      candidateId: found.person.id,
+      kind,
+      intakeAt,
+      now,
+      claims,
+      records,
+      existing,
+      classYear: found.person.classYear,
+      newId: () => `snap-${crypto.randomUUID()}`,
+    });
+    if (row === null) continue;
+    rows.push(row);
+    // A later kind reads s0's class year from the row just planned.
+    existing.push(row);
+  }
+  return await ctx.runMutation(internal.evidence.writeSnapshots, {
+    clubId: found.clubId,
+    personId: found.person.id,
+    rows,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Admin
+
+/** Class year, set by an admin. Evidence snapshots record it at s0. */
+export const setClassYear = mutation({
+  args: { personId: v.string(), classYear: v.union(v.number(), v.null()) },
+  handler: async (ctx, { personId, classYear }) => {
+    await requireAdmin(ctx);
+    if (
+      classYear !== null &&
+      !(Number.isInteger(classYear) && classYear >= 1900 && classYear <= 2100)
+    ) {
+      throw new Error("class year must be a four-digit year");
+    }
+    const club = await loadClub(ctx.db);
+    if (!club) throw new Error("Club is not set up yet.");
+    const person = await ctx.db
+      .query("clubPeople")
+      .withIndex("by_club_and_domain_id", (q) => q.eq("clubId", club._id).eq("id", personId))
+      .unique();
+    if (!person) throw new Error("unknown person");
+    await ctx.db.patch(person._id, { classYear: classYear ?? undefined });
+  },
+});
