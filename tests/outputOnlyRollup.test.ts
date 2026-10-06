@@ -610,7 +610,7 @@ describe("outputOnlyRollup thin candidates", () => {
 });
 
 describe("truth-label guard", () => {
-  test("claimValuesToLongitudinalRecords has no callers outside its definition", () => {
+  test("claimValuesToLongitudinalRecords has no callers, not even in its own file", async () => {
     const root = join(import.meta.dir, "..");
     const result = Bun.spawnSync(
       ["git", "grep", "-l", "claimValuesToLongitudinalRecords", "--", ".", ":!tests", ":!docs"],
@@ -618,5 +618,7 @@ describe("truth-label guard", () => {
     );
     const files = new TextDecoder().decode(result.stdout).trim().split("\n").filter(Boolean);
     expect(files).toEqual(["src/longitudinal/claimValue.ts"]);
+    const source = await Bun.file(join(root, "src/longitudinal/claimValue.ts")).text();
+    expect(source.match(/claimValuesToLongitudinalRecords/g)).toHaveLength(1);
   });
 });
