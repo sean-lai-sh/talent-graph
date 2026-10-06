@@ -80,8 +80,9 @@ export function decideClubPage(input: {
 
 /**
  * The deciding admin's person id from the club rows matching their email.
- * Recusal is best effort: zero or several matches record no `decidedBy`, and
- * say so in the log rather than blocking the decision.
+ * Zero or several matches record no `decidedBy` and say so in the log rather
+ * than blocking the decision; the decide mutation then records the
+ * `unresolvedDecider` marker instead (see `adminReferrers`).
  */
 export function decidedByPersonId(
   matchIds: readonly string[],
@@ -93,4 +94,41 @@ export function decidedByPersonId(
     `club decision: no decidedBy recorded, the signed-in admin's email matches ${found}; recusal is skipped for this decision`,
   );
   return undefined;
+}
+
+/** A referrer's person row as the decision sees it, with any club accounts on that email. */
+export interface ReferrerAccounts {
+  personId: string;
+  email?: string;
+  /** `clubAccounts.role` of every account on that email; empty when none. */
+  storedRoles: readonly ClubRole[];
+}
+
+/**
+ * The referrers who are admins right now, by the same `resolveRole` rule the
+ * session uses, so env-listed (`CLUB_ADMIN_EMAILS`) and bootstrap admins
+ * count. Several accounts on one email: any admin among them counts (fail
+ * closed). Recorded on a decision whose decider did not resolve, so the admin
+ * status is the one at decision time and a later role change does not move it.
+ *
+ * Known gap: a referrer is matched by the email on their person row. An admin
+ * whose person row has no email, or a different one from their account, is
+ * not found here and keeps their admission credit. The fix is that every admin
+ * links to exactly one person (follow-up to SEA-79).
+ */
+export function adminReferrers(
+  referrers: readonly ReferrerAccounts[],
+  extraAdminEmails: readonly string[] = [],
+): string[] {
+  const out: string[] = [];
+  for (const r of referrers) {
+    const email = r.email?.trim().toLowerCase();
+    if (!email) continue;
+    const stored = r.storedRoles.length === 0 ? [null] : r.storedRoles;
+    const admin = stored.some(
+      (role) => resolveRole({ email, stored: role, extraAdminEmails }) === "admin",
+    );
+    if (admin && !out.includes(r.personId)) out.push(r.personId);
+  }
+  return out;
 }

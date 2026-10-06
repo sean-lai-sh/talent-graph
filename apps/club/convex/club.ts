@@ -2,6 +2,7 @@ import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
 import {
   adminRead,
+  adminReferrers,
   type ClubRole,
   decidedByPersonId,
   extraAdminEmailsFromEnv,
@@ -21,7 +22,7 @@ import {
 } from "../lib/engine.ts";
 import { toDirectoryMembers } from "../lib/memberDirectory.ts";
 import { listOwnFeedbackRequests, prepareMemberResponse } from "../lib/memberFeedback.ts";
-import type { ClubState, EngineResult } from "../lib/types.ts";
+import type { ClubDecider, ClubState, EngineResult } from "../lib/types.ts";
 import type { DataModel, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { authComponent } from "./auth";
@@ -142,13 +143,47 @@ async function signedInAdminPersonId(ctx: MutationCtx): Promise<string | undefin
   return decidedByPersonId(matches.map((row) => row.id));
 }
 
+/**
+ * The candidate's referrers who are admins now, for a decision whose decider
+ * did not resolve to one person. See `adminReferrers` for the rule and its gap.
+ */
+async function adminReferrersOf(
+  ctx: MutationCtx,
+  state: ClubState,
+  candidateId: string,
+): Promise<string[]> {
+  const referrerIds = new Set(
+    state.referrals.filter((r) => r.candidateId === candidateId).map((r) => r.referrerId),
+  );
+  const referrers = await Promise.all(
+    state.people
+      .filter((p) => referrerIds.has(p.id))
+      .map(async (p) => {
+        const email = p.email?.trim().toLowerCase() ?? "";
+        const accounts =
+          email === ""
+            ? []
+            : await ctx.db
+                .query("clubAccounts")
+                .withIndex("by_email", (q) => q.eq("email", email))
+                .collect();
+        return {
+          personId: p.id,
+          ...(email === "" ? {} : { email }),
+          storedRoles: accounts.map((a) => a.role),
+        };
+      }),
+  );
+  return adminReferrers(referrers, extraAdminEmails());
+}
+
 async function applyEngine(
   ctx: MutationCtx,
-  fn: (state: ClubState) => EngineResult,
+  fn: (state: ClubState) => EngineResult | Promise<EngineResult>,
 ): Promise<EngineResult> {
   const { club, state: before } = await ensureOrgDoc(ctx);
   // `saveState` diffs against `before`, so the transition runs on a copy.
-  const result = fn({ ...before, now: new Date().toISOString() });
+  const result = await fn({ ...before, now: new Date().toISOString() });
   if (!result.error) {
     await saveState(ctx.db, club, before, result.state);
   }
@@ -235,9 +270,19 @@ export const decide = mutation({
   },
   handler: async (ctx, args) => {
     const decidedBy = await signedInAdminPersonId(ctx);
-    return await applyEngine(ctx, (state) =>
-      decideEngine(state, args.personId, args.decision, undefined, decidedBy),
-    );
+    return await applyEngine(ctx, async (state) => {
+      // Fail closed: with no single decider, every referrer who is an admin
+      // right now is treated as one who may have clicked.
+      const decider: ClubDecider =
+        decidedBy !== undefined
+          ? { decidedBy }
+          : {
+              unresolvedDecider: {
+                adminReferrers: await adminReferrersOf(ctx, state, args.personId),
+              },
+            };
+      return decideEngine(state, args.personId, args.decision, undefined, decider);
+    });
   },
 });
 
