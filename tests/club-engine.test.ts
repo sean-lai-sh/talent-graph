@@ -813,6 +813,7 @@ describe("council page engine: the pipeline seam", () => {
       outcomes: [],
       opportunities: [],
       snapshots: [],
+      calls: [],
       feedbackRequests: [],
       config: { requiredDimensions: [...EXAMPLE_REQUIRED_DIMENSIONS] },
       now,
