@@ -11,7 +11,8 @@ import {
   mergeSeedCompanies,
   parseCompanyResearchProposals,
 } from "../src/longitudinal/companyResearch.ts";
-import { parseProjectConfig, projectConfigPath } from "../src/projectConfig/load.ts";
+import { projectConfigPath } from "../src/projectConfig/load.ts";
+import { parseProjectConfig } from "../src/projectConfig/parse.ts";
 import { hashInputs } from "../src/provenance/hash.ts";
 import { SYNTHETIC_COMPANY_SEED } from "./fixtures/companySeed.synthetic.ts";
 
