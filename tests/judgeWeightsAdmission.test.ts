@@ -80,53 +80,68 @@ describe("admission credit", () => {
     expect(res.sumByJudge.get("carol") as number).toBeGreaterThan(0);
   });
 
-  test("ρ = 1 gives 0 early credit; ρ = 0 gives the full credit", () => {
+  function single(outcome: "admitted" | "denied", without: number) {
     const ref = referral("alice", "bob", 1);
-    const run = (without: number) =>
-      admit(
-        [ref],
-        obs([
-          decision({
-            candidateId: "bob",
-            signalWithout: [{ referrerId: "alice", signalWithout: without }],
-          }),
-        ]),
-      ).terms[0];
-    const carried = run(0);
-    expect(carried?.reliance).toBe(1);
-    expect(carried?.credit).toBe(0);
-    const unaided = run(10);
+    return admit(
+      [ref],
+      obs([
+        decision({
+          candidateId: "bob",
+          outcome,
+          signalWithout: [{ referrerId: "alice", signalWithout: without }],
+        }),
+      ]),
+    ).terms[0];
+  }
+
+  test("ρ = 1 gives 0 early credit, admitted or denied; ρ = 0 gives the full credit", () => {
+    for (const outcome of ["admitted", "denied"] as const) {
+      const carried = single(outcome, 0);
+      expect(carried?.reliance).toBe(1);
+      expect(carried?.credit).toBe(0);
+    }
+    const unaided = single("admitted", 10);
     expect(unaided?.reliance).toBe(0);
     expect(unaided?.credit).toBeCloseTo(ADM.kappa, 12);
-    expect(run(5)?.credit).toBeCloseTo(ADM.kappa / 2, 12);
+    expect(single("admitted", 5)?.credit).toBeCloseTo(ADM.kappa / 2, 12);
   });
 
-  test("a denial's debit does not depend on ρ", () => {
-    const ref = referral("alice", "bob", 1);
-    const debit = (signal: number | null, without: number) =>
-      admit(
-        [ref],
-        obs([
-          decision({
-            candidateId: "bob",
-            outcome: "denied",
-            signal,
-            signalWithout: [{ referrerId: "alice", signalWithout: without }],
-          }),
-        ]),
-      ).terms[0];
-    const base = debit(10, 10);
-    expect(base?.credit as number).toBeLessThan(0);
-    for (const [signal, without] of [
-      [10, 0],
-      [10, 3],
-      [2, 0],
-      [null, 0],
-    ] as const) {
-      const t = debit(signal, without);
-      expect(t?.reliance).toBe(0);
-      expect(t?.credit).toBe(base?.credit as number);
+  test("expected early credit is 0 at the base rate for ρ in {0, 0.5, 1}", () => {
+    for (const priorAdmitRate of [ADM.priorAdmitRate, 0.08, 0.3]) {
+      for (const without of [10, 5, 0]) {
+        const yes = referral("alice", "bob", 1);
+        const no = referral("alice", "cid", 1);
+        const signalWithout = [{ referrerId: "alice", signalWithout: without }];
+        const res = computeAdmission(
+          [yes, no],
+          obs([
+            decision({ candidateId: "bob", outcome: "admitted", signalWithout }),
+            decision({ candidateId: "cid", outcome: "denied", signalWithout }),
+          ]),
+          { ...ADM, priorAdmitRate },
+          NOW,
+        );
+        const r = res.admitRate.inbound;
+        const [admitted, denied] = [yes, no].map((x) =>
+          res.terms.find((t) => t.referralId === x.id),
+        );
+        expect(admitted?.reliance).toBe(1 - without / 10);
+        expect(denied?.reliance).toBe(admitted?.reliance as number);
+        expect(Math.abs(denied?.credit as number)).toBeLessThan(ADM.limit);
+        expect(r * (admitted?.credit as number) + (1 - r) * (denied?.credit as number)).toBeCloseTo(
+          0,
+          12,
+        );
+      }
     }
+  });
+
+  test("a denial's debit shrinks as ρ grows", () => {
+    const debits = [10, 7, 3, 0].map((without) => single("denied", without)?.credit as number);
+    expect(debits[0]).toBeLessThan(0);
+    for (let i = 1; i < debits.length; i++)
+      expect(debits[i]).toBeGreaterThan(debits[i - 1] as number);
+    expect(debits[3]).toBe(0);
   });
 
   test("at the base rate, expected admission credit is 0", () => {
@@ -431,8 +446,8 @@ describe("recognition answer, calls, recruiters", () => {
       });
       expect(run.admission?.terms.map((t) => t.judgeId)).toEqual(["carol"]);
       const carol = run.admission?.terms[0];
-      if (verdict === "admit") expect(carol?.reliance).toBe(1);
-      else expect(carol?.credit as number).toBeLessThan(0);
+      expect(carol?.reliance).toBe(1);
+      expect(carol?.credit).toBe(0);
       expect(run.estimates.get("rec")?.weight).toBe(0.3);
       expect(run.estimates.get("rec")?.admissionCredit).toBe(0);
       expect(run.admission?.sumByJudge.has("rec")).toBe(false);
