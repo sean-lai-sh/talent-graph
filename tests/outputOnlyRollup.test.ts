@@ -477,6 +477,20 @@ describe("outputOnlyRollup structural errors", () => {
     expect(() => run(claims, [...records, outputRecord("rec-o1", 0)])).toThrow(/share id rec-o1/);
   });
 
+  test("a record's answers key order changes neither the hash nor the shared-id check", () => {
+    const { records, claims } = fixture();
+    const reordered = records.map((r) =>
+      r.id === "rec-o1"
+        ? { ...r, answers: Object.fromEntries(Object.entries(r.answers).reverse()) }
+        : r,
+    );
+    expect(Object.keys(reordered[0]?.answers ?? {})).not.toEqual(
+      Object.keys(records[0]?.answers ?? {}),
+    );
+    expect(run(claims, reordered).inputHash).toBe(run(claims, records).inputHash);
+    expect(() => run(claims, [...records, ...reordered])).not.toThrow();
+  });
+
   test("two accepted claims naming one record throw, naming the record and both claims", () => {
     const { records, claims } = fixture();
     const shared = [...claims, claim("o9", { recordId: "rec-o1" })];

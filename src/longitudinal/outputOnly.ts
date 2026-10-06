@@ -6,7 +6,7 @@
  */
 
 import { deepFreeze } from "../models/freeze.ts";
-import { hashInputs } from "../provenance/hash.ts";
+import { hashInputs, stableStringify } from "../provenance/hash.ts";
 import type { JobDateFields } from "./claimPreprocess.ts";
 import type { LevelDistribution, RoleDistribution } from "./claimRubricV12.ts";
 import {
@@ -33,7 +33,7 @@ import {
   type JevJudgmentRecord,
   type JevRawScoreAnswer,
   JudgmentInvariantError,
-  recordContent,
+  recordFields,
 } from "./records.ts";
 import type { ClaimAuthor, SourceKind } from "./types.ts";
 import { validateClaimAuthor } from "./validate.ts";
@@ -139,7 +139,10 @@ export function outputOnlyRollup(input: OutputOnlyRollupInput): OutputOnlyRollup
   }
   const records = recordsById(input.records);
   const claims = [...input.claims].sort((a, b) => compareIds(a.id, b.id));
-  const hashed: { claim: Required<OutputOnlyClaim>; record: string | null }[] = [];
+  const hashed: {
+    claim: Required<OutputOnlyClaim>;
+    record: Readonly<Record<string, unknown>> | null;
+  }[] = [];
   const counted: RollupClaim[] = [];
   let outputCount = 0;
   let previousId: string | null = null;
@@ -171,7 +174,7 @@ export function outputOnlyRollup(input: OutputOnlyRollupInput): OutputOnlyRollup
       );
     }
     claimByRecord.set(record.id, claim.id);
-    hashed.push({ claim: hashedFields(claim), record: recordContent(record) });
+    hashed.push({ claim: hashedFields(claim), record: recordFields(record) });
 
     const evidenceDate = evidenceDateFor(claim);
     if (evidenceDate === null || evidenceDate.getTime() > cutoff.getTime()) continue;
@@ -244,7 +247,7 @@ function recordsById(records: readonly JevJudgmentRecord[]): Map<string, JevJudg
   const byId = new Map<string, JevJudgmentRecord>();
   for (const record of records) {
     const seen = byId.get(record.id);
-    if (seen && recordContent(seen) !== recordContent(record)) {
+    if (seen && stableStringify(recordFields(seen)) !== stableStringify(recordFields(record))) {
       throw new JudgmentInvariantError(
         `output-only roll-up: two different records share id ${record.id}`,
       );
