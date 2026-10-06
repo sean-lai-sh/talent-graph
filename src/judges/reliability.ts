@@ -36,7 +36,12 @@ import type {
   Referral,
 } from "../domain/types.ts";
 import { CURRENT_SPECS } from "../models/registry.ts";
-import { assertSpec, type JudgeReliabilitySpec, type ReferralSignalSpec } from "../models/spec.ts";
+import {
+  assertSpec,
+  type JudgeReliabilitySpec,
+  judgeWeightV4,
+  type ReferralSignalSpec,
+} from "../models/spec.ts";
 import { referralStrength } from "../scoring/referralStrength.ts";
 import {
   buildOutcomeCohort,
@@ -47,8 +52,6 @@ import {
 } from "./outcomes.ts";
 
 const DAY = 86_400_000;
-/** Keeps logit(p̂) finite when a judge's raw reliability is exactly 1 or 0. */
-const LOGIT_EPS = 1e-6;
 
 export interface ScoredPrediction {
   referralId: string;
@@ -220,24 +223,6 @@ function shrink(n: number, value: number, prior: number, lambda: number): number
   return (n / (n + lambda)) * value + (lambda / (n + lambda)) * prior;
 }
 
-function logit(p: number): number {
-  return Math.log(p / (1 - p));
-}
-
-/** w_u and ω_u from p̂_u. No evidence (Σ = 0) returns μ0 exactly, not a logit round trip. */
-function v4Weights(
-  shrunk: number,
-  spec: JudgeReliabilitySpec & { softCap: number; weightExponent: number },
-): { weight: number; omega: number } {
-  const mu0 = spec.priorReliability;
-  const sigma = logit(Math.min(1 - LOGIT_EPS, Math.max(LOGIT_EPS, shrunk))) - logit(mu0);
-  const weight =
-    sigma === 0
-      ? mu0
-      : 1 / (1 + Math.exp(-(logit(mu0) + spec.softCap * Math.tanh(sigma / spec.softCap))));
-  return { weight, omega: weight ** spec.weightExponent };
-}
-
 /** Fold scored predictions into per-judge reliability and bias estimates. */
 export function estimateJudgeReliability(
   judgeIds: readonly string[],
@@ -273,7 +258,7 @@ export function estimateJudgeReliability(
         meanSquaredError: null,
         rawReliability: null,
         reliability: spec.priorReliability,
-        ...(v4 ? v4Weights(spec.priorReliability, v4) : {}),
+        ...(v4 ? judgeWeightV4(spec.priorReliability, v4) : {}),
         rawBias: null,
         bias: 0,
         predictionIds: [],
@@ -288,7 +273,7 @@ export function estimateJudgeReliability(
       meanSquaredError: a.e,
       rawReliability: raw,
       reliability,
-      ...(v4 ? v4Weights(reliability, v4) : {}),
+      ...(v4 ? judgeWeightV4(reliability, v4) : {}),
       rawBias: a.b,
       bias: shrink(a.n, a.b, 0, spec.shrinkage),
       predictionIds: a.ids,

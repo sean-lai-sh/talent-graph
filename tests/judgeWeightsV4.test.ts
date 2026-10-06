@@ -14,7 +14,7 @@ import {
   type ScoredPrediction,
 } from "../src/judges/reliability.ts";
 import { JUDGE_RELIABILITY_V2_0_0, JUDGE_RELIABILITY_V4_0_0 } from "../src/models/registry.ts";
-import { assertSpec, type JudgeReliabilitySpec } from "../src/models/spec.ts";
+import { assertSpec, type JudgeReliabilitySpec, validateSpec } from "../src/models/spec.ts";
 import { computeAllReferralSignals } from "../src/scoring/referralSignal.ts";
 
 const T0 = new Date("2026-01-01T00:00:00.000Z");
@@ -120,6 +120,15 @@ describe('judge_reliability@4.0.0 (mode "v4")', () => {
     expect(V4.priorReliability).toBe(0.3);
     expect(V4.softCap).toBe(3);
     expect(V4.weightExponent).toBe(2);
+  });
+
+  test("validateSpec rejects a v4 spec whose w or ω can reach 0 or 1 in floating point", () => {
+    for (const weightExponent of [Number.MIN_VALUE, 1e-20, 1e6, Number.MAX_VALUE]) {
+      const res = validateSpec({ ...V4, weightExponent });
+      expect(res.ok, `γ = ${weightExponent}`).toBe(false);
+    }
+    expect(validateSpec({ ...V4, softCap: 1e6 }).ok).toBe(true);
+    expect(validateSpec({ ...V4, softCap: 1e6, weightExponent: 1 }).ok).toBe(true);
   });
 
   test("a judge with no scored referrals gets w = 0.3 and ω = 0.09", () => {

@@ -292,6 +292,38 @@ function validateBradleyTerrySpec(spec: BradleyTerrySpec, errors: string[]): voi
   }
 }
 
+/** Keeps logit(p̂) finite when a judge's shrunk reliability is exactly 0 or 1. */
+export const JUDGE_WEIGHT_LOGIT_EPS = 1e-6;
+
+/** The mode "v4" parameters `judgeWeightV4` reads. */
+export type JudgeReliabilityV4Params = Pick<JudgeReliabilitySpec, "priorReliability"> & {
+  softCap: number;
+  weightExponent: number;
+};
+
+function logit(p: number): number {
+  return Math.log(p / (1 - p));
+}
+
+/**
+ * w_u and ω_u from p̂_u on the r10 scale (μ0 = priorReliability):
+ *   Σ = logit(clamp(p̂, ε, 1−ε)) − logit μ0,  logit w = logit μ0 + T·tanh(Σ/T),  ω = w^γ.
+ * No evidence (Σ = 0) returns μ0 exactly, not a logit round trip.
+ */
+export function judgeWeightV4(
+  shrunk: number,
+  spec: JudgeReliabilityV4Params,
+): { weight: number; omega: number } {
+  const mu0 = spec.priorReliability;
+  const eps = JUDGE_WEIGHT_LOGIT_EPS;
+  const sigma = logit(Math.min(1 - eps, Math.max(eps, shrunk))) - logit(mu0);
+  const weight =
+    sigma === 0
+      ? mu0
+      : 1 / (1 + Math.exp(-(logit(mu0) + spec.softCap * Math.tanh(sigma / spec.softCap))));
+  return { weight, omega: weight ** spec.weightExponent };
+}
+
 function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string[]): void {
   if (!isFiniteNumber(spec.observationWindowDays) || spec.observationWindowDays < 0) {
     errors.push("observationWindowDays must be a finite number ≥ 0");
@@ -323,6 +355,29 @@ function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string
     }
     if (!isFiniteNumber(spec.weightExponent) || spec.weightExponent <= 0) {
       errors.push('weightExponent (γ) must be a finite number > 0 under mode "v4"');
+    }
+    const { priorReliability: mu0, softCap, weightExponent } = spec;
+    if (
+      mu0 > 0 &&
+      mu0 < 1 &&
+      isFiniteNumber(softCap) &&
+      softCap > 0 &&
+      isFiniteNumber(weightExponent) &&
+      weightExponent > 0
+    ) {
+      // w and ω are monotone in p̂, so the clamped extremes bound every value.
+      for (const p of [0, 1]) {
+        const { weight, omega } = judgeWeightV4(p, {
+          priorReliability: mu0,
+          softCap,
+          weightExponent,
+        });
+        if (!(weight > 0 && weight < 1 && omega > 0 && omega < 1)) {
+          errors.push(
+            `softCap (T) and weightExponent (γ) must keep w and ω strictly inside (0, 1); p̂ = ${p} gives w = ${weight}, ω = ${omega}`,
+          );
+        }
+      }
     }
   } else if (spec.softCap !== undefined || spec.weightExponent !== undefined) {
     errors.push('softCap and weightExponent apply only under mode "v4"');
