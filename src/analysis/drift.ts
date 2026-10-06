@@ -15,7 +15,7 @@
 import { rankPercentiles } from "../domain/rank.ts";
 import type { Dimension } from "../domain/types.ts";
 import type { CapabilityRun } from "../inference/capabilityVector.ts";
-import type { JudgeCalibrationRun } from "../judges/reliability.ts";
+import type { JudgeCalibrationRun, JudgeReliabilityEstimate } from "../judges/reliability.ts";
 import type { PipelineKind } from "../pipeline/kinds.ts";
 import type { ReferralSignalResult } from "../scoring/referralSignal.ts";
 
@@ -57,11 +57,21 @@ export interface DriftMover {
 }
 
 /**
- * Which per-judge map a `judge_reliability` report compares. Both feed the
- * same weights, and both move a judge-weighted Referral Signal, so both are
+ * Which per-judge map a `judge_reliability` report compares. All of them
+ * feed or are the weights a judge-weighted Referral Signal uses, so all are
  * worth reporting; a capability report uses `dimension` for the same job.
+ *
+ * - `reliability`: p̂_u (p̂⁰ under mode "v4").
+ * - `bias`: b̂_u.
+ * - `weight`: w_u, the weight admins see. Under mode "v2" there is no
+ *   separate w: p̂_u is the weight, so p̂_u is what is compared.
+ * - `omega`: the weight the signal is actually multiplied by, as
+ *   `reliabilityWeights` hands it over: ω_u under "v4", p̂_u under "v2".
  */
-export type JudgeDriftMeasure = "reliability" | "bias";
+export type JudgeDriftMeasure = "reliability" | "bias" | "weight" | "omega";
+
+/** The measures that exist only because of mode "v4" (w and ω). */
+export const JUDGE_WEIGHT_MEASURES = ["weight", "omega"] as const;
 
 /**
  * What a `judge_reliability` comparison reports on. The two per-judge maps,
@@ -335,7 +345,7 @@ export function judgeWeightedSignalDrift(
 }
 
 /**
- * Drift between two judge calibrations, per judge (`reliability` or `bias`).
+ * Drift between two judge calibrations, per judge, on one `JudgeDriftMeasure`.
  *
  * Both maps live on 0–1, so they are compared as points out of 100 — the
  * same unit as the Referral Signal and capability reports, which is what
@@ -355,7 +365,7 @@ export function judgeReliabilityDrift(
     new Map<string, number | null>(
       [...run.estimates.values()].map((e) => [
         e.judgeId,
-        e.evaluatedCount >= 1 ? e[measure] * 100 : null,
+        e.evaluatedCount >= 1 ? judgeMeasure(run, e, measure) * 100 : null,
       ]),
     );
   const report = buildReport("judge_reliability", toValues(before), toValues(after), thresholds, {
@@ -364,6 +374,28 @@ export function judgeReliabilityDrift(
   });
   report.measure = measure;
   return report;
+}
+
+/**
+ * One judge's value on `measure`. A mode "v2" run has no w or ω — not low,
+ * not zero, just not a separate quantity: under "v2" the signal is weighted
+ * by p̂_u itself, so that is the weight compared. A "v4" estimate without
+ * w or ω is a broken run, and throws rather than reading as 0.
+ */
+function judgeMeasure(
+  run: JudgeCalibrationRun,
+  e: JudgeReliabilityEstimate,
+  measure: JudgeDriftMeasure,
+): number {
+  if (measure === "reliability" || measure === "bias") return e[measure];
+  if (run.options.reliabilityMode !== "v4") return e.reliability;
+  const value = e[measure];
+  if (value === undefined) {
+    throw new Error(
+      `judge ${e.judgeId} has no ${measure} in a mode "v4" run (${run.options.specVersion})`,
+    );
+  }
+  return value;
 }
 
 /** Drift between two capability runs on one dimension (percentile space). */
