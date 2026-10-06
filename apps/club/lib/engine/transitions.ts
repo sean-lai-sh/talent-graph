@@ -290,7 +290,10 @@ export function addCall(state: ClubState, input: AddCallInput): EngineResult {
     if (!first) return fail(next, "record call 1 first");
     if (first.outcome === "no") return fail(next, "call 1 was a hard no");
   }
-  if (input.outcome === "yes") {
+  const callerHasReferral = next.referrals.some(
+    (r) => r.referrerId === input.callerId && r.candidateId === input.candidateId,
+  );
+  if (input.outcome === "yes" && !callerHasReferral) {
     if (!input.referral) return fail(next, "a yes needs the caller's referral ratings");
     const referred = addReferral(next, {
       referrerId: input.callerId,

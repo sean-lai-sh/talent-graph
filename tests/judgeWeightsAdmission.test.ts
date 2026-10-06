@@ -457,6 +457,39 @@ describe("recognition answer, calls, recruiters", () => {
     expect(pos.get(row?.id as string)?.position).toBe(2);
   });
 
+  test("a yes from a caller who already has a referral stores the call and adds no second referral", () => {
+    const outcomeOf = (s: ClubState) => {
+      const run = calibrate(decide({ ...s, now: day(30).toISOString() }, "bob", "admit").state);
+      return {
+        positions: [...(run.admission?.positions.values() ?? [])],
+        credit: run.admission?.terms.map((t) => [t.judgeId, t.credit]),
+      };
+    };
+    const yesBy = (s: ClubState, callerId: string, order: 1 | 2) =>
+      addCall(s, { candidateId: "bob", callerId, order, outcome: "yes", referral: RATINGS });
+
+    // inbound referrer who also interviews
+    let s = { ...refer(club(), "alice", "bob"), now: day(1).toISOString() };
+    const inbound = yesBy(s, "alice", 1);
+    expect(inbound.error).toBeUndefined();
+    expect(inbound.state.calls).toHaveLength(1);
+    expect(inbound.state.calls[0]).toMatchObject({ callerId: "alice", order: 1, outcome: "yes" });
+    expect(inbound.state.referrals).toHaveLength(s.referrals.length);
+    expect(outcomeOf(inbound.state)).toEqual(outcomeOf(s));
+
+    // call-2 yes by the call-1 caller
+    const first = yesBy(s, "carol", 1);
+    expect(first.error).toBeUndefined();
+    const second = yesBy(first.state, "carol", 2);
+    expect(second.error).toBeUndefined();
+    expect(second.state.calls.map((c) => [c.order, c.outcome])).toEqual([
+      [1, "yes"],
+      [2, "yes"],
+    ]);
+    expect(second.state.referrals.filter((r) => r.referrerId === "carol")).toHaveLength(1);
+    expect(outcomeOf(second.state)).toEqual(outcomeOf(first.state));
+  });
+
   test("a recruiter never gains or loses weight, whether the candidate is admitted or denied", () => {
     for (const verdict of ["admit", "deny"] as const) {
       const selected = addPerson(club(), { name: "Dee", channel: "outbound" });
