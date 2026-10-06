@@ -4,10 +4,12 @@
  *
  *   bun run scripts/gen-config.ts [--check] [--config <path>] [--out <path>]
  *
- * --check writes nothing and exits 1 when the generated file is stale.
+ * --check writes nothing. It exits 1 when the generated file is stale or when
+ * config.yml fails the pinned-hash checks.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import {
+  checkConfigFile,
   generatedConfigPath,
   loadProjectConfig,
   projectConfigPath,
@@ -51,6 +53,7 @@ try {
       );
       process.exit(1);
     }
+    checkConfigFile(options.config);
     console.log(`${options.out} matches ${options.config}`);
   } else {
     writeFileSync(options.out, expected);
