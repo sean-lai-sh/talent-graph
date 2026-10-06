@@ -45,9 +45,7 @@ export const REFERRAL_SIGNAL_V0_1_0: ReferralSignalSpec = deepFreeze({
 
 /**
  * 0.1.0's strengths and Top-K, aggregated as a weight-normalised mean:
- * S_v = Σ(ω_u·R_uv) / (Σ ω_u + c0) over the Top-K by ω·R (SEA-83). Used only
- * by the judge-weighted run under a mode "v4" judge spec, which supplies
- * c0 = μ0^γ; the V0 baseline and every V2 run stay on 0.1.0.
+ * S_v = Σ(ω_u·R_uv) / (Σ ω_u + c0) over the Top-K by ω·R (SEA-83).
  */
 export const REFERRAL_SIGNAL_V0_2_0: ReferralSignalSpec = deepFreeze({
   ...REFERRAL_SIGNAL_V0_1_0,

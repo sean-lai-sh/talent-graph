@@ -33,9 +33,8 @@
  * "what do the judge weights do", the unweighted Referral Signal against the
  * judge-weighted one from a single pass, under one spec.
  *
- * `referral_signal@0.2.0` is refused on both paths with exit 2: it is used
- * only by the judge-weighted run under a mode "v4" judge spec, so its report
- * is `--kind judge_reliability --before 2.0.0 --after 4.1.0`.
+ * `referral_signal@0.2.0` is refused on both paths with exit 2; measure it
+ * with `--kind judge_reliability --before 2.0.0 --after 4.1.0`.
  */
 
 import {
@@ -157,14 +156,6 @@ function report(reports: readonly DriftReport[]): never {
   process.exit(severity(worst.verdict) > severity(maxVerdict) ? 1 : 0);
 }
 
-/**
- * A weight-normalised Referral Signal spec (0.2.0) cannot stand in for the
- * whole pass's `referral_signal`: the V0 baseline stays on 0.1.0 by design
- * and has no judge spec to derive c0 from, so 0.2.0 refuses it. A
- * referral_signal-kind report would also show no movement if it ran, because
- * only the judge-weighted run under a mode "v4" judge spec uses 0.2.0. That
- * run is measured by the judge_reliability report's weighted arm.
- */
 function refuseWeightNormalized(spec: SpecOfKind<"referral_signal">): void {
   if (spec.aggregation !== "weight_normalized") return;
   console.error(

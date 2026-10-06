@@ -32,7 +32,6 @@ const day = (n: number) => new Date(T0.getTime() + n * DAY);
 const NOW = day(400);
 const SPEC = JUDGE_RELIABILITY_V2_0_0;
 const BIAS_SPEC: JudgeReliabilitySpec = { ...SPEC, applyBiasCorrection: true };
-/** Signal options for a calibration run under the default (2.0.0) spec. */
 const weighted = (run: JudgeCalibrationRun) =>
   judgeWeightedSignalOptions(run, SPEC, REFERRAL_SIGNAL_V0_1_0);
 

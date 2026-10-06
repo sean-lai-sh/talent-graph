@@ -22,17 +22,14 @@
  * still construct as sugar. The loop below applies whichever it is given, so a
  * later weighting is added there and not here.
  *
- * Weight-normalised aggregation (`referral_signal@0.2.0`, SEA-83). Under the
- * v4 judge scale a new judge's ω is 0.09, so the plain mean above would let an
- * extra referral pull S_v toward 0. A spec with
- * `aggregation: "weight_normalized"` instead takes
+ * Weight-normalised aggregation (`referral_signal@0.2.0`, SEA-83). A spec with
+ * `aggregation: "weight_normalized"` takes
  *
  *   S_v = Σ_{TopK} (ω_u · R_uv) / (Σ_{TopK} ω_u + c0)
  *
  * over the same Top-K (ranked by the contribution ω·R), where ω_u is the
- * weighting's `reliability` factor and c0 is the run's `pseudoWeight`, derived
- * from the judge spec rather than fixed here. Every spec without the field
- * keeps the plain mean, so V0 and V2 are untouched.
+ * weighting's `reliability` factor and c0 is the run's `pseudoWeight`. Every
+ * spec without the field keeps the plain mean.
  *
  * Since #56 T5 the many-person path reads the shared index rather than
  * re-deriving one of its own: `computeAllReferralSignals` is
@@ -111,16 +108,11 @@ export interface ReferralSignalOptions {
   judgeBias?: ReadonlyMap<string, number>;
   /**
    * c0, the pseudo-weight in the denominator of a `"weight_normalized"` spec.
-   * Required by such a spec and refused by any other, so a run can neither
-   * forget it nor pass one that silently does nothing.
+   * Required by such a spec and refused by any other.
    */
   pseudoWeight?: number;
 }
 
-/**
- * The c0 a call runs under: a finite number ≥ 0 exactly when the spec
- * aggregates weight-normalised, `undefined` (the plain mean) otherwise.
- */
 function resolvePseudoWeight(spec: ReferralSignalSpec, pseudoWeight: number | undefined) {
   if (spec.aggregation === "weight_normalized") {
     if (pseudoWeight === undefined || !(Number.isFinite(pseudoWeight) && pseudoWeight >= 0)) {
@@ -188,7 +180,6 @@ function signalFromScoredEdges(
   spec: ReferralSignalSpec,
   topK: number,
   weighting: EdgeWeighting,
-  /** c0 for a `"weight_normalized"` spec; `undefined` takes the plain mean. */
   pseudoWeight: number | undefined,
 ): ReferralSignalResult {
   const judgeWeighted = weighting.weighted;
@@ -223,13 +214,11 @@ function signalFromScoredEdges(
     .slice(0, topK)
     .map((x) => x.c);
   const sum = contributing.reduce((acc, c) => acc + c.strength, 0);
-  // What weight-normalised promises (SEA-83), stated on the bias-adjusted
-  // clip(R − b̂, 0, 1), which is R when no bias map is given: while the Top-K
-  // has room, adding a referral whose adjusted R is at or above the current
-  // signal never lowers it; while every referral fits in the Top-K, neither
-  // does raising ω for a judge whose adjusted R is at or above it. A referral
-  // below the signal may lower it, and once the Top-K is full a heavier entry
-  // can evict a lighter, higher-R one; neither is promised.
+  // Weight-normalised promise (SEA-83), on adjusted R = clip(R − b̂, 0, 1):
+  // while the Top-K has room, adding a referral whose adjusted R is at or
+  // above the signal never lowers it; while every referral fits, neither does
+  // raising ω for such a judge. Once the Top-K is full a heavier entry can
+  // evict a lighter, higher-R one; that is not promised.
   const s =
     contributing.length === 0
       ? 0

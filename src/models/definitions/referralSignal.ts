@@ -82,9 +82,6 @@ export const referralSignalModel = defineModel<
       );
     }
     return {
-      // c0 is a parameter of the aggregation, so it is recorded beside topK.
-      // Only when given: a plain-mean run's parameters, and so its id, are
-      // exactly what they were before 0.2.0 existed.
       parameters: {
         spec,
         topK: opts.topK ?? spec.topK,

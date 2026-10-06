@@ -322,8 +322,7 @@ export function referralSignalDrift(
  * The weighted-signal arm of a `judge_reliability` comparison: two
  * judge-weighted Referral Signal runs, one per calibration spec, with the
  * same configured referral spec on both sides. The weighted runs' own versions
- * can still differ: a "v4" calibration aggregates under referral_signal@0.2.0
- * where "v2" used 0.1.0 (SEA-83), and that is the calibration's movement.
+ * may differ (0.2.0 under a "v4" calibration, 0.1.0 under "v2").
  *
  * It is a Referral Signal comparison in every respect that matters to the
  * statistics — same signal space, same thresholds, same verdict rules, all

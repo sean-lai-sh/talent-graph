@@ -33,6 +33,7 @@ import {
 } from "../src/models/spec.ts";
 import { hashInputs } from "../src/provenance/hash.ts";
 import { computeAllReferralSignals, computeReferralSignal } from "../src/scoring/referralSignal.ts";
+import { referralStrength } from "../src/scoring/referralStrength.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 
 const T0 = new Date("2026-01-01T00:00:00.000Z");
@@ -178,10 +179,6 @@ describe('judge_reliability@4.0.0 (mode "v4")', () => {
   });
 
   test("no export hands out a weight map without its spec", async () => {
-    // A bare ω map passed as judgeReliability under referral_signal@0.1.0's
-    // plain mean brings back the low-weight drag SEA-83 removes; the only way
-    // to signal weights is judgeWeightedSignalOptions, which pairs them with
-    // the spec they are aggregated under.
     const mod = await import("../src/judges/reliability.ts");
     expect(Object.keys(mod).sort()).toEqual([
       "biasCorrections",
@@ -298,7 +295,6 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
   const C0 = judgePseudoWeight(V4);
   const K = NORMALIZED.topK;
 
-  /** mulberry32: a fixed seed makes a failure reproducible. */
   function rng(seed: number): () => number {
     let a = seed;
     return () => {
@@ -328,12 +324,10 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
     };
   }
 
-  /** Judge u0..u(n-1) each with a random ω in the range real v4 weights take (and beyond). */
   function omegas(r: Rng, n: number): Map<string, number> {
     return new Map(Array.from({ length: n }, (_, i) => [`u${i}`, 0.02 + r() * 0.95]));
   }
 
-  /** b̂ per judge u0..u(n-1), both signs, so adjusted R differs from R. */
   function biases(r: Rng, n: number): Map<string, number> {
     return new Map(Array.from({ length: n }, (_, i) => [`u${i}`, -0.3 + r() * 0.6]));
   }
@@ -351,10 +345,8 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
       pseudoWeight: c0,
     });
 
-  /** R_uv alone: the plain mean of one referral is its strength. */
-  const strengthOf = (ref: Referral) => computeReferralSignal("cand", [ref], { spec: PLAIN }).s;
+  const strengthOf = (ref: Referral) => referralStrength(ref, PLAIN);
 
-  /** clip(R_uv − b̂_u, 0, 1), the R the promise is stated on. */
   const adjustedOf = (ref: Referral, bias: ReadonlyMap<string, number>) =>
     Math.min(1, Math.max(0, strengthOf(ref) - (bias.get(ref.referrerId) ?? 0)));
 
@@ -362,15 +354,13 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
     const r = rng(83);
     let checked = 0;
     for (let i = 0; i < 4000; i++) {
-      // Fewer than K existing referrals: the new one takes a free slot. With the
-      // Top-K full (ranked by ω·R) a heavier, lower-R referral can evict a lighter,
-      // higher-R one and lower the signal; that case is reported on SEA-83, not asserted.
+      // The full-Top-K eviction case is reported on SEA-83, not asserted.
       const existing = Array.from({ length: Math.floor(r() * K) }, (_, j) => aim(`u${j}`, r));
       const added = aim(`u${existing.length}`, r);
       const om = omegas(r, existing.length + 1);
       const bias = biases(r, existing.length + 1);
       const before = weighted(existing, om, C0, bias).s;
-      if (adjustedOf(added, bias) < before) continue; // only adjusted R at or above the signal is promised
+      if (adjustedOf(added, bias) < before) continue;
       checked++;
       const after = weighted([...existing, added], om, C0, bias).s;
       expect(after, `case ${i}`).toBeGreaterThanOrEqual(before - 1e-12);
@@ -401,7 +391,6 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
     const twin = { ...strong, id: "twin", referrerId: "u1" };
     const alone = weighted([strong], proven).s;
     expect(weighted([strong, twin], both).s).toBeGreaterThanOrEqual(alone);
-    // The plain mean of ω·R is what the issue calls the flaw: it falls.
     const plain = computeReferralSignal("cand", [strong, twin], {
       spec: PLAIN,
       judgeReliability: both,
@@ -439,7 +428,6 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
     ] as const) {
       const want = golden[name];
       expect(run.id, name).toBe(want?.id as string);
-      // The same canonical hash the golden was written with (defineModelGolden).
       expect(hashInputs(run.outputs), name).toBe(want?.outputsHash as string);
       expect(Object.keys(run.parameters).sort(), name).toEqual(want?.parameterKeys as string[]);
       expect(run.specVersion, name).toBe("0.1.0");
@@ -450,7 +438,6 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
   test("with every ω = 1 and c0 = 0 the weighted path is the old plain mean", () => {
     const r = rng(84);
     for (let i = 0; i < 1000; i++) {
-      // Up to 2K referrals, so Top-K truncation is exercised too.
       const refs = Array.from({ length: Math.floor(r() * 2 * K) }, (_, j) => aim(`u${j}`, r));
       const ones = new Map(refs.map((x) => [x.referrerId, 1]));
       const got = weighted(refs, ones, 0);
@@ -510,7 +497,6 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
     expect(validateSpec(other).ok).toBe(true);
     expect(judgePseudoWeight(other)).toBeCloseTo(0.4 ** 3, 12);
     expect(judgePseudoWeight({ ...V4, weightExponent: 1 })).toBeCloseTo(0.3, 12);
-    // And it is what a v4 run carries into the signal.
     const run = (spec: JudgeReliabilitySpec) =>
       judgeWeightedSignalOptions(
         computeJudgeCalibration({ people, referrals, outcomes, now: NOW, spec }),
@@ -520,7 +506,6 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
     expect(run(V4).pseudoWeight).toBeCloseTo(0.09, 12);
     expect(run(other).pseudoWeight).toBeCloseTo(0.064, 12);
     expect(run(V4).spec.version).toBe("0.2.0");
-    // A v2 run keeps the plain mean and no c0.
     const v2 = judgeWeightedSignalOptions(
       computeJudgeCalibration({ people, referrals, outcomes, now: NOW, spec: V2 }),
       V2,
@@ -534,10 +519,8 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
   test("a spec relabeled with the other mode's version is refused, not mixed", () => {
     const v4Run = computeJudgeCalibration({ people, referrals, outcomes, now: NOW, spec: V4 });
     const v2Run = computeJudgeCalibration({ people, referrals, outcomes, now: NOW, spec: V2 });
-    // A mode-v2 spec carrying the v4 calibration's version would send ω to the plain mean, no c0.
     const v2AsV4: JudgeReliabilitySpec = { ...V2, version: V4.version };
     expect(() => judgeWeightedSignalOptions(v4Run, v2AsV4, PLAIN)).toThrow(/mode "v4".*mode "v2"/);
-    // A mode-v4 spec carrying the v2 calibration's version would apply c0 to p̂.
     const v4AsV2: JudgeReliabilitySpec = { ...V4, version: V2.version };
     expect(() => judgeWeightedSignalOptions(v2Run, v4AsV2, PLAIN)).toThrow(/mode "v2".*mode "v4"/);
   });

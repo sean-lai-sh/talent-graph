@@ -142,8 +142,6 @@ export function runClubPass(input: ClubPassInput): ClubPass {
     calibration: calibration.outputs,
     capability: capability.outputs,
     signalWithout: (candidateId) =>
-      // The same spec, weights and c0 as the council's weighted signal, so
-      // S and S⁻ᵘ are aggregated alike (weight-normalised under a "v4" spec).
       signalWithoutEachReferrer(
         candidateId,
         referrals,

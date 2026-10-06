@@ -164,7 +164,6 @@ const PROBES: Record<string, Probe> = {
   referral_signal_v0: {
     input: { people: data.people, referrals: data.referrals },
     opts: {
-      // 0.2.0, so pseudoWeight (which 0.1.0 refuses) can be probed too.
       spec: REFERRAL_SIGNAL_V0_2_0,
       topK: 5,
       judgeReliability: new Map([["p-001", 0.5]]),

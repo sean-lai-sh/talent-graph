@@ -27,10 +27,9 @@ export interface ReferralSignalSpec {
   /** Number of strongest incoming referrals averaged into S_v. */
   topK: number;
   /**
-   * How the Top-K contributions become S_v. Absent (every version before
-   * 0.2.0) is the plain mean. `"weight_normalized"` (0.2.0) is
-   * Σ(ω_u·R_uv) / (Σ ω_u + c0), with the pseudo-weight c0 supplied by the run
-   * (`pseudoWeight`), because it is derived from the judge spec.
+   * How the Top-K contributions become S_v. Absent is the plain mean.
+   * `"weight_normalized"` is Σ(ω_u·R_uv) / (Σ ω_u + c0), with c0 supplied by
+   * the run as `pseudoWeight`.
    */
   aggregation?: "weight_normalized";
 }

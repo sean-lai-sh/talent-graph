@@ -457,11 +457,6 @@ describe("scripts/drift.ts CLI", () => {
     expect(text(proc.stdout)).toContain("referral_signal (0.1.0 → 0.1.0)");
   });
 
-  /**
-   * 0.2.0 swapped into the whole pass would hand the V0 baseline a
-   * weight-normalised spec with no pseudo-weight, which 0.2.0 refuses. The CLI
-   * says so up front and names the report that does measure 0.2.0.
-   */
   test("referral_signal@0.2.0 on either side is a usage error naming the judge_reliability report", () => {
     for (const [before, after] of [
       ["0.1.0", "0.2.0"],

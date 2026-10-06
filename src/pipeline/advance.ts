@@ -212,11 +212,7 @@ export function advance(
     referralSpec: specs.referral_signal,
   });
 
-  // …then the weights it produced. Under a "v2" judge spec they are applied
-  // to the same Referral Signal spec; under "v4" to its weight-normalised
-  // counterpart (referral_signal@0.2.0), which the judge spec implies rather
-  // than the configuration. The calibration run is named as lineage, so the
-  // two runs of this kind are distinguishable by provenance, not by version.
+  // …then the weights it produced.
   const weighted = runReferralSignals(people, referrals, now, {
     ...judgeWeightedSignalOptions(
       calibration.outputs,
@@ -252,26 +248,18 @@ export function advance(
  * passes. When that spec moved too, the weighted signals moved for two
  * reasons at once, and the per-kind rule is that one kind's report never
  * attributes another kind's movement: the honest report is no report.
- *
- * "The Referral Signal spec" is the configured one, read off the baseline
- * runs. The weighted runs' own versions can differ when only the judge spec
- * moved: a "v4" judge spec aggregates under referral_signal@0.2.0 where "v2"
- * used 0.1.0 (SEA-83). That movement belongs to the judge spec, so it is
- * this report's to show.
  */
 function judgeWeightedArm(
   before: RunOfKind<"referral_signal"> | undefined,
   after: RunOfKind<"referral_signal"> | undefined,
-  referralSpecs: { before: string | undefined; after: string | undefined },
+  configuredReferralSpecs: { before: string | undefined; after: string | undefined },
   beforeCalibration: RunOfKind<"judge_reliability">,
   afterCalibration: RunOfKind<"judge_reliability">,
   thresholds: DriftThresholds,
 ): DriftReport[] {
   if (before === undefined || after === undefined) return [];
-  // A hand-built state with no baseline run falls back to the weighted run's
-  // own version, as before.
-  const beforeSpec = referralSpecs.before ?? before.specVersion;
-  const afterSpec = referralSpecs.after ?? after.specVersion;
+  const beforeSpec = configuredReferralSpecs.before ?? before.specVersion;
+  const afterSpec = configuredReferralSpecs.after ?? after.specVersion;
   if (beforeSpec !== afterSpec) return [];
   return [
     judgeWeightedSignalDrift(

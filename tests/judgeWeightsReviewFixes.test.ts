@@ -61,8 +61,6 @@ describe("a club pass under spec 4.1.0 uses the weighted signal", () => {
       specs: V4_1,
     });
     expect(pass.provenance.specVersions.judge_reliability).toBe("4.1.0");
-    // The council's weighted run is 0.2.0 + c0 under a v4 spec; the same
-    // options from the same calibration must reproduce it exactly.
     const opts = judgeWeightedSignalOptions(
       pass.calibration,
       V4_1.judge_reliability,

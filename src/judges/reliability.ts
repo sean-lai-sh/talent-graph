@@ -339,9 +339,8 @@ export function computeJudgeCalibration(input: JudgeCalibrationInput): JudgeCali
 }
 
 /**
- * c0 for the weight-normalised Referral Signal: one new judge's worth of
- * weight, μ0^γ (0.3² = 0.09 under 4.x). Derived from the judge spec so it
- * moves with μ0 and γ rather than being a second number to keep in step.
+ * c0 for the weight-normalised Referral Signal: μ0^γ, one new judge's worth
+ * of weight. Throws unless the spec is mode "v4".
  */
 export function judgePseudoWeight(spec: JudgeReliabilitySpec): number {
   if (spec.mode !== "v4" || spec.weightExponent === undefined) {
@@ -380,17 +379,13 @@ export function weightNormalizedReferralSpec(spec: ReferralSignalSpec): Referral
 /**
  * Everything the judge-weighted Referral Signal run takes from a calibration:
  * the weights (ω_u or p̂_u, plus `biasCorrections` when the judge spec enables
- * the correction) and the spec they are aggregated under. The only way to turn
- * a calibration into signal weights: the raw weight map stays private to this
- * module, because weights without their spec would let a v4 run's ω reach
- * 0.1.0's plain mean (SEA-83).
+ * the correction) and the spec they are aggregated under.
  *
- * Under a mode "v4" judge spec (4.x) that is the weight-normalised
- * `referral_signal@0.2.0` with c0 = `judgePseudoWeight(judgeSpec)` (SEA-83):
- * the plain mean of ω·R would let a new judge's ω 0.09 drag a candidate's
- * signal down. Under "v2" it is `referralSpec` unchanged and no pseudo-weight,
- * so V2 weighted runs keep the plain mean and their ids; a weight-normalised
- * `referralSpec` is refused there, since "v2" has no c0 to give it.
+ * Under a mode "v4" judge spec that is the weight-normalised counterpart of
+ * `referralSpec` with c0 = `judgePseudoWeight(judgeSpec)`. Under "v2" it is
+ * `referralSpec` unchanged with no pseudo-weight, and a weight-normalised
+ * `referralSpec` throws. Throws when the run's version or mode does not
+ * match `judgeSpec`.
  */
 export function judgeWeightedSignalOptions(
   run: JudgeCalibrationRun,
@@ -407,8 +402,6 @@ export function judgeWeightedSignalOptions(
       `calibration ran under judge_reliability@${run.options.specVersion}, not @${judgeSpec.version}`,
     );
   }
-  // The weight kind (ω vs p̂) comes from the run, the aggregation and c0 from
-  // the spec: a spec relabeled with another mode's version must not mix them.
   const runMode = run.options.reliabilityMode === "v4" ? "v4" : "v2";
   const specMode = judgeSpec.mode === "v4" ? "v4" : "v2";
   if (runMode !== specMode) {
@@ -435,8 +428,7 @@ export function judgeWeightedSignalOptions(
 
 /**
  * The per-judge weight in the form `computeReferralSignal` accepts: ω_u under
- * mode "v4", p̂_u exactly (no clamp) under "v2". Not exported: callers go
- * through `judgeWeightedSignalOptions`, which pairs the map with its spec.
+ * mode "v4", p̂_u exactly (no clamp) under "v2".
  */
 function reliabilityWeights(run: JudgeCalibrationRun): Map<string, number> {
   const v4 = run.options.reliabilityMode === "v4";
