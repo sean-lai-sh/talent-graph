@@ -37,7 +37,7 @@ import type { LoadedSpecs } from "../config.ts";
 import { DIMENSIONS } from "../domain/constants.ts";
 import type { Comparison, Opportunity, Outcome, Person, Referral } from "../domain/types.ts";
 import type { AdmissionObservations } from "../judges/admission.ts";
-import { councilSignalOptions } from "../judges/reliability.ts";
+import { judgeWeightOptions } from "../judges/reliability.ts";
 import { runCapabilityVectors } from "../models/definitions/bradleyTerry.ts";
 import { runJudgeCalibration } from "../models/definitions/judgeReliability.ts";
 import { runReferralSignals } from "../models/definitions/referralSignal.ts";
@@ -149,15 +149,11 @@ export function baselineReferralRun(result: AdvanceResult): RunOfKind<"referral_
   return run as RunOfKind<"referral_signal">;
 }
 
-/**
- * The judge-weighted (V2) Referral Signal run of a pass. Under shadow mode
- * that run *is* the baseline (see `advance`), so this returns the baseline
- * run rather than searching `runs` for a weighted run that was never made.
- */
+/** The judge-weighted (V2) Referral Signal run of a pass. */
 export function judgeWeightedReferralRun(result: AdvanceResult): RunOfKind<"referral_signal"> {
-  const run = result.state.judgeWeighted;
+  const run = result.runs.find((r) => r.kind === "referral_signal" && isJudgeWeighted(r));
   if (run === undefined) throw new Error("advance produced no judge-weighted referral_signal run");
-  return run;
+  return run as RunOfKind<"referral_signal">;
 }
 
 /**
@@ -219,19 +215,11 @@ export function advance(
   // …then the weights it produced, applied to the same Referral Signal spec.
   // The calibration run is named as lineage, so the two runs of this kind are
   // distinguishable by provenance rather than by a version tag.
-  //
-  // Under shadow mode the weights are reported but the council's signal stays
-  // unweighted, so the weighted run *is* the baseline run: nothing is
-  // recomputed, no lineage claims a calibration that changed no number, and
-  // the run list below does not carry one run twice.
-  const shadow = calibration.outputs.options.shadowMode === true;
-  const weighted = shadow
-    ? signals
-    : runReferralSignals(people, referrals, now, {
-        spec: specs.referral_signal,
-        ...councilSignalOptions(calibration.outputs),
-        judgeRunId: calibration.id,
-      });
+  const weighted = runReferralSignals(people, referrals, now, {
+    spec: specs.referral_signal,
+    ...judgeWeightOptions(calibration.outputs),
+    judgeRunId: calibration.id,
+  });
 
   const state: EngineState = {
     runs: {
@@ -241,9 +229,7 @@ export function advance(
     },
     judgeWeighted: weighted,
   };
-  const runs: readonly ModelRun[] = shadow
-    ? [signals, capability, calibration]
-    : [signals, capability, calibration, weighted];
+  const runs: readonly ModelRun[] = [signals, capability, calibration, weighted];
 
   return { state, runs, drift: driftReports(prev, state, opts.drift) };
 }

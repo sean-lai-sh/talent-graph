@@ -42,8 +42,8 @@ import type {
 import type { CapabilityRun } from "../../../../src/inference/capabilityVector.ts";
 import type { AdmissionObservations } from "../../../../src/judges/admission.ts";
 import {
-  councilSignalOptions,
   type JudgeCalibrationRun,
+  judgeWeightOptions,
 } from "../../../../src/judges/reliability.ts";
 import {
   advance,
@@ -144,7 +144,7 @@ export function runClubPass(input: ClubPassInput): ClubPass {
     signalWithout: (candidateId) =>
       signalWithoutEachReferrer(candidateId, referrals, {
         spec: specs.referral_signal,
-        ...councilSignalOptions(calibration.outputs),
+        ...judgeWeightOptions(calibration.outputs),
       }),
     provenance: {
       modelRunIds: result.runs.map((run) => run.id),

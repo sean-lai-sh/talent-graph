@@ -110,11 +110,6 @@ export interface JudgeReliabilitySpec {
    */
   admission?: AdmissionSpec;
   /**
-   * "v4" only. When true the weights are computed and reported, but the Referral
-   * Signal the council sees stays unweighted (see `councilSignalOptions`).
-   */
-  shadowMode?: boolean;
-  /**
    * Opportunity-count thresholds that bucket people for the expectation
    * E[R_v | O_v]. `[1, 2, 3]` ⇒ buckets {0}, {1}, {2}, {3+}. Empty ⇒ one
    * bucket, i.e. no opportunity correction.
@@ -427,16 +422,12 @@ function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string
       }
     }
     if (spec.admission !== undefined) validateAdmissionSpec(spec.admission, errors);
-    if (spec.shadowMode !== undefined && typeof spec.shadowMode !== "boolean") {
-      errors.push("shadowMode must be a boolean");
-    }
   } else if (
     spec.softCap !== undefined ||
     spec.weightExponent !== undefined ||
-    spec.admission !== undefined ||
-    spec.shadowMode !== undefined
+    spec.admission !== undefined
   ) {
-    errors.push('softCap, weightExponent, admission and shadowMode apply only under mode "v4"');
+    errors.push('softCap, weightExponent and admission apply only under mode "v4"');
   }
   if (!Array.isArray(spec.opportunityBuckets)) {
     errors.push("opportunityBuckets must be an array of thresholds");

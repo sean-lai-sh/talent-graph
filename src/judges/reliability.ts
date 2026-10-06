@@ -128,8 +128,6 @@ export interface JudgeCalibrationRun {
     applyBiasCorrection: boolean;
     /** Present only under "v4"; absent under "v2" so v2 outputs and run ids are unchanged. */
     reliabilityMode?: "v4";
-    /** Present only when the spec sets it, like `reliabilityMode`. */
-    shadowMode?: true;
   };
   /** Positions and admission terms; present only when the spec has an admission term. */
   admission?: AdmissionResult;
@@ -334,7 +332,6 @@ export function computeJudgeCalibration(input: JudgeCalibrationInput): JudgeCali
       judgesWithEvidence: withEvidence.length,
       applyBiasCorrection: spec.applyBiasCorrection,
       ...(spec.mode === "v4" ? { reliabilityMode: "v4" as const } : {}),
-      ...(spec.shadowMode === true ? { shadowMode: true as const } : {}),
     },
     ...(admission === undefined ? {} : { admission }),
   };
@@ -352,17 +349,6 @@ export function judgeWeightOptions(run: JudgeCalibrationRun): {
   return run.options.applyBiasCorrection
     ? { judgeReliability, judgeBias: biasCorrections(run) }
     : { judgeReliability };
-}
-
-/**
- * What the council's Referral Signal is computed with. Under shadow mode the
- * weights exist (admins can read them) but the signal stays unweighted, so no
- * option is passed and the run is the V0 baseline; otherwise `judgeWeightOptions`.
- */
-export function councilSignalOptions(
-  run: JudgeCalibrationRun,
-): ReturnType<typeof judgeWeightOptions> | Record<string, never> {
-  return run.options.shadowMode === true ? {} : judgeWeightOptions(run);
 }
 
 /**

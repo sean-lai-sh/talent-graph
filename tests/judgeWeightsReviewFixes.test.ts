@@ -24,27 +24,51 @@ import { generateSeed } from "../src/seed/generate.ts";
 
 /** Registered current versions, never the ambient env. */
 const SPECS = loadSpecs({}, { warn: () => {} });
-const SHADOW: LoadedSpecs = { ...SPECS, judge_reliability: JUDGE_RELIABILITY_V4_1_0 };
+const V4_1: LoadedSpecs = { ...SPECS, judge_reliability: JUDGE_RELIABILITY_V4_1_0 };
 const RUN_IDS = join(import.meta.dir, "fixtures", "run-ids-golden.json");
 /** The golden run ids' evaluation time step. */
 const T = new Date("2026-12-31T00:00:00.000Z");
 
-describe("a club pass under the shadow spec 4.1.0", () => {
+describe("a club pass under spec 4.1.0 uses the weighted signal", () => {
   test("an empty club computes a view", () => {
-    expect(() => computeWorld(emptyState("2026-06-01T00:00:00.000Z"), SHADOW)).not.toThrow();
+    expect(() => computeWorld(emptyState("2026-06-01T00:00:00.000Z"), V4_1)).not.toThrow();
   });
 
-  test("the seeded club with a council decision computes a view, weighted = baseline", () => {
+  test("the seeded club with a council decision runs a separate judge-weighted signal", () => {
     const seeded = initialState();
     const candidate = seeded.people.find((p) => p.status === "candidate");
     if (candidate === undefined) throw new Error("seed has no candidate");
     const state = decide(seeded, candidate.id, "admit").state;
-    const world = computeWorld(state, SHADOW);
-    // Shadow mode: the weighted run is the baseline, so the pass lists it once.
+    const world = computeWorld(state, V4_1);
     const signalRuns = world.provenance.modelRunIds.filter((id) =>
       id.startsWith("referral_signal/"),
     );
-    expect(signalRuns).toHaveLength(1);
+    // Baseline and weighted are two runs, not one aliased run.
+    expect(signalRuns).toHaveLength(2);
+    expect(new Set(signalRuns).size).toBe(2);
+  });
+
+  test("the council's V2 signal is the ω-weighted run, not the unweighted baseline", () => {
+    const data = generateSeed();
+    const pass = runClubPass({
+      people: data.people,
+      referrals: data.referrals,
+      comparisons: data.comparisons,
+      outcomes: data.outcomes,
+      opportunities: data.opportunities,
+      admission: { decisions: [], channels: new Map() },
+      now: T,
+      specs: V4_1,
+    });
+    expect(pass.provenance.specVersions.judge_reliability).toBe("4.1.0");
+    const expected = runReferralSignals(data.people, data.referrals, T, {
+      ...judgeWeightOptions(pass.calibration),
+    }).outputs;
+    const differs = [...pass.v2].some(([id, r]) => r.signal !== pass.v0.get(id)?.signal);
+    expect(differs).toBe(true);
+    for (const [id, r] of pass.v2) {
+      expect(r.signal).toBeCloseTo(expected.get(id)?.signal ?? Number.NaN, 12);
+    }
   });
 });
 
