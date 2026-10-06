@@ -25,9 +25,12 @@ import {
 } from "../apps/club/lib/longitudinal/claimJudgmentV12.ts";
 import {
   claimsAtCutoff,
+  currentSnapshot,
   evidenceCutoff,
   planSnapshot,
+  type SnapshotKind,
   type SnapshotRow,
+  type StoredSnapshot,
 } from "../apps/club/lib/longitudinal/evidenceSnapshots.ts";
 import { githubUsername, resumeEvidence } from "../apps/club/lib/longitudinal/evidenceSources.ts";
 import { claimLines, rawResumeLines } from "../apps/club/lib/longitudinal/resumeLines.ts";
@@ -289,11 +292,16 @@ function world(options: { github?: string | null } = {}) {
       for (const run of runs) await d.call("evidence:check", run.args);
       return runs.length;
     },
+    /** In insertion order: `computedAt` is the action's clock and orders nothing. */
     snapshots(kind?: string) {
       return d.db
         .rows("evidenceSnapshots")
-        .filter((row) => kind === undefined || row.kind === kind)
-        .sort((a, b) => String(a.computedAt).localeCompare(String(b.computedAt)));
+        .filter((row) => kind === undefined || row.kind === kind);
+    },
+    /** The id of the current row of a kind, as every reader resolves it. */
+    current(kind: SnapshotKind) {
+      const rows = d.db.rows("evidenceSnapshots") as unknown as StoredSnapshot[];
+      return currentSnapshot(rows, kind)?.id ?? null;
     },
     intakeRow() {
       const row = d.db.rows("evidenceIntakes")[0];
@@ -378,8 +386,7 @@ describe("snapshots are frozen", () => {
     expect(s0Rows[1]?.correctsSnapshotId).toBe(String(frozen?.id));
     expect(s0Rows[1]?.inputHash).not.toBe(frozen?.inputHash);
     // The newest correction is the one read.
-    const current = s0Rows.reduce((a, b) => (String(b.computedAt) > String(a.computedAt) ? b : a));
-    expect(current.id).toBe(s0Rows[1]?.id);
+    expect(w.current("s0")).toBe(String(s0Rows[1]?.id));
   });
 });
 
@@ -442,6 +449,36 @@ describe("corrections and reruns", () => {
     expect(after[1]?.correctsSnapshotId).toBe(String(original?.id));
     expect(Number(after[1]?.claimCount)).toBeGreaterThan(Number(original?.claimCount));
   });
+
+  for (const [label, correctionAt] of [
+    ["in the same millisecond as", day(61)],
+    ["on a host whose clock reads earlier than", new Date(day(61).getTime() - 60 * 60 * 1000)],
+  ] as const) {
+    test(`a correction computed ${label} its original is still current, and a rerun writes nothing`, async () => {
+      const w = world({ github: null });
+      await w.upload(RESUME_ONE);
+      await w.intake();
+      setSystemTime(day(61));
+      await w.daily();
+      const [original] = w.snapshots("s0");
+      if (!original) throw new Error("no s0");
+
+      setSystemTime(correctionAt);
+      await w.upload(RESUME_TWO);
+      await w.check();
+      const rows = w.snapshots("s0");
+      expect(rows.length).toBe(2);
+      const correction = rows[1];
+      expect(correction?.correctsSnapshotId).toBe(String(original.id));
+      expect(String(correction?.computedAt) <= String(original.computedAt)).toBe(true);
+      expect(w.current("s0")).toBe(String(correction?.id));
+
+      // The original's inputHash is not current again: reruns write nothing.
+      await w.check();
+      await w.check();
+      expect(w.snapshots("s0")).toEqual(rows);
+    });
+  }
 
   test("a cron run twice writes once", async () => {
     const w = world();

@@ -14,7 +14,7 @@
  *
  * A snapshot row never changes. Evidence dated on or before a cutoff that
  * arrives after that snapshot was written adds a correction row
- * (`correctsSnapshotId`), and the newest correction is the one read, so
+ * (`correctsSnapshotId`), and the head of that chain is the one read, so
  * withholding evidence cannot create movement.
  */
 
@@ -77,6 +77,7 @@ export interface StoredSnapshot {
   kind: SnapshotKind;
   inputHash: string;
   classYear: number | null;
+  /** When the row was computed, by the action host's clock. Display only: never ordering. */
   computedAt: string;
   correctsSnapshotId?: string;
 }
@@ -140,14 +141,29 @@ export function claimsAtCutoff(
     .map(({ claim }) => claim);
 }
 
-/** The newest row of a kind: the latest correction, else the original. */
+/**
+ * The current row of a kind: the head of its correction chain, the one row no
+ * other row corrects. Never `computedAt`, which is the action host's clock: a
+ * correction written in the same millisecond as its original, or on a host
+ * whose clock runs behind, must still supersede it. `writeSnapshots` only
+ * writes a row that corrects the current head, so the chain never branches;
+ * a kind with more than one head is corrupt and throws.
+ */
 export function currentSnapshot<T extends StoredSnapshot>(
   rows: readonly T[],
   kind: SnapshotKind,
 ): T | null {
   const ofKind = rows.filter((row) => row.kind === kind);
   if (ofKind.length === 0) return null;
-  return ofKind.reduce((latest, row) => (row.computedAt > latest.computedAt ? row : latest));
+  const corrected = new Set(ofKind.map((row) => row.correctsSnapshotId));
+  const heads = ofKind.filter((row) => !corrected.has(row.id));
+  const [head] = heads;
+  if (head === undefined || heads.length > 1) {
+    throw new Error(
+      `snapshot ${kind} of ${ofKind.length} rows has ${heads.length} heads: ${heads.map((row) => row.id).join(", ")}`,
+    );
+  }
+  return head;
 }
 
 /**

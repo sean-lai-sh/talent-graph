@@ -5,6 +5,7 @@ import { normalizeOrgName } from "../../../src/longitudinal/companySeed.ts";
 import { loadClub } from "../lib/clubStore.ts";
 import { type ClaimJudgment, judgeClaimsV12 } from "../lib/longitudinal/claimJudgmentV12.ts";
 import {
+  currentSnapshot,
   dueSnapshotKinds,
   nextSnapshot,
   planSnapshot,
@@ -358,11 +359,7 @@ export const writeSnapshots = internalMutation({
           q.eq("candidateId", personId).eq("kind", row.kind),
         )
         .collect();
-      const current = ofKind.reduce<Doc<"evidenceSnapshots"> | null>(
-        (latest, candidate) =>
-          latest === null || candidate.computedAt > latest.computedAt ? candidate : latest,
-        null,
-      );
+      const current = currentSnapshot(ofKind, row.kind);
       if (current?.inputHash === row.inputHash) continue;
       if ((current?.id ?? undefined) !== row.correctsSnapshotId) continue;
       await ctx.db.insert("evidenceSnapshots", { clubId, ...row });
