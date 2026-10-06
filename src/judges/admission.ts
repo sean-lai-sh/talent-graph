@@ -146,7 +146,9 @@ export function admissionSign(outcome: "admitted" | "denied", admitRate: number)
 }
 
 export function relianceOn(signal: number, signalWithout: number): number {
-  if (!(signal > 0)) return 0;
+  // With S <= 0 (so S^{-u} <= 0 too) nothing else supported the candidate, so a
+  // sole advocate gets full reliance and 0 credit, the same as skipping the term.
+  if (!(signal > 0)) return 1;
   return Math.min(1, Math.max(0, (signal - signalWithout) / signal));
 }
 

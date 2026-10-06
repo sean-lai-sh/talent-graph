@@ -106,6 +106,41 @@ describe("admission credit", () => {
     expect(single("admitted", 5)?.credit).toBeCloseTo(ADM.kappa / 2, 12);
   });
 
+  test("a frozen signal of 0 gives 0 credit, sole advocate or several", () => {
+    for (const outcome of ["admitted", "denied"] as const) {
+      const ref = referral("alice", "bob", 1);
+      const term = admit(
+        [ref],
+        obs([
+          decision({
+            candidateId: "bob",
+            outcome,
+            signal: 0,
+            signalWithout: [{ referrerId: "alice", signalWithout: 0 }],
+          }),
+        ]),
+      ).terms[0];
+      expect(term?.credit).toBe(0);
+    }
+    const refs = ["alice", "carol", "dave"].map((from, i) => referral(from, "bob", i + 1));
+    const res = admit(
+      refs,
+      obs([
+        decision({
+          candidateId: "bob",
+          signal: 0,
+          signalWithout: ["alice", "carol", "dave"].map((referrerId) => ({
+            referrerId,
+            signalWithout: 0,
+          })),
+        }),
+      ]),
+    );
+    expect(res.terms).toHaveLength(3);
+    for (const t of res.terms) expect(t.credit).toBe(0);
+    expect(single("admitted", 10)?.credit).toBeCloseTo(ADM.kappa, 12);
+  });
+
   test("expected early credit is 0 at the base rate for ρ in {0, 0.5, 1}", () => {
     for (const priorAdmitRate of [ADM.priorAdmitRate, 0.08, 0.3]) {
       for (const without of [10, 5, 0]) {
