@@ -296,7 +296,7 @@ describe("judgeReliabilityDrift on w and ω", () => {
   const v4 = calibrate(JUDGE_RELIABILITY_V4_0_0);
   const evaluated = (run: typeof v4) =>
     [...run.estimates.values()].filter((e) => e.evaluatedCount >= 1);
-  const valueOf = (r: ReturnType<typeof judgeReliabilityDrift>, judgeId: string) =>
+  const moverOf = (r: ReturnType<typeof judgeReliabilityDrift>, judgeId: string) =>
     r.largestMovers.find((m) => m.personId === judgeId);
 
   test("v4 against itself is stable on w and ω", () => {
@@ -342,7 +342,7 @@ describe("judgeReliabilityDrift on w and ω", () => {
       ),
     };
     const moved = judgeReliabilityDrift(v4, shifted, "weight");
-    const mover = valueOf(moved, e.judgeId);
+    const mover = moverOf(moved, e.judgeId);
     expect(mover?.before).toBeCloseTo(e.weight * 100, 10);
     expect(mover?.after).toBeCloseTo((e.weight / 2) * 100, 10);
     // The ω arm does not see a w-only edit.
