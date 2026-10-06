@@ -118,7 +118,10 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
 - **What:** 4.0.0 plus an admission term, from the council's first decision
   (admit or deny) on each candidate. New spec fields `admission`
   `{ κ_a 0.25, Lᴬ 0.75, α 0.75, φ 0.2, priorAdmitRate 12/150, priorAdmitWeight 150 }`.
-  Position: a candidate's referrals rank by `createdAt`
+  Eligibility: an outbound candidate ranks only interview rows (an
+  interviewer's yes); an inbound one ranks referral and interview rows. A row
+  with no origin is a referral, and a person with no channel is inbound.
+  Position: a candidate's eligible referrals rank by `createdAt`
   (one per judge; self-referrals and repeats take none; equal times share the
   average share), `share(k) = max(φ, 1/k^α)`. Per referral,
   `a = +1` if admitted, `−r/(1−r)` if denied (r = the candidate's channel
@@ -142,6 +145,14 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   normal rate at 0.
 - **Admission credit timing:** a referral without a Jev starting snapshot would
   wait for step 4; until it exists the credit applies once the decision stands.
+- **Accepted for now:** three choices stand until the pipeline simulation
+  (PR #116) checks them, before 4.1.0 becomes current.
+  - A sole advocate has an expected admission credit of about `−κ_a · r`, about
+    −0.02 per candidate at the base rate. With no other referrer, ρ = 1, so an
+    admission earns 0, while a denial still pays the full centred debit.
+  - The admit-rate prior is a blend of 150 pseudo-decisions at 12/150 with
+    the channel's history.
+  - ρ uses the rounded display signals, not the unrounded ones.
 - **Not current:** `CURRENT_SPECS.judge_reliability` stays 2.0.0.
 - **Drift:** on the seed, which has no council decisions and so no admission
   credit. `--before 4.0.0 --after 4.1.0`: STABLE on all five reports (τ_b 1.000,
