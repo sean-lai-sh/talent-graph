@@ -578,10 +578,15 @@ describe("outputOnlyRollup thin candidates", () => {
   });
 
   test("fewer output claims than the minimum is thin even when strong", () => {
-    const records = [outputRecord("rec-a", 4), outputRecord("rec-b", 4)];
+    const records = [outputRecord("rec-a", 4), outputRecord("rec-b", 3)];
     const result = run([claim("a"), claim("b")], records);
+    const measured =
+      ([4, 3] as const)
+        .map((at) => scoreClaimValueV12(outputSubject(at), "self_reported").claimValue)
+        .reduce((sum, value) => sum + value, 0) / 2;
+    expect(measured).toBeGreaterThan(0.3);
     expect(result.thin).toBe(true);
-    expect(result.substance).toBeGreaterThanOrEqual(0.3);
+    expect(result.substance).toBeCloseTo(measured, 12);
   });
 
   test("enough strong output claims is not thin and keeps its own substance", () => {
