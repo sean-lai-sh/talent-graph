@@ -47,6 +47,7 @@ import {
   reviveState,
 } from "../serialize.ts";
 import type {
+  AddCallInput,
   AddComparisonInput,
   AddEvaluationInput,
   AddPersonInput,
@@ -120,8 +121,9 @@ function recordSnapshot(
   person: ClubPerson,
   decision: string,
   deps: EngineDeps,
+  decidedBy?: string,
 ): ClubView {
-  const { view, provenance } = deps.computeWorld(next);
+  const { view, provenance, signalWithout } = deps.computeWorld(next);
   const dossier = view.people.find((p) => p.id === person.id);
   const values = {
     referralSignal: dossier?.v2Signal ?? null,
@@ -143,6 +145,10 @@ function recordSnapshot(
     createdAt: next.now,
     modelRunIds: [...prediction.modelRunIds],
     specVersions: { ...provenance.specVersions },
+    // What the council saw without each referrer, so a judge earns no early
+    // credit for an admission their own referral carried.
+    signalWithout: signalWithout(person.id),
+    ...(decidedBy === undefined ? {} : { decidedBy }),
   };
   next.snapshots = [snapshot, ...next.snapshots];
   // Cloned, not shared: the view a caller holds may not be a live handle on
@@ -176,6 +182,7 @@ export function addPerson(state: ClubState, input: AddPersonInput): EngineResult
   if (phone !== undefined) person.phone = phone;
   if (linkedin !== undefined) person.linkedin = linkedin;
   if (resume !== undefined) person.resume = resume;
+  if (input.channel !== undefined) person.channel = input.channel;
   next.people.push(person);
   return ok(next);
 }
@@ -202,12 +209,17 @@ export function setStatus(
   return { state: next, view: recordSnapshot(next, person, status, deps) };
 }
 
-/** Council decision. Review status drives the engine status, never the reverse. */
+/**
+ * Council decision. Review status drives the engine status, never the reverse.
+ * `decidedBy` is the person id of the admin who clicked decide, when they have
+ * one; that person earns no admission credit from this decision.
+ */
 export function decide(
   state: ClubState,
   personId: string,
   decision: Decision,
   deps: EngineDeps = DEFAULT_DEPS,
+  decidedBy?: string,
 ): EngineResult {
   const next = reviveState(state);
   const person = knownPerson(next, personId);
@@ -220,7 +232,7 @@ export function decide(
   person.reviewStatus = target;
   person.status = statusForReview(target);
   person.updatedAt = next.now;
-  return { state: next, view: recordSnapshot(next, person, target, deps) };
+  return { state: next, view: recordSnapshot(next, person, target, deps, decidedBy) };
 }
 
 export function addReferral(state: ClubState, input: AddReferralInput): EngineResult {
@@ -242,7 +254,56 @@ export function addReferral(state: ClubState, input: AddReferralInput): EngineRe
   };
   const check = validateReferral(referral, next.referrals.map(clubToReferral));
   if (!check.ok) return fail(next, check.errors.join("; "));
-  next.referrals.push(referralToClub(referral));
+  next.referrals.push({
+    ...referralToClub(referral),
+    ...(input.origin === undefined ? {} : { origin: input.origin }),
+    ...(input.recognition === undefined ? {} : { recognition: input.recognition }),
+  });
+  return ok(next);
+}
+
+/**
+ * Record a pre-council call. A yes creates an engine referral by the caller
+ * (origin "interview") and so takes the next open position; a maybe takes no
+ * position and carries no stake; a hard no is stored and never scored. A
+ * candidate has at most two calls, and a second call follows a call that did
+ * not stop the candidate.
+ */
+export function addCall(state: ClubState, input: AddCallInput): EngineResult {
+  const next = reviveState(state);
+  for (const id of [input.candidateId, input.callerId]) {
+    if (!knownPerson(next, id)) return fail(next, `unknown person: ${id}`);
+  }
+  if (input.callerId === input.candidateId) return fail(next, "a caller cannot call themselves");
+  if (input.order !== 1 && input.order !== 2) return fail(next, "order must be 1 or 2");
+  const existing = next.calls.filter((c) => c.candidateId === input.candidateId);
+  if (existing.some((c) => c.order === input.order)) {
+    return fail(next, `call ${input.order} already recorded`);
+  }
+  if (input.order === 2) {
+    const first = existing.find((c) => c.order === 1);
+    if (!first) return fail(next, "record call 1 first");
+    if (first.outcome === "no") return fail(next, "call 1 was a hard no");
+  }
+  if (input.outcome === "yes") {
+    if (!input.referral) return fail(next, "a yes needs the caller's referral ratings");
+    const referred = addReferral(next, {
+      referrerId: input.callerId,
+      candidateId: input.candidateId,
+      ...input.referral,
+      origin: "interview",
+    });
+    if (referred.error !== undefined) return fail(next, referred.error);
+    next.referrals = referred.state.referrals;
+  }
+  next.calls.push({
+    id: nextId("call"),
+    candidateId: input.candidateId,
+    callerId: input.callerId,
+    order: input.order,
+    outcome: input.outcome,
+    createdAt: next.now,
+  });
   return ok(next);
 }
 

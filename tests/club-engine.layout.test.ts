@@ -20,6 +20,7 @@ const ENGINE_EXPORTS = [
   "INTERESTING_GAP",
   "OWNER_EVALUATOR_ID",
   "OWNER_NAME",
+  "addCall",
   "addComparison",
   "addEvaluation",
   "addPerson",

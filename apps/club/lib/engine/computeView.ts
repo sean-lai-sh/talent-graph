@@ -43,7 +43,8 @@ import type {
   ReviewStatus,
   TrackRecordView,
 } from "../types.ts";
-import { type ClubProvenance, runClubPass } from "./pass.ts";
+import { admissionObservations } from "./admission.ts";
+import { type ClubPass, type ClubProvenance, runClubPass } from "./pass.ts";
 import { buildPersonViews } from "./personView.ts";
 
 const NOT_SCORED: TrackRecordView = { label: "not_scored", evaluatedCount: 0, trust: null };
@@ -58,6 +59,8 @@ function referralsAsOf<T extends { createdAt: Date }>(rows: T[], now: Date): T[]
 export interface ClubWorld {
   view: ClubView;
   provenance: ClubProvenance;
+  /** Leave-one-judge-out signals of the same pass; see `ClubPass.signalWithout`. */
+  signalWithout: ClubPass["signalWithout"];
 }
 
 export function computeView(input: ClubState, specs: LoadedSpecs = loadSpecs()): ClubView {
@@ -88,12 +91,14 @@ export function computeWorld(input: ClubState, specs: LoadedSpecs = loadSpecs())
     calibration: cal,
     capability: cap,
     provenance,
+    signalWithout,
   } = runClubPass({
     people,
     referrals: referralsNow,
     comparisons,
     outcomes,
     opportunities,
+    admission: admissionObservations(state),
     now,
     specs,
   });
@@ -217,5 +222,5 @@ export function computeWorld(input: ClubState, specs: LoadedSpecs = loadSpecs())
     people: personViews.sort((a, b) => a.name.localeCompare(b.name)),
     snapshots: state.snapshots,
   };
-  return { view, provenance };
+  return { view, provenance, signalWithout };
 }

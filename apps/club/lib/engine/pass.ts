@@ -40,7 +40,11 @@ import type {
   Referral,
 } from "../../../../src/domain/types.ts";
 import type { CapabilityRun } from "../../../../src/inference/capabilityVector.ts";
-import type { JudgeCalibrationRun } from "../../../../src/judges/reliability.ts";
+import type { AdmissionObservations } from "../../../../src/judges/admission.ts";
+import {
+  councilSignalOptions,
+  type JudgeCalibrationRun,
+} from "../../../../src/judges/reliability.ts";
 import {
   advance,
   baselineReferralRun,
@@ -52,7 +56,8 @@ import {
   type ScoredReferralGraph,
   scoreReferralGraph,
 } from "../../../../src/scoring/scoredGraph.ts";
-import type { ClubSpecVersions } from "../types.ts";
+import { signalWithoutEachReferrer } from "../../../../src/scoring/signalWithout.ts";
+import type { ClubSignalWithout, ClubSpecVersions } from "../types.ts";
 
 /** What a decision snapshot records about the pass it was taken on. */
 export interface ClubProvenance {
@@ -72,6 +77,11 @@ export interface ClubPass {
   /** Relative Capability Estimates of the same pass. */
   capability: CapabilityRun;
   provenance: ClubProvenance;
+  /**
+   * The council-facing Referral Signal for `candidateId` without each of its
+   * referrers, in display units (the scale of a snapshot's `referralSignal`).
+   */
+  signalWithout: (candidateId: string) => ClubSignalWithout[];
 }
 
 export interface ClubPassInput {
@@ -81,6 +91,8 @@ export interface ClubPassInput {
   comparisons: readonly Comparison[];
   outcomes: readonly Outcome[];
   opportunities: readonly Opportunity[];
+  /** Council decisions and channels, read by a calibration spec with an admission term. */
+  admission?: AdmissionObservations;
   now: Date;
   specs: LoadedSpecs;
 }
@@ -95,10 +107,17 @@ export interface ClubPassInput {
  * report list imply it.
  */
 export function runClubPass(input: ClubPassInput): ClubPass {
-  const { people, referrals, comparisons, outcomes, opportunities, now, specs } = input;
+  const { people, referrals, comparisons, outcomes, opportunities, admission, now, specs } = input;
   const result = advance(
     null,
-    { people, referrals, comparisons, outcomes, opportunities },
+    {
+      people,
+      referrals,
+      comparisons,
+      outcomes,
+      opportunities,
+      ...(admission ? { admission } : {}),
+    },
     specs,
     now,
     // `asOf` is idempotent on an already-filtered set; it is passed so the
@@ -122,6 +141,11 @@ export function runClubPass(input: ClubPassInput): ClubPass {
     v2: weighted.outputs,
     calibration: calibration.outputs,
     capability: capability.outputs,
+    signalWithout: (candidateId) =>
+      signalWithoutEachReferrer(candidateId, referrals, {
+        spec: specs.referral_signal,
+        ...councilSignalOptions(calibration.outputs),
+      }),
     provenance: {
       modelRunIds: result.runs.map((run) => run.id),
       specVersions: {

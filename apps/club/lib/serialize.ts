@@ -219,6 +219,9 @@ export function cloneSnapshot(snapshot: ClubSnapshot): ClubSnapshot {
     values: { ...snapshot.values },
     ...(snapshot.modelRunIds === undefined ? {} : { modelRunIds: [...snapshot.modelRunIds] }),
     ...(snapshot.specVersions === undefined ? {} : { specVersions: { ...snapshot.specVersions } }),
+    ...(snapshot.signalWithout === undefined
+      ? {}
+      : { signalWithout: snapshot.signalWithout.map((x) => ({ ...x })) }),
   };
 }
 
@@ -235,6 +238,7 @@ export function reviveState(state: ClubState): ClubState {
       reviewStatus: p.reviewStatus ?? defaultReviewStatus(p.status),
     })),
     referrals: (partial.referrals ?? []).map((r) => ({ ...r })),
+    calls: (partial.calls ?? []).map((c) => ({ ...c })),
     comparisons: (partial.comparisons ?? []).map((c) => ({ ...c })),
     evaluations: (partial.evaluations ?? []).map((e) => ({ ...e })),
     outcomes: (partial.outcomes ?? []).map((o) => ({ ...o })),
