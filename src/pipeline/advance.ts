@@ -149,11 +149,15 @@ export function baselineReferralRun(result: AdvanceResult): RunOfKind<"referral_
   return run as RunOfKind<"referral_signal">;
 }
 
-/** The judge-weighted (V2) Referral Signal run of a pass. */
+/**
+ * The judge-weighted (V2) Referral Signal run of a pass. Under shadow mode
+ * that run *is* the baseline (see `advance`), so this returns the baseline
+ * run rather than searching `runs` for a weighted run that was never made.
+ */
 export function judgeWeightedReferralRun(result: AdvanceResult): RunOfKind<"referral_signal"> {
-  const run = result.runs.find((r) => r.kind === "referral_signal" && isJudgeWeighted(r));
+  const run = result.state.judgeWeighted;
   if (run === undefined) throw new Error("advance produced no judge-weighted referral_signal run");
-  return run as RunOfKind<"referral_signal">;
+  return run;
 }
 
 /**
