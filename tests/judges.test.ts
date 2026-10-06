@@ -14,7 +14,6 @@ import {
   estimateJudgeReliability,
   type JudgeCalibrationRun,
   judgeWeightedSignalOptions,
-  reliabilityWeights,
   scoreReferralPredictions,
   toJudgeBias,
   toJudgeCalibration,
@@ -573,7 +572,7 @@ describe("computeJudgeCalibration and the Referral Signal hook", () => {
 
   test("with outcomes the unreliable judge's referral contributes less", () => {
     const run = computeJudgeCalibration({ people, referrals, outcomes, now: NOW });
-    const weights = reliabilityWeights(run);
+    const weights = weighted(run).judgeReliability;
     expect(weights.get("good")).toBeGreaterThan(weights.get("bad") as number);
     expect(run.options.evaluatedReferrals).toBe(4);
     expect(run.options.judgesWithEvidence).toBe(2);

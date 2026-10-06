@@ -66,7 +66,7 @@ export interface DriftMover {
  * - `weight`: w_u, the weight admins see. Under mode "v2" there is no
  *   separate w: p̂_u is the weight, so p̂_u is what is compared.
  * - `omega`: the weight the signal is actually multiplied by, as
- *   `reliabilityWeights` hands it over: ω_u under "v4", p̂_u under "v2".
+ *   `judgeWeightedSignalOptions` hands it over: ω_u under "v4", p̂_u under "v2".
  */
 export type JudgeDriftMeasure = "reliability" | "bias" | "weight" | "omega";
 

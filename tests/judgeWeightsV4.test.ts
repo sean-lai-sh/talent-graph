@@ -13,7 +13,6 @@ import {
   estimateJudgeReliability,
   judgePseudoWeight,
   judgeWeightedSignalOptions,
-  reliabilityWeights,
   type ScoredPrediction,
   toJudgeCalibration,
 } from "../src/judges/reliability.ts";
@@ -112,7 +111,7 @@ describe('judge_reliability mode "v2" is the compatibility branch', () => {
 
   test("signal weights are p̂ exactly (no clamp), and w and ω are absent", () => {
     const run = computeJudgeCalibration({ people, referrals, outcomes, now: NOW, spec: V2 });
-    const weights = reliabilityWeights(run);
+    const weights = judgeWeightedSignalOptions(run, V2, REFERRAL_SIGNAL_V0_1_0).judgeReliability;
     expect(weights.size).toBe(run.estimates.size);
     for (const e of run.estimates.values()) {
       expect(weights.get(e.judgeId)).toBe(e.reliability);
@@ -122,9 +121,6 @@ describe('judge_reliability mode "v2" is the compatibility branch', () => {
     // A perfect judge reaches exactly 1 and the prior judge exactly 1: no clamp below 1.
     expect(weights.get("good")).toBe(1);
     expect(weights.get("silent")).toBe(1);
-    expect(judgeWeightedSignalOptions(run, V2, REFERRAL_SIGNAL_V0_1_0).judgeReliability).toEqual(
-      weights,
-    );
   });
 });
 
@@ -156,7 +152,12 @@ describe('judge_reliability@4.0.0 (mode "v4")', () => {
       expect(e.weight).toBe(0.3);
       expect(e.omega).toBeCloseTo(0.09, 12);
     }
-    for (const w of reliabilityWeights(run).values()) expect(w).toBeCloseTo(0.09, 12);
+    for (const w of judgeWeightedSignalOptions(
+      run,
+      V4,
+      REFERRAL_SIGNAL_V0_1_0,
+    ).judgeReliability.values())
+      expect(w).toBeCloseTo(0.09, 12);
   });
 
   test("the signal is fed ω, not w or p̂", () => {
@@ -168,6 +169,25 @@ describe('judge_reliability@4.0.0 (mode "v4")', () => {
     }
     const good = run.estimates.get("good");
     expect(good?.omega).not.toBe(good?.reliability);
+  });
+
+  test("no export hands out a weight map without its spec", async () => {
+    // A bare ω map passed as judgeReliability under referral_signal@0.1.0's
+    // plain mean brings back the low-weight drag SEA-83 removes; the only way
+    // to signal weights is judgeWeightedSignalOptions, which pairs them with
+    // the spec they are aggregated under.
+    const mod = await import("../src/judges/reliability.ts");
+    expect(Object.keys(mod).sort()).toEqual([
+      "biasCorrections",
+      "computeJudgeCalibration",
+      "estimateJudgeReliability",
+      "judgePseudoWeight",
+      "judgeWeightedSignalOptions",
+      "scoreReferralPredictions",
+      "toJudgeBias",
+      "toJudgeCalibration",
+      "weightNormalizedReferralSpec",
+    ]);
   });
 
   test("w is monotone in p_u", () => {

@@ -14,11 +14,7 @@ import {
 } from "../src/analysis/drift.ts";
 import { loadSpecs } from "../src/config.ts";
 import { computeCapabilityVectors } from "../src/inference/capabilityVector.ts";
-import {
-  computeJudgeCalibration,
-  judgeWeightedSignalOptions,
-  reliabilityWeights,
-} from "../src/judges/reliability.ts";
+import { computeJudgeCalibration, judgeWeightedSignalOptions } from "../src/judges/reliability.ts";
 import {
   BRADLEY_TERRY_V1_0_0,
   JUDGE_RELIABILITY_V2_0_0,
@@ -310,10 +306,18 @@ describe("judgeReliabilityDrift on w and ω", () => {
     }
   });
 
-  test("the ω arm compares what reliabilityWeights hands the signal, on each side", () => {
+  test("the ω arm compares the weights the signal is handed, on each side", () => {
     const r = judgeReliabilityDrift(v2, v4, "omega");
-    const usedBefore = reliabilityWeights(v2);
-    const usedAfter = reliabilityWeights(v4);
+    const usedBefore = judgeWeightedSignalOptions(
+      v2,
+      JUDGE_RELIABILITY_V2_0_0,
+      REFERRAL_SIGNAL_V0_1_0,
+    ).judgeReliability;
+    const usedAfter = judgeWeightedSignalOptions(
+      v4,
+      JUDGE_RELIABILITY_V4_0_0,
+      REFERRAL_SIGNAL_V0_1_0,
+    ).judgeReliability;
     expect(r.largestMovers.length).toBeGreaterThan(0);
     for (const m of r.largestMovers) {
       expect(m.before).toBeCloseTo((usedBefore.get(m.personId) as number) * 100, 10);

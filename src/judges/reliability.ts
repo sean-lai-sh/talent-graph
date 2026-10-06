@@ -378,10 +378,11 @@ export function weightNormalizedReferralSpec(spec: ReferralSignalSpec): Referral
 
 /**
  * Everything the judge-weighted Referral Signal run takes from a calibration:
- * the weights (`reliabilityWeights`, plus `biasCorrections` when the judge spec
- * enables the correction) and the spec they are aggregated under. The only
- * way to turn a calibration into signal options: weights without their spec
- * would let a v4 run's ω reach 0.1.0's plain mean.
+ * the weights (ω_u or p̂_u, plus `biasCorrections` when the judge spec enables
+ * the correction) and the spec they are aggregated under. The only way to turn
+ * a calibration into signal weights: the raw weight map stays private to this
+ * module, because weights without their spec would let a v4 run's ω reach
+ * 0.1.0's plain mean (SEA-83).
  *
  * Under a mode "v4" judge spec (4.x) that is the weight-normalised
  * `referral_signal@0.2.0` with c0 = `judgePseudoWeight(judgeSpec)` (SEA-83):
@@ -418,9 +419,10 @@ export function judgeWeightedSignalOptions(
 
 /**
  * The per-judge weight in the form `computeReferralSignal` accepts: ω_u under
- * mode "v4", p̂_u exactly (no clamp) under "v2".
+ * mode "v4", p̂_u exactly (no clamp) under "v2". Not exported: callers go
+ * through `judgeWeightedSignalOptions`, which pairs the map with its spec.
  */
-export function reliabilityWeights(run: JudgeCalibrationRun): Map<string, number> {
+function reliabilityWeights(run: JudgeCalibrationRun): Map<string, number> {
   const v4 = run.options.reliabilityMode === "v4";
   return new Map(
     [...run.estimates.values()].map((e) => [e.judgeId, v4 ? (e.omega as number) : e.reliability]),
