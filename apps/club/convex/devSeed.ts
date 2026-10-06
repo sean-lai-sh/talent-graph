@@ -34,7 +34,8 @@ function adapterFor(ctx: MutationCtx) {
 }
 
 function requireDevSeed(): void {
-  const refusal = devSeedEnvError({ CLUB_DEV_SEED: process.env.CLUB_DEV_SEED });
+  const flag = process.env.CLUB_DEV_SEED;
+  const refusal = devSeedEnvError(flag === undefined ? {} : { CLUB_DEV_SEED: flag });
   if (refusal) throw new Error(refusal);
 }
 
