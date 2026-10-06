@@ -168,22 +168,18 @@ export function computeAdmission(
     if (r.createdAt.getTime() > d.at.getTime()) continue;
     if (d.decidedBy === r.referrerId) continue;
     if (d.unresolvedDecider?.adminReferrers.includes(r.referrerId)) continue;
-    if (d.signalWithout === undefined) continue;
-    let reliance = 0;
-    if (d.outcome === "admitted") {
-      const without = d.signalWithout.find((x) => x.referrerId === r.referrerId);
-      if (without === undefined || d.signal === null) continue;
-      reliance = relianceOn(d.signal, without.signalWithout);
-    }
+    const without = d.signalWithout?.find((x) => x.referrerId === r.referrerId);
+    if (without === undefined || d.signal === null) continue;
+    const reliance = relianceOn(d.signal, without.signalWithout);
     // Admission credit for a referral without a Jev starting snapshot waits for
     // step 4 (Jev-snapshot gating), which does not exist yet; until then credit
     // applies once the first council decision stands.
     const rate = admitRate[observations.channels.get(r.candidateId) ?? DEFAULT_CHANNEL];
     const sign = admissionSign(d.outcome, rate);
-    const credit = Math.min(
-      spec.limit,
-      Math.max(-spec.limit, spec.kappa * pos.share * sign * (1 - reliance)),
-    );
+    // `+ 0` turns the −0 of a denial with ρ = 1 into 0.
+    const credit =
+      Math.min(spec.limit, Math.max(-spec.limit, spec.kappa * pos.share * sign * (1 - reliance))) +
+      0;
     terms.push({
       referralId: r.id,
       judgeId: r.referrerId,
