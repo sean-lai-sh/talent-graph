@@ -26,7 +26,9 @@ import {
   companyByOrg,
   normalizeOrgName,
 } from "../src/longitudinal/companySeed.ts";
-import { projectConfigPath } from "../src/projectConfig/load.ts";
+import { generatedConfigPath, projectConfigPath } from "../src/projectConfig/load.ts";
+import { parseProjectConfig } from "../src/projectConfig/parse.ts";
+import { renderConfigModule } from "../src/projectConfig/render.ts";
 import { parseSmokeItems } from "./jev-claim-smoke.ts";
 
 const USAGE = [
@@ -66,11 +68,14 @@ const DEFAULT_DEPS: ResearchDeps = {
 export interface WorklistPaths {
   config: string;
   pin: string;
+  /** The generated module that scoring code imports; rewritten with config.yml. */
+  generated: string;
 }
 
 const DEFAULT_PATHS: WorklistPaths = {
   config: projectConfigPath(),
   pin: fileURLToPath(new URL("../src/projectConfig/companySeedPin.ts", import.meta.url)),
+  generated: generatedConfigPath(),
 };
 
 export async function main(
@@ -106,6 +111,7 @@ export async function main(
     const pin = await readFile(paths.pin, "utf8");
     await writeFile(paths.config, merged.text);
     await writeFile(paths.pin, pin.replace(/"[0-9a-f]{64}"/, `"${merged.hash}"`));
+    await writeFile(paths.generated, renderConfigModule(parseProjectConfig(merged.text)));
     const claimValueHash = claimValueV12ConfigHash({
       ...CLAIM_VALUE_V1_2_0,
       companySeedHash: merged.hash,
@@ -114,6 +120,7 @@ export async function main(
     return [
       `merged ${proposals.map((proposal) => proposal.name).join(", ")} into ${paths.config}`,
       `company_seed ${merged.hash} written to ${paths.pin}`,
+      `regenerated ${paths.generated}`,
       `claim_value@1.2.0 ${claimValueHash}: claims scored under this seed carry this config hash`,
       unknown.length === 0
         ? "every round investor is a seeded investor"

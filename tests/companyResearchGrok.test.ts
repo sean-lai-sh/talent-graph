@@ -28,13 +28,18 @@ async function quarry(): Promise<Record<string, unknown>> {
   return entry;
 }
 
-async function workspace(): Promise<{ dir: string; config: string; pin: string }> {
+async function workspace(): Promise<{
+  dir: string;
+  config: string;
+  pin: string;
+  generated: string;
+}> {
   const dir = await mkdtemp(join(tmpdir(), "grok-research-"));
   const config = join(dir, "config.yml");
   const pin = join(dir, "companySeedPin.ts");
   await copyFile(projectConfigPath(), config);
   await copyFile(PIN, pin);
-  return { dir, config, pin };
+  return { dir, config, pin, generated: join(dir, "generated.ts") };
 }
 
 type Call = {

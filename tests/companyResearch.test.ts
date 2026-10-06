@@ -13,6 +13,7 @@ import {
 } from "../src/longitudinal/companyResearch.ts";
 import { projectConfigPath } from "../src/projectConfig/load.ts";
 import { parseProjectConfig } from "../src/projectConfig/parse.ts";
+import { renderConfigModule } from "../src/projectConfig/render.ts";
 import { hashInputs } from "../src/provenance/hash.ts";
 import { SYNTHETIC_COMPANY_SEED } from "./fixtures/companySeed.synthetic.ts";
 
@@ -129,7 +130,11 @@ describe("company worklist", () => {
   });
 
   test("the script prints the same worklist as JSON", async () => {
-    const out = await main(["--items", ITEMS], { config: "", pin: "" }, SYNTHETIC_COMPANY_SEED);
+    const out = await main(
+      ["--items", ITEMS],
+      { config: "", pin: "", generated: "" },
+      SYNTHETIC_COMPANY_SEED,
+    );
     expect((JSON.parse(out) as { org: string }[]).map((item) => item.org)).toEqual([
       "Harborline",
       "Pine Widget",
@@ -148,7 +153,11 @@ async function configWithoutCompanies(): Promise<string> {
 describe("applying proposals", () => {
   test("merges into company_seed, keeps comments, rewrites the pin, and is idempotent", async () => {
     const dir = await mkdtemp(join(tmpdir(), "company-apply-"));
-    const paths = { config: join(dir, "config.yml"), pin: join(dir, "companySeedPin.ts") };
+    const paths = {
+      config: join(dir, "config.yml"),
+      pin: join(dir, "companySeedPin.ts"),
+      generated: join(dir, "generated.ts"),
+    };
     await writeFile(paths.config, await configWithoutCompanies());
     await copyFile(PIN, paths.pin);
 
@@ -159,6 +168,9 @@ describe("applying proposals", () => {
     expect(seed.companies.map((company) => company.name)).toEqual(["Quarry"]);
     expect(text).toContain("# companies[].hiringBar: a sourced hiring-bar note, or null.");
     expect(await readFile(paths.pin, "utf8")).toContain(`"${hash}"`);
+    expect(await readFile(paths.generated, "utf8")).toBe(
+      renderConfigModule(parseProjectConfig(text)),
+    );
     expect(out).toContain(`company_seed ${hash}`);
     expect(out).toContain(
       `claim_value@1.2.0 ${claimValueV12ConfigHash({ ...CLAIM_VALUE_V1_2_0, companySeedHash: hash })}`,
