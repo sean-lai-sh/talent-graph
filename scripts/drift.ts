@@ -32,6 +32,10 @@
  * `--v0-vs-v2` is the other question: not "what does a new spec do" but
  * "what do the judge weights do", the unweighted Referral Signal against the
  * judge-weighted one from a single pass, under one spec.
+ *
+ * `referral_signal@0.2.0` is refused on both paths with exit 2: it is used
+ * only by the judge-weighted run under a mode "v4" judge spec, so its report
+ * is `--kind judge_reliability --before 2.0.0 --after 4.1.0`.
  */
 
 import {
@@ -153,14 +157,35 @@ function report(reports: readonly DriftReport[]): never {
   process.exit(severity(worst.verdict) > severity(maxVerdict) ? 1 : 0);
 }
 
+/**
+ * A weight-normalised Referral Signal spec (0.2.0) cannot stand in for the
+ * whole pass's `referral_signal`: the V0 baseline stays on 0.1.0 by design
+ * and has no judge spec to derive c0 from, so 0.2.0 refuses it. A
+ * referral_signal-kind report would also show no movement if it ran, because
+ * only the judge-weighted run under a mode "v4" judge spec uses 0.2.0. That
+ * run is measured by the judge_reliability report's weighted arm.
+ */
+function refuseWeightNormalized(spec: SpecOfKind<"referral_signal">): void {
+  if (spec.aggregation !== "weight_normalized") return;
+  console.error(
+    `referral_signal@${spec.version} is weight-normalised and is used only by the judge-weighted run\n` +
+      `under a mode "v4" judge spec, which derives its pseudo-weight c0 from that judge spec. The V0\n` +
+      `baseline stays on 0.1.0 by design, so a referral_signal-kind report would show no movement.\n` +
+      `For what ${spec.version} does, run the judge_reliability report, whose weighted arm uses it:\n` +
+      `  bun run drift -- --kind judge_reliability --before 2.0.0 --after 4.1.0`,
+  );
+  process.exit(2);
+}
+
 /* ---------------------------------------------------------------- *
  * V0 vs V2 — one spec, one pass, judge weights on or off.
  * ---------------------------------------------------------------- */
 
 function getReferralSpec(version: string): SpecOfKind<"referral_signal"> {
-  return version === ENV_VERSION
-    ? loadSpecs().referral_signal
-    : getSpec("referral_signal", version);
+  const spec =
+    version === ENV_VERSION ? loadSpecs().referral_signal : getSpec("referral_signal", version);
+  refuseWeightNormalized(spec);
+  return spec;
 }
 
 if (flag("v0-vs-v2")) {
@@ -224,8 +249,13 @@ function resolveAfter(): SpecOfKind<typeof kind> {
   return resolveVersion(afterVersion as string);
 }
 
-const beforeSpecs = specsWith(base, kind, resolveVersion(beforeVersion));
-const afterSpecs = specsWith(base, kind, resolveAfter());
+const beforeSpec = resolveVersion(beforeVersion);
+const afterSpec = resolveAfter();
+for (const spec of [beforeSpec, afterSpec]) {
+  if (spec.kind === "referral_signal") refuseWeightNormalized(spec);
+}
+const beforeSpecs = specsWith(base, kind, beforeSpec);
+const afterSpecs = specsWith(base, kind, afterSpec);
 
 // The first pass is the baseline the second is compared against: `advance`
 // does the comparison per kind, so this script never decides what "drift"

@@ -458,6 +458,35 @@ describe("scripts/drift.ts CLI", () => {
   });
 
   /**
+   * 0.2.0 swapped into the whole pass would hand the V0 baseline a
+   * weight-normalised spec with no pseudo-weight, which 0.2.0 refuses. The CLI
+   * says so up front and names the report that does measure 0.2.0.
+   */
+  test("referral_signal@0.2.0 on either side is a usage error naming the judge_reliability report", () => {
+    for (const [before, after] of [
+      ["0.1.0", "0.2.0"],
+      ["0.2.0", "0.1.0"],
+    ] as const) {
+      const proc = run("--kind", "referral_signal", "--before", before, "--after", after);
+      expect(proc.exitCode).toBe(2);
+      const err = text(proc.stderr);
+      expect(err).toContain("referral_signal@0.2.0 is weight-normalised");
+      expect(err).toContain(
+        "bun run drift -- --kind judge_reliability --before 2.0.0 --after 4.1.0",
+      );
+      expect(text(proc.stdout)).toBe("");
+    }
+  });
+
+  test("--v0-vs-v2 --spec 0.2.0 is refused the same way", () => {
+    const proc = run("--v0-vs-v2", "--spec", "0.2.0");
+    expect(proc.exitCode).toBe(2);
+    expect(text(proc.stderr)).toContain(
+      "bun run drift -- --kind judge_reliability --before 2.0.0 --after 4.1.0",
+    );
+  });
+
+  /**
    * The gate itself. A candidate spec is fed as JSON — `--after-json` is the
    * only way to compare against something the registry has never seen, which
    * is exactly the shape of a pull request that has not landed yet.
