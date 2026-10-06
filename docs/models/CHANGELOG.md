@@ -182,6 +182,15 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   before), but weighted referral signals improve from REVIEW τ_b 0.746, mean
   |shift| 29.45, max 67.62 to REVIEW τ_b 0.804, mean |shift| 5.69, max 19.16;
   2.0.0 → 4.0.0 gives the same numbers, 4.0.0 → 4.1.0 is STABLE on all five.
+  The three 0.1.0/0.2.0 comparisons above come from one pass under judge
+  4.1.0 scored three ways, not from the CLI. `bun run drift -- --kind
+  referral_signal` with 0.2.0 on either side (and `--v0-vs-v2 --spec 0.2.0`)
+  is refused with exit 2 on purpose: swapping 0.2.0 into the whole pass would
+  hand the V0 baseline a weight-normalised spec with no pseudo-weight, and the
+  V0 baseline stays on 0.1.0 by design, so that report would show no movement.
+  The refusal names the judge_reliability report, whose weighted arm runs
+  0.2.0 with c0 derived from the judge spec. Re-run 2026-10-06; numbers
+  unchanged.
 - **PR:** SEA-83.
 
 ## career_evidence@1.0.0 — initial (career-evidence rubric)
