@@ -144,6 +144,43 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   2.0.0 after SEA-83.
 - **PR:** SEA-79.
 
+## referral_signal@0.2.0 — weight-normalised mean for the v4 weighted signal
+
+- **What:** 0.1.0's strengths and Top-K (same weights, multipliers, `topK 5`)
+  with new spec field `aggregation "weight_normalized"`:
+  `S_v = Σ_{TopK} (ω_u · R_uv) / (Σ_{TopK} ω_u + c0)`, Top-K ranked by `ω·R`
+  as before, ineligible edges still taking no slot. `c0` is not a spec field:
+  the run passes it as `pseudoWeight` and records it in its parameters, and
+  `judgeWeightedSignalOptions` derives it from the judge spec as
+  `μ0^γ = priorReliability^weightExponent` (0.3² = 0.09 under 4.x), one new
+  judge's worth of weight. A 0.2.0 spec refuses a run without `pseudoWeight`,
+  and 0.1.0 refuses one with it.
+- **Where it runs:** only the judge-weighted run of a pass whose judge spec is
+  mode `"v4"` (4.0.0, 4.1.0); the club's leave-one-judge-out signal uses the
+  same options. The V0 baseline, every `"v2"` (2.0.0) weighted run and
+  `CURRENT_SPECS.referral_signal` stay on 0.1.0, so their outputs and run ids
+  are unchanged. Drift's weighted-signal arm now checks that the configured
+  (baseline) referral spec held still, so 2.0.0 → 4.x still reports it.
+- **Why:** Under the plain mean, a new judge's ω 0.09 dragged a candidate's
+  signal down: `mean(0.81R, 0.09R) = 0.45R`. Weight-normalised, a low-weight
+  referral moves the signal only a little toward its R and never toward 0
+  (proven 0.81 alone 90; plus a new judge at R 1: 91). Worked examples, R 1:
+  ω 0.25 → 74; two new judges → 67; ω 0.81 → 90. `c0` is on the scale of the
+  weights; 0.5 (first proposed) would have sunk single referrals to ~33.
+- **Not current:** `CURRENT_SPECS` is unchanged (referral_signal 0.1.0,
+  judge_reliability 2.0.0).
+- **Drift:** on the seed, judge spec held at 4.1.0, weighted plain mean (0.1.0)
+  → weighted 0.2.0: REVIEW, τ_b 0.739, mean |shift| 24.96, max 62.40 (signals
+  rise back toward the referral strengths). Unweighted 0.1.0 → weighted 0.2.0:
+  REVIEW, τ_b 0.775, mean |shift| 10.31, max 26.23. `c0 = 0.09` against
+  `c0 = 0`: single-referral candidates −13.31 on average (−4.72 to −26.23),
+  multi-referral −6.72 (−2.23 to −11.90). `--kind judge_reliability --before
+  2.0.0 --after 4.1.0`: still BREAKING overall on reliability/weight/ω (as
+  before), but weighted referral signals improve from REVIEW τ_b 0.746, mean
+  |shift| 29.45, max 67.62 to REVIEW τ_b 0.804, mean |shift| 5.69, max 19.16;
+  2.0.0 → 4.0.0 gives the same numbers, 4.0.0 → 4.1.0 is STABLE on all five.
+- **PR:** SEA-83.
+
 ## career_evidence@1.0.0 — initial (career-evidence rubric)
 
 - **What:** The rubric levels, question text, event taxonomy and gate
