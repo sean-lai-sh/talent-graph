@@ -170,6 +170,56 @@ describe("admission credit", () => {
     expect(run(2)).toBeLessThan(0);
   });
 
+  function history(judge: string, prefix: string, admitted: number, total = 150) {
+    const refs: Referral[] = [];
+    const decisions: CouncilDecision[] = [];
+    for (let i = 0; i < total; i++) {
+      const c = `${prefix}${i}`;
+      refs.push(referral(judge, c, 1));
+      decisions.push(
+        decision({
+          candidateId: c,
+          outcome: i < admitted ? "admitted" : "denied",
+          signalWithout: [{ referrerId: judge, signalWithout: 10 }],
+        }),
+      );
+    }
+    return { refs, decisions };
+  }
+
+  test("the admit rate comes from history, pulled toward the prior", () => {
+    const { refs, decisions } = history("alice", "c", 75);
+    const res = admit(refs, obs(decisions));
+    const prior = ADM.priorAdmitRate * ADM.priorAdmitWeight;
+    expect(res.admitRate.inbound).toBeCloseTo((75 + prior) / (150 + ADM.priorAdmitWeight), 12);
+    expect(res.admitRate.inbound).toBeGreaterThan(0.25);
+    expect(res.admitRate.outbound).toBeCloseTo(ADM.priorAdmitRate, 12);
+    const denied = res.terms.find((t) => t.decision === "denied");
+    expect(denied?.sign).toBeCloseTo(-res.admitRate.inbound / (1 - res.admitRate.inbound), 12);
+  });
+
+  test("inbound and outbound keep separate admit rates, and a denial uses its candidate's", () => {
+    const inbound = history("alice", "in", 75);
+    const outbound = history("carol", "out", 3);
+    const channels: [string, Channel][] = outbound.decisions.map((d) => [
+      d.candidateId,
+      "outbound",
+    ]);
+    const res = admit(
+      [...inbound.refs, ...outbound.refs],
+      obs([...inbound.decisions, ...outbound.decisions], channels),
+    );
+    const prior = ADM.priorAdmitRate * ADM.priorAdmitWeight;
+    const rIn = (75 + prior) / (150 + ADM.priorAdmitWeight);
+    const rOut = (3 + prior) / (150 + ADM.priorAdmitWeight);
+    expect(res.admitRate.inbound).toBeCloseTo(rIn, 12);
+    expect(res.admitRate.outbound).toBeCloseTo(rOut, 12);
+    const deniedSign = (judge: string) =>
+      res.terms.find((t) => t.judgeId === judge && t.decision === "denied")?.sign;
+    expect(deniedSign("alice")).toBeCloseTo(-rIn / (1 - rIn), 12);
+    expect(deniedSign("carol")).toBeCloseTo(-rOut / (1 - rOut), 12);
+  });
+
   test("only the first council decision counts, and a referral after it takes no credit", () => {
     const early = referral("alice", "bob", 1);
     const late = referral("carol", "bob", 40);
