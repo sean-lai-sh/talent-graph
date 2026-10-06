@@ -91,10 +91,10 @@ export interface JudgeReliabilityEstimate {
   rawReliability: number | null;
   /** p̂_u after shrinkage; equals the prior when nothing has been evaluated. */
   reliability: number;
-  /** w_u under mode "v4" (what admins see); null under "v2". */
-  weight: number | null;
-  /** ω_u = w_u^γ under mode "v4" (what the signal uses); null under "v2". */
-  omega: number | null;
+  /** w_u under mode "v4" (what admins see); absent under "v2" so v2 outputs are byte-identical. */
+  weight?: number;
+  /** ω_u = w_u^γ under mode "v4" (what the signal uses); absent under "v2". */
+  omega?: number;
   /** Running signed error, or null when nothing has been evaluated. */
   rawBias: number | null;
   /** b̂_u after shrinkage toward 0. */
@@ -119,7 +119,8 @@ export interface JudgeCalibrationRun {
     evaluatedReferrals: number;
     judgesWithEvidence: number;
     applyBiasCorrection: boolean;
-    reliabilityMode: "v2" | "v4";
+    /** Present only under "v4"; absent under "v2" so v2 outputs and run ids are unchanged. */
+    reliabilityMode?: "v4";
   };
 }
 
@@ -272,7 +273,7 @@ export function estimateJudgeReliability(
         meanSquaredError: null,
         rawReliability: null,
         reliability: spec.priorReliability,
-        ...(v4 ? v4Weights(spec.priorReliability, v4) : { weight: null, omega: null }),
+        ...(v4 ? v4Weights(spec.priorReliability, v4) : {}),
         rawBias: null,
         bias: 0,
         predictionIds: [],
@@ -287,7 +288,7 @@ export function estimateJudgeReliability(
       meanSquaredError: a.e,
       rawReliability: raw,
       reliability,
-      ...(v4 ? v4Weights(reliability, v4) : { weight: null, omega: null }),
+      ...(v4 ? v4Weights(reliability, v4) : {}),
       rawBias: a.b,
       bias: shrink(a.n, a.b, 0, spec.shrinkage),
       predictionIds: a.ids,
@@ -325,7 +326,7 @@ export function computeJudgeCalibration(input: JudgeCalibrationInput): JudgeCali
       evaluatedReferrals: predictions.length,
       judgesWithEvidence: withEvidence.length,
       applyBiasCorrection: spec.applyBiasCorrection,
-      reliabilityMode: spec.mode ?? "v2",
+      ...(spec.mode === "v4" ? { reliabilityMode: "v4" as const } : {}),
     },
   };
 }

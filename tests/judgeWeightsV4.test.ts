@@ -92,8 +92,8 @@ describe('judge_reliability mode "v2" is the compatibility branch', () => {
     const explicit: JudgeReliabilitySpec = { ...V2, mode: "v2" };
     const a = computeJudgeCalibration({ people, referrals, outcomes, now: NOW, spec: V2 });
     const b = computeJudgeCalibration({ people, referrals, outcomes, now: NOW, spec: explicit });
-    expect(a.options.reliabilityMode).toBe("v2");
-    expect(b.options.reliabilityMode).toBe("v2");
+    expect(a.options.reliabilityMode).toBeUndefined();
+    expect(b.options.reliabilityMode).toBeUndefined();
     expect([...b.estimates.values()]).toEqual([...a.estimates.values()]);
   });
 
@@ -103,8 +103,8 @@ describe('judge_reliability mode "v2" is the compatibility branch', () => {
     expect(weights.size).toBe(run.estimates.size);
     for (const e of run.estimates.values()) {
       expect(weights.get(e.judgeId)).toBe(e.reliability);
-      expect(e.weight).toBeNull();
-      expect(e.omega).toBeNull();
+      expect(e.weight).toBeUndefined();
+      expect(e.omega).toBeUndefined();
     }
     // A perfect judge reaches exactly 1 and the prior judge exactly 1: no clamp below 1.
     expect(weights.get("good")).toBe(1);
