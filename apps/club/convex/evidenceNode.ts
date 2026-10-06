@@ -3,14 +3,26 @@
 import { v } from "convex/values";
 import { GROK_COMPANY_RESEARCH_DELIVERY, triggerGrokRoutine } from "../lib/longitudinal/grok.ts";
 import { grokCallbackToken, grokCallbackUrl } from "../lib/longitudinal/grokCallback.ts";
+import { extractPdfText } from "../lib/longitudinal/resumeLines.ts";
 import { fetchGitHubEvidence, type JsonFetcher } from "../lib/longitudinal/sources.ts";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 
 /**
- * Node-runtime actions for evidence intake (SEA-81): `lib/longitudinal/grok.ts`
- * imports `node:crypto`, and `sources.ts` imports it in turn.
+ * Node-runtime actions for evidence intake (SEA-81). `lib/longitudinal/grok.ts`
+ * imports `node:crypto`, and `sources.ts` imports it in turn; unpdf's pdf.js
+ * fails in the default runtime ("structuredClone with transfer not supported").
  */
+
+/** The text of an uploaded resume PDF, or null when the file is gone. */
+export const extractResumeText = internalAction({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, { storageId }): Promise<string | null> => {
+    const blob = await ctx.storage.get(storageId);
+    if (!blob) return null;
+    return await extractPdfText(new Uint8Array(await blob.arrayBuffer()));
+  },
+});
 
 /**
  * Public GitHub artifacts for one username, every one up to now. Each item is

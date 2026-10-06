@@ -20,7 +20,6 @@ import {
 import { createJevClient } from "../lib/longitudinal/jevClient.ts";
 import {
   claimLines,
-  extractPdfText,
   labelResumeLines,
   parsesAsResume,
   rawResumeLines,
@@ -116,7 +115,17 @@ export const context = internalQuery({
         ? { storageId: upload._id, uploadedAt: new Date(upload._creationTime).toISOString() }
         : null,
       resumes,
-      judgments: judgments.map(toJudgment),
+      // As stored strings: a parsed record crossing the query boundary can come back
+      // with its object keys reordered, which changes `recordContent` and so the
+      // snapshot `inputHash`. The action parses them.
+      judgments: judgments.map((row) => ({
+        record: row.record,
+        claim: row.claim,
+        answer: row.answer,
+        probe: row.probe,
+        configHash: row.configHash,
+        companySeedHash: row.companySeedHash,
+      })),
       snapshots: snapshots.map((row) => ({
         id: row.id,
         kind: row.kind,
@@ -129,7 +138,14 @@ export const context = internalQuery({
   },
 });
 
-function toJudgment(row: Doc<"jevJudgments">): ClaimJudgment {
+function parseJudgment(row: {
+  record: string;
+  claim: string;
+  answer: string;
+  probe: string | null;
+  configHash: string;
+  companySeedHash: string;
+}): ClaimJudgment {
   return {
     record: JSON.parse(row.record),
     claim: JSON.parse(row.claim),
@@ -406,8 +422,9 @@ export const check = internalAction({
 
 type Context = NonNullable<Awaited<ReturnType<typeof loadContext>>>;
 
-function loadContext(ctx: ActionCtx, personId: string) {
-  return ctx.runQuery(internal.evidence.context, { personId });
+async function loadContext(ctx: ActionCtx, personId: string) {
+  const found = await ctx.runQuery(internal.evidence.context, { personId });
+  return found ? { ...found, judgments: found.judgments.map(parseJudgment) } : null;
 }
 
 async function runCheck(ctx: ActionCtx, personId: string) {
@@ -428,9 +445,12 @@ async function pickUpResume(ctx: ActionCtx, found: Context): Promise<boolean> {
   if (!resume || found.resumes.some((version) => version.storageId === resume.storageId)) {
     return false;
   }
-  const blob = await ctx.storage.get(resume.storageId);
-  if (!blob) return false;
-  const rawText = await extractPdfText(new Uint8Array(await blob.arrayBuffer()));
+  // unpdf fails in the default runtime ("structuredClone with transfer not
+  // supported" from pdf.js), so the text is extracted in a Node action.
+  const rawText = await ctx.runAction(internal.evidenceNode.extractResumeText, {
+    storageId: resume.storageId,
+  });
+  if (rawText === null) return false;
   const raw = rawResumeLines(rawText);
   // The Jev labelling pass runs only when the text does not already parse.
   const normalized = !parsesAsResume(raw);
