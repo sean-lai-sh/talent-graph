@@ -345,6 +345,15 @@ describe("outputOnlyRollup evidence cutoff", () => {
     expect(run([undated], records).claimCount).toBe(0);
   });
 
+  test("a date that is not on the calendar is not stated", () => {
+    for (const day of ["2025-02-29", "2025-02-30", "2025-04-31", "2025-13-01", "2025-00-10"]) {
+      const bad = claim("o1", { jobDates: dates({ endedAt: day }) });
+      expect(evidenceDateFor(bad)).toBeNull();
+    }
+    const leap = claim("o1", { jobDates: dates({ endedAt: "2024-02-29" }) });
+    expect(evidenceDateFor(leap)?.toISOString()).toBe("2024-02-29T00:00:00.000Z");
+  });
+
   test("a non-accepted claim is not counted", () => {
     const { records, claims } = fixture();
     const held = claims.map((c) => (c.id === "o1" ? { ...c, status: "review" as const } : c));
