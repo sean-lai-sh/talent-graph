@@ -6,7 +6,7 @@
  * own text is used as is when it already reads that way. Only when no job
  * header parses does a Jev pass label each line (title, organization, dates,
  * bullet, other) so the lines can be rebuilt into that form. The raw text is
- * always kept next to the result.
+ * always kept next to the result. PDF text extraction is `./resumePdf.ts`.
  */
 
 import {
@@ -15,7 +15,6 @@ import {
   type SystemOneRequest,
   type SystemOneResult,
 } from "@typesafe-ai/sdk";
-import { extractText, getDocumentProxy } from "unpdf";
 import {
   isBullet,
   type JobClaimLine,
@@ -24,12 +23,6 @@ import {
 
 /** Bullet glyphs PDFs use that `isBullet` does not read; they become `- `. */
 const BULLET_GLYPHS = /^\s*[●◦▪▫■□○◆◇►▸‣⁃–—·∙]\s*/u;
-
-export async function extractPdfText(bytes: Uint8Array): Promise<string> {
-  const pdf = await getDocumentProxy(bytes);
-  const { text } = await extractText(pdf, { mergePages: true });
-  return text;
-}
 
 /** The text's non-empty lines, with bullet glyphs written as `- `. No model involved. */
 export function rawResumeLines(text: string): string[] {

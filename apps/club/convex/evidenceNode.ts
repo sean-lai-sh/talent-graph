@@ -3,7 +3,7 @@
 import { v } from "convex/values";
 import { GROK_COMPANY_RESEARCH_DELIVERY, triggerGrokRoutine } from "../lib/longitudinal/grok.ts";
 import { grokCallbackToken, grokCallbackUrl } from "../lib/longitudinal/grokCallback.ts";
-import { extractPdfText } from "../lib/longitudinal/resumeLines.ts";
+import { extractPdfText } from "../lib/longitudinal/resumePdf.ts";
 import { fetchGitHubEvidence, type JsonFetcher } from "../lib/longitudinal/sources.ts";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
