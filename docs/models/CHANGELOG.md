@@ -81,8 +81,10 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
 
 ## judge_reliability@4.0.0 — r10 weight scale
 
-- **What:** Same accuracy term as 2.0.0 (window, η, τ, λ, buckets unchanged),
-  moved onto the r10 scale. New spec fields `mode "v4"`, `softCap T = 3` and
+- **What:** The accuracy term is the same formula as 2.0.0 (window, η, τ, λ,
+  buckets unchanged), but the prior moves from 1 to 0.3. That shifts the shrunk
+  p̂ itself, so part of the reliability arm's movement below comes from the
+  prior, not only the rescale. The result is moved onto the r10 scale. New spec fields `mode "v4"`, `softCap T = 3` and
   `weightExponent γ = 2`; `priorReliability` becomes `μ0 = 0.3`. After the
   existing shrink toward μ0: `Σ = logit(clamp(p̂, ε, 1−ε)) − logit μ0`,
   `logit w = logit μ0 + T·tanh(Σ/T)`, `ω = w^γ`. The estimate keeps both `w`
