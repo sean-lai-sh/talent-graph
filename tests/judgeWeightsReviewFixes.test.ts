@@ -4,6 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { decidedByPersonId } from "../apps/club/lib/clubRole.ts";
 import { admissionObservations } from "../apps/club/lib/engine/admission.ts";
 import { computeWorld } from "../apps/club/lib/engine/computeView.ts";
 import { runClubPass } from "../apps/club/lib/engine/pass.ts";
@@ -120,5 +121,32 @@ describe("decisions recorded at the same instant", () => {
     const state: ClubState = { ...emptyState(at), snapshots: [snap("denied"), snap("admitted")] };
     const first = firstDecisions(admissionObservations(state).decisions, new Date(at));
     expect(first.get("bob")?.outcome).toBe("admitted");
+  });
+});
+
+describe("decidedBy that cannot be resolved", () => {
+  const capture = () => {
+    const lines: string[] = [];
+    return { lines, warn: (line: string) => lines.push(line) };
+  };
+
+  test("one matching person row resolves without a warning", () => {
+    const { lines, warn } = capture();
+    expect(decidedByPersonId(["p-admin"], warn)).toBe("p-admin");
+    expect(lines).toEqual([]);
+  });
+
+  test("no matching person row warns and records no decidedBy", () => {
+    const { lines, warn } = capture();
+    expect(decidedByPersonId([], warn)).toBeUndefined();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("decidedBy");
+  });
+
+  test("duplicate matching person rows warn and record no decidedBy", () => {
+    const { lines, warn } = capture();
+    expect(decidedByPersonId(["p-a", "p-b"], warn)).toBeUndefined();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("decidedBy");
   });
 });

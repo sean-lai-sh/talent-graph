@@ -77,3 +77,20 @@ export function decideClubPage(input: {
   if (input.role === null) return "login";
   return "defer";
 }
+
+/**
+ * The deciding admin's person id from the club rows matching their email.
+ * Recusal is best effort: zero or several matches record no `decidedBy`, and
+ * say so in the log rather than blocking the decision.
+ */
+export function decidedByPersonId(
+  matchIds: readonly string[],
+  warn: (line: string) => void = console.warn,
+): string | undefined {
+  if (matchIds.length === 1) return matchIds[0];
+  const found = matchIds.length === 0 ? "no person row" : "more than one person row";
+  warn(
+    `club decision: no decidedBy recorded, the signed-in admin's email matches ${found}; recusal is skipped for this decision`,
+  );
+  return undefined;
+}

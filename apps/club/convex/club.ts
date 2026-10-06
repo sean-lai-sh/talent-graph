@@ -1,6 +1,12 @@
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
-import { adminRead, type ClubRole, extraAdminEmailsFromEnv, resolveRole } from "../lib/clubRole.ts";
+import {
+  adminRead,
+  type ClubRole,
+  decidedByPersonId,
+  extraAdminEmailsFromEnv,
+  resolveRole,
+} from "../lib/clubRole.ts";
 import { type Club, ensureClub, loadClub, loadState, saveState } from "../lib/clubStore.ts";
 import {
   addCall as addCallEngine,
@@ -126,13 +132,14 @@ async function signedInAdminPersonId(ctx: MutationCtx): Promise<string | undefin
   const user = await requireAdmin(ctx);
   const email = typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
   const club = await loadClub(ctx.db);
-  if (email === "" || !club) return undefined;
-  const matches = await ctx.db
-    .query("clubPeople")
-    .withIndex("by_club_and_email", (q) => q.eq("clubId", club._id).eq("email", email))
-    .take(2);
-  const only = matches.length === 1 ? matches[0] : undefined;
-  return only?.id;
+  const matches =
+    email === "" || !club
+      ? []
+      : await ctx.db
+          .query("clubPeople")
+          .withIndex("by_club_and_email", (q) => q.eq("clubId", club._id).eq("email", email))
+          .take(2);
+  return decidedByPersonId(matches.map((row) => row.id));
 }
 
 async function applyEngine(
