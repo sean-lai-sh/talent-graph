@@ -365,7 +365,6 @@ function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string
       isFiniteNumber(weightExponent) &&
       weightExponent > 0
     ) {
-      // w and ω are monotone in p̂, so the clamped extremes bound every value.
       for (const p of [0, 1]) {
         const { weight, omega } = judgeWeightV4(p, {
           priorReliability: mu0,

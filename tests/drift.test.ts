@@ -277,10 +277,6 @@ describe("judgeReliabilityDrift", () => {
   });
 });
 
-/* ------------------------------------------------------------------ *
- * SEA-78 — the w and ω measures compare the weights actually used.
- * ------------------------------------------------------------------ */
-
 describe("judgeReliabilityDrift on w and ω", () => {
   const T = new Date("2026-12-31T00:00:00.000Z");
   const calibrate = (spec = JUDGE_RELIABILITY_V2_0_0) =>
@@ -319,7 +315,6 @@ describe("judgeReliabilityDrift on w and ω", () => {
       expect(m.before).toBeCloseTo((usedBefore.get(m.personId) as number) * 100, 10);
       expect(m.after).toBeCloseTo((usedAfter.get(m.personId) as number) * 100, 10);
     }
-    // ω differs from p̂ under v4, so this arm is not the reliability arm relabelled.
     const rel = judgeReliabilityDrift(v2, v4, "reliability");
     expect(r.maxAbsShift).not.toBeCloseTo(rel.maxAbsShift, 6);
   });
@@ -345,7 +340,6 @@ describe("judgeReliabilityDrift on w and ω", () => {
     const mover = moverOf(moved, e.judgeId);
     expect(mover?.before).toBeCloseTo(e.weight * 100, 10);
     expect(mover?.after).toBeCloseTo((e.weight / 2) * 100, 10);
-    // The ω arm does not see a w-only edit.
     expect(judgeReliabilityDrift(v4, shifted, "omega").maxAbsShift).toBe(0);
   });
 
@@ -353,7 +347,6 @@ describe("judgeReliabilityDrift on w and ω", () => {
     for (const measure of ["weight", "omega"] as const) {
       const r = judgeReliabilityDrift(v2, v2, measure);
       const rel = judgeReliabilityDrift(v2, v2, "reliability");
-      // Every evaluated judge is valued on both sides: nobody crossed, nobody is 0.
       expect(r.n).toBe(rel.n);
       expect(r.crossedFraction).toBe(0);
       expect(r.verdict).toBe("stable");
@@ -364,7 +357,6 @@ describe("judgeReliabilityDrift on w and ω", () => {
         );
         expect(m.before).toBeGreaterThan(0);
       }
-      // v2 → v4 is a value change for every judge, not a population change.
       const across = judgeReliabilityDrift(v2, v4, measure);
       expect(across.crossedInsufficiency).toEqual({ gained: [], lost: [] });
       expect(across.n).toBe(rel.n);

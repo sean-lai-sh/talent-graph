@@ -1,9 +1,3 @@
-/**
- * SEA-78 — judge_reliability@4.0.0: the r10 weight scale.
- *
- * `mode: "v2"` must be the old behaviour untouched; `mode: "v4"` maps p̂ through
- * a soft-capped logit to w and weights the signal by ω = w^γ.
- */
 import { describe, expect, test } from "bun:test";
 import type { Outcome, Person, Referral } from "../src/domain/types.ts";
 import {
@@ -107,7 +101,6 @@ describe('judge_reliability mode "v2" is the compatibility branch', () => {
       expect(e.weight).toBeUndefined();
       expect(e.omega).toBeUndefined();
     }
-    // A perfect judge reaches exactly 1 and the prior judge exactly 1: no clamp below 1.
     expect(weights.get("good")).toBe(1);
     expect(weights.get("silent")).toBe(1);
     expect(judgeWeightOptions(run).judgeReliability).toEqual(weights);
@@ -136,7 +129,6 @@ describe('judge_reliability@4.0.0 (mode "v4")', () => {
     const est = estimateJudgeReliability(["silent"], [], V4).get("silent");
     expect(est?.weight).toBe(0.3);
     expect(est?.omega).toBeCloseTo(0.09, 12);
-    // Same through the full pass with no outcomes at all, and into the signal.
     const run = computeJudgeCalibration({ people, referrals, outcomes: [], now: NOW, spec: V4 });
     for (const e of run.estimates.values()) {
       expect(e.weight).toBe(0.3);
@@ -157,7 +149,6 @@ describe('judge_reliability@4.0.0 (mode "v4")', () => {
   });
 
   test("w is monotone in p_u", () => {
-    // Squared error sweeps from perfect to maximally wrong; p_u falls, so w must fall.
     const errors = [0, 0.01, 0.05, 0.1, 0.2, 0.35, 0.5, 0.75, 1];
     const ests = estimateJudgeReliability(
       errors.map((_, i) => `j${i}`),
@@ -170,16 +161,13 @@ describe('judge_reliability@4.0.0 (mode "v4")', () => {
       expect(ps[i]).toBeLessThan(ps[i - 1] as number);
       expect(ws[i]).toBeLessThan(ws[i - 1] as number);
     }
-    // It crosses μ0 in the right place: better than the prior is above 0.3, worse below.
     expect(ws[0]).toBeGreaterThan(0.3);
     expect(ws[ws.length - 1]).toBeLessThan(0.3);
   });
 
   describe("w and ω stay strictly inside (0, 1) for extreme accuracy", () => {
-    // λ = 0 removes the shrink, so p̂ is exactly 1 or exactly 0.
     const extremes: [string, JudgeReliabilitySpec][] = [
       ["default cap", { ...V4, shrinkage: 0 }],
-      // A huge cap makes tanh(Σ/T)·T ≈ Σ, so only the ε clamp keeps w off 0 and 1.
       ["huge cap", { ...V4, shrinkage: 0, softCap: 1e6 }],
       ["huge cap, γ = 1", { ...V4, shrinkage: 0, softCap: 1e6, weightExponent: 1 }],
     ];
@@ -205,7 +193,6 @@ describe('judge_reliability@4.0.0 (mode "v4")', () => {
       });
 
       test(`${label}: judgeWeighting never throws`, () => {
-        // Perfect and maximally wrong judges end to end, through the signal.
         const extremeOutcomes = [outcome("hi", 1_000_000), outcome("lo", -1_000_000)];
         const run = computeJudgeCalibration({
           people,
@@ -232,7 +219,6 @@ describe("persisted JudgeCalibration carries w and ω (SEA-78 b)", () => {
       expect(jc.reliability).toBe(e.reliability);
       expect(jc.weight).toBe(e.weight as number);
       expect(jc.omega).toBe(e.omega as number);
-      // An evaluated judge's w is p̂ mapped through the soft cap, not p̂ itself.
       if (e.evaluatedCount >= 1) expect(jc.weight).not.toBe(jc.reliability);
     }
     const silent = toJudgeCalibration(run.estimates.get("silent") as never, NOW);
@@ -252,9 +238,6 @@ describe("persisted JudgeCalibration carries w and ω (SEA-78 b)", () => {
 });
 
 describe("Referral Signal aggregation under ω (SEA-78 c, held)", () => {
-  // Held pending Sean's issue: the weighted path averages the top-K ω·R, so a
-  // new member's referral (ω = 0.09) lowers a candidate's signal. The planned
-  // fix is Σω·R / (Σω + c0); c0 is set in that issue, not here.
   // Bun's types require a body; a todo body only runs under `--todo`, and
   // throwing keeps it reported as todo there rather than as a false pass.
   test.todo("low-weight referral never lowers the signal", () => {
