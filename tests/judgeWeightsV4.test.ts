@@ -490,6 +490,17 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
     expect(() => judgePseudoWeight(V2)).toThrow();
   });
 
+  test("a spec relabeled with the other mode's version is refused, not mixed", () => {
+    const v4Run = computeJudgeCalibration({ people, referrals, outcomes, now: NOW, spec: V4 });
+    const v2Run = computeJudgeCalibration({ people, referrals, outcomes, now: NOW, spec: V2 });
+    // A mode-v2 spec carrying the v4 calibration's version would send ω to the plain mean, no c0.
+    const v2AsV4: JudgeReliabilitySpec = { ...V2, version: V4.version };
+    expect(() => judgeWeightedSignalOptions(v4Run, v2AsV4, PLAIN)).toThrow(/mode "v4".*mode "v2"/);
+    // A mode-v4 spec carrying the v2 calibration's version would apply c0 to p̂.
+    const v4AsV2: JudgeReliabilitySpec = { ...V4, version: V2.version };
+    expect(() => judgeWeightedSignalOptions(v2Run, v4AsV2, PLAIN)).toThrow(/mode "v2".*mode "v4"/);
+  });
+
   test("a different c0 gives a different signal and a different run id", () => {
     const refs = [aim("u0", rng(1))];
     const om = new Map([["u0", 0.25]]);

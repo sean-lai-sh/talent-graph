@@ -405,6 +405,15 @@ export function judgeWeightedSignalOptions(
       `calibration ran under judge_reliability@${run.options.specVersion}, not @${judgeSpec.version}`,
     );
   }
+  // The weight kind (ω vs p̂) comes from the run, the aggregation and c0 from
+  // the spec: a spec relabeled with another mode's version must not mix them.
+  const runMode = run.options.reliabilityMode === "v4" ? "v4" : "v2";
+  const specMode = judgeSpec.mode === "v4" ? "v4" : "v2";
+  if (runMode !== specMode) {
+    throw new Error(
+      `calibration ran in judge_reliability mode "${runMode}", but judge_reliability@${judgeSpec.version} is mode "${specMode}"`,
+    );
+  }
   const judgeReliability = reliabilityWeights(run);
   const weights = run.options.applyBiasCorrection
     ? { judgeReliability, judgeBias: biasCorrections(run) }
