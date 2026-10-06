@@ -16,7 +16,7 @@ import {
   type Channel,
   firstDecisions,
 } from "../src/judges/admission.ts";
-import { judgeWeightOptions } from "../src/judges/reliability.ts";
+import { judgeWeightedSignalOptions } from "../src/judges/reliability.ts";
 import { runJudgeCalibration } from "../src/models/definitions/judgeReliability.ts";
 import { runReferralSignals } from "../src/models/definitions/referralSignal.ts";
 import { JUDGE_RELIABILITY_V4_1_0 } from "../src/models/registry.ts";
@@ -61,9 +61,16 @@ describe("a club pass under spec 4.1.0 uses the weighted signal", () => {
       specs: V4_1,
     });
     expect(pass.provenance.specVersions.judge_reliability).toBe("4.1.0");
-    const expected = runReferralSignals(data.people, data.referrals, T, {
-      ...judgeWeightOptions(pass.calibration),
-    }).outputs;
+    // The council's weighted run is 0.2.0 + c0 under a v4 spec; the same
+    // options from the same calibration must reproduce it exactly.
+    const opts = judgeWeightedSignalOptions(
+      pass.calibration,
+      V4_1.judge_reliability,
+      V4_1.referral_signal,
+    );
+    expect(opts.spec.version).toBe("0.2.0");
+    expect(opts.pseudoWeight).toBeCloseTo(0.09, 12);
+    const expected = runReferralSignals(data.people, data.referrals, T, opts).outputs;
     const differs = [...pass.v2].some(([id, r]) => r.signal !== pass.v0.get(id)?.signal);
     expect(differs).toBe(true);
     for (const [id, r] of pass.v2) {
@@ -97,7 +104,11 @@ describe("2.0.0 run ids do not move when the club hands over admission observati
     expect(calibration.outputs.options.specVersion).toBe("2.0.0");
     expect(calibration.id).toBe(golden.judge_calibration?.id as string);
     const weighted = runReferralSignals(data.people, data.referrals, T, {
-      ...judgeWeightOptions(calibration.outputs),
+      ...judgeWeightedSignalOptions(
+        calibration.outputs,
+        SPECS.judge_reliability,
+        SPECS.referral_signal,
+      ),
       judgeRunId: calibration.id,
     });
     expect(weighted.id).toBe(golden.referral_signal_judge_weighted?.id as string);

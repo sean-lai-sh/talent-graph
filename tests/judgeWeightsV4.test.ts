@@ -13,7 +13,6 @@ import {
   estimateJudgeReliability,
   judgePseudoWeight,
   judgeWeightedSignalOptions,
-  judgeWeightOptions,
   reliabilityWeights,
   type ScoredPrediction,
   toJudgeCalibration,
@@ -122,7 +121,9 @@ describe('judge_reliability mode "v2" is the compatibility branch', () => {
     // A perfect judge reaches exactly 1 and the prior judge exactly 1: no clamp below 1.
     expect(weights.get("good")).toBe(1);
     expect(weights.get("silent")).toBe(1);
-    expect(judgeWeightOptions(run).judgeReliability).toEqual(weights);
+    expect(judgeWeightedSignalOptions(run, V2, REFERRAL_SIGNAL_V0_1_0).judgeReliability).toEqual(
+      weights,
+    );
   });
 });
 
@@ -159,7 +160,7 @@ describe('judge_reliability@4.0.0 (mode "v4")', () => {
 
   test("the signal is fed ω, not w or p̂", () => {
     const run = computeJudgeCalibration({ people, referrals, outcomes, now: NOW, spec: V4 });
-    const weights = judgeWeightOptions(run).judgeReliability;
+    const weights = judgeWeightedSignalOptions(run, V4, REFERRAL_SIGNAL_V0_1_0).judgeReliability;
     for (const e of run.estimates.values()) {
       expect(weights.get(e.judgeId)).toBe(e.omega as number);
       expect(e.omega).toBeCloseTo((e.weight as number) ** 2, 12);
@@ -219,15 +220,16 @@ describe('judge_reliability@4.0.0 (mode "v4")', () => {
       test(`${label}: judgeWeighting never throws`, () => {
         // Perfect and maximally wrong judges end to end, through the signal.
         const extremeOutcomes = [outcome("hi", 1_000_000), outcome("lo", -1_000_000)];
+        const extremeSpec = { ...spec, errorScale: 1e9 };
         const run = computeJudgeCalibration({
           people,
           referrals,
           outcomes: extremeOutcomes,
           now: NOW,
-          spec: { ...spec, errorScale: 1e9 },
+          spec: extremeSpec,
         });
         expect(() => {
-          const opts = judgeWeightOptions(run);
+          const opts = judgeWeightedSignalOptions(run, extremeSpec, REFERRAL_SIGNAL_V0_1_0);
           const out = computeAllReferralSignals(people, referrals, opts);
           for (const s of out.values()) expect(Number.isFinite(s.signal)).toBe(true);
         }).not.toThrow();
@@ -369,7 +371,7 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
       now: T,
     });
     const v2 = runReferralSignals(data.people, data.referrals, T, {
-      ...judgeWeightOptions(calibration.outputs),
+      ...judgeWeightedSignalOptions(calibration.outputs, V2, PLAIN),
       judgeRunId: calibration.id,
     });
     for (const [name, run] of [

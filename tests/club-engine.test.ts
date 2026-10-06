@@ -43,7 +43,7 @@ import type { ClubState } from "../apps/club/lib/types.ts";
 import { loadSpecs } from "../src/config.ts";
 import { BANNED_LANGUAGE, PRODUCT_LANGUAGE, SCALE_LABELS } from "../src/domain/constants.ts";
 import { computeCapabilityVectors } from "../src/inference/capabilityVector.ts";
-import { computeJudgeCalibration, judgeWeightOptions } from "../src/judges/reliability.ts";
+import { computeJudgeCalibration, judgeWeightedSignalOptions } from "../src/judges/reliability.ts";
 import { TRACK_RECORD_ORDER } from "../src/judges/trackRecord.ts";
 import { advance } from "../src/pipeline/advance.ts";
 import { computeAllReferralSignals } from "../src/scoring/referralSignal.ts";
@@ -685,10 +685,11 @@ describe("council page engine: the pipeline seam", () => {
       spec: specs.judge_reliability,
       referralSpec: specs.referral_signal,
     });
-    const v2 = computeAllReferralSignals(input.people, input.referrals, {
-      spec: specs.referral_signal,
-      ...judgeWeightOptions(cal),
-    });
+    const v2 = computeAllReferralSignals(
+      input.people,
+      input.referrals,
+      judgeWeightedSignalOptions(cal, specs.judge_reliability, specs.referral_signal),
+    );
     const cap = computeCapabilityVectors(input.people, input.comparisons, {
       spec: specs.bradley_terry,
     });

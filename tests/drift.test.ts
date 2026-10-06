@@ -16,7 +16,7 @@ import { loadSpecs } from "../src/config.ts";
 import { computeCapabilityVectors } from "../src/inference/capabilityVector.ts";
 import {
   computeJudgeCalibration,
-  judgeWeightOptions,
+  judgeWeightedSignalOptions,
   reliabilityWeights,
 } from "../src/judges/reliability.ts";
 import {
@@ -133,7 +133,7 @@ describe("referralSignalDrift", () => {
     const weighted = computeAllReferralSignals(
       data.people,
       data.referrals,
-      judgeWeightOptions(calibration),
+      judgeWeightedSignalOptions(calibration, JUDGE_RELIABILITY_V2_0_0, REFERRAL_SIGNAL_V0_1_0),
     );
     const r = referralSignalDrift(baseline, weighted);
     expect(r.labels.before).toBe("0.1.0");

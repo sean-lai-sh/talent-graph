@@ -338,20 +338,6 @@ export function computeJudgeCalibration(input: JudgeCalibrationInput): JudgeCali
 }
 
 /**
- * The options to pass to `computeReferralSignal` / `computeAllReferralSignals`:
- * reliability always, bias only when the spec enables the correction.
- */
-export function judgeWeightOptions(run: JudgeCalibrationRun): {
-  judgeReliability: Map<string, number>;
-  judgeBias?: Map<string, number>;
-} {
-  const judgeReliability = reliabilityWeights(run);
-  return run.options.applyBiasCorrection
-    ? { judgeReliability, judgeBias: biasCorrections(run) }
-    : { judgeReliability };
-}
-
-/**
  * c0 for the weight-normalised Referral Signal: one new judge's worth of
  * weight, μ0^γ (0.3² = 0.09 under 4.x). Derived from the judge spec so it
  * moves with μ0 and γ rather than being a second number to keep in step.
@@ -392,7 +378,10 @@ export function weightNormalizedReferralSpec(spec: ReferralSignalSpec): Referral
 
 /**
  * Everything the judge-weighted Referral Signal run takes from a calibration:
- * the weights (`judgeWeightOptions`) plus the spec they are aggregated under.
+ * the weights (`reliabilityWeights`, plus `biasCorrections` when the judge spec
+ * enables the correction) and the spec they are aggregated under. The only
+ * way to turn a calibration into signal options: weights without their spec
+ * would let a v4 run's ω reach 0.1.0's plain mean.
  *
  * Under a mode "v4" judge spec (4.x) that is the weight-normalised
  * `referral_signal@0.2.0` with c0 = `judgePseudoWeight(judgeSpec)` (SEA-83):
@@ -404,8 +393,10 @@ export function judgeWeightedSignalOptions(
   run: JudgeCalibrationRun,
   judgeSpec: JudgeReliabilitySpec,
   referralSpec: ReferralSignalSpec,
-): ReturnType<typeof judgeWeightOptions> & {
+): {
   spec: ReferralSignalSpec;
+  judgeReliability: Map<string, number>;
+  judgeBias?: Map<string, number>;
   pseudoWeight?: number;
 } {
   if (run.options.specVersion !== judgeSpec.version) {
@@ -413,7 +404,10 @@ export function judgeWeightedSignalOptions(
       `calibration ran under judge_reliability@${run.options.specVersion}, not @${judgeSpec.version}`,
     );
   }
-  const weights = judgeWeightOptions(run);
+  const judgeReliability = reliabilityWeights(run);
+  const weights = run.options.applyBiasCorrection
+    ? { judgeReliability, judgeBias: biasCorrections(run) }
+    : { judgeReliability };
   if (judgeSpec.mode !== "v4") return { spec: referralSpec, ...weights };
   return {
     spec: weightNormalizedReferralSpec(referralSpec),

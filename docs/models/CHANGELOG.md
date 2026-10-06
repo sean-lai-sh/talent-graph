@@ -155,6 +155,9 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   `μ0^γ = priorReliability^weightExponent` (0.3² = 0.09 under 4.x), one new
   judge's worth of weight. A 0.2.0 spec refuses a run without `pseudoWeight`,
   and 0.1.0 refuses one with it.
+  `judgeWeightOptions` (weights only) is removed: it handed a v4 run's ω to
+  0.1.0's plain mean. `judgeWeightedSignalOptions(run, judgeSpec, referralSpec)`
+  is the one way from a calibration to signal options.
 - **Where it runs:** only the judge-weighted run of a pass whose judge spec is
   mode `"v4"` (4.0.0, 4.1.0); the club's leave-one-judge-out signal uses the
   same options. The V0 baseline, every `"v2"` (2.0.0) weighted run and
