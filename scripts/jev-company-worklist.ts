@@ -68,7 +68,6 @@ const DEFAULT_DEPS: ResearchDeps = {
 export interface WorklistPaths {
   config: string;
   pin: string;
-  /** The generated module that scoring code imports; rewritten with config.yml. */
   generated: string;
 }
 

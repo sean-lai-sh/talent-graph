@@ -1,8 +1,4 @@
-/**
- * Parses and checks config.yml text. Touches no filesystem, so it is safe to
- * bundle anywhere; reading the file lives in load.ts. Scoring code does not
- * parse at runtime: its constants come from generated.ts.
- */
+/** No filesystem here. Runtime constants come from generated.ts; this only parses config.yml text. */
 import { parse } from "yaml";
 import {
   COMPANY_STAGES,

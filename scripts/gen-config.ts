@@ -1,12 +1,5 @@
 #!/usr/bin/env bun
-/**
- * Writes src/projectConfig/generated.ts from config.yml.
- *
- *   bun run scripts/gen-config.ts [--check] [--config <path>] [--out <path>]
- *
- * --check writes nothing. It exits 1 when the generated file is stale or when
- * config.yml fails the pinned-hash checks.
- */
+/** Writes src/projectConfig/generated.ts from config.yml. --check writes nothing and exits 1 on drift. */
 import { readFileSync, writeFileSync } from "node:fs";
 import {
   checkConfigFile,
