@@ -12,7 +12,6 @@
  *   p̂_u      = n/(n+λ)·p_u + λ/(n+λ)·μ_p     shrinkage against instant oracles
  *   (mode "v4" only, on the r10 scale, μ0 = μ_p:)
  *   Σ_u      = logit(clamp(p̂_u, ε, 1−ε)) − logit μ0
- *   (spec 4.1.0 adds the admission term: Σ_u += Σ ℓᴬ_uv, see admission.ts)
  *   logit w_u = logit μ0 + T·tanh(Σ_u / T)         soft-capped, so w_u ∈ (0, 1)
  *   ω_u      = w_u^γ                               what the signal is weighted by
  *   b_u     ← (1 − η)·b_u + η·(x_uv − truth_uv)   signed bias, shrunk toward 0
@@ -100,7 +99,6 @@ export interface JudgeReliabilityEstimate {
   weight?: number;
   /** ω_u = w_u^γ under mode "v4" (what the signal uses); absent under "v2". */
   omega?: number;
-  /** Σ ℓᴬ over this judge's scored referrals; present only when the spec has an admission term. */
   admissionCredit?: number;
   /** Running signed error, or null when nothing has been evaluated. */
   rawBias: number | null;
@@ -129,7 +127,6 @@ export interface JudgeCalibrationRun {
     /** Present only under "v4"; absent under "v2" so v2 outputs and run ids are unchanged. */
     reliabilityMode?: "v4";
   };
-  /** Positions and admission terms; present only when the spec has an admission term. */
   admission?: AdmissionResult;
 }
 
@@ -142,7 +139,6 @@ export interface JudgeCalibrationInput {
   spec?: JudgeReliabilitySpec;
   /** Spec under which x_uv is computed; defaults to CURRENT_SPECS.referral_signal. */
   referralSpec?: ReferralSignalSpec;
-  /** Council decisions and channels. Read only when the spec has an admission term. */
   admission?: AdmissionObservations;
 }
 
@@ -236,7 +232,6 @@ export function estimateJudgeReliability(
   judgeIds: readonly string[],
   predictions: readonly ScoredPrediction[],
   spec: JudgeReliabilitySpec,
-  /** Σ ℓᴬ per judge. Judges with credit but no predictions still get an estimate. */
   admissionSums: ReadonlyMap<string, number> = new Map(),
 ): Map<string, JudgeReliabilityEstimate> {
   const eta = spec.learningRate;

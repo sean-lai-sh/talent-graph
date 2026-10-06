@@ -146,8 +146,6 @@ function recordSnapshot(
     createdAt: next.now,
     modelRunIds: [...prediction.modelRunIds],
     specVersions: { ...provenance.specVersions },
-    // What the council saw without each referrer, so a judge earns no early
-    // credit for an admission their own referral carried.
     signalWithout: signalWithout(person.id),
     ...(decider === undefined
       ? {}
@@ -216,13 +214,7 @@ export function setStatus(
   return { state: next, view: recordSnapshot(next, person, status, deps) };
 }
 
-/**
- * Council decision. Review status drives the engine status, never the reverse.
- * `decider` is who clicked decide: their person id (`decidedBy`), who then
- * earns no admission credit from this decision, or, when their email resolved
- * to no person or several, the `unresolvedDecider` marker naming the referrers
- * who were admins at that moment, none of whom earns credit from it.
- */
+/** Council decision. Review status drives the engine status, never the reverse. */
 export function decide(
   state: ClubState,
   personId: string,
@@ -271,13 +263,6 @@ export function addReferral(state: ClubState, input: AddReferralInput): EngineRe
   return ok(next);
 }
 
-/**
- * Record a pre-council call. A yes creates an engine referral by the caller
- * (origin "interview") and so takes the next open position; a maybe takes no
- * position and carries no stake; a hard no is stored and never scored. A
- * candidate has at most two calls, and a second call follows a call that did
- * not stop the candidate.
- */
 export function addCall(state: ClubState, input: AddCallInput): EngineResult {
   const next = reviveState(state);
   for (const id of [input.candidateId, input.callerId]) {

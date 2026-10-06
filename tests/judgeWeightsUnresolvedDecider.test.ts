@@ -1,12 +1,3 @@
-/**
- * SEA-79 / #120: a council decision whose deciding admin does not resolve to
- * exactly one person fails closed. The candidate's referrers who were admins
- * at that moment earn no admission credit from it; everyone else keeps theirs.
- *
- * End to end through the club: the admin lookup the decide mutation runs
- * (`adminReferrers`), the engine transition, a state stored as JSON and
- * revived, and the club pass under judge_reliability@4.1.0.
- */
 import { describe, expect, test } from "bun:test";
 import schema from "../apps/club/convex/schema.ts";
 import { adminReferrers, BOOTSTRAP_ADMIN_EMAIL } from "../apps/club/lib/clubRole.ts";
@@ -23,14 +14,8 @@ const V4_1: LoadedSpecs = { ...SPECS, judge_reliability: JUDGE_RELIABILITY_V4_1_
 const T0 = new Date("2026-01-01T00:00:00.000Z");
 const day = (n: number) => new Date(T0.getTime() + n * 86_400_000).toISOString();
 
-/** CLUB_ADMIN_EMAILS for these tests. */
 const ENV_ADMINS = ["env@club.test"];
 
-/**
- * alice: admin by a stored clubAccounts role. erin: admin only through the
- * env list. boss: the bootstrap email with no account. carol: a member.
- * bob: the candidate. rec: an admin who never referred.
- */
 const PEOPLE = [
   { id: "alice", email: "alice@club.test", storedRoles: ["admin"] as const },
   { id: "erin", email: "ENV@club.test ", storedRoles: [] as const },
@@ -70,7 +55,6 @@ function club(): ClubState {
   return { ...s, now: day(30) };
 }
 
-/** What the decide mutation's lookup yields for bob's referrers. */
 function adminsAmongReferrers(s: ClubState): string[] {
   const ids = new Set(s.referrals.filter((r) => r.candidateId === "bob").map((r) => r.referrerId));
   return adminReferrers(
@@ -83,14 +67,12 @@ function adminsAmongReferrers(s: ClubState): string[] {
   );
 }
 
-/** Decide, store the state as Convex would (plain JSON), reload it. */
 function decideAndReload(s: ClubState, decider: ClubDecider): ClubState {
   const done = decide(s, "bob", "admit", undefined, decider);
   expect(done.error).toBeUndefined();
   return reviveState(JSON.parse(JSON.stringify(done.state)) as ClubState);
 }
 
-/** Admission credit per judge from the club pass. */
 function creditByJudge(s: ClubState): Map<string, number> {
   const pass = runClubPass({
     people: s.people.map(clubToPerson),

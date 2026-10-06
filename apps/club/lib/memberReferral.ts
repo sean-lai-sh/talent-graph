@@ -259,8 +259,6 @@ export function commitMemberReferral(input: {
       relationshipDepth: mapped.referral.relationshipDepth,
       evidenceType: mapped.referral.evidenceType,
       evidenceText: mapped.referral.evidenceText,
-      // A member's own referral. An existing row keeps the origin it had, so
-      // a member who interviewed the candidate stays an interview yes.
       origin: existing?.origin ?? "referral",
       recognition: input.answers.recognition ?? "not_sure",
     },

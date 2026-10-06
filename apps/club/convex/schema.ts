@@ -86,7 +86,6 @@ const clubPersonFields = {
   github: v.optional(v.string()),
   website: v.optional(v.string()),
   status: personStatus,
-  // How the candidate entered the process. Absent reads as inbound.
   channel: v.optional(clubChannel),
   reviewStatus: v.optional(reviewStatus),
   createdAt: v.string(),
@@ -102,15 +101,12 @@ const clubReferralFields = {
   relationshipDepth: scale5,
   evidenceType,
   evidenceText: v.string(),
-  // Absent reads as "referral". "interview" marks the referral a call's yes creates.
   origin: v.optional(referralOrigin),
-  // Stored only; no weight reads it.
   recognition: v.optional(referralRecognition),
   createdAt: v.string(),
   updatedAt: v.string(),
 };
 
-// A pre-council call: up to 2 per candidate.
 const clubCallFields = {
   id: v.string(),
   candidateId: v.string(),
@@ -188,12 +184,8 @@ const clubSnapshotFields = {
       judge_reliability: v.string(),
     }),
   ),
-  // Person id of the admin who recorded the decision (recusal).
   decidedBy: v.optional(v.string()),
-  // Set instead of `decidedBy` when the deciding admin did not resolve to one
-  // person: the candidate's referrers who were admins then earn no credit.
   unresolvedDecider: v.optional(v.object({ adminReferrers: v.array(v.string()) })),
-  // The council-facing Referral Signal without each referrer at decision time.
   signalWithout: v.optional(
     v.array(v.object({ referrerId: v.string(), signalWithout: v.number() })),
   ),

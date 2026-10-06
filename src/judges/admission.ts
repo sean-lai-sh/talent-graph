@@ -1,70 +1,22 @@
-/**
- * Position and admission credit (judge_reliability@4.1.0, SEA-79).
- *
- * A referral is a bet that the candidate is better than they look. The council
- * answers within weeks, so its first decision on the candidate gives the judge
- * an early credit or debit, before any outcome exists. Pure; nothing here reads
- * a clock or imports `src/inference/`.
- *
- *   share(k) = max(φ, 1/k^α)                    k = the referral's position
- *   a_uv     = +1 if admitted;  −r/(1−r) if denied     r = the channel's admit rate
- *   ρ_uv     = clip((S_v − S_v^{−u}) / S_v, 0, 1) if admitted;  0 if denied
- *   ℓᴬ_uv    = clip(κ_a · share(k_uv) · a_uv · (1 − ρ_uv), −Lᴬ, Lᴬ)
- *
- * Centring on r means a judge whose candidates are admitted at the normal rate
- * earns 0 in expectation: with about 92% denied, an uncentred debit would drag
- * every judge down.
- *
- * The decision that counts is the candidate's first council decision (admit or
- * deny) — the council decides once a semester, so a fixed window after the
- * referral would usually close before any decision exists. A later reopen or
- * reversal never changes it. A referral made after that decision, or by the
- * person who recorded it, earns nothing. When the club could not tell who
- * recorded it (`unresolvedDecider`), every referrer who was an admin at that
- * moment earns nothing from it: fail closed, since any of them may have
- * clicked. A decision recorded before the
- * leave-one-judge-out signal was kept (`signalWithout` absent) is not scored:
- * what is unknown is not read as low.
- *
- * Positions are derived on every pass from the referrals; nothing is stored.
- * A "maybe" call creates no referral, so it takes no position; a recruiter
- * makes no referral either, so no weight of theirs ever moves.
- */
-
 import type { Referral } from "../domain/types.ts";
 import type { AdmissionSpec } from "../models/spec.ts";
 
 export type Channel = "inbound" | "outbound";
 
-/** A candidate with no stored channel is inbound: it is the common route. */
 export const DEFAULT_CHANNEL: Channel = "inbound";
 
-/** One council decision on one candidate, as recorded on a decision snapshot. */
 export interface CouncilDecision {
   candidateId: string;
   outcome: "admitted" | "denied";
   at: Date;
-  /** The person who recorded the decision; they earn nothing from it. */
   decidedBy?: string;
-  /**
-   * Set instead of `decidedBy` when the recording admin could not be resolved
-   * to exactly one person. `adminReferrers` are the candidate's referrers who
-   * were admins at decision time; none of them earns credit from it.
-   */
   unresolvedDecider?: { adminReferrers: readonly string[] };
-  /** S_v the council saw, on the same scale as `signalWithout`; null when it had none. */
   signal: number | null;
-  /**
-   * The same signal without each referrer (leave-one-judge-out). Absent on a
-   * decision recorded before it was kept.
-   */
   signalWithout?: readonly { referrerId: string; signalWithout: number }[];
 }
 
-/** What the admission term reads beyond the referrals. */
 export interface AdmissionObservations {
   decisions: readonly CouncilDecision[];
-  /** Candidate id → channel. A candidate missing here is `DEFAULT_CHANNEL`. */
   channels: ReadonlyMap<string, Channel>;
 }
 
@@ -72,9 +24,7 @@ export interface ReferralPosition {
   referralId: string;
   judgeId: string;
   candidateId: string;
-  /** k: 1-based rank among the candidate's eligible referrals; ties share the average rank. */
   position: number;
-  /** share(k); ties share the average of the shares they span. */
   share: number;
 }
 
@@ -84,21 +34,15 @@ export interface AdmissionTerm {
   candidateId: string;
   decision: "admitted" | "denied";
   share: number;
-  /** a_uv */
   sign: number;
-  /** ρ_uv */
   reliance: number;
-  /** ℓᴬ_uv */
   credit: number;
 }
 
 export interface AdmissionResult {
   positions: Map<string, ReferralPosition>;
-  /** Scored terms, in referral order. */
   terms: AdmissionTerm[];
-  /** Σ ℓᴬ per judge with at least one term. */
   sumByJudge: Map<string, number>;
-  /** r per channel, as used. */
   admitRate: Record<Channel, number>;
 }
 
@@ -112,12 +56,6 @@ export function positionShare(
   return Math.max(spec.positionFloor, 1 / k ** spec.positionExponent);
 }
 
-/**
- * Rank each candidate's eligible referrals by `createdAt`, earliest first, one
- * per judge. A self-referral or a repeat by the same judge takes no position.
- * Referrals created at the same instant share the average of their ranks'
- * shares, so the order of equal timestamps never decides who is ahead.
- */
 export function referralPositions(
   referrals: readonly Referral[],
   spec: Pick<AdmissionSpec, "positionExponent" | "positionFloor">,
@@ -150,7 +88,6 @@ export function referralPositions(
   return out;
 }
 
-/** The first council decision per candidate that exists at `now`. Ties keep input order. */
 export function firstDecisions(
   decisions: readonly CouncilDecision[],
   now: Date,
@@ -163,12 +100,6 @@ export function firstDecisions(
   return out;
 }
 
-/**
- * Each channel's admit rate: the observed first decisions, with the prior
- * counted as `priorAdmitWeight` decisions at `priorAdmitRate`. With no data
- * this is the prior; as decisions accumulate it converges to the observed
- * rate, and it can never reach 0 or 1, so −r/(1−r) stays finite.
- */
 export function channelAdmitRates(
   first: ReadonlyMap<string, CouncilDecision>,
   channels: ReadonlyMap<string, Channel>,
@@ -185,12 +116,10 @@ export function channelAdmitRates(
   return { inbound: rate(count.inbound), outbound: rate(count.outbound) };
 }
 
-/** a_uv: +1 admitted; a denial is −r/(1−r), so admission at rate r nets 0. */
 export function admissionSign(outcome: "admitted" | "denied", admitRate: number): number {
   return outcome === "admitted" ? 1 : -admitRate / (1 - admitRate);
 }
 
-/** ρ_uv: how much of the signal the council saw was this judge's. 0 for a denial. */
 export function relianceOn(signal: number, signalWithout: number): number {
   if (!(signal > 0)) return 0;
   return Math.min(1, Math.max(0, (signal - signalWithout) / signal));
@@ -211,21 +140,19 @@ export function computeAdmission(
     const pos = positions.get(r.id);
     const d = first.get(r.candidateId);
     if (pos === undefined || d === undefined) continue;
-    if (r.createdAt.getTime() > d.at.getTime()) continue; // after the decision: position only
-    if (d.decidedBy === r.referrerId) continue; // recusal
-    if (d.unresolvedDecider?.adminReferrers.includes(r.referrerId)) continue; // fail closed
-    if (d.signalWithout === undefined) continue; // recorded before the signal was kept
+    if (r.createdAt.getTime() > d.at.getTime()) continue;
+    if (d.decidedBy === r.referrerId) continue;
+    if (d.unresolvedDecider?.adminReferrers.includes(r.referrerId)) continue;
+    if (d.signalWithout === undefined) continue;
     let reliance = 0;
     if (d.outcome === "admitted") {
-      // A judge missing from the list was not a referrer when the decision was
-      // taken, which `createdAt` above has already excluded; fail closed anyway.
       const without = d.signalWithout.find((x) => x.referrerId === r.referrerId);
       if (without === undefined || d.signal === null) continue;
       reliance = relianceOn(d.signal, without.signalWithout);
     }
-    // NOTE (SEA-79): admission credit for a referral without a Jev starting
-    // snapshot waits for step 4, which does not exist yet. Until then the
-    // credit applies as soon as the first council decision stands.
+    // Admission credit for a referral without a Jev starting snapshot waits for
+    // step 4 (Jev-snapshot gating), which does not exist yet; until then credit
+    // applies once the first council decision stands.
     const rate = admitRate[observations.channels.get(r.candidateId) ?? DEFAULT_CHANNEL];
     const sign = admissionSign(d.outcome, rate);
     const credit = Math.min(

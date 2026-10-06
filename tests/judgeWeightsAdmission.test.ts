@@ -1,11 +1,3 @@
-/**
- * SEA-79 — judge_reliability@4.1.0: position, admission credit and the club's
- * call model.
- *
- * The admission term is pure, so most of these drive `computeAdmission` or
- * `computeJudgeCalibration` directly; the pipeline cases go through the club
- * engine's own transitions.
- */
 import { describe, expect, test } from "bun:test";
 import schema from "../apps/club/convex/schema.ts";
 import { admissionObservations } from "../apps/club/lib/engine/admission.ts";
@@ -102,7 +94,6 @@ describe("admission credit", () => {
     const unaided = run(10);
     expect(unaided?.reliance).toBe(0);
     expect(unaided?.credit).toBeCloseTo(ADM.kappa, 12);
-    // Half of the signal was hers: half the credit.
     expect(run(5)?.credit).toBeCloseTo(ADM.kappa / 2, 12);
   });
 
@@ -135,15 +126,12 @@ describe("admission credit", () => {
   });
 
   test("at the base rate, expected admission credit is 0", () => {
-    // The sign itself: r·(+1) + (1 − r)·a(denied) = 0 for any r.
     for (const r of [0.02, 0.08, 0.3, 0.5, 0.9]) {
       expect(r * admissionSign("admitted", r) + (1 - r) * admissionSign("denied", r)).toBeCloseTo(
         0,
         12,
       );
     }
-    // And through the whole term: 150 candidates, 12 admitted (the prior rate),
-    // every one referred first by the same judge and none carried by them.
     const refs: Referral[] = [];
     const decisions: CouncilDecision[] = [];
     for (let i = 0; i < 150; i++) {
@@ -199,7 +187,6 @@ describe("admission credit", () => {
     });
     const res = admit([early, late], obs([second, first]));
     expect(res.terms.map((t) => [t.judgeId, t.decision])).toEqual([["alice", "denied"]]);
-    // The late referral still takes a position.
     expect(res.positions.get(late.id)?.position).toBe(2);
   });
 
@@ -254,13 +241,11 @@ describe("position", () => {
     expect(pos.get(tieA.id)?.position).toBe(2.5);
     expect(pos.get(tieB.id)?.position).toBe(2.5);
     expect(pos.get(tieA.id)?.share).toBe(pos.get(tieB.id)?.share as number);
-    // The order the rows arrive in decides nothing.
     const flipped = referralPositions([tieB, tieA, first], ADM);
     expect(flipped.get(tieA.id)?.share).toBe(pos.get(tieA.id)?.share as number);
   });
 });
 
-/** A small club: candidate bob, members alice and carol, a recruiter and an outbound candidate. */
 function club(): ClubState {
   const s = emptyState(day(0).toISOString());
   const row = (id: string, channel?: Channel): ClubState["people"][number] => ({
@@ -295,7 +280,6 @@ function refer(
   return r.state;
 }
 
-/** Calibrate a club state under 4.1.0, as the engine will once the spec is current. */
 function calibrate(s: ClubState, now = NOW) {
   const people = s.people.map((p) => person(p.id));
   return computeJudgeCalibration({
@@ -368,7 +352,6 @@ describe("recognition answer, calls, recruiters", () => {
   test("a recruiter never gains or loses weight, whether the candidate is admitted or denied", () => {
     for (const verdict of ["admit", "deny"] as const) {
       const s = club();
-      // The recruiting committee selects dee; the recruiter makes no referral and no call.
       const decided = decide(s, "dee", verdict).state;
       const run = calibrate(decided);
       expect(run.estimates.get("rec")?.weight).toBe(0.3);

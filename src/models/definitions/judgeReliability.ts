@@ -24,11 +24,6 @@ export interface JudgeCalibrationObservations {
   referrals: readonly Referral[];
   outcomes: readonly Outcome[];
   opportunities?: readonly Opportunity[];
-  /**
-   * Council decisions and channels. Fingerprinted only when the spec has an
-   * admission term (4.1+): `runJudgeCalibration` drops it otherwise, so a
-   * 2.0.0 or 4.0.0 run id never moves because the caller had decisions to hand.
-   */
   admission?: AdmissionObservations;
 }
 
@@ -85,8 +80,6 @@ export function runJudgeCalibration(input: JudgeCalibrationInput): ModelRun<Judg
     ...(input.spec === undefined ? {} : { spec: input.spec }),
     ...(input.referralSpec === undefined ? {} : { referralSpec: input.referralSpec }),
   };
-  // A spec without an admission term never reads the decisions, so they are
-  // not an input of its run and must not reach the hash.
   const { admission, ...rest } = input;
   const read = judgeReliabilityModel.specOf(opts).admission !== undefined;
   const observations = read && admission !== undefined ? { ...rest, admission } : rest;

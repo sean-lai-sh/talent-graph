@@ -96,12 +96,6 @@ export const JUDGE_RELIABILITY_V4_0_0: JudgeReliabilitySpec = deepFreeze({
   weightExponent: 2,
 });
 
-/**
- * 4.0.0 plus the admission term: a judge's referral earns early credit or debit
- * from the council's first decision on the candidate, weighted by position and
- * centred on the channel's admit rate (SEA-79). The council's Referral Signal
- * is weighted by ω, as under 4.0.0.
- */
 export const JUDGE_RELIABILITY_V4_1_0: JudgeReliabilitySpec = deepFreeze({
   ...JUDGE_RELIABILITY_V4_0_0,
   version: "4.1.0",

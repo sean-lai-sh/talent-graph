@@ -124,11 +124,6 @@ async function ensureOrg(
   return { orgId, name: clubName, state, view: computeView(state) };
 }
 
-/**
- * The person id behind the signed-in admin's email, or undefined when the
- * admin has no person row (or more than one matches). Recorded as `decidedBy`
- * so a judge who is also the deciding admin earns no credit from the decision.
- */
 async function signedInAdminPersonId(ctx: MutationCtx): Promise<string | undefined> {
   const user = await requireAdmin(ctx);
   const email = typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
@@ -143,10 +138,6 @@ async function signedInAdminPersonId(ctx: MutationCtx): Promise<string | undefin
   return decidedByPersonId(matches.map((row) => row.id));
 }
 
-/**
- * The candidate's referrers who are admins now, for a decision whose decider
- * did not resolve to one person. See `adminReferrers` for the rule and its gap.
- */
 async function adminReferrersOf(
   ctx: MutationCtx,
   state: ClubState,
@@ -271,8 +262,6 @@ export const decide = mutation({
   handler: async (ctx, args) => {
     const decidedBy = await signedInAdminPersonId(ctx);
     return await applyEngine(ctx, async (state) => {
-      // Fail closed: with no single decider, every referrer who is an admin
-      // right now is treated as one who may have clicked.
       const decider: ClubDecider =
         decidedBy !== undefined
           ? { decidedBy }
@@ -286,11 +275,6 @@ export const decide = mutation({
   },
 });
 
-/**
- * A pre-council call. A yes also creates the caller's engine referral
- * (origin "interview"); a maybe takes no position; a hard no is stored and
- * never scored.
- */
 export const addCall = mutation({
   args: {
     candidateId: v.string(),

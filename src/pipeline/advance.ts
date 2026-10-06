@@ -51,7 +51,6 @@ export interface Observations {
   comparisons: readonly Comparison[];
   outcomes: readonly Outcome[];
   opportunities: readonly Opportunity[];
-  /** Council decisions and channels, for a calibration spec with an admission term. */
   admission?: AdmissionObservations;
 }
 

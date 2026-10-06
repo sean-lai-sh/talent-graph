@@ -101,7 +101,6 @@ export type QuestionDraft = {
   role: ReferralQ2Role | null;
   groupSize: ReferralQ3GroupSize | null;
   rank: ReferralQ3Rank | null;
-  /** Optional: left unanswered it is sent as "not_sure". */
   recognition: ReferralRecognition | null;
 };
 
