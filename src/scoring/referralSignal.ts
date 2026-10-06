@@ -22,6 +22,18 @@
  * still construct as sugar. The loop below applies whichever it is given, so a
  * later weighting is added there and not here.
  *
+ * Weight-normalised aggregation (`referral_signal@0.2.0`, SEA-83). Under the
+ * v4 judge scale a new judge's ω is 0.09, so the plain mean above would let an
+ * extra referral pull S_v toward 0. A spec with
+ * `aggregation: "weight_normalized"` instead takes
+ *
+ *   S_v = Σ_{TopK} (ω_u · R_uv) / (Σ_{TopK} ω_u + c0)
+ *
+ * over the same Top-K (ranked by the contribution ω·R), where ω_u is the
+ * weighting's `reliability` factor and c0 is the run's `pseudoWeight`, derived
+ * from the judge spec rather than fixed here. Every spec without the field
+ * keeps the plain mean, so V0 and V2 are untouched.
+ *
  * Since #56 T5 the many-person path reads the shared index rather than
  * re-deriving one of its own: `computeAllReferralSignals` is
  * `scoreReferralGraph(...)` followed by `computeSignalsFromGraph(...)`, so R_uv
@@ -97,6 +109,33 @@ export interface ReferralSignalOptions {
   judgeReliability?: ReadonlyMap<string, number>;
   /** b̂_u per judge id from V2 calibration; missing judges count as 0. */
   judgeBias?: ReadonlyMap<string, number>;
+  /**
+   * c0, the pseudo-weight in the denominator of a `"weight_normalized"` spec.
+   * Required by such a spec and refused by any other, so a run can neither
+   * forget it nor pass one that silently does nothing.
+   */
+  pseudoWeight?: number;
+}
+
+/**
+ * The c0 a call runs under: a finite number ≥ 0 exactly when the spec
+ * aggregates weight-normalised, `undefined` (the plain mean) otherwise.
+ */
+function resolvePseudoWeight(spec: ReferralSignalSpec, pseudoWeight: number | undefined) {
+  if (spec.aggregation === "weight_normalized") {
+    if (pseudoWeight === undefined || !(Number.isFinite(pseudoWeight) && pseudoWeight >= 0)) {
+      throw new Error(
+        `referral_signal@${spec.version} aggregates weight-normalised and needs a finite pseudoWeight ≥ 0 (got ${pseudoWeight})`,
+      );
+    }
+    return pseudoWeight;
+  }
+  if (pseudoWeight !== undefined) {
+    throw new Error(
+      `pseudoWeight given to referral_signal@${spec.version}, which takes the plain mean and would ignore it`,
+    );
+  }
+  return undefined;
 }
 
 /**
@@ -149,6 +188,8 @@ function signalFromScoredEdges(
   spec: ReferralSignalSpec,
   topK: number,
   weighting: EdgeWeighting,
+  /** c0 for a `"weight_normalized"` spec; `undefined` takes the plain mean. */
+  pseudoWeight: number | undefined,
 ): ReferralSignalResult {
   const judgeWeighted = weighting.weighted;
   const weighed = incoming
@@ -181,10 +222,13 @@ function signalFromScoredEdges(
     .filter((x) => x.eligible)
     .slice(0, topK)
     .map((x) => x.c);
+  const sum = contributing.reduce((acc, c) => acc + c.strength, 0);
   const s =
     contributing.length === 0
       ? 0
-      : contributing.reduce((acc, c) => acc + c.strength, 0) / contributing.length;
+      : pseudoWeight === undefined
+        ? sum / contributing.length
+        : sum / (contributing.reduce((acc, c) => acc + c.judge.reliability, 0) + pseudoWeight);
 
   const evidenceTypes: EvidenceType[] = [];
   for (const { referral } of scored) {
@@ -232,7 +276,14 @@ export function computeReferralSignal(
     return { referral, strength: breakdown.strength, breakdown, dangling: false };
   });
 
-  return signalFromScoredEdges(personId, edges, spec, topK, resolveWeighting(opts));
+  return signalFromScoredEdges(
+    personId,
+    edges,
+    spec,
+    topK,
+    resolveWeighting(opts),
+    resolvePseudoWeight(spec, opts.pseudoWeight),
+  );
 }
 
 /**
@@ -262,11 +313,19 @@ export function computeSignalsFromGraph(
   const spec = sg.spec;
   const topK = opts.topK ?? spec.topK;
   const weighting = resolveWeighting(opts);
+  const pseudoWeight = resolvePseudoWeight(spec, opts.pseudoWeight);
   const out = new Map<string, ReferralSignalResult>();
   for (const personId of sg.graph.nodes.keys()) {
     out.set(
       personId,
-      signalFromScoredEdges(personId, sg.in.get(personId) ?? [], spec, topK, weighting),
+      signalFromScoredEdges(
+        personId,
+        sg.in.get(personId) ?? [],
+        spec,
+        topK,
+        weighting,
+        pseudoWeight,
+      ),
     );
   }
   return out;
