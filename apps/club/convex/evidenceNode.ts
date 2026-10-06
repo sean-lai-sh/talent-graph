@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { GROK_COMPANY_RESEARCH_DELIVERY, triggerGrokRoutine } from "../lib/longitudinal/grok.ts";
 import { grokCallbackToken, grokCallbackUrl } from "../lib/longitudinal/grokCallback.ts";
 import { extractPdfText } from "../lib/longitudinal/resumePdf.ts";
-import { fetchGitHubEvidence, type JsonFetcher } from "../lib/longitudinal/sources.ts";
+import { fetchGitHubArtifacts, type JsonFetcher } from "../lib/longitudinal/sources.ts";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 
@@ -25,9 +25,10 @@ export const extractResumeText = internalAction({
 });
 
 /**
- * Public GitHub artifacts for one username, every one up to now. Each item is
- * dated by the artifact's own date (repo creation, release or push), which
- * `githubEvidence` turns into job dates; never the fetch date.
+ * Public GitHub artifacts for one username, every one up to now, each with its
+ * stable identity and its own creation and last-change dates (repo
+ * `created_at` / `updated_at`, the event's date), which `githubVersionsToScore`
+ * turns into version dates; never the fetch date.
  */
 export const fetchGitHub = internalAction({
   args: { username: v.string() },
@@ -44,7 +45,7 @@ export const fetchGitHub = internalAction({
       if (!response.ok) throw new Error(`GitHub request failed: ${response.status} ${url}`);
       return response.json();
     };
-    return await fetchGitHubEvidence(username, new Date(0), new Date(), fetchJson);
+    return await fetchGitHubArtifacts(username, new Date(0), new Date(), fetchJson);
   },
 });
 

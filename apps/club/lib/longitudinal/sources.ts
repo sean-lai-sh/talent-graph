@@ -62,6 +62,33 @@ export async function fetchGitHubEvidence(
   cutoff: Date,
   fetchJson: JsonFetcher = defaultJsonFetcher,
 ): Promise<GrokEvidenceItem[]> {
+  const artifacts = await fetchGitHubArtifacts(username, from, cutoff, fetchJson);
+  return artifacts.map((artifact) => artifact.item);
+}
+
+/** One public GitHub artifact: its evidence item, its stable identity, and when it last changed. */
+export interface GitHubArtifact {
+  item: GrokEvidenceItem;
+  /**
+   * What the artifact is, stable across fetches and edits: GitHub's numeric
+   * repository id (it survives a rename) or the event id. Falls back to the
+   * item's `sourceId` when the API gives no repository id.
+   */
+  artifactId: string;
+  /**
+   * The artifact's own date of its last change: the repository's
+   * `updated_at` (a description edit or rename moves it), or the event's
+   * `created_at` (an event never changes). Never the fetch time.
+   */
+  changedAt: string;
+}
+
+export async function fetchGitHubArtifacts(
+  username: string,
+  from: Date,
+  cutoff: Date,
+  fetchJson: JsonFetcher = defaultJsonFetcher,
+): Promise<GitHubArtifact[]> {
   const headers = { Accept: "application/vnd.github+json" };
   const [reposValue, eventsValue] = await Promise.all([
     fetchJson(
@@ -74,7 +101,7 @@ export async function fetchGitHubEvidence(
     ),
   ]);
 
-  const evidence: GrokEvidenceItem[] = [];
+  const evidence: GitHubArtifact[] = [];
   if (Array.isArray(reposValue)) {
     for (const raw of reposValue) {
       const repo = record(raw);
@@ -92,8 +119,17 @@ export async function fetchGitHubEvidence(
         continue;
       }
       const description = string(repo.description) ?? "No repository description.";
-      evidence.push(
-        item({
+      const repoId = repo.id;
+      const artifactId =
+        typeof repoId === "number" || typeof repoId === "string"
+          ? `repo:${repoId}`
+          : `repo:${name}`;
+      const updatedAt = string(repo.updated_at);
+      const changedAt = updatedAt && Number.isFinite(Date.parse(updatedAt)) ? updatedAt : createdAt;
+      evidence.push({
+        artifactId,
+        changedAt,
+        item: item({
           source: "github",
           sourceId: `repo:${name}`,
           url,
@@ -104,7 +140,7 @@ export async function fetchGitHubEvidence(
           proposedEventKind: "open_source_contribution",
           raw,
         }),
-      );
+      });
     }
   }
 
@@ -128,8 +164,10 @@ export async function fetchGitHubEvidence(
       ) {
         continue;
       }
-      evidence.push(
-        item({
+      evidence.push({
+        artifactId: `event:${id}`,
+        changedAt: createdAt,
+        item: item({
           source: "github",
           sourceId: `event:${id}`,
           url: `https://github.com/${repoName}`,
@@ -140,7 +178,7 @@ export async function fetchGitHubEvidence(
           proposedEventKind: "open_source_contribution",
           raw,
         }),
-      );
+      });
     }
   }
   return evidence;

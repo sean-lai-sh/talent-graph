@@ -25,6 +25,7 @@ import {
   outputOnlyRollup,
 } from "../../../../src/longitudinal/outputOnly.ts";
 import type { JevJudgmentRecord } from "../../../../src/longitudinal/records.ts";
+import { evidenceKeyParts } from "./evidenceSources.ts";
 
 export const SNAPSHOT_KINDS = ["s0", "s12", "s24", "s36"] as const;
 export type SnapshotKind = (typeof SNAPSHOT_KINDS)[number];
@@ -98,18 +99,45 @@ export interface SnapshotRow {
 
 /**
  * The claims a snapshot reads: those whose evidence is dated on or before the
- * cutoff. Undated claims never count, and are left out of the hash too, so a
- * claim arriving after the cutoff does not change an earlier snapshot's
- * `inputHash`.
+ * cutoff, and of each artifact only its latest version dated on or before the
+ * cutoff, so an artifact with several stored versions (a GitHub repository
+ * whose description grew) is never counted twice. A version is every claim
+ * sharing an evidence key's `sourceId` and `publishedAt`; resume claims each
+ * have a `sourceId` of their own, so for them this is the date filter alone.
+ *
+ * Undated claims never count, and are left out of the hash too, so a claim
+ * arriving after the cutoff does not change an earlier snapshot's `inputHash`.
  */
 export function claimsAtCutoff(
   claims: readonly OutputOnlyClaim[],
+  records: readonly JevJudgmentRecord[],
   cutoff: Date,
 ): OutputOnlyClaim[] {
-  return claims.filter((claim) => {
-    const dated = evidenceDateFor(claim);
-    return dated !== null && dated.getTime() <= cutoff.getTime();
+  const keyByRecord = new Map(records.map((record) => [record.id, record.evidenceKey]));
+  const dated = claims.flatMap((claim) => {
+    const at = evidenceDateFor(claim);
+    if (at === null || at.getTime() > cutoff.getTime()) return [];
+    const key = keyByRecord.get(claim.recordId);
+    if (key === undefined) throw new Error(`claim ${claim.id} has no record ${claim.recordId}`);
+    const { sourceId, publishedAt } = evidenceKeyParts(key);
+    return [{ claim, sourceId, publishedAt }];
   });
+  // A resume key can read "undated" (an output line with an end date only);
+  // it is then the only version of its source id.
+  const versionTime = (publishedAt: string) => {
+    const time = Date.parse(publishedAt);
+    return Number.isFinite(time) ? time : Number.NEGATIVE_INFINITY;
+  };
+  const latest = new Map<string, string>();
+  for (const { sourceId, publishedAt } of dated) {
+    const current = latest.get(sourceId);
+    if (current === undefined || versionTime(publishedAt) > versionTime(current)) {
+      latest.set(sourceId, publishedAt);
+    }
+  }
+  return dated
+    .filter(({ sourceId, publishedAt }) => latest.get(sourceId) === publishedAt)
+    .map(({ claim }) => claim);
 }
 
 /** The newest row of a kind: the latest correction, else the original. */
@@ -142,7 +170,7 @@ export function planSnapshot(input: {
   newId: () => string;
 }): SnapshotRow | null {
   const cutoff = evidenceCutoff(input.intakeAt, input.kind);
-  const claims = claimsAtCutoff(input.claims, cutoff);
+  const claims = claimsAtCutoff(input.claims, input.records, cutoff);
   const recordIds = new Set(claims.map((claim) => claim.recordId));
   const rollup: OutputOnlyRollup = outputOnlyRollup({
     personId: input.candidateId,

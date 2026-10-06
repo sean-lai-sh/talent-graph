@@ -2,7 +2,6 @@ import type { WithoutSystemFields } from "convex/server";
 import { v } from "convex/values";
 import { companyWorklist } from "../../../src/longitudinal/companyResearch.ts";
 import { normalizeOrgName } from "../../../src/longitudinal/companySeed.ts";
-import type { GrokEvidenceItem } from "../../../src/longitudinal/types.ts";
 import { loadClub } from "../lib/clubStore.ts";
 import { type ClaimJudgment, judgeClaimsV12 } from "../lib/longitudinal/claimJudgmentV12.ts";
 import {
@@ -16,7 +15,9 @@ import {
 import {
   githubEvidence,
   githubUsername,
+  githubVersionsToScore,
   resumeEvidence,
+  storedGitHubVersions,
 } from "../lib/longitudinal/evidenceSources.ts";
 import { createJevClient } from "../lib/longitudinal/jevClient.ts";
 import {
@@ -26,6 +27,7 @@ import {
   rawResumeLines,
   rebuildResumeLines,
 } from "../lib/longitudinal/resumeLines.ts";
+import type { GitHubArtifact } from "../lib/longitudinal/sources.ts";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -491,7 +493,7 @@ async function pickUpResume(ctx: ActionCtx, found: Context): Promise<boolean> {
 }
 
 /** Step 2: public GitHub artifacts from the candidate's `github` field. */
-async function fetchGitHub(ctx: ActionCtx, found: Context): Promise<GrokEvidenceItem[]> {
+async function fetchGitHub(ctx: ActionCtx, found: Context): Promise<GitHubArtifact[]> {
   const username = githubUsername(found.person.github ?? undefined);
   if (!username) return [];
   try {
@@ -531,15 +533,33 @@ async function requestCompanyResearch(ctx: ActionCtx, found: Context): Promise<v
   }
 }
 
-/** Step 4: score only claims whose evidence key has no record, and store the records. */
+/**
+ * Step 4: score only claims whose evidence key has no record, and store the
+ * records. GitHub artifacts are scored only when new or materially changed
+ * since their latest stored version (`githubVersionsToScore`), so an
+ * unchanged repository costs no Jev call.
+ */
 async function scoreNewClaims(
   ctx: ActionCtx,
   found: Context,
-  github: readonly GrokEvidenceItem[],
+  github: readonly GitHubArtifact[],
 ): Promise<ClaimJudgment[]> {
+  const versions = githubVersionsToScore(
+    github,
+    storedGitHubVersions(
+      found.judgments
+        .filter((judgment) => judgment.claim.source === "github")
+        .map((judgment) => judgment.record.evidenceKey),
+    ),
+  );
+  for (const sourceId of versions.undatable) {
+    console.warn(
+      `evidence: ${found.person.id} ${sourceId} changed but has no change date after its stored version; not scored`,
+    );
+  }
   const sources = [
     ...found.resumes.map((version) => resumeEvidence(version.lines)),
-    ...(github.length > 0 ? [githubEvidence(github)] : []),
+    ...(versions.items.length > 0 ? [githubEvidence(versions.items)] : []),
   ];
   if (sources.length === 0) return [];
   const client = createJevClient();

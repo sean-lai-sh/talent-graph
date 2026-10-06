@@ -10,6 +10,7 @@ import type { ScoredClaimV12 } from "../../../../src/longitudinal/claimRubricV12
 import { contentFingerprint } from "../../../../src/longitudinal/provenance.ts";
 import type { GrokEvidenceItem } from "../../../../src/longitudinal/types.ts";
 import type { ClaimEvidence } from "./claimJudgmentV12.ts";
+import type { GitHubArtifact } from "./sources.ts";
 
 /** What makes two claims the same evidence: text, class and dates, not where the line sat. */
 function claimDigest(claim: ScoredClaimV12, jobDates: JobDateFields): string {
@@ -67,14 +68,124 @@ export function githubUsername(value: string | undefined): string | null {
 }
 
 /**
- * GitHub claims, one line per fetched artifact.
+ * What counts as a material change to a GitHub artifact: a change in the text
+ * Jev is shown (the claim line's statement, which carries every fact passed
+ * to the model: repository name, description, event kind) once case,
+ * Unicode form, punctuation and whitespace are ignored. Stars, forks and
+ * `updated_at` are never shown to Jev, so they never make a new version.
+ */
+export function materialText(statement: string): string {
+  return statement
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** The digest of a statement's material text; equal digests are the same version. */
+export function versionDigest(statement: string): string {
+  return contentFingerprint(materialText(statement)).slice(0, 16);
+}
+
+/**
+ * Joins a GitHub evidence key's `contentHash` from the version digest and the
+ * claim digest. Keys stored before versioning have no separator; their whole
+ * hash reads as a version digest no current statement matches.
+ */
+const VERSION_SEPARATOR = ".";
+
+/** The parts of an evidence key (`evidenceKeyFor`): what it is about, and which version. */
+export function evidenceKeyParts(evidenceKey: string): {
+  sourceId: string;
+  publishedAt: string;
+  versionDigest: string;
+} {
+  const [, sourceId, publishedAt, contentHash] = evidenceKey.split("|");
+  if (sourceId === undefined || publishedAt === undefined || contentHash === undefined) {
+    throw new Error(`evidence key ${evidenceKey} has no source id, date and hash`);
+  }
+  return {
+    sourceId,
+    publishedAt,
+    versionDigest: contentHash.split(VERSION_SEPARATOR)[0] ?? contentHash,
+  };
+}
+
+/** The latest stored version of each GitHub artifact, by artifact id. */
+export function storedGitHubVersions(
+  evidenceKeys: readonly string[],
+): Map<string, { publishedAt: string; versionDigest: string }> {
+  const latest = new Map<string, { publishedAt: string; versionDigest: string }>();
+  for (const key of evidenceKeys) {
+    const parts = evidenceKeyParts(key);
+    const current = latest.get(parts.sourceId);
+    if (current === undefined || Date.parse(parts.publishedAt) > Date.parse(current.publishedAt)) {
+      latest.set(parts.sourceId, {
+        publishedAt: parts.publishedAt,
+        versionDigest: parts.versionDigest,
+      });
+    }
+  }
+  return latest;
+}
+
+/**
+ * The GitHub artifacts to score: new ones, and ones whose text changed
+ * materially since their latest stored version. Each comes back as an
+ * evidence item keyed by the artifact's identity and dated at its version:
  *
- * A GitHub line has no job header, so its job dates come from `publishedAt`,
- * and `publishedAt` must be the artifact's own date: the repository's
- * creation, the release, or the push (`fetchGitHubEvidence` reads
- * `created_at` off the repo or the event). Never the date it was fetched.
- * The daily check refetches every candidate's GitHub; a fetch-time date would
- * re-date old work as new at every snapshot and manufacture movement.
+ * - a new artifact by its own creation date (the repository's `created_at`,
+ *   the event's date), as fetched;
+ * - a new version of a stored artifact by the artifact's own date of the
+ *   change (`changedAt`: the repository's `updated_at`), so growth shows up
+ *   as movement at the cutoff it happened before, and the old version stays
+ *   for earlier cutoffs.
+ *
+ * Never the fetch time: the daily check refetches every candidate's GitHub,
+ * and a fetch-time date would re-date old work as new at every snapshot and
+ * manufacture movement. A changed artifact whose own change date is not after
+ * its stored version cannot be dated at the change, so it is left out
+ * (`undatable`) rather than given a made-up date.
+ */
+export function githubVersionsToScore(
+  artifacts: readonly GitHubArtifact[],
+  stored: ReadonlyMap<string, { publishedAt: string; versionDigest: string }>,
+): { items: GrokEvidenceItem[]; unchanged: number; undatable: string[] } {
+  const items: GrokEvidenceItem[] = [];
+  const undatable: string[] = [];
+  let unchanged = 0;
+  for (const artifact of artifacts) {
+    const sourceId = `github:${artifact.artifactId}`;
+    const latest = stored.get(sourceId);
+    if (latest === undefined) {
+      items.push({ ...artifact.item, sourceId });
+      continue;
+    }
+    if (latest.versionDigest === versionDigest(artifact.item.statement)) {
+      unchanged += 1;
+      continue;
+    }
+    if (!(Date.parse(artifact.changedAt) > Date.parse(latest.publishedAt))) {
+      undatable.push(sourceId);
+      continue;
+    }
+    items.push({ ...artifact.item, sourceId, publishedAt: artifact.changedAt });
+  }
+  return { items, unchanged, undatable };
+}
+
+/**
+ * GitHub claims, one line per artifact version from `githubVersionsToScore`.
+ *
+ * A GitHub line has no job header, so its job dates come from the item's
+ * `publishedAt`: the version's own date, never the date it was fetched.
+ *
+ * The evidence key is the artifact's identity (`sourceId`), the version date,
+ * and a hash of the version's material text plus the claim's digest (a line
+ * can split into several claims). Editing a description cosmetically leaves
+ * the version as it is; a material edit adds a version with a new key, and
+ * the old record stays.
  */
 export function githubEvidence(items: readonly GrokEvidenceItem[]): ClaimEvidence {
   const lines: JobClaimLine[] = items.map((item, index) => ({
@@ -108,8 +219,12 @@ export function githubEvidence(items: readonly GrokEvidenceItem[]): ClaimEvidenc
     evidenceItemFor(claim, line) {
       const item = itemFor(line);
       // The fetched item's own hash covers the whole API object (stars,
-      // `updated_at`), which changes between fetches; the claim's digest does not.
-      return { ...item, contentHash: claimDigest(claim, datesFor(line)) };
+      // `updated_at`), which changes between fetches; neither digest here does.
+      const contentHash = [
+        versionDigest(item.statement),
+        claimDigest(claim, datesFor(line)).slice(0, 16),
+      ].join(VERSION_SEPARATOR);
+      return { ...item, contentHash };
     },
   };
 }
