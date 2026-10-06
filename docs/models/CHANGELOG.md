@@ -106,12 +106,12 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   no data drop from weight 1 to ω 0.09.
 - **PR:** SEA-78.
 
-## judge_reliability@4.1.0 — admission credit and shadow mode
+## judge_reliability@4.1.0 — admission credit
 
 - **What:** 4.0.0 plus an admission term, from the council's first decision
   (admit or deny) on each candidate. New spec fields `admission`
-  `{ κ_a 0.25, Lᴬ 0.75, α 0.75, φ 0.2, priorAdmitRate 12/150, priorAdmitWeight 150 }`
-  and `shadowMode true`. Position: a candidate's referrals rank by `createdAt`
+  `{ κ_a 0.25, Lᴬ 0.75, α 0.75, φ 0.2, priorAdmitRate 12/150, priorAdmitWeight 150 }`.
+  Position: a candidate's referrals rank by `createdAt`
   (one per judge; self-referrals and repeats take none; equal times share the
   average share), `share(k) = max(φ, 1/k^α)`. Per referral,
   `a = +1` if admitted, `−r/(1−r)` if denied (r = the candidate's channel
@@ -125,24 +125,23 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   prior counted as `priorAdmitWeight` decisions at `priorAdmitRate`, so it
   starts at 12/150 and can never reach 0 or 1. S and S⁻ᵘ are the council's
   display-rounded signals (the scale the snapshot stores).
-- **Shadow mode:** weights are computed and reported (`weight`, `omega`,
-  `admissionCredit`), but `councilSignalOptions` passes no weights, so the
-  Referral Signal the council sees is the unweighted V0 run exactly, and
-  `advance()` reuses that run as the weighted one. Turn it off in a later spec
-  version once the movement gate opens.
+- **Weighted signal:** the council's Referral Signal is weighted by ω, as
+  under 4.0.0. There is no shadow mode. The weighted path is mis-scaled until
+  SEA-83 lands: the plain top-K mean of `ω·R` lets a new judge's ω 0.09 pull a
+  candidate's signal down. Don't switch `CURRENT_SPECS` before then.
 - **Why:** Gives a new judge a meaningful weight within weeks of the council
   deciding, instead of after a 180-day observation window. Centring on the
   channel's admit rate keeps a judge whose candidates are admitted at the
-  normal rate at 0; the pipeline simulation found early weights carry little
-  information but change about 10% of admissions, hence shadow mode.
+  normal rate at 0.
 - **Admission credit timing:** a referral without a Jev starting snapshot would
   wait for step 4; until it exists the credit applies once the decision stands.
 - **Not current:** `CURRENT_SPECS.judge_reliability` stays 2.0.0.
-- **Drift:** `bun run drift -- --kind judge_reliability --before 4.0.0 --after
-  4.1.0` on the seed: reliability and bias STABLE (τ_b 1.000, no shift: the seed
-  has no council decisions, so no admission credit); weighted referral signals
-  BREAKING (τ_b 0.659, mean |shift| 35.27, max 74.68), which is shadow mode
-  returning the unweighted signal in place of 4.0.0's ω-weighted one.
+- **Drift:** on the seed, which has no council decisions and so no admission
+  credit. `--before 4.0.0 --after 4.1.0`: STABLE on all five reports (τ_b 1.000,
+  no shift). `--before 2.0.0 --after 4.1.0`: BREAKING overall, the same numbers
+  as 2.0.0 → 4.0.0 (reliability τ_b 0.578, mean |shift| 43.64; weighted referral
+  signals REVIEW, τ_b 0.746, mean |shift| 29.45, max 67.62). Re-run against
+  2.0.0 after SEA-83.
 - **PR:** SEA-79.
 
 ## career_evidence@1.0.0 — initial (career-evidence rubric)
