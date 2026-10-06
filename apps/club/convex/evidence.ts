@@ -46,16 +46,26 @@ import { snapshotKind } from "./schema";
  *
  * Intake runs once when a candidate enters the process (`intake`). The daily
  * cron (`crons.ts` → `daily`) schedules `check` for every candidate whose
- * next snapshot is due. `check` is the standard check every candidate gets:
- * pick up a newly uploaded resume, refetch GitHub, ask for company research on
- * unknown employers, score only claims with no record yet, and write the
- * snapshots that are due. ORCID is out of scope (no field for it).
+ * next snapshot is due, and for every candidate not checked for
+ * `RECHECK_DAYS`. `check` is the standard check every candidate gets: pick up
+ * a newly uploaded resume, refetch GitHub, ask for company research on
+ * unknown employers, score only new or materially changed claims, and
+ * recompute every snapshot kind already due, so evidence dated before a
+ * cutoff that turns up later adds a correction row. ORCID is out of scope (no
+ * field for it).
  */
 
 /** Company research is asked again for an org only after this long. */
 const COMPANY_RESEARCH_FRESH_MS = 90 * 24 * 60 * 60 * 1000;
-/** How many due candidates one cron run schedules. The rest wait for the next run. */
+/** How many candidates one cron run schedules. The rest wait for the next run. */
 const DAILY_BATCH = 200;
+/**
+ * A candidate whose last completed check is older than this is checked again
+ * even with no snapshot due, so evidence that grows between snapshots is
+ * picked up near when it happened, and late evidence corrects due snapshots.
+ */
+const RECHECK_DAYS = 14;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Reads
@@ -397,8 +407,9 @@ export const recordCompanyResearch = internalMutation({
 
 /**
  * The daily cron. Candidates who entered before intake existed get their
- * intake row here; then every candidate whose next snapshot is due gets a
- * `check` of their own, so one failure does not stop the others.
+ * intake row here. Then every candidate whose next snapshot is due, and every
+ * candidate not checked for `RECHECK_DAYS` (or never), gets a `check` of
+ * their own, so one failure does not stop the others. Due candidates go first.
  */
 export const daily = internalMutation({
   args: {},
@@ -410,14 +421,24 @@ export const daily = internalMutation({
       .withIndex("by_club_and_status", (q) => q.eq("clubId", club._id).eq("status", "candidate"))
       .collect();
     for (const person of candidates) await ensureIntakeRow(ctx, club._id, person);
+    const now = Date.now();
     const due = await ctx.db
       .query("evidenceIntakes")
-      .withIndex("by_next_due", (q) => q.gte("nextDueAt", 0).lte("nextDueAt", Date.now()))
+      .withIndex("by_next_due", (q) => q.gte("nextDueAt", 0).lte("nextDueAt", now))
       .take(DAILY_BATCH);
-    for (const intake of due) {
-      await ctx.scheduler.runAfter(0, internal.evidence.check, { personId: intake.personId });
+    // Never-checked rows have no `lastCheckedAt`, which sorts before every number.
+    const stale = await ctx.db
+      .query("evidenceIntakes")
+      .withIndex("by_last_checked", (q) => q.lt("lastCheckedAt", now - RECHECK_DAYS * DAY_MS))
+      .take(DAILY_BATCH);
+    const personIds = [...new Set([...due, ...stale].map((intake) => intake.personId))].slice(
+      0,
+      DAILY_BATCH,
+    );
+    for (const personId of personIds) {
+      await ctx.scheduler.runAfter(0, internal.evidence.check, { personId });
     }
-    return { scheduled: due.length };
+    return { scheduled: personIds.length, due: due.length };
   },
 });
 
@@ -450,12 +471,18 @@ async function runCheck(ctx: ActionCtx, personId: string) {
   if (versionAdded) found = (await loadContext(ctx, personId)) ?? found;
   const github = await fetchGitHub(ctx, found);
   await requestCompanyResearch(ctx, found);
-  const scored = await scoreNewClaims(ctx, found, github);
+  const scored = await scoreNewClaims(ctx, found, github ?? []);
+  if (github === null) {
+    // The GitHub evidence is partial: write no snapshot from it, and leave
+    // `nextDueAt` and `lastCheckedAt` as they are, so the next daily run
+    // checks this candidate again. Resume claims scored above are kept.
+    return { versionAdded, scored: scored.length, snapshots: 0, githubFailed: true };
+  }
   // Snapshots read only stored records, reloaded after storing: a concurrent
   // check may have stored a different answer for the same evidence first.
   const stored = scored.length > 0 ? ((await loadContext(ctx, personId)) ?? found) : found;
   const snapshots = await writeDueSnapshots(ctx, stored, stored.judgments);
-  return { versionAdded, scored: scored.length, snapshots };
+  return { versionAdded, scored: scored.length, snapshots, githubFailed: false };
 }
 
 /** Step 1: read a resume upload not seen before into claim lines, one version per file. */
@@ -492,16 +519,20 @@ async function pickUpResume(ctx: ActionCtx, found: Context): Promise<boolean> {
   return true;
 }
 
-/** Step 2: public GitHub artifacts from the candidate's `github` field. */
-async function fetchGitHub(ctx: ActionCtx, found: Context): Promise<GitHubArtifact[]> {
+/**
+ * Step 2: public GitHub artifacts from the candidate's `github` field, or
+ * null when the fetch failed. No handle, or a handle with no such user, is
+ * an empty list, not a failure.
+ */
+async function fetchGitHub(ctx: ActionCtx, found: Context): Promise<GitHubArtifact[] | null> {
   const username = githubUsername(found.person.github ?? undefined);
   if (!username) return [];
   try {
     return await ctx.runAction(internal.evidenceNode.fetchGitHub, { username });
   } catch (error) {
-    // A GitHub outage must not hold back the resume claims or a due snapshot.
+    // The resume claims are still scored; the caller writes no snapshot.
     console.warn(`evidence: GitHub fetch for ${found.person.id} failed: ${String(error)}`);
-    return [];
+    return null;
   }
 }
 

@@ -280,10 +280,12 @@ export default defineSchema({
     intakeAt: v.string(),
     // Epoch ms the daily cron next has work for this candidate; null once s36 is written.
     nextDueAt: v.union(v.number(), v.null()),
+    // Epoch ms of the last check that completed; a GitHub fetch failure leaves it as it was.
     lastCheckedAt: v.optional(v.number()),
   })
     .index("by_person", ["personId"])
-    .index("by_next_due", ["nextDueAt"]),
+    .index("by_next_due", ["nextDueAt"])
+    .index("by_last_checked", ["lastCheckedAt"]),
   // One row per uploaded resume file. A new upload is a new version; earlier ones stay.
   resumeVersions: defineTable({
     clubId,

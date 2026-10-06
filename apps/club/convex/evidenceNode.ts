@@ -42,6 +42,8 @@ export const fetchGitHub = internalAction({
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
+      // No such user: the handle has no public evidence, which is an answer, not a failure.
+      if (response.status === 404) return [];
       if (!response.ok) throw new Error(`GitHub request failed: ${response.status} ${url}`);
       return response.json();
     };
