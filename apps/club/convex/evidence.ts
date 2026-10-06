@@ -1,3 +1,4 @@
+import type { WithoutSystemFields } from "convex/server";
 import { v } from "convex/values";
 import { companyWorklist } from "../../../src/longitudinal/companyResearch.ts";
 import { normalizeOrgName } from "../../../src/longitudinal/companySeed.ts";
@@ -118,14 +119,7 @@ export const context = internalQuery({
       // As stored strings: a parsed record crossing the query boundary can come back
       // with its object keys reordered, which changes `recordContent` and so the
       // snapshot `inputHash`. The action parses them.
-      judgments: judgments.map((row) => ({
-        record: row.record,
-        claim: row.claim,
-        answer: row.answer,
-        probe: row.probe,
-        configHash: row.configHash,
-        companySeedHash: row.companySeedHash,
-      })),
+      judgments: judgments.map(storedJudgment),
       snapshots: snapshots.map((row) => ({
         id: row.id,
         kind: row.kind,
@@ -138,14 +132,23 @@ export const context = internalQuery({
   },
 });
 
-function parseJudgment(row: {
-  record: string;
-  claim: string;
-  answer: string;
-  probe: string | null;
-  configHash: string;
-  companySeedHash: string;
-}): ClaimJudgment {
+type StoredJudgment = Pick<
+  Doc<"jevJudgments">,
+  "record" | "claim" | "answer" | "probe" | "configHash" | "companySeedHash"
+>;
+
+function storedJudgment(row: StoredJudgment): StoredJudgment {
+  return {
+    record: row.record,
+    claim: row.claim,
+    answer: row.answer,
+    probe: row.probe,
+    configHash: row.configHash,
+    companySeedHash: row.companySeedHash,
+  };
+}
+
+function parseJudgment(row: StoredJudgment): ClaimJudgment {
   return {
     record: JSON.parse(row.record),
     claim: JSON.parse(row.claim),
@@ -245,7 +248,13 @@ export const storeResumeVersion = internalMutation({
   },
 });
 
-/** Append-only: a judgment whose record id or evidence key is already stored is skipped. */
+/**
+ * Append-only: a judgment whose record id or evidence key is already stored is
+ * skipped. Returns the stored row for every judgment passed in, as stored
+ * strings: the one just written, or the one already there. A concurrent check
+ * can score the same evidence first with a different answer, and the caller
+ * must read that stored record, not its own unstored one.
+ */
 export const storeJudgments = internalMutation({
   args: {
     clubId: v.id("clubs"),
@@ -253,7 +262,7 @@ export const storeJudgments = internalMutation({
     judgments: v.array(v.string()),
   },
   handler: async (ctx, { clubId, personId, judgments }) => {
-    let written = 0;
+    const stored: StoredJudgment[] = [];
     for (const raw of judgments) {
       const judgment = JSON.parse(raw) as ClaimJudgment;
       const { record, claim } = judgment;
@@ -273,8 +282,12 @@ export const storeJudgments = internalMutation({
           q.eq("personId", personId).eq("evidenceKey", record.evidenceKey),
         )
         .first();
-      if (byRecord || byEvidence) continue;
-      await ctx.db.insert("jevJudgments", {
+      const existing = byRecord ?? byEvidence;
+      if (existing) {
+        stored.push(storedJudgment(existing));
+        continue;
+      }
+      const row: WithoutSystemFields<Doc<"jevJudgments">> = {
         clubId,
         personId,
         recordId: record.id,
@@ -291,10 +304,11 @@ export const storeJudgments = internalMutation({
         configHash: judgment.configHash,
         companySeedHash: judgment.companySeedHash,
         writtenAt: new Date().toISOString(),
-      });
-      written += 1;
+      };
+      await ctx.db.insert("jevJudgments", row);
+      stored.push(storedJudgment(row));
     }
-    return written;
+    return stored;
   },
 });
 
@@ -435,7 +449,10 @@ async function runCheck(ctx: ActionCtx, personId: string) {
   const github = await fetchGitHub(ctx, found);
   await requestCompanyResearch(ctx, found);
   const scored = await scoreNewClaims(ctx, found, github);
-  const snapshots = await writeDueSnapshots(ctx, found, [...found.judgments, ...scored]);
+  // Snapshots read only stored records, reloaded after storing: a concurrent
+  // check may have stored a different answer for the same evidence first.
+  const stored = scored.length > 0 ? ((await loadContext(ctx, personId)) ?? found) : found;
+  const snapshots = await writeDueSnapshots(ctx, stored, stored.judgments);
   return { versionAdded, scored: scored.length, snapshots };
 }
 
@@ -534,13 +551,14 @@ async function scoreNewClaims(
       console.warn(`evidence: claim ${failure.claimId} not recorded: ${failure.error}`);
     }
     if (run.written.length === 0) continue;
-    await ctx.runMutation(internal.evidence.storeJudgments, {
+    const stored = await ctx.runMutation(internal.evidence.storeJudgments, {
       clubId: found.clubId,
       personId: found.person.id,
       judgments: run.written.map((judgment) => JSON.stringify(judgment)),
     });
-    known.push(...run.written);
-    written.push(...run.written);
+    const canonical = stored.map(parseJudgment);
+    known.push(...canonical);
+    written.push(...canonical);
   }
   return written;
 }
