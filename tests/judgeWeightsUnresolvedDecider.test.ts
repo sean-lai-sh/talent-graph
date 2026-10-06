@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { actionDecide } from "../apps/club/app/actions.ts";
 import schema from "../apps/club/convex/schema.ts";
 import { adminReferrers, BOOTSTRAP_ADMIN_EMAIL } from "../apps/club/lib/clubRole.ts";
 import { admissionObservations } from "../apps/club/lib/engine/admission.ts";
@@ -105,6 +106,16 @@ describe("an unresolved decider fails closed", () => {
     const credit = creditByJudge(s);
     for (const admin of ["alice", "erin", "boss"]) expect(credit.has(admin)).toBe(false);
     expect(credit.get("carol") as number).toBeGreaterThan(0);
+  });
+
+  test("the example app's decide action cannot name a decider, so no referrer earns credit", async () => {
+    const done = await actionDecide(club(), "bob", "admit");
+    expect(done.error).toBeUndefined();
+    const s = reviveState(JSON.parse(JSON.stringify(done.state)) as ClubState);
+    expect(s.snapshots[0]?.decidedBy).toBeUndefined();
+    expect(s.snapshots[0]?.unresolvedDecider?.adminReferrers.sort()).toEqual([...REFERRERS].sort());
+    expect(s.snapshots[0]?.signalWithout).toHaveLength(REFERRERS.length);
+    expect(creditByJudge(s).size).toBe(0);
   });
 
   test("a resolved decider is unchanged: a non-referrer decider leaves every credit", () => {

@@ -214,6 +214,17 @@ export function setStatus(
   return { state: next, view: recordSnapshot(next, person, status, deps) };
 }
 
+/**
+ * For a caller that cannot tell who decided: every referrer of the candidate
+ * is treated as a possible decider, so none of them earns admission credit.
+ */
+export function anyReferrerDecided(state: ClubState, personId: string): ClubDecider {
+  const referrers = new Set(
+    state.referrals.filter((r) => r.candidateId === personId).map((r) => r.referrerId),
+  );
+  return { unresolvedDecider: { adminReferrers: [...referrers] } };
+}
+
 /** Council decision. Review status drives the engine status, never the reverse. */
 export function decide(
   state: ClubState,

@@ -42,6 +42,7 @@ export {
   addEvaluation,
   addPerson,
   addReferral,
+  anyReferrerDecided,
   decide,
   queueBuckets,
   recordFeedback,
