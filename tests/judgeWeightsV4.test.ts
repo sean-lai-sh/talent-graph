@@ -26,6 +26,7 @@ import {
   REFERRAL_SIGNAL_V0_2_0,
 } from "../src/models/registry.ts";
 import { assertSpec, type JudgeReliabilitySpec, validateSpec } from "../src/models/spec.ts";
+import { hashInputs } from "../src/provenance/hash.ts";
 import { computeAllReferralSignals, computeReferralSignal } from "../src/scoring/referralSignal.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 
@@ -380,6 +381,8 @@ describe("Referral Signal weight-normalised aggregation (SEA-83)", () => {
     ] as const) {
       const want = golden[name];
       expect(run.id, name).toBe(want?.id as string);
+      // The same canonical hash the golden was written with (defineModelGolden).
+      expect(hashInputs(run.outputs), name).toBe(want?.outputsHash as string);
       expect(Object.keys(run.parameters).sort(), name).toEqual(want?.parameterKeys as string[]);
       expect(run.specVersion, name).toBe("0.1.0");
     }
