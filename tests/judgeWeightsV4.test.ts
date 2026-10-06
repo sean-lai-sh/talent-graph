@@ -250,3 +250,10 @@ describe("persisted JudgeCalibration carries w and ω (SEA-78 b)", () => {
     }
   });
 });
+
+describe("Referral Signal aggregation under ω (SEA-78 c, held)", () => {
+  // Held pending Sean's issue: the weighted path averages the top-K ω·R, so a
+  // new member's referral (ω = 0.09) lowers a candidate's signal. The planned
+  // fix is Σω·R / (Σω + c0); c0 is set in that issue, not here.
+  test.todo("low-weight referral never lowers the signal");
+});
