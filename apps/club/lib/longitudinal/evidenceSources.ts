@@ -97,8 +97,13 @@ export function githubEvidence(items: readonly GrokEvidenceItem[]): ClaimEvidenc
     lines,
     source: "github",
     author: "system",
-    // Retrieved from GitHub itself, not stated by the candidate.
-    evidenceTier: "externally_verified",
+    // The artifact is fetched from GitHub, but the link to the candidate is
+    // only the handle they typed into their profile: nothing shows the account
+    // is theirs. Until ownership is verified (GitHub OAuth, or an identity
+    // match; a later step), the claim is backed no better than the candidate's
+    // own word: `self_reported`, the lowest tier (backing 0.6, against 1 for
+    // `externally_verified`). The author stays "system": the system wrote it.
+    evidenceTier: "self_reported",
     jobDatesFor: (_claim, line) => datesFor(line),
     evidenceItemFor(claim, line) {
       const item = itemFor(line);
