@@ -85,7 +85,7 @@ export interface JudgeReliabilitySpec {
   errorScale: number;
   /** λ ≥ 0: evaluated predictions needed before an estimate outweighs the prior. */
   shrinkage: number;
-  /** μ_p ∈ [0, 1]: reliability of a judge with no evaluated predictions. Under `mode: "v4"` this is μ0 ∈ (0, 1). */
+  /** μ_p ∈ [0, 1]: reliability of a judge with no evaluated predictions. Under `mode: "v4"` this is μ0 ∈ [ε, 1 − ε] (ε = JUDGE_WEIGHT_LOGIT_EPS), the range p̂ is clamped to, so a judge with no evidence gets w = μ0. */
   priorReliability: number;
   /**
    * How p̂_u becomes the weight the signal uses. "v2" (absent means "v2")
@@ -376,8 +376,10 @@ function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string
   if (spec.mode !== undefined && spec.mode !== "v2" && spec.mode !== "v4") {
     errors.push('mode must be "v2" or "v4"');
   } else if (spec.mode === "v4") {
-    if (spec.priorReliability <= 0 || spec.priorReliability >= 1) {
-      errors.push('priorReliability (μ0) must be in (0, 1) under mode "v4"');
+    const eps = JUDGE_WEIGHT_LOGIT_EPS;
+    const mu0InRange = spec.priorReliability >= eps && spec.priorReliability <= 1 - eps;
+    if (!mu0InRange) {
+      errors.push(`priorReliability (μ0) must be in [${eps}, 1 − ${eps}] under mode "v4"`);
     }
     if (!isFiniteNumber(spec.softCap) || spec.softCap <= 0) {
       errors.push('softCap (T) must be a finite number > 0 under mode "v4"');
@@ -387,14 +389,12 @@ function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string
     }
     const { priorReliability: mu0, softCap, weightExponent } = spec;
     if (
-      mu0 > 0 &&
-      mu0 < 1 &&
+      mu0InRange &&
       isFiniteNumber(softCap) &&
       softCap > 0 &&
       isFiniteNumber(weightExponent) &&
       weightExponent > 0
     ) {
-      // w and ω are monotone in p̂, so the clamped extremes bound every value.
       for (const p of [0, 1]) {
         const { weight, omega } = judgeWeightV4(p, {
           priorReliability: mu0,

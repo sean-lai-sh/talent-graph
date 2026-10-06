@@ -349,11 +349,13 @@ export function judgeWeightedSignalDrift(
  *
  * Both maps live on 0–1, so they are compared as points out of 100 — the
  * same unit as the Referral Signal and capability reports, which is what
- * `maxP95Shift` is stated in. A judge with no evaluated prediction has no
- * measured value at all (only the spec's prior), so the value is `null`:
- * missing is not low, and appearing or disappearing is counted by
- * `crossedFraction` exactly as an insufficient-evidence crossing is
- * elsewhere. No threshold and no verdict rule is special-cased here.
+ * `maxP95Shift` is stated in. On `reliability` and `bias`, a judge with no
+ * evaluated prediction has no measured value at all (only the spec's prior),
+ * so the value is `null`: missing is not low, and appearing or disappearing
+ * is counted by `crossedFraction` exactly as an insufficient-evidence
+ * crossing is elsewhere. On `weight` and `omega` that judge is included: its
+ * referrals are still weighted, by the prior, and that weight is what the
+ * signal consumes. No threshold and no verdict rule is special-cased here.
  */
 export function judgeReliabilityDrift(
   before: JudgeCalibrationRun,
@@ -361,11 +363,12 @@ export function judgeReliabilityDrift(
   measure: JudgeDriftMeasure = "reliability",
   thresholds: DriftThresholds = DEFAULT_DRIFT_THRESHOLDS,
 ): DriftReport {
+  const priorCounts = measure === "weight" || measure === "omega";
   const toValues = (run: JudgeCalibrationRun) =>
     new Map<string, number | null>(
       [...run.estimates.values()].map((e) => [
         e.judgeId,
-        e.evaluatedCount >= 1 ? judgeMeasure(run, e, measure) * 100 : null,
+        priorCounts || e.evaluatedCount >= 1 ? judgeMeasure(run, e, measure) * 100 : null,
       ]),
     );
   const report = buildReport("judge_reliability", toValues(before), toValues(after), thresholds, {

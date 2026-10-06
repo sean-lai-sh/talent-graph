@@ -39,6 +39,7 @@ import { CURRENT_SPECS } from "../models/registry.ts";
 import {
   assertSpec,
   type JudgeReliabilitySpec,
+  type JudgeReliabilityV4Params,
   judgeWeightV4,
   type ReferralSignalSpec,
 } from "../models/spec.ts";
@@ -227,6 +228,16 @@ function shrink(n: number, value: number, prior: number, lambda: number): number
   return (n / (n + lambda)) * value + (lambda / (n + lambda)) * prior;
 }
 
+function v4Params(spec: JudgeReliabilitySpec): JudgeReliabilityV4Params {
+  const { priorReliability, softCap, weightExponent } = spec;
+  if (softCap === undefined || weightExponent === undefined) {
+    throw new Error(
+      `judge_reliability@${spec.version} is mode "v4" without softCap or weightExponent`,
+    );
+  }
+  return { priorReliability, softCap, weightExponent };
+}
+
 /** Fold scored predictions into per-judge reliability and bias estimates. */
 export function estimateJudgeReliability(
   judgeIds: readonly string[],
@@ -235,10 +246,7 @@ export function estimateJudgeReliability(
   admissionSums: ReadonlyMap<string, number> = new Map(),
 ): Map<string, JudgeReliabilityEstimate> {
   const eta = spec.learningRate;
-  const v4 =
-    spec.mode === "v4" && spec.softCap !== undefined && spec.weightExponent !== undefined
-      ? { ...spec, softCap: spec.softCap, weightExponent: spec.weightExponent }
-      : null;
+  const v4 = spec.mode === "v4" ? v4Params(spec) : null;
   const acc = new Map<string, { n: number; e: number; b: number; ids: string[] }>();
   for (const p of predictions) {
     const cur = acc.get(p.judgeId);
@@ -348,12 +356,21 @@ export function judgeWeightOptions(run: JudgeCalibrationRun): {
 
 /**
  * The per-judge weight in the form `computeReferralSignal` accepts: ω_u under
- * mode "v4", p̂_u exactly (no clamp) under "v2".
+ * mode "v4", p̂_u exactly (no clamp) under "v2". A "v4" estimate without ω is a
+ * broken run, and throws rather than falling through to full weight.
  */
 export function reliabilityWeights(run: JudgeCalibrationRun): Map<string, number> {
   const v4 = run.options.reliabilityMode === "v4";
   return new Map(
-    [...run.estimates.values()].map((e) => [e.judgeId, v4 ? (e.omega as number) : e.reliability]),
+    [...run.estimates.values()].map((e) => {
+      if (!v4) return [e.judgeId, e.reliability];
+      if (e.omega === undefined) {
+        throw new Error(
+          `judge ${e.judgeId} has no omega in a mode "v4" run (${run.options.specVersion})`,
+        );
+      }
+      return [e.judgeId, e.omega];
+    }),
   );
 }
 
