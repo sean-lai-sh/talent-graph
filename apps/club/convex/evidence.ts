@@ -77,9 +77,6 @@ function retryBackoffMs(attempts: number): number {
   return Math.min(2 ** attempts, RECHECK_DAYS) * DAY_MS;
 }
 
-// ---------------------------------------------------------------------------
-// Reads
-
 export const context = internalQuery({
   args: { personId: v.string() },
   handler: async (ctx, { personId }) => {
@@ -195,9 +192,6 @@ export const recentCompanyResearch = internalQuery({
     return recent;
   },
 });
-
-// ---------------------------------------------------------------------------
-// Writes
 
 async function ensureIntakeRow(
   ctx: MutationCtx,
@@ -430,9 +424,6 @@ export const recordCompanyResearch = internalMutation({
     }
   },
 });
-
-// ---------------------------------------------------------------------------
-// Jobs
 
 /**
  * The daily cron. Candidates who entered before intake existed get their
@@ -705,9 +696,6 @@ async function writeDueSnapshots(
     rows,
   });
 }
-
-// ---------------------------------------------------------------------------
-// Admin
 
 /** Class year, set by an admin. Evidence snapshots record it at s0. */
 export const setClassYear = mutation({
