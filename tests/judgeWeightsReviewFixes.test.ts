@@ -4,11 +4,17 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { admissionObservations } from "../apps/club/lib/engine/admission.ts";
 import { computeWorld } from "../apps/club/lib/engine/computeView.ts";
 import { runClubPass } from "../apps/club/lib/engine/pass.ts";
 import { decide, emptyState, initialState } from "../apps/club/lib/engine.ts";
+import type { ClubSnapshot, ClubState } from "../apps/club/lib/types.ts";
 import { type LoadedSpecs, loadSpecs } from "../src/config.ts";
-import type { AdmissionObservations, Channel } from "../src/judges/admission.ts";
+import {
+  type AdmissionObservations,
+  type Channel,
+  firstDecisions,
+} from "../src/judges/admission.ts";
 import { judgeWeightOptions } from "../src/judges/reliability.ts";
 import { runJudgeCalibration } from "../src/models/definitions/judgeReliability.ts";
 import { runReferralSignals } from "../src/models/definitions/referralSignal.ts";
@@ -96,5 +102,23 @@ describe("2.0.0 run ids do not move when the club hands over admission observati
     const ids = computeWorld(state, SPECS).provenance.modelRunIds;
     expect(ids).toContain(golden.judge_calibration?.id as string);
     expect(ids).toContain(golden.referral_signal_judge_weighted?.id as string);
+  });
+});
+
+describe("decisions recorded at the same instant", () => {
+  test("the first council decision is the one recorded first, not the newest snapshot", () => {
+    const at = "2026-06-01T00:00:00.000Z";
+    const snap = (decision: string): ClubSnapshot => ({
+      id: `snap:bob:${decision}:${at}`,
+      personId: "bob",
+      personName: "Bob",
+      decision,
+      values: { referralSignal: 1, incomingCount: 1 },
+      createdAt: at,
+    });
+    // The club keeps snapshots newest first: the admit was recorded, then the deny.
+    const state: ClubState = { ...emptyState(at), snapshots: [snap("denied"), snap("admitted")] };
+    const first = firstDecisions(admissionObservations(state).decisions, new Date(at));
+    expect(first.get("bob")?.outcome).toBe("admitted");
   });
 });

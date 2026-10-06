@@ -17,7 +17,10 @@ import type { ClubState } from "../types.ts";
  */
 export function admissionObservations(state: ClubState): AdmissionObservations {
   const decisions: CouncilDecision[] = [];
-  for (const s of state.snapshots) {
+  // The club keeps snapshots newest first. `firstDecisions` breaks a tie on
+  // `at` by input order, so they are handed over oldest first: two decisions
+  // recorded at the same instant resolve to the one recorded first.
+  for (const s of [...state.snapshots].reverse()) {
     if (s.decision !== "admitted" && s.decision !== "denied") continue;
     decisions.push({
       candidateId: s.personId,
