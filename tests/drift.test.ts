@@ -301,7 +301,7 @@ describe("judgeReliabilityDrift on w and ω", () => {
       expect(r.measure).toBe(measure);
       expect(r.verdict).toBe("stable");
       expect(r.maxAbsShift).toBe(0);
-      expect(r.n).toBe(evaluated(v4).length);
+      expect(r.n).toBe(v4.estimates.size);
       expect(formatDriftReport(r)).toContain(`judge_reliability · ${measure}`);
     }
   });
@@ -346,8 +346,7 @@ describe("judgeReliabilityDrift on w and ω", () => {
   test("v2 has no w or ω: read as p̂ (the weight v2 uses), never as low or zero", () => {
     for (const measure of ["weight", "omega"] as const) {
       const r = judgeReliabilityDrift(v2, v2, measure);
-      const rel = judgeReliabilityDrift(v2, v2, "reliability");
-      expect(r.n).toBe(rel.n);
+      expect(r.n).toBe(v2.estimates.size);
       expect(r.crossedFraction).toBe(0);
       expect(r.verdict).toBe("stable");
       for (const m of r.largestMovers) {
@@ -359,7 +358,26 @@ describe("judgeReliabilityDrift on w and ω", () => {
       }
       const across = judgeReliabilityDrift(v2, v4, measure);
       expect(across.crossedInsufficiency).toEqual({ gained: [], lost: [] });
-      expect(across.n).toBe(rel.n);
+      expect(across.n).toBe(v2.estimates.size);
+    }
+  });
+
+  test("a judge with no evaluated referral counts on w and ω at its prior, never on p̂ or b̂", () => {
+    const noData = [...v4.estimates.values()].find((e) => e.evaluatedCount === 0);
+    if (noData === undefined) throw new Error("expected a seed judge with no evaluated referral");
+    const expected = { weight: 30, omega: 9 } as const;
+    for (const measure of ["weight", "omega"] as const) {
+      const r = judgeReliabilityDrift(v2, v4, measure);
+      expect(r.n).toBe(v4.estimates.size);
+      const mover = moverOf(r, noData.judgeId);
+      expect(mover?.before).toBeCloseTo(100, 10);
+      expect(mover?.after).toBeCloseTo(expected[measure], 10);
+    }
+    for (const measure of ["reliability", "bias"] as const) {
+      const r = judgeReliabilityDrift(v2, v4, measure);
+      expect(r.n).toBe(evaluated(v4).length);
+      expect(moverOf(r, noData.judgeId)).toBeUndefined();
+      expect(r.crossedInsufficiency).toEqual({ gained: [], lost: [] });
     }
   });
 

@@ -102,12 +102,13 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
 - **Drift:** `bun run drift -- --kind judge_reliability --before 2.0.0 --after
   4.0.0 --max-verdict breaking` on the seed: BREAKING overall across 5 reports.
   Reliability BREAKING (n 14, Kendall τ_b 0.578, mean |shift| 43.64, max
-  52.50); bias STABLE (τ_b 1.000, no shift); weight BREAKING (n 14, τ_b 0.578,
-  mean |shift| 43.96, max 52.73); omega BREAKING (n 14, τ_b 0.578, mean
-  |shift| 66.48, max 77.42); weighted referral signals REVIEW (n 24, τ_b
+  52.50); bias STABLE (τ_b 1.000, no shift); weight BREAKING (n 32, τ_b 0.047,
+  mean |shift| 58.61, max 70.00); omega BREAKING (n 32, τ_b 0.047, mean
+  |shift| 80.27, max 91.00); weighted referral signals REVIEW (n 24, τ_b
   0.746, mean |shift| 29.45, max 67.62). Under 2.0.0 the weight and omega arms
-  compare against p̂ itself. Movement is expected: judges with no data drop
-  from weight 1 to ω 0.09.
+  compare against p̂ itself. The weight and omega arms include the 18 judges
+  with no evaluated referrals; reliability and bias skip them. Movement is
+  expected: judges with no data drop from weight 1 to w 0.3 and ω 0.09.
 - **PR:** SEA-78.
 
 ## career_evidence@1.0.0 — initial (career-evidence rubric)
