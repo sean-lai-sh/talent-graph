@@ -15,7 +15,11 @@ import {
 } from "../src/index.ts";
 import type { JobDateFields } from "../src/longitudinal/claimPreprocess.ts";
 import type { LevelDistribution, RoleDistribution } from "../src/longitudinal/claimRubricV12.ts";
-import type { JevJudgmentRecord, JevRawScoreAnswer } from "../src/longitudinal/records.ts";
+import {
+  type JevJudgmentRecord,
+  type JevRawScoreAnswer,
+  JudgmentInvariantError,
+} from "../src/longitudinal/records.ts";
 import { SOURCE_KINDS, type SourceKind } from "../src/longitudinal/types.ts";
 import {
   CAREER_EVIDENCE_V1_2_0,
@@ -472,6 +476,38 @@ describe("outputOnlyRollup structural errors", () => {
   test("two different records sharing an id throw", () => {
     const { records, claims } = fixture();
     expect(() => run(claims, [...records, outputRecord("rec-o1", 0)])).toThrow(/share id rec-o1/);
+  });
+
+  test("two accepted claims naming one record throw, naming the record and both claims", () => {
+    const { records, claims } = fixture();
+    const shared = [...claims, claim("o9", { recordId: "rec-o1" })];
+    expect(() => run(shared, records)).toThrow(JudgmentInvariantError);
+    expect(() => run(shared, records)).toThrow(/rec-o1.*o1.*o9/);
+  });
+
+  test("a shared record throws whatever order the claims and records arrive in", () => {
+    const { records, claims } = fixture();
+    const shared = [...claims, claim("o9", { recordId: "rec-o1" })];
+    expect(() => run([...shared].reverse(), [...records].reverse())).toThrow(
+      JudgmentInvariantError,
+    );
+    expect(() => run([...shared.slice(-1), ...shared.slice(0, -1)], records)).toThrow(/rec-o1/);
+  });
+
+  test("distinct records for every claim pass", () => {
+    const { records, claims } = fixture();
+    expect(() => run(claims, records)).not.toThrow();
+    expect(() => run([...claims].reverse(), [...records].reverse())).not.toThrow();
+  });
+
+  test("non-accepted claims may share a record id or have none", () => {
+    const { records, claims } = fixture();
+    const extra = [
+      claim("r1", { status: "review", recordId: "rec-o1" }),
+      claim("r2", { status: "review", recordId: "rec-o1" }),
+      claim("r3", { status: "review", recordId: "rec-none" }),
+    ];
+    expect(() => run([...claims, ...extra], records)).not.toThrow();
   });
 
   test("an accepted claim naming a missing record throws", () => {

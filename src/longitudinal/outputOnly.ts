@@ -164,6 +164,8 @@ export function outputOnlyRollup(input: OutputOnlyRollupInput): OutputOnlyRollup
   const counted: RollupClaim[] = [];
   let outputCount = 0;
   let previousId: string | null = null;
+  // One record backs one claim: a shared record would score and hash the same judgment twice.
+  const claimByRecord = new Map<string, string>();
 
   for (const claim of claims) {
     if (claim.id === previousId) {
@@ -185,6 +187,13 @@ export function outputOnlyRollup(input: OutputOnlyRollupInput): OutputOnlyRollup
       continue;
     }
     const record = recordFor(claim, records);
+    const firstClaim = claimByRecord.get(record.id);
+    if (firstClaim !== undefined) {
+      throw new JudgmentInvariantError(
+        `output-only roll-up: record ${record.id} backs more than one claim (${firstClaim}, ${claim.id})`,
+      );
+    }
+    claimByRecord.set(record.id, claim.id);
     hashed.push({ claim: hashedFields(claim), record: recordContent(record) });
 
     const evidenceDate = evidenceDateFor(claim);
