@@ -29,6 +29,8 @@ const BOUNDED_LISTS: Record<string, string> = {
   "clubs.config.requiredDimensions": "one entry per dimension, at most 7",
   "clubSnapshots.modelRunIds": "one run id per model in a pass",
   "clubSnapshots.signalWithout": "one entry per referrer of the decided candidate, a handful",
+  "clubSnapshots.unresolvedDecider.adminReferrers":
+    "a subset of the decided candidate's referrers, a handful",
 };
 
 describe("club schema holds no growing lists", () => {
