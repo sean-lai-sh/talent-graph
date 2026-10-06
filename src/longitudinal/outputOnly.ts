@@ -253,6 +253,10 @@ function assertConfig(config: OutputOnlyRollupConfig): void {
   }
 }
 
+// A claim is bound to its record only by the caller-supplied recordId. The
+// shared-record guard below stops two different records reusing an id, but not
+// a permutation of same-person records between claims. Callers are engine code
+// (steps 4 and 5), never judges.
 function recordsById(records: readonly JevJudgmentRecord[]): Map<string, JevJudgmentRecord> {
   const byId = new Map<string, JevJudgmentRecord>();
   for (const record of records) {
