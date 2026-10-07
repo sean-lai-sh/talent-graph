@@ -330,6 +330,28 @@ describe("admission credit", () => {
     expect(res.admitRate.inbound).toBeCloseTo(blended(0, 1), 12);
   });
 
+  test("r counts a scoring decision once per channel, however many referrals it scores", () => {
+    const both = [referral("alice", "bob", 1), referral("carol", "bob", 2)];
+    const outRefs = [referral("frank", "eve", 1), referral("gina", "eve", 2)];
+    const without = (refs: Referral[]) =>
+      refs.map((r) => ({ referrerId: r.referrerId, signalWithout: 0 }));
+    const res = admit(
+      [...both, ...outRefs],
+      obs(
+        [
+          decision({ candidateId: "bob", outcome: "admitted", signalWithout: without(both) }),
+          decision({ candidateId: "dave", outcome: "denied" }),
+          decision({ candidateId: "eve", outcome: "denied", signalWithout: without(outRefs) }),
+        ],
+        [["eve", "outbound"]],
+        outRefs.map((r) => [r.id, "interview"]),
+      ),
+    );
+    expect(res.terms).toHaveLength(4);
+    expect(res.admitRate.inbound).toBeCloseTo(blended(1, 1), 12);
+    expect(res.admitRate.outbound).toBeCloseTo(blended(0, 1), 12);
+  });
+
   test("a decision recorded without signalWithout is unscored, never read as low", () => {
     const ref = referral("alice", "bob", 1);
     const res = admit(
