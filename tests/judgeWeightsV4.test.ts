@@ -646,6 +646,16 @@ describe("referral_signal@0.2.0 is confined to the judge-weighted path (SEA-83)"
     ).toThrow(/"custom" weighting reports none/);
   });
 
+  test("an eligible zero-reliability edge with c0 = 0 is refused, not divided by zero", () => {
+    expect(() =>
+      computeReferralSignal("cand", refs, {
+        spec: NORMALIZED,
+        weighting: custom({ reliability: 0 }),
+        pseudoWeight: 0,
+      }),
+    ).toThrow(/denominator 0; Σω \+ c0 must be finite and > 0/);
+  });
+
   test("the judge-weighted path still scores ΣωR / (Σω + c0)", () => {
     const om = new Map([
       ["u0", 0.81],

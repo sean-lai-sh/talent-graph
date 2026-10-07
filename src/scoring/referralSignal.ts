@@ -164,6 +164,22 @@ function resolveWeighting(opts: ReferralSignalOptions): EdgeWeighting {
   return judgeWeighting(maps);
 }
 
+/** Σ_{TopK} ω_u + c0, refused unless finite and positive so S_v is never NaN or ∞. */
+function weightNormalizedDenominator(
+  spec: ReferralSignalSpec,
+  weighting: EdgeWeighting,
+  contributing: readonly ContributingReferral[],
+  pseudoWeight: number,
+): number {
+  const denominator = contributing.reduce((acc, c) => acc + c.judge.reliability, 0) + pseudoWeight;
+  if (!(Number.isFinite(denominator) && denominator > 0)) {
+    throw new Error(
+      `referral_signal@${spec.version} under the "${weighting.kind}" weighting has weight-normalised denominator ${denominator}; Σω + c0 must be finite and > 0`,
+    );
+  }
+  return denominator;
+}
+
 function compareContributing(a: ContributingReferral, b: ContributingReferral): number {
   if (b.strength !== a.strength) return b.strength - a.strength;
   const dt = a.referral.createdAt.getTime() - b.referral.createdAt.getTime();
@@ -240,7 +256,7 @@ function signalFromScoredEdges(
       ? 0
       : pseudoWeight === undefined
         ? sum / contributing.length
-        : sum / (contributing.reduce((acc, c) => acc + c.judge.reliability, 0) + pseudoWeight);
+        : sum / weightNormalizedDenominator(spec, weighting, contributing, pseudoWeight);
 
   const evidenceTypes: EvidenceType[] = [];
   for (const { referral } of scored) {
