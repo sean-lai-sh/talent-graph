@@ -11,7 +11,7 @@ import {
   type Channel,
   type CouncilDecision,
   computeAdmission,
-  type ReferralOrigin,
+  positionShare,
   referralPositions,
 } from "../src/judges/admission.ts";
 import { computeJudgeCalibration } from "../src/judges/reliability.ts";
@@ -55,10 +55,7 @@ function decision(
 const obs = (
   decisions: CouncilDecision[],
   channels: [string, Channel][] = [],
-  origins: [string, ReferralOrigin][] = [],
-): AdmissionObservations => ({ decisions, channels: new Map(channels), origins: new Map(origins) });
-
-const INBOUND_LEGACY = obs([]);
+): AdmissionObservations => ({ decisions, channels: new Map(channels) });
 
 const admit = (refs: Referral[], o: AdmissionObservations) => computeAdmission(refs, o, ADM, NOW);
 
@@ -259,10 +256,9 @@ describe("admission credit", () => {
       d.candidateId,
       "outbound",
     ]);
-    const interviews: [string, ReferralOrigin][] = outbound.refs.map((r) => [r.id, "interview"]);
     const res = admit(
       [...inbound.refs, ...outbound.refs],
-      obs([...inbound.decisions, ...outbound.decisions], channels, interviews),
+      obs([...inbound.decisions, ...outbound.decisions], channels),
     );
     const prior = ADM.priorAdmitRate * ADM.priorAdmitWeight;
     const rIn = (75 + prior) / (150 + ADM.priorAdmitWeight);
@@ -344,7 +340,6 @@ describe("admission credit", () => {
           decision({ candidateId: "eve", outcome: "denied", signalWithout: without(outRefs) }),
         ],
         [["eve", "outbound"]],
-        outRefs.map((r) => [r.id, "interview"]),
       ),
     );
     expect(res.terms).toHaveLength(4);
@@ -394,7 +389,7 @@ describe("position", () => {
       );
       return refs.map((r) => res.terms.find((t) => t.referralId === r.id)?.credit as number);
     };
-    const pos = referralPositions(refs, INBOUND_LEGACY, ADM);
+    const pos = referralPositions(refs, ADM);
     const shares = refs.map((r) => pos.get(r.id)?.share as number);
     for (let i = 1; i < refs.length; i++)
       expect(shares[i]).toBeLessThanOrEqual(shares[i - 1] as number);
@@ -415,14 +410,14 @@ describe("position", () => {
     const repeat = referral("alice", "bob", 3);
     const tieA = referral("carol", "bob", 5);
     const tieB = referral("dan", "bob", 5);
-    const pos = referralPositions([self, first, repeat, tieA, tieB], INBOUND_LEGACY, ADM);
+    const pos = referralPositions([self, first, repeat, tieA, tieB], ADM);
     expect(pos.has(self.id)).toBe(false);
     expect(pos.has(repeat.id)).toBe(false);
     expect(pos.get(first.id)?.position).toBe(1);
     expect(pos.get(tieA.id)?.position).toBe(2.5);
     expect(pos.get(tieB.id)?.position).toBe(2.5);
     expect(pos.get(tieA.id)?.share).toBe(pos.get(tieB.id)?.share as number);
-    const flipped = referralPositions([tieB, tieA, first], INBOUND_LEGACY, ADM);
+    const flipped = referralPositions([tieB, tieA, first], ADM);
     expect(flipped.get(tieA.id)?.share).toBe(pos.get(tieA.id)?.share as number);
   });
 });
@@ -525,11 +520,7 @@ describe("recognition answer, calls, recruiters", () => {
     expect(yes.error).toBeUndefined();
     const row = yes.state.referrals.find((r) => r.referrerId === "carol");
     expect(row?.origin).toBe("interview");
-    const pos = referralPositions(
-      yes.state.referrals.map(clubToReferral),
-      admissionObservations(yes.state),
-      ADM,
-    );
+    const pos = referralPositions(yes.state.referrals.map(clubToReferral), ADM);
     expect(pos.get(row?.id as string)?.position).toBe(2);
   });
 
@@ -597,54 +588,64 @@ describe("recognition answer, calls, recruiters", () => {
   });
 });
 
-describe("eligibility by channel", () => {
-  function council(channel: Channel, origin: ReferralOrigin | undefined) {
+describe("member referrals and interview yeses rank on every channel", () => {
+  type Step = { by: string; at: number; as: "referral" | "legacy" | "yes" };
+
+  function council(channel: Channel, steps: Step[], verdict: "admit" | "deny" = "admit") {
     const added = addPerson(club(), { name: "Dee", channel });
     expect(added.error).toBeUndefined();
     const dee = added.state.people.find((p) => p.name === "Dee")?.id as string;
-    const referred = addReferral(added.state, {
-      referrerId: "alice",
-      candidateId: dee,
-      ...RATINGS,
-      ...(origin === undefined ? {} : { origin }),
-    });
-    expect(referred.error).toBeUndefined();
-    let s = { ...referred.state, now: day(1).toISOString() };
-    const yes = addCall(s, {
-      candidateId: dee,
-      callerId: "carol",
-      order: 1,
-      outcome: "yes",
-      referral: RATINGS,
-    });
-    expect(yes.error).toBeUndefined();
-    s = { ...yes.state, now: day(30).toISOString() };
-    const run = calibrate(decide(s, dee, "deny", undefined, { decidedBy: "rec" }).state);
+    let s = added.state;
+    let order: 1 | 2 = 1;
+    for (const step of steps) {
+      s = { ...s, now: day(step.at).toISOString() };
+      const res =
+        step.as === "yes"
+          ? addCall(s, {
+              candidateId: dee,
+              callerId: step.by,
+              order,
+              outcome: "yes",
+              referral: RATINGS,
+            })
+          : addReferral(s, {
+              referrerId: step.by,
+              candidateId: dee,
+              ...RATINGS,
+              ...(step.as === "referral" ? { origin: "referral" as const } : {}),
+            });
+      expect(res.error).toBeUndefined();
+      if (step.as === "yes") order = 2;
+      s = res.state;
+    }
+    s = { ...s, now: day(30).toISOString() };
+    const decided = decide(s, dee, verdict, undefined, { decidedBy: "rec" }).state;
+    const run = calibrate(decided);
     const positions = [...(run.admission?.positions.values() ?? [])];
     return {
-      position: (judgeId: string) => positions.find((p) => p.judgeId === judgeId)?.position,
-      credited: run.admission?.terms.map((t) => t.judgeId),
-      sum: run.admission?.sumByJudge,
+      state: decided,
+      positions,
+      position: (judgeId: string) => positions.find((p) => p.judgeId === judgeId),
+      terms: run.admission?.terms ?? [],
     };
   }
 
-  test("outbound: only an interview yes ranks; a referral or legacy row takes no position or credit", () => {
-    for (const origin of ["referral", undefined] as const) {
-      const r = council("outbound", origin);
-      expect(r.position("carol")).toBe(1);
-      expect(r.position("alice")).toBeUndefined();
-      expect(r.credited).toEqual(["carol"]);
-      expect(r.sum?.has("alice")).toBe(false);
-    }
-  });
-
-  test("inbound: referral and interview rows both rank, legacy rows count as referrals", () => {
-    for (const origin of ["referral", undefined] as const) {
-      const r = council("inbound", origin);
-      expect(r.position("alice")).toBe(1);
-      expect(r.position("carol")).toBe(2);
-      expect(r.credited).toEqual(["alice", "carol"]);
-      expect(r.sum?.get("alice") as number).toBeLessThan(0);
+  test("a member referral before the interview yes takes position 1, the yes position 2, and both earn credit", () => {
+    for (const channel of ["outbound", "inbound"] as const) {
+      for (const as of ["referral", "legacy"] as const) {
+        const r = council(channel, [
+          { by: "alice", at: 1, as },
+          { by: "carol", at: 2, as: "yes" },
+        ]);
+        expect(r.position("alice")).toMatchObject({ position: 1, share: positionShare(1, ADM) });
+        expect(r.position("carol")).toMatchObject({ position: 2, share: positionShare(2, ADM) });
+        expect(r.terms.map((t) => t.judgeId)).toEqual(["alice", "carol"]);
+        for (const t of r.terms) {
+          expect(t.share).toBe(r.position(t.judgeId)?.share as number);
+          expect(t.credit).toBeCloseTo(ADM.kappa * t.share * (1 - t.reliance), 12);
+          expect(t.credit).toBeGreaterThan(0);
+        }
+      }
     }
   });
 });
