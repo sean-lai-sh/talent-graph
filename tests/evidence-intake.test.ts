@@ -56,12 +56,18 @@ mock.module("../apps/club/lib/longitudinal/jevClient.ts", () => ({
   ...realJevClient,
   createJevClient: () => jevFactory(),
 }));
+const realClub = await import("../apps/club/convex/club.ts");
+mock.module("../apps/club/convex/club.ts", () => ({
+  ...realClub,
+  requireAdmin: async () => ({ _id: "admin" }),
+}));
 const evidence = await import("../apps/club/convex/evidence.ts");
 const { internal } = await import("../apps/club/convex/_generated/api");
 const { getFunctionName } = await import("../apps/club/node_modules/convex/server");
 afterAll(() => {
   // mock.module is process-wide; leave the real client for other files.
   mock.module("../apps/club/lib/longitudinal/jevClient.ts", () => realJevClient);
+  mock.module("../apps/club/convex/club.ts", () => realClub);
 });
 
 interface JevOptions {
@@ -701,6 +707,62 @@ describe("resume versions", () => {
     const rows = w.snapshots("s0");
     expect(rows.length).toBe(1);
     expect(numbers(rows[0])).toEqual(numbers(alone.snapshots("s0")[0]));
+  });
+});
+
+describe("class year", () => {
+  async function frozenS0() {
+    const w = world({ github: null });
+    await w.upload(RESUME_ONE);
+    await w.intake();
+    setSystemTime(day(61));
+    await w.daily();
+    return w;
+  }
+  const setClassYear = (w: ReturnType<typeof world>, classYear: number | null) =>
+    w.d.call("evidence:setClassYear", { personId: PERSON, classYear });
+
+  test("a late edit writes exactly one s0 correction carrying it, and a rerun writes nothing", async () => {
+    const w = await frozenS0();
+    const [original] = w.snapshots("s0");
+    expect(original?.classYear).toBeNull();
+
+    setSystemTime(day(70));
+    await setClassYear(w, 2027);
+    const rows = w.snapshots("s0");
+    expect(rows.length).toBe(2);
+    expect(rows[1]?.correctsSnapshotId).toBe(String(original?.id));
+    expect(rows[1]?.classYear).toBe(2027);
+    expect(numbers(rows[1])).toEqual(numbers(original));
+    expect(w.current("s0")).toBe(String(rows[1]?.id));
+
+    await setClassYear(w, 2027);
+    await w.check();
+    await w.check();
+    expect(w.snapshots()).toEqual(rows);
+  });
+
+  test("a class year that changed outside setClassYear is corrected once by the next check", async () => {
+    const w = await frozenS0();
+    const person = w.d.db.rows("clubPeople")[0];
+    if (!person) throw new Error("no person");
+    await w.d.db.patch(person._id, { classYear: 2026 });
+    await w.check();
+    const rows = w.snapshots("s0");
+    expect(rows.length).toBe(2);
+    expect(rows[1]?.classYear).toBe(2026);
+    await w.check();
+    expect(w.snapshots("s0")).toEqual(rows);
+  });
+
+  test("a snapshot written with a null class year warns", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    afterEachOnce(() => warn.mockRestore());
+    const w = await frozenS0();
+    const [s0] = w.snapshots("s0");
+    expect(warn.mock.calls.map(([message]) => String(message))).toContain(
+      `evidence: ${PERSON} s0 snapshot ${String(s0?.id)} has no class year`,
+    );
   });
 });
 

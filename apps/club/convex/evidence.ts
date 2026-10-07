@@ -5,6 +5,7 @@ import { normalizeOrgName } from "../../../src/longitudinal/companySeed.ts";
 import { loadClub } from "../lib/clubStore.ts";
 import { type ClaimJudgment, judgeClaimsV12 } from "../lib/longitudinal/claimJudgmentV12.ts";
 import {
+  classYearCorrection,
   currentSnapshot,
   dueSnapshotKinds,
   nextSnapshot,
@@ -336,9 +337,9 @@ export const writeSnapshots = internalMutation({
         )
         .collect();
       const current = currentSnapshot(ofKind, row.kind);
-      if (current?.inputHash === row.inputHash) continue;
+      if (current?.inputHash === row.inputHash && current.classYear === row.classYear) continue;
       if ((current?.id ?? undefined) !== row.correctsSnapshotId) continue;
-      await ctx.db.insert("evidenceSnapshots", { clubId, ...row });
+      await insertSnapshot(ctx, clubId, row);
       written += 1;
     }
     const intake = await ctx.db
@@ -361,6 +362,13 @@ export const writeSnapshots = internalMutation({
     return written;
   },
 });
+
+async function insertSnapshot(ctx: MutationCtx, clubId: Id<"clubs">, row: SnapshotRow) {
+  if (row.classYear === null) {
+    console.warn(`evidence: ${row.candidateId} ${row.kind} snapshot ${row.id} has no class year`);
+  }
+  await ctx.db.insert("evidenceSnapshots", { clubId, ...row });
+}
 
 export const beginCheck = internalMutation({
   args: { personId: v.string() },
@@ -655,5 +663,16 @@ export const setClassYear = mutation({
       .unique();
     if (!person) throw new Error("unknown person");
     await ctx.db.patch(person._id, { classYear: classYear ?? undefined });
+    const s0Rows = await ctx.db
+      .query("evidenceSnapshots")
+      .withIndex("by_candidate_and_kind", (q) => q.eq("candidateId", personId).eq("kind", "s0"))
+      .collect();
+    const correction = classYearCorrection(
+      s0Rows,
+      classYear,
+      new Date(),
+      () => `snap-${crypto.randomUUID()}`,
+    );
+    if (correction !== null) await insertSnapshot(ctx, club._id, correction);
   },
 });

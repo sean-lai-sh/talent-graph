@@ -151,8 +151,12 @@ export function planSnapshot(input: {
     claims,
     evidenceCutoff: cutoff,
   });
-  if (current !== null && current.inputHash === rollup.inputHash) return null;
   const s0 = currentSnapshot(input.existing, "s0");
+  // classYear is an input of s0 only; later kinds copy s0's when they are written.
+  const classYear = input.kind === "s0" || s0 === null ? input.classYear : s0.classYear;
+  const classYearChanged =
+    input.kind === "s0" && current !== null && current.classYear !== classYear;
+  if (current !== null && current.inputHash === rollup.inputHash && !classYearChanged) return null;
   const row: SnapshotRow = {
     id: input.newId(),
     candidateId: input.candidateId,
@@ -163,10 +167,36 @@ export function planSnapshot(input: {
     selection: rollup.selection,
     thin: rollup.thin,
     claimCount: rollup.claimCount,
-    classYear: s0 ? s0.classYear : input.classYear,
+    classYear,
     inputHash: rollup.inputHash,
     configHash: rollup.configHash,
   };
   if (current !== null) row.correctsSnapshotId = current.id;
   return row;
+}
+
+// An admin's late class-year edit: a correction of the current s0 carrying the new value.
+export function classYearCorrection(
+  s0Rows: readonly SnapshotRow[],
+  classYear: number | null,
+  now: Date,
+  newId: () => string,
+): SnapshotRow | null {
+  const head = currentSnapshot(s0Rows, "s0");
+  if (head === null || head.classYear === classYear) return null;
+  return {
+    id: newId(),
+    candidateId: head.candidateId,
+    kind: "s0",
+    evidenceCutoff: head.evidenceCutoff,
+    computedAt: now.toISOString(),
+    substance: head.substance,
+    selection: head.selection,
+    thin: head.thin,
+    claimCount: head.claimCount,
+    classYear,
+    inputHash: head.inputHash,
+    configHash: head.configHash,
+    correctsSnapshotId: head.id,
+  };
 }
