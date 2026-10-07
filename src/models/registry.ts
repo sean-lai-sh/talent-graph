@@ -82,11 +82,24 @@ export const JUDGE_RELIABILITY_V2_0_0: JudgeReliabilitySpec = deepFreeze({
   applyBiasCorrection: false,
 });
 
+/**
+ * r10 weight scale: 2.0.0's accuracy term, μ0 = 0.3, signal weighted by ω = w^2.
+ */
+export const JUDGE_RELIABILITY_V4_0_0: JudgeReliabilitySpec = deepFreeze({
+  ...JUDGE_RELIABILITY_V2_0_0,
+  version: "4.0.0",
+  priorReliability: 0.3,
+  mode: "v4",
+  softCap: 3,
+  weightExponent: 2,
+});
+
 /** Every spec version ever shipped. Append only. */
 export const SPEC_HISTORY: readonly ModelSpec[] = deepFreeze([
   REFERRAL_SIGNAL_V0_1_0,
   BRADLEY_TERRY_V1_0_0,
   JUDGE_RELIABILITY_V2_0_0,
+  JUDGE_RELIABILITY_V4_0_0,
   CAREER_EVIDENCE_V1_0_0,
   CAREER_EVIDENCE_V1_1_0,
   CAREER_EVIDENCE_V1_2_0,
