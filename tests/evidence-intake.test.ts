@@ -366,6 +366,7 @@ function plan(judgments: readonly ClaimJudgment[], kind: "s0" | "s12" = "s0"): S
     now: day(61),
     claims: judgments.map((j) => j.claim),
     records: judgments.map((j) => j.record),
+    resumeKeys: new Set(judgments.map((j) => j.record.evidenceKey)),
     existing: [],
     classYear: null,
     newId: () => "snap-test",
@@ -523,6 +524,183 @@ describe("corrections and reruns", () => {
     setSystemTime(day(61));
     await one.daily();
     expect(one.snapshots("s0")[0]?.thin).toBe(true);
+  });
+});
+
+const RESUME_ONE_REWORDED = [
+  "Software Engineer Intern at Acme Corp (Jun 2024 - Aug 2024)",
+  "- Built an ambitious payments pipeline used by 10,000 daily users",
+  "- Reduced checkout service latency by 40 percent",
+].join("\n");
+
+const numbers = (row: Record<string, unknown> | undefined) => ({
+  substance: Number(row?.substance),
+  claimCount: Number(row?.claimCount),
+  thin: row?.thin,
+});
+
+function movement(
+  from: Record<string, unknown> | undefined,
+  to: Record<string, unknown> | undefined,
+) {
+  return {
+    substance: Number(to?.substance) - Number(from?.substance),
+    claimCount: Number(to?.claimCount) - Number(from?.claimCount),
+  };
+}
+
+describe("resume versions", () => {
+  test("a newer resume restating pre-referral work corrects s0, and movement is unchanged", async () => {
+    const w = world({ github: null });
+    await w.upload(RESUME_ONE);
+    await w.intake();
+    setSystemTime(day(61));
+    await w.daily();
+    const [original] = w.snapshots("s0");
+
+    setSystemTime(day(80));
+    await w.upload(RESUME_ONE_REWORDED);
+    await w.check();
+    const rows = w.snapshots("s0");
+    expect(rows.length).toBe(2);
+    expect(rows[1]?.correctsSnapshotId).toBe(String(original?.id));
+    expect(rows[1]?.inputHash).not.toBe(original?.inputHash);
+    expect(numbers(rows[1])).toEqual(numbers(original));
+    expect(w.current("s0")).toBe(String(rows[1]?.id));
+
+    setSystemTime(day(400));
+    await w.daily();
+    expect(movement(rows[1], w.snapshots("s12")[0])).toEqual({ substance: 0, claimCount: 0 });
+  });
+
+  test("a restating upload after s12 is frozen corrects both s0 and s12, and the movement from s0 to s12 is unchanged", async () => {
+    const w = world();
+    await w.upload(RESUME_ONE);
+    await w.intake();
+    setSystemTime(day(61));
+    await w.daily();
+    setSystemTime(day(200));
+    w.state.repos = [
+      repo({ created_at: "2025-07-01T10:00:00Z", updated_at: "2025-07-01T10:00:00Z" }),
+    ];
+    setSystemTime(day(400));
+    await w.check();
+    const [s0] = w.snapshots("s0");
+    const [s12] = w.snapshots("s12");
+    expect(w.snapshots().length).toBe(2);
+    const v1Movement = movement(s0, s12);
+    expect(v1Movement.claimCount).toBeGreaterThan(0);
+
+    setSystemTime(day(410));
+    await w.upload(RESUME_ONE_REWORDED);
+    await w.check();
+    const s0Rows = w.snapshots("s0");
+    const s12Rows = w.snapshots("s12");
+    expect(s0Rows.length).toBe(2);
+    expect(s12Rows.length).toBe(2);
+    expect(s0Rows[1]?.correctsSnapshotId).toBe(String(s0?.id));
+    expect(s12Rows[1]?.correctsSnapshotId).toBe(String(s12?.id));
+    expect(numbers(s0Rows[1])).toEqual(numbers(s0));
+    expect(numbers(s12Rows[1])).toEqual(numbers(s12));
+    expect(w.current("s0")).toBe(String(s0Rows[1]?.id));
+    expect(w.current("s12")).toBe(String(s12Rows[1]?.id));
+    expect(movement(s0Rows[1], s12Rows[1])).toEqual(v1Movement);
+
+    const rows = w.snapshots();
+    await w.check();
+    await w.check();
+    expect(w.snapshots()).toEqual(rows);
+  });
+
+  test("an unchanged job re-uploaded leaves substance, claimCount and thin unchanged and writes nothing", async () => {
+    const w = world({ github: null });
+    await w.upload(RESUME_ONE);
+    await w.intake();
+    setSystemTime(day(61));
+    await w.daily();
+    const rows = w.snapshots();
+    const judgments = w.judgments().length;
+    const calls = w.state.jev.claimCalls;
+
+    setSystemTime(day(80));
+    await w.upload(RESUME_ONE);
+    await w.check();
+    expect(w.d.db.rows("resumeVersions").length).toBe(2);
+    expect(w.snapshots()).toEqual(rows);
+    expect(w.judgments().length).toBe(judgments);
+    expect(w.state.jev.claimCalls).toBe(calls);
+  });
+
+  test("content dated after the referral in a newer version counts only in later snapshots and shows as movement", async () => {
+    const w = world({ github: null });
+    await w.upload(RESUME_ONE);
+    await w.intake();
+    setSystemTime(day(61));
+    await w.daily();
+    const s0 = w.snapshots("s0");
+
+    setSystemTime(day(200));
+    await w.upload(
+      [
+        RESUME_ONE,
+        "Software Engineer at Beta Inc (Mar 2025 - Jun 2025)",
+        "- Built an ambitious compiler",
+      ].join("\n"),
+    );
+    await w.check();
+    expect(w.snapshots("s0")).toEqual(s0);
+
+    setSystemTime(day(400));
+    await w.daily();
+    expect(movement(s0[0], w.snapshots("s12")[0]).claimCount).toBeGreaterThan(0);
+  });
+
+  test("a snapshot whose cutoff is before D is not corrected", async () => {
+    const w = world({ github: null });
+    await w.upload(RESUME_ONE);
+    await w.intake();
+    setSystemTime(day(61));
+    await w.daily();
+    setSystemTime(day(400));
+    await w.daily();
+    const s0 = w.snapshots("s0");
+    const [s12] = w.snapshots("s12");
+
+    setSystemTime(day(410));
+    await w.upload(
+      [
+        RESUME_ONE,
+        "Software Engineer at Beta Inc (Mar 2025 - Dec 2025)",
+        "- Built an ambitious compiler",
+      ].join("\n"),
+    );
+    await w.check();
+    expect(w.snapshots("s0")).toEqual(s0);
+    const s12Rows = w.snapshots("s12");
+    expect(s12Rows.length).toBe(2);
+    expect(s12Rows[1]?.correctsSnapshotId).toBe(String(s12?.id));
+    expect(Number(s12Rows[1]?.claimCount)).toBeGreaterThan(Number(s12?.claimCount));
+  });
+
+  test("an older version's claims never count once a newer version exists at an uncomputed snapshot", async () => {
+    const alone = world({ github: null });
+    await alone.upload(RESUME_ONE);
+    await alone.intake();
+    setSystemTime(day(61));
+    await alone.daily();
+
+    setSystemTime(day(1));
+    const w = world({ github: null });
+    await w.upload(RESUME_ONE);
+    await w.intake();
+    setSystemTime(day(10));
+    await w.upload(RESUME_ONE_REWORDED);
+    await w.check();
+    setSystemTime(day(61));
+    await w.daily();
+    const rows = w.snapshots("s0");
+    expect(rows.length).toBe(1);
+    expect(numbers(rows[0])).toEqual(numbers(alone.snapshots("s0")[0]));
   });
 });
 
@@ -1000,6 +1178,7 @@ describe("the daily check", () => {
       now: day(61),
       claims: stored.map((j) => j.claim),
       records: stored.map((j) => j.record) as JevJudgmentRecord[],
+      resumeKeys: new Set(stored.map((j) => j.record.evidenceKey)),
       existing: [],
       classYear: null,
       newId: () => "x",

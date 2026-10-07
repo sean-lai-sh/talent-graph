@@ -81,6 +81,8 @@ export interface ClaimEvidence {
 
 export interface ClaimJudgmentRun {
   written: ClaimJudgment[];
+  // The evidence key of every claim the evidence produced: written, skipped or failed.
+  keys: string[];
   skipped: number;
   failed: { claimId: string; error: string }[];
   calls: number;
@@ -228,7 +230,7 @@ export async function judgeClaimsV12(input: {
   const lineById = new Map(evidence.lines.map((line) => [line.id, line]));
   const configHash = claimValueV12ConfigHash(CLAIM_VALUE_V1_2_0);
   const seedHash = companySeedHash();
-  const run: ClaimJudgmentRun = { written: [], skipped: 0, failed: [], calls };
+  const run: ClaimJudgmentRun = { written: [], keys: [], skipped: 0, failed: [], calls };
   const seen = new Set<string>();
   let probeIndex = -1;
   let scoringIndex = 0;
@@ -244,6 +246,10 @@ export async function judgeClaimsV12(input: {
     if (claim === undefined) continue;
     const probeFingerprint =
       claim.titleHint === null && probeIndex >= 0 ? sequence[probeIndex]?.fingerprint : undefined;
+    const line = lineFor(claim, lineById);
+    const item = evidence.evidenceItemFor(claim, line);
+    const evidenceKey = evidenceKeyFor(input.personId, item);
+    run.keys.push(evidenceKey);
     const failure =
       failures.get(entry.fingerprint) ??
       (probeFingerprint === undefined ? undefined : failures.get(probeFingerprint));
@@ -251,9 +257,6 @@ export async function judgeClaimsV12(input: {
       run.failed.push({ claimId: claim.id, error: failure });
       continue;
     }
-    const line = lineFor(claim, lineById);
-    const item = evidence.evidenceItemFor(claim, line);
-    const evidenceKey = evidenceKeyFor(input.personId, item);
     if (knownKeys.has(evidenceKey) || seen.has(evidenceKey)) {
       run.skipped += 1;
       continue;

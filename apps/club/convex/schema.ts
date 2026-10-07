@@ -292,6 +292,8 @@ export default defineSchema({
     rawText: v.string(),
     normalized: v.boolean(),
     lineCount: v.number(),
+    // Set once the version is scored: the evidence keys of its claims.
+    evidenceKeys: v.optional(v.array(v.string())),
   })
     .index("by_person", ["personId"])
     .index("by_storage", ["storageId"]),

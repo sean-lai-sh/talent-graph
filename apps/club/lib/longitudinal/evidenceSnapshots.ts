@@ -119,6 +119,10 @@ export function currentSnapshot<T extends StoredSnapshot>(
   return head;
 }
 
+// A resume counts as its newest version only, so a re-upload never counts a job twice.
+// Every snapshot, frozen or not, is planned from that version: a newer version's content
+// dated on or before a frozen snapshot's cutoff lands there as a correction row, and
+// content dated after it stays out.
 export function planSnapshot(input: {
   candidateId: string;
   kind: SnapshotKind;
@@ -126,12 +130,20 @@ export function planSnapshot(input: {
   now: Date;
   claims: readonly OutputOnlyClaim[];
   records: readonly JevJudgmentRecord[];
+  // The evidence keys of the newest resume version's claims.
+  resumeKeys: ReadonlySet<string>;
   existing: readonly StoredSnapshot[];
   classYear: number | null;
   newId: () => string;
 }): SnapshotRow | null {
+  const current = currentSnapshot(input.existing, input.kind);
   const cutoff = evidenceCutoff(input.intakeAt, input.kind);
-  const claims = claimsAtCutoff(input.claims, input.records, cutoff);
+  const keyByRecord = new Map(input.records.map((record) => [record.id, record.evidenceKey]));
+  const counted = input.claims.filter(
+    (claim) =>
+      claim.source !== "resume" || input.resumeKeys.has(keyByRecord.get(claim.recordId) ?? ""),
+  );
+  const claims = claimsAtCutoff(counted, input.records, cutoff);
   const recordIds = new Set(claims.map((claim) => claim.recordId));
   const rollup: OutputOnlyRollup = outputOnlyRollup({
     personId: input.candidateId,
@@ -139,7 +151,6 @@ export function planSnapshot(input: {
     claims,
     evidenceCutoff: cutoff,
   });
-  const current = currentSnapshot(input.existing, input.kind);
   if (current !== null && current.inputHash === rollup.inputHash) return null;
   const s0 = currentSnapshot(input.existing, "s0");
   const row: SnapshotRow = {

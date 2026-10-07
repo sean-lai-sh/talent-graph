@@ -68,9 +68,12 @@ export const context = internalQuery({
       .query("resumeVersions")
       .withIndex("by_person", (q) => q.eq("personId", personId))
       .collect();
+    // Oldest first: the last one is the newest version, the only one that counts.
+    versions.sort((a, b) => a.uploadedAt.localeCompare(b.uploadedAt));
     const resumes = await Promise.all(
       versions.map(async (version) => ({
         storageId: version.storageId,
+        evidenceKeys: version.evidenceKeys ?? null,
         lines: (
           await ctx.db
             .query("resumeLines")
@@ -291,6 +294,19 @@ export const storeJudgments = internalMutation({
   },
 });
 
+export const recordResumeKeys = internalMutation({
+  args: { storageId: v.id("_storage"), evidenceKeys: v.array(v.string()) },
+  handler: async (ctx, { storageId, evidenceKeys }) => {
+    const version = await ctx.db
+      .query("resumeVersions")
+      .withIndex("by_storage", (q) => q.eq("storageId", storageId))
+      .first();
+    if (!version) throw new Error(`recordResumeKeys: no resume version for ${storageId}`);
+    if (version.evidenceKeys?.join("\n") === evidenceKeys.join("\n")) return;
+    await ctx.db.patch(version._id, { evidenceKeys });
+  },
+});
+
 const snapshotRow = v.object({
   id: v.string(),
   candidateId: v.string(),
@@ -458,7 +474,7 @@ async function runCheck(ctx: ActionCtx, personId: string) {
     // candidate stays due and is retried after `beginCheck`'s backoff.
     return { versionAdded, scored: scored.length, snapshots: 0, githubFailed: true };
   }
-  const stored = scored.length > 0 ? ((await loadContext(ctx, personId)) ?? found) : found;
+  const stored = (await loadContext(ctx, personId)) ?? found;
   const snapshots = await writeDueSnapshots(ctx, stored, stored.judgments);
   return { versionAdded, scored: scored.length, snapshots, githubFailed: false };
 }
@@ -548,16 +564,25 @@ async function scoreNewClaims(
       `evidence: ${found.person.id} ${sourceId} has text with no change date after its previous version (creation or stored); that version is not scored`,
     );
   }
+  const newest = found.resumes.at(-1);
   const sources = [
-    ...found.resumes.map((version) => resumeEvidence(version.lines)),
-    ...(versions.items.length > 0 ? [githubEvidence(versions.items)] : []),
+    ...(newest ? [{ evidence: resumeEvidence(newest.lines), storageId: newest.storageId }] : []),
+    ...(versions.items.length > 0
+      ? [{ evidence: githubEvidence(versions.items), storageId: null }]
+      : []),
   ];
   if (sources.length === 0) return [];
   const client = createJevClient();
   const known: ClaimJudgment[] = [...found.judgments];
   const written: ClaimJudgment[] = [];
-  for (const evidence of sources) {
+  for (const { evidence, storageId } of sources) {
     const run = await judgeClaimsV12({ personId: found.person.id, evidence, known, client });
+    if (storageId !== null) {
+      await ctx.runMutation(internal.evidence.recordResumeKeys, {
+        storageId,
+        evidenceKeys: [...new Set(run.keys)].sort(),
+      });
+    }
     for (const failure of run.failed) {
       console.warn(`evidence: claim ${failure.claimId} not recorded: ${failure.error}`);
     }
@@ -585,6 +610,7 @@ async function writeDueSnapshots(
   const kinds = dueSnapshotKinds(intakeAt, now);
   const claims = judgments.map((judgment) => judgment.claim);
   const records = judgments.map((judgment) => judgment.record);
+  const resumeKeys = new Set(found.resumes.at(-1)?.evidenceKeys ?? []);
   const rows: SnapshotRow[] = [];
   const existing = [...found.snapshots];
   for (const kind of SNAPSHOT_KINDS.filter((candidate) => kinds.includes(candidate))) {
@@ -595,6 +621,7 @@ async function writeDueSnapshots(
       now,
       claims,
       records,
+      resumeKeys,
       existing,
       classYear: found.person.classYear,
       newId: () => `snap-${crypto.randomUUID()}`,
