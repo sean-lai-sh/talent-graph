@@ -648,6 +648,18 @@ describe("member referrals and interview yeses rank on every channel", () => {
       }
     }
   });
+
+  test("an outbound referrer who later says yes keeps one position, and the call adds no second referral", () => {
+    const r = council("outbound", [
+      { by: "alice", at: 1, as: "referral" },
+      { by: "alice", at: 2, as: "yes" },
+    ]);
+    expect(r.state.calls.map((c) => [c.callerId, c.outcome])).toEqual([["alice", "yes"]]);
+    expect(r.state.referrals.filter((x) => x.referrerId === "alice")).toHaveLength(1);
+    expect(r.positions).toHaveLength(1);
+    expect(r.position("alice")?.position).toBe(1);
+    expect(r.terms.map((t) => t.judgeId)).toEqual(["alice"]);
+  });
 });
 
 describe("history and old documents", () => {
