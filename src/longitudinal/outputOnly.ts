@@ -1,20 +1,12 @@
 /**
- * Evidence-only substance: a candidate score no judge can move.
- *
- * Movement settles a judge's bet on a candidate, so the score it measures must
- * be built only from evidence that judge did not write. Three inputs are shut
- * out here. Referrer notes would raise a claim's backing in
- * `scoreClaimValueV12`, so every claim value is recomputed from the raw Jev
- * judgment with no notes. `personRollups` takes a caller-supplied `trend`;
- * there is no such input here. Referrer- and committee-authored claims are
- * refused by `validateClaimAuthor`.
- *
- * Finished claim values are never an input: a stored number could already
- * carry a note's lift.
+ * Evidence-only substance: a candidate score no judge can move. Movement
+ * settles a judge's bet, so claim values are recomputed from the raw Jev
+ * judgment with no referrer notes (they lift `scoreClaimValueV12`), never read
+ * from a stored number, and there is no `trend` input.
  */
 
 import { deepFreeze } from "../models/freeze.ts";
-import { hashInputs } from "../provenance/hash.ts";
+import { hashInputs, stableStringify } from "../provenance/hash.ts";
 import type { JobDateFields } from "./claimPreprocess.ts";
 import type { LevelDistribution, RoleDistribution } from "./claimRubricV12.ts";
 import {
@@ -41,7 +33,7 @@ import {
   type JevJudgmentRecord,
   type JevRawScoreAnswer,
   JudgmentInvariantError,
-  recordContent,
+  recordFields,
 } from "./records.ts";
 import type { ClaimAuthor, SourceKind } from "./types.ts";
 import { validateClaimAuthor } from "./validate.ts";
@@ -49,7 +41,7 @@ import { validateClaimAuthor } from "./validate.ts";
 export interface OutputOnlyRollupConfig {
   kind: "output_only_rollup";
   version: "1.0.0";
-  /** `s_floor`: the least substance a candidate is given, on the claim-value scale. */
+  /** Lower bound on `substance`. */
   sFloor: number;
   /** Fewer accepted output claims than this at the cutoff marks the result thin. */
   minOutputClaims: number;
@@ -66,11 +58,9 @@ export const OUTPUT_ONLY_ROLLUP_V1_0_0: OutputOnlyRollupConfig = deepFreeze({
   personRollup: PERSON_ROLLUP,
 });
 
-/** One claim, tagged with who wrote it and the judgment record it was scored in. */
 export interface OutputOnlyClaim {
   id: string;
   personId: string;
-  /** The `JevJudgmentRecord` whose answers this claim's value is recomputed from. */
   recordId: string;
   claimClass: "selection" | "output";
   status: RollupClaimStatus;
@@ -94,27 +84,27 @@ export interface OutputOnlyRollupInput {
 export interface OutputOnlyRollup {
   /** Top-N mean of accepted output claim values, never below `sFloor`. */
   substance: number;
-  /** Top-N mean of accepted selection claim values; `null` when there are none. */
+  /** Top-N mean of accepted selection claim values. `null` means no accepted selection claims, never 0. */
   selection: number | null;
   /** Too few output claims, or substance raised to `sFloor`. Thin is not missing. */
   thin: boolean;
-  /** Accepted claims dated on or before the cutoff. */
   claimCount: number;
   inputHash: string;
   configHash: string;
 }
 
-/**
- * The judgment specs whose claim records the roll-up reads, each pinned to its
- * rubric hash (`careerEvidenceV12SpecId`). A record under any other spec id,
- * including a 1.2.x version with a different rubric, is rejected.
- */
+/** career_evidence 1.2 spec ids (`version:rubric hash`) whose records this roll-up accepts. */
 export const OUTPUT_ONLY_ACCEPTED_SPEC_IDS: ReadonlySet<string> = new Set([
   "career_evidence@1.2.0:cd500b05",
   "career_evidence@1.2.1:8170c38a",
   "career_evidence@1.2.2:b644c4c3",
   "career_evidence@1.2.3:8119ac21",
   "career_evidence@1.2.4:fafb7d39",
+]);
+
+const EVIDENCE_ONLY_TIERS: ReadonlySet<EvidenceTier> = new Set([
+  "self_reported",
+  "externally_verified",
 ]);
 
 export function outputOnlyRollupConfigHash(
@@ -131,16 +121,10 @@ export function outputOnlyRollupConfigHash(
 }
 
 /**
- * The date a claim's evidence became observable, for evidence cutoffs.
- *
- * Selection claims date from the role's start. Finished work dates from its
- * end. Ongoing work dates from the role's start, not from when the resume was
- * published: a resume published after the cutoff does not make a role started
- * before it later evidence. `null` when the needed date is not stated or not a
- * calendar date.
- *
- * Separate from `observedAtForJobClaim`, which dates ongoing output by
- * `publishedAt` and feeds existing `career_evidence` numbers.
+ * When a claim's evidence became observable: selection and ongoing output from
+ * the role's start, finished output from its end. `null` if the date is
+ * missing or not a calendar date. Differs from `observedAtForJobClaim`, which
+ * dates ongoing output by `publishedAt`.
  */
 export function evidenceDateFor(claim: {
   claimClass: "selection" | "output";
@@ -160,11 +144,13 @@ export function outputOnlyRollup(input: OutputOnlyRollupInput): OutputOnlyRollup
   }
   const records = recordsById(input.records);
   const claims = [...input.claims].sort((a, b) => compareIds(a.id, b.id));
-  const hashed: { claim: Required<OutputOnlyClaim>; record: string | null }[] = [];
+  const hashed: {
+    claim: Required<OutputOnlyClaim>;
+    record: Readonly<Record<string, unknown>> | null;
+  }[] = [];
   const counted: RollupClaim[] = [];
   let outputCount = 0;
   let previousId: string | null = null;
-  // One record backs one claim: a shared record would score and hash the same judgment twice.
   const claimByRecord = new Map<string, string>();
 
   for (const claim of claims) {
@@ -181,7 +167,11 @@ export function outputOnlyRollup(input: OutputOnlyRollupInput): OutputOnlyRollup
     if (!author.ok) {
       throw new Error(`output-only roll-up: claim ${claim.id}: ${author.errors.join("; ")}`);
     }
-    // A claim that is not accepted is never scored, so it needs no record.
+    if (!EVIDENCE_ONLY_TIERS.has(claim.evidenceTier)) {
+      throw new JudgmentInvariantError(
+        `output-only roll-up: claim ${claim.id} has evidence tier "${claim.evidenceTier}"; only ${[...EVIDENCE_ONLY_TIERS].join(" and ")} are accepted, since a referrer note is what raises self_reported to corroborated`,
+      );
+    }
     if (claim.status !== "accepted") {
       hashed.push({ claim: hashedFields(claim), record: null });
       continue;
@@ -194,7 +184,7 @@ export function outputOnlyRollup(input: OutputOnlyRollupInput): OutputOnlyRollup
       );
     }
     claimByRecord.set(record.id, claim.id);
-    hashed.push({ claim: hashedFields(claim), record: recordContent(record) });
+    hashed.push({ claim: hashedFields(claim), record: recordFields(record) });
 
     const evidenceDate = evidenceDateFor(claim);
     if (evidenceDate === null || evidenceDate.getTime() > cutoff.getTime()) continue;
@@ -224,7 +214,6 @@ export function outputOnlyRollup(input: OutputOnlyRollupInput): OutputOnlyRollup
     selection: row && row.selectionClaimIds.length > 0 ? row.selectionAggregate : null,
     thin,
     claimCount: counted.length,
-    // `hashInputs` keeps array order, so the claims are hashed in id order.
     inputHash: hashInputs({
       personId: input.personId,
       evidenceCutoff: cutoff,
@@ -234,7 +223,6 @@ export function outputOnlyRollup(input: OutputOnlyRollupInput): OutputOnlyRollup
   };
 }
 
-/** Only the declared fields, so a caller's extra properties never reach the hash. */
 function hashedFields(claim: OutputOnlyClaim): Required<OutputOnlyClaim> {
   return {
     id: claim.id,
@@ -265,11 +253,15 @@ function assertConfig(config: OutputOnlyRollupConfig): void {
   }
 }
 
+// A claim is bound to its record only by the caller-supplied recordId. The
+// shared-record guard below stops two different records reusing an id, but not
+// a permutation of same-person records between claims. Callers are engine code
+// (steps 4 and 5), never judges.
 function recordsById(records: readonly JevJudgmentRecord[]): Map<string, JevJudgmentRecord> {
   const byId = new Map<string, JevJudgmentRecord>();
   for (const record of records) {
     const seen = byId.get(record.id);
-    if (seen && recordContent(seen) !== recordContent(record)) {
+    if (seen && stableStringify(recordFields(seen)) !== stableStringify(recordFields(record))) {
       throw new JudgmentInvariantError(
         `output-only roll-up: two different records share id ${record.id}`,
       );
@@ -377,7 +369,7 @@ function roleAnswer(answer: JevAnswer | undefined, what: string): RoleDistributi
 function calendarDate(value: string | null): Date | null {
   if (value === null || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const parsed = new Date(`${value}T00:00:00.000Z`);
-  // `Date` rolls 2025-02-30 over to March 2; a calendar date survives the round trip.
+  // `Date` rolls 2025-02-30 over to March 2, so require a round trip.
   if (!Number.isFinite(parsed.getTime())) return null;
   return parsed.toISOString().slice(0, 10) === value ? parsed : null;
 }

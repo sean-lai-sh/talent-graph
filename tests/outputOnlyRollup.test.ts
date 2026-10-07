@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
   CANDIDATE_AUTHORED_SOURCES,
+  CLAIM_AUTHORS,
   CLAIM_VALUE_V1_2_0,
   type ClaimAuthor,
   evidenceDateFor,
@@ -10,7 +11,6 @@ import {
   type OutputOnlyClaim,
   outputOnlyRollup,
   scoreClaimValueV12,
-  validateClaimAuthor,
   validateEvidenceClaim,
 } from "../src/index.ts";
 import type { JobDateFields } from "../src/longitudinal/claimPreprocess.ts";
@@ -165,19 +165,31 @@ describe("outputOnlyRollup referrer notes", () => {
   });
 });
 
+describe("outputOnlyRollup evidence tiers", () => {
+  test("a corroborated claim is rejected, whatever its status", () => {
+    const { records, claims } = fixture();
+    for (const status of ["accepted", "review"] as const) {
+      const raised = claims.map((c) =>
+        c.id === "o1" ? { ...c, status, evidenceTier: "corroborated" as const } : c,
+      );
+      expect(() => run(raised, records)).toThrow(JudgmentInvariantError);
+      expect(() => run(raised, records)).toThrow(/claim o1 .*corroborated/);
+    }
+  });
+
+  test("self_reported and externally_verified claims are accepted and scored at their tier", () => {
+    const { records } = fixture();
+    for (const evidenceTier of ["self_reported", "externally_verified"] as const) {
+      const claims = [claim("o1", { evidenceTier })];
+      const expected = scoreClaimValueV12(outputSubject(4), evidenceTier).claimValue;
+      const result = run(claims, records);
+      expect(result.claimCount).toBe(1);
+      expect(result.substance).toBeCloseTo(Math.max(expected, 0.3), 12);
+    }
+  });
+});
+
 describe("outputOnlyRollup claim authors", () => {
-  test("a referrer-authored claim is rejected", () => {
-    const { records, claims } = fixture();
-    const bad = [...claims, claim("o5", { author: "referrer", recordId: "rec-o1" })];
-    expect(() => run(bad, records)).toThrow(/referrer/);
-  });
-
-  test("a committee-authored claim is rejected", () => {
-    const { records, claims } = fixture();
-    const bad = [...claims, claim("o5", { author: "committee", recordId: "rec-o1" })];
-    expect(() => run(bad, records)).toThrow(/committee/);
-  });
-
   test("candidate and system authors are accepted", () => {
     const { records, claims } = fixture();
     const ok = claims.map((c, i) => ({
@@ -188,52 +200,76 @@ describe("outputOnlyRollup claim authors", () => {
   });
 });
 
-describe("validateClaimAuthor", () => {
-  test("accepts candidate and system, rejects referrer, committee and unknown", () => {
-    expect(validateClaimAuthor({ author: "candidate", source: "resume" }).ok).toBe(true);
-    expect(validateClaimAuthor({ author: "system", source: "resume" }).ok).toBe(true);
-    expect(validateClaimAuthor({ author: "referrer", source: "resume" }).ok).toBe(false);
-    expect(validateClaimAuthor({ author: "committee", source: "resume" }).ok).toBe(false);
-    expect(validateClaimAuthor({ author: "judge", source: "resume" }).ok).toBe(false);
+function evidenceClaim(source: SourceKind, author?: unknown) {
+  return {
+    personId: PERSON,
+    statement: "Shipped a compiler",
+    identityDecision: "same",
+    identityConfidence: 0.9,
+    provenance: {
+      source,
+      sourceId: "source-1",
+      url: "https://example.com/source",
+      publisher: "Example",
+      publishedAt: new Date("2024-01-01T00:00:00.000Z"),
+      retrievedAt: new Date("2024-02-01T00:00:00.000Z"),
+      quotedText: "Shipped a compiler",
+      contentHash: "abc",
+    },
+    ...(author === undefined ? {} : { author }),
+  } as never;
+}
+
+describe("claim author rules at ingest and in the roll-up", () => {
+  test("ingest stores every claim author, including referrer and committee", () => {
+    for (const author of CLAIM_AUTHORS) {
+      expect(validateEvidenceClaim(evidenceClaim("resume", author))).toEqual({ ok: true });
+      expect(validateEvidenceClaim(evidenceClaim("other", author))).toEqual({ ok: true });
+    }
   });
 
-  test("an absent author defaults to candidate for exactly the candidate-published sources", () => {
-    // Every source kind is decided here, so adding one to SOURCE_KINDS fails
-    // this test until someone says whether its claims default to the candidate.
+  test("ingest rejects an unknown author", () => {
+    const result = validateEvidenceClaim(evidenceClaim("resume", "judge"));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.join(" ")).toContain("judge");
+  });
+
+  test("ingest rejects an authorless claim from a source outside the candidate-authored ones", () => {
+    const result = validateEvidenceClaim(evidenceClaim("other"));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.join(" ")).toContain('source "other"');
+  });
+
+  test("the roll-up rejects referrer and committee authors that ingest stored", () => {
+    const { records, claims } = fixture();
+    for (const author of ["referrer", "committee"] as const) {
+      expect(validateEvidenceClaim(evidenceClaim("resume", author)).ok).toBe(true);
+      const bad = claims.map((c) => (c.id === "o1" ? { ...c, author } : c));
+      expect(() => run(bad, records)).toThrow(new RegExp(`claim o1: author must not be ${author}`));
+    }
+  });
+
+  test("ingest and the roll-up agree on authorless claims from every source", () => {
+    // Fails when a new SOURCE_KINDS entry is not classified.
     const NOT_CANDIDATE_AUTHORED: readonly SourceKind[] = ["other"];
     const expected = SOURCE_KINDS.filter((source) => !NOT_CANDIDATE_AUTHORED.includes(source));
     expect([...CANDIDATE_AUTHORED_SOURCES].sort()).toEqual([...expected].sort());
+    const { records } = fixture();
     for (const source of SOURCE_KINDS) {
-      expect(validateClaimAuthor({ source }).ok).toBe(!NOT_CANDIDATE_AUTHORED.includes(source));
-    }
-    for (const source of CANDIDATE_AUTHORED_SOURCES) {
-      expect(validateClaimAuthor({ source }).ok).toBe(true);
-    }
-  });
-
-  test("validateEvidenceClaim rejects a stated referrer or committee author, accepts none stated", () => {
-    const base = {
-      personId: PERSON,
-      statement: "Shipped a compiler",
-      identityDecision: "same",
-      identityConfidence: 0.9,
-      provenance: {
-        source: "resume",
-        sourceId: "resume-1",
-        url: "https://example.com/resume",
-        publisher: "Example",
-        publishedAt: new Date("2024-01-01T00:00:00.000Z"),
-        retrievedAt: new Date("2024-02-01T00:00:00.000Z"),
-        quotedText: "Shipped a compiler",
-        contentHash: "abc",
-      },
-    };
-    expect(validateEvidenceClaim(base as never).ok).toBe(true);
-    expect(validateEvidenceClaim({ ...base, author: "candidate" } as never).ok).toBe(true);
-    for (const author of ["referrer", "committee"]) {
-      const result = validateEvidenceClaim({ ...base, author } as never);
-      expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.errors.join(" ")).toContain(author);
+      const stored = validateEvidenceClaim(evidenceClaim(source)).ok;
+      const rolled = (() => {
+        try {
+          run([claim("o1", { source })], records);
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+      expect({ source, stored, rolled }).toEqual({
+        source,
+        stored: CANDIDATE_AUTHORED_SOURCES.includes(source),
+        rolled: CANDIDATE_AUTHORED_SOURCES.includes(source),
+      });
     }
   });
 });
@@ -263,6 +299,25 @@ describe("outputOnlyRollup ordering and determinism", () => {
   test("same input twice is byte-identical", () => {
     const { records, claims } = fixture();
     expect(JSON.stringify(run(claims, records))).toBe(JSON.stringify(run(claims, records)));
+  });
+
+  test("the fixture's roll-up is pinned across runs and versions", () => {
+    const { records, claims } = fixture();
+    expect(run(claims, records)).toEqual({
+      substance: 0.41,
+      selection: 0.6,
+      thin: false,
+      claimCount: 5,
+      inputHash: "fa810fd67fec9ceffabdaac149db12405104c14b5f749edc9af183613bc83f67",
+      configHash: "746d4711ed0e0b51234bae724ce37bc4b5d7f460cf5d754c5b2828d1d4b835be",
+    });
+  });
+
+  test("selection is null without selection claims and a number with one", () => {
+    const { records, claims } = fixture();
+    const outputsOnly = claims.filter((c) => c.claimClass === "output");
+    expect(run(outputsOnly, records).selection).toBeNull();
+    expect(run(claims, records).selection).toBeGreaterThan(0);
   });
 
   test("configHash is stable and moves with the config", () => {
@@ -478,6 +533,20 @@ describe("outputOnlyRollup structural errors", () => {
     expect(() => run(claims, [...records, outputRecord("rec-o1", 0)])).toThrow(/share id rec-o1/);
   });
 
+  test("a record's answers key order changes neither the hash nor the shared-id check", () => {
+    const { records, claims } = fixture();
+    const reordered = records.map((r) =>
+      r.id === "rec-o1"
+        ? { ...r, answers: Object.fromEntries(Object.entries(r.answers).reverse()) }
+        : r,
+    );
+    expect(Object.keys(reordered[0]?.answers ?? {})).not.toEqual(
+      Object.keys(records[0]?.answers ?? {}),
+    );
+    expect(run(claims, reordered).inputHash).toBe(run(claims, records).inputHash);
+    expect(() => run(claims, [...records, ...reordered])).not.toThrow();
+  });
+
   test("two accepted claims naming one record throw, naming the record and both claims", () => {
     const { records, claims } = fixture();
     const shared = [...claims, claim("o9", { recordId: "rec-o1" })];
@@ -565,10 +634,15 @@ describe("outputOnlyRollup thin candidates", () => {
   });
 
   test("fewer output claims than the minimum is thin even when strong", () => {
-    const records = [outputRecord("rec-a", 4), outputRecord("rec-b", 4)];
+    const records = [outputRecord("rec-a", 4), outputRecord("rec-b", 3)];
     const result = run([claim("a"), claim("b")], records);
+    const measured =
+      ([4, 3] as const)
+        .map((at) => scoreClaimValueV12(outputSubject(at), "self_reported").claimValue)
+        .reduce((sum, value) => sum + value, 0) / 2;
+    expect(measured).toBeGreaterThan(0.3);
     expect(result.thin).toBe(true);
-    expect(result.substance).toBeGreaterThanOrEqual(0.3);
+    expect(result.substance).toBeCloseTo(measured, 12);
   });
 
   test("enough strong output claims is not thin and keeps its own substance", () => {
@@ -597,7 +671,7 @@ describe("outputOnlyRollup thin candidates", () => {
 });
 
 describe("truth-label guard", () => {
-  test("claimValuesToLongitudinalRecords has no callers outside its definition", () => {
+  test("claimValuesToLongitudinalRecords has no callers, not even in its own file", async () => {
     const root = join(import.meta.dir, "..");
     const result = Bun.spawnSync(
       ["git", "grep", "-l", "claimValuesToLongitudinalRecords", "--", ".", ":!tests", ":!docs"],
@@ -605,5 +679,7 @@ describe("truth-label guard", () => {
     );
     const files = new TextDecoder().decode(result.stdout).trim().split("\n").filter(Boolean);
     expect(files).toEqual(["src/longitudinal/claimValue.ts"]);
+    const source = await Bun.file(join(root, "src/longitudinal/claimValue.ts")).text();
+    expect(source.match(/claimValuesToLongitudinalRecords/g)).toHaveLength(1);
   });
 });

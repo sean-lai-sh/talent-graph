@@ -8,7 +8,12 @@ import type {
   SourceKind,
   SourceProvenance,
 } from "./types.ts";
-import { CANDIDATE_AUTHORED_SOURCES, CAREER_EVENT_KINDS, SOURCE_KINDS } from "./types.ts";
+import {
+  CANDIDATE_AUTHORED_SOURCES,
+  CAREER_EVENT_KINDS,
+  CLAIM_AUTHORS,
+  SOURCE_KINDS,
+} from "./types.ts";
 
 export type LongitudinalValidationResult = { ok: true } | { ok: false; errors: string[] };
 
@@ -102,25 +107,20 @@ export function validateEvidenceClaim(claim: EvidenceClaim): LongitudinalValidat
   }
   const provenance = validateProvenance(claim.provenance);
   if (!provenance.ok) errors.push(...provenance.errors);
-  // Only a stated author is checked here: claims written before the field
-  // existed stay valid whatever their source.
-  if (claim.author !== undefined) {
-    const author = validateClaimAuthor({ author: claim.author, source: claim.provenance.source });
-    if (!author.ok) errors.push(...author.errors);
-  }
+  const author = validateStoredClaimAuthor({
+    author: claim.author,
+    source: claim.provenance.source,
+  });
+  if (!author.ok) errors.push(...author.errors);
   return result(errors);
 }
 
 /**
- * Whether a claim may feed evidence-only substance.
- *
- * `candidate` and `system` are accepted. `referrer` is refused: a judge is
- * never scored on evidence they wrote. `committee` is refused until committee
- * facts are designed. A claim with no `author` is a candidate's when its
- * source is one the candidate publishes; any other source has no author to
- * default to.
+ * Whether a claim's author may be stored. An absent `author` defaults to
+ * candidate for sources in `CANDIDATE_AUTHORED_SOURCES` and is refused for any
+ * other source.
  */
-export function validateClaimAuthor(claim: {
+function validateStoredClaimAuthor(claim: {
   author?: unknown;
   source: SourceKind;
 }): LongitudinalValidationResult {
@@ -129,7 +129,22 @@ export function validateClaimAuthor(claim: {
       ? result([])
       : result([`author is required for a claim from source "${claim.source}"`]);
   }
-  if (claim.author === "candidate" || claim.author === "system") return result([]);
+  if ((CLAIM_AUTHORS as readonly unknown[]).includes(claim.author)) return result([]);
+  return result([
+    `author must be one of ${CLAIM_AUTHORS.join(", ")} (got ${String(claim.author)})`,
+  ]);
+}
+
+/**
+ * Whether a stored claim's author may feed evidence-only substance: the
+ * storage rule, minus referrer and committee.
+ */
+export function validateClaimAuthor(claim: {
+  author?: unknown;
+  source: SourceKind;
+}): LongitudinalValidationResult {
+  const stored = validateStoredClaimAuthor(claim);
+  if (!stored.ok) return stored;
   if (claim.author === "referrer") {
     return result([
       "author must not be referrer: judges never write the evidence they are scored on",
@@ -138,7 +153,7 @@ export function validateClaimAuthor(claim: {
   if (claim.author === "committee") {
     return result(["author must not be committee: committee facts are not accepted yet"]);
   }
-  return result([`author must be one of candidate, system (got ${String(claim.author)})`]);
+  return result([]);
 }
 
 export function validateCareerEvent(event: CareerEvent): LongitudinalValidationResult {
