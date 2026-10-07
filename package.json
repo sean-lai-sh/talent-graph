@@ -9,6 +9,8 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "check:config": "bun run scripts/check-config.ts",
+    "config:gen": "bun run scripts/gen-config.ts",
+    "check:config-gen": "bun run scripts/gen-config.ts --check",
     "club:install": "bun install --cwd apps/club --frozen-lockfile",
     "club:typecheck": "bun run --cwd apps/club typecheck",
     "lint": "biome check .",

@@ -8,7 +8,8 @@ import {
 } from "../apps/club/lib/longitudinal/grokCallback.ts";
 import { main, type ResearchDeps } from "../scripts/jev-company-worklist.ts";
 import { parseGrokResearchResponse } from "../src/longitudinal/companyResearch.ts";
-import { parseProjectConfig, projectConfigPath } from "../src/projectConfig/load.ts";
+import { projectConfigPath } from "../src/projectConfig/load.ts";
+import { parseProjectConfig } from "../src/projectConfig/parse.ts";
 import { hashInputs } from "../src/provenance/hash.ts";
 
 const PROPOSALS = join(import.meta.dir, "fixtures/company-research.proposals.json");
@@ -27,13 +28,18 @@ async function quarry(): Promise<Record<string, unknown>> {
   return entry;
 }
 
-async function workspace(): Promise<{ dir: string; config: string; pin: string }> {
+async function workspace(): Promise<{
+  dir: string;
+  config: string;
+  pin: string;
+  generated: string;
+}> {
   const dir = await mkdtemp(join(tmpdir(), "grok-research-"));
   const config = join(dir, "config.yml");
   const pin = join(dir, "companySeedPin.ts");
   await copyFile(projectConfigPath(), config);
   await copyFile(PIN, pin);
-  return { dir, config, pin };
+  return { dir, config, pin, generated: join(dir, "generated.ts") };
 }
 
 type Call = {
