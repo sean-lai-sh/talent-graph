@@ -222,6 +222,9 @@ export function cloneSnapshot(snapshot: ClubSnapshot): ClubSnapshot {
     ...(snapshot.signalWithout === undefined
       ? {}
       : { signalWithout: snapshot.signalWithout.map((x) => ({ ...x })) }),
+    ...(snapshot.unresolvedDecider === undefined
+      ? {}
+      : { unresolvedDecider: { adminReferrers: [...snapshot.unresolvedDecider.adminReferrers] } }),
   };
 }
 

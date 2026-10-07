@@ -51,7 +51,6 @@ export interface Observations {
   comparisons: readonly Comparison[];
   outcomes: readonly Outcome[];
   opportunities: readonly Opportunity[];
-  /** Council decisions and channels, for a calibration spec with an admission term. */
   admission?: AdmissionObservations;
 }
 
@@ -298,8 +297,6 @@ function driftReports(
   const beforeJudges = prev.runs.judge_reliability;
   const afterJudges = next.runs.judge_reliability;
   if (beforeJudges !== undefined && afterJudges !== undefined) {
-    // w and ω are reported only when a side is mode "v4": between two "v2"
-    // runs they are p̂ again, and the report list stays what it always was.
     const v4 =
       beforeJudges.outputs.options.reliabilityMode === "v4" ||
       afterJudges.outputs.options.reliabilityMode === "v4";

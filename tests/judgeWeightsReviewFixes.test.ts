@@ -1,6 +1,3 @@
-/**
- * SEA-79 review regressions: each block fails if its bug comes back.
- */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -14,7 +11,7 @@ import { type LoadedSpecs, loadSpecs } from "../src/config.ts";
 import {
   type AdmissionObservations,
   type Channel,
-  firstDecisions,
+  scoringDecisions,
 } from "../src/judges/admission.ts";
 import { judgeWeightedSignalOptions } from "../src/judges/reliability.ts";
 import { runJudgeCalibration } from "../src/models/definitions/judgeReliability.ts";
@@ -22,11 +19,9 @@ import { runReferralSignals } from "../src/models/definitions/referralSignal.ts"
 import { JUDGE_RELIABILITY_V4_1_0 } from "../src/models/registry.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 
-/** Registered current versions, never the ambient env. */
 const SPECS = loadSpecs({}, { warn: () => {} });
 const V4_1: LoadedSpecs = { ...SPECS, judge_reliability: JUDGE_RELIABILITY_V4_1_0 };
 const RUN_IDS = join(import.meta.dir, "fixtures", "run-ids-golden.json");
-/** The golden run ids' evaluation time step. */
 const T = new Date("2026-12-31T00:00:00.000Z");
 
 describe("a club pass under spec 4.1.0 uses the weighted signal", () => {
@@ -43,7 +38,6 @@ describe("a club pass under spec 4.1.0 uses the weighted signal", () => {
     const signalRuns = world.provenance.modelRunIds.filter((id) =>
       id.startsWith("referral_signal/"),
     );
-    // Baseline and weighted are two runs, not one aliased run.
     expect(signalRuns).toHaveLength(2);
     expect(new Set(signalRuns).size).toBe(2);
   });
@@ -82,7 +76,6 @@ describe("2.0.0 run ids do not move when the club hands over admission observati
   const data = generateSeed();
   const candidate = data.people.find((p) => p.status === "candidate");
   if (candidate === undefined) throw new Error("seed has no candidate");
-  /** A non-empty admission input: one decision and one channel. */
   const admission: AdmissionObservations = {
     decisions: [
       { candidateId: candidate.id, outcome: "admitted", at: T, signal: 1, signalWithout: [] },
@@ -140,7 +133,7 @@ describe("2.0.0 run ids do not move when the club hands over admission observati
 });
 
 describe("decisions recorded at the same instant", () => {
-  test("the first council decision is the one recorded first, not the newest snapshot", () => {
+  test("a referral is scored on the decision recorded first, not the newest snapshot", () => {
     const at = "2026-06-01T00:00:00.000Z";
     const snap = (decision: string): ClubSnapshot => ({
       id: `snap:bob:${decision}:${at}`,
@@ -150,10 +143,10 @@ describe("decisions recorded at the same instant", () => {
       values: { referralSignal: 1, incomingCount: 1 },
       createdAt: at,
     });
-    // The club keeps snapshots newest first: the admit was recorded, then the deny.
     const state: ClubState = { ...emptyState(at), snapshots: [snap("denied"), snap("admitted")] };
-    const first = firstDecisions(admissionObservations(state).decisions, new Date(at));
-    expect(first.get("bob")?.outcome).toBe("admitted");
+    const ref = { id: "r-alice", candidateId: "bob", createdAt: new Date(at) };
+    const scored = scoringDecisions([ref], admissionObservations(state).decisions, new Date(at));
+    expect(scored.get("r-alice")?.outcome).toBe("admitted");
   });
 });
 

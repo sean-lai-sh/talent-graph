@@ -54,6 +54,15 @@ export interface BradleyTerrySpec {
   anchorStrength: number;
 }
 
+export interface AdmissionSpec {
+  kappa: number;
+  limit: number;
+  positionExponent: number;
+  positionFloor: number;
+  priorAdmitRate: number;
+  priorAdmitWeight: number;
+}
+
 /**
  * Parameters of the V2 judge calibration (docs/theory/main.tex, sections
  * "Longitudinal Observation", "Learning Who Is Good at Identifying Talent",
@@ -66,22 +75,6 @@ export interface BradleyTerrySpec {
  *   p̂_u    = n/(n+λ)·p_u + λ/(n+λ)·μ_p            shrunk toward the prior
  *   b_u    ← (1 − η)·b_u + η·(x_uv − truth_uv)    signed bias, shrunk the same way
  */
-/** Parameters of the admission term ℓᴬ and of the position share. */
-export interface AdmissionSpec {
-  /** κ_a > 0: scale of one referral's admission credit. */
-  kappa: number;
-  /** Lᴬ > 0: cap on |ℓᴬ| for one referral. */
-  limit: number;
-  /** α ≥ 0: position share(k) = max(φ, 1/k^α). */
-  positionExponent: number;
-  /** φ ∈ [0, 1]: floor of the position share. */
-  positionFloor: number;
-  /** Admit rate used before a channel has decisions (12 of about 150). */
-  priorAdmitRate: number;
-  /** Pseudo-decisions behind `priorAdmitRate`: the observed rate takes over as real decisions pile up. */
-  priorAdmitWeight: number;
-}
-
 export interface JudgeReliabilitySpec {
   kind: "judge_reliability";
   /** Semver, e.g. "2.0.0". */
@@ -98,7 +91,7 @@ export interface JudgeReliabilitySpec {
   errorScale: number;
   /** λ ≥ 0: evaluated predictions needed before an estimate outweighs the prior. */
   shrinkage: number;
-  /** μ_p ∈ [0, 1]: reliability of a judge with no evaluated predictions. Under `mode: "v4"` this is μ0 ∈ (0, 1). */
+  /** μ_p ∈ [0, 1]: reliability of a judge with no evaluated predictions. Under `mode: "v4"` this is μ0 ∈ [ε, 1 − ε] (ε = JUDGE_WEIGHT_LOGIT_EPS), the range p̂ is clamped to, so a judge with no evidence gets w = μ0. */
   priorReliability: number;
   /**
    * How p̂_u becomes the weight the signal uses. "v2" (absent means "v2")
@@ -110,10 +103,6 @@ export interface JudgeReliabilitySpec {
   softCap?: number;
   /** γ > 0, "v4" only: ω_u = w_u^γ. */
   weightExponent?: number;
-  /**
-   * "v4" only. Early credit from the council's decisions (src/judges/admission.ts).
-   * Absent means no admission term, so 4.0.0 is unchanged.
-   */
   admission?: AdmissionSpec;
   /**
    * Opportunity-count thresholds that bucket people for the expectation
@@ -338,13 +327,11 @@ function logit(p: number): number {
 /**
  * w_u and ω_u from p̂_u on the r10 scale (μ0 = priorReliability):
  *   Σ = logit(clamp(p̂, ε, 1−ε)) − logit μ0,  logit w = logit μ0 + T·tanh(Σ/T),  ω = w^γ.
- * `extraSigma` (the summed admission credit, 4.1.0) adds to Σ before the cap.
  * No evidence (Σ = 0) returns μ0 exactly, not a logit round trip.
  */
 export function judgeWeightV4(
   shrunk: number,
   spec: JudgeReliabilityV4Params,
-  /** Σ ℓᴬ: admission credit, added to Σ before the soft cap. */
   extraSigma = 0,
 ): { weight: number; omega: number } {
   const mu0 = spec.priorReliability;
@@ -398,8 +385,10 @@ function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string
   if (spec.mode !== undefined && spec.mode !== "v2" && spec.mode !== "v4") {
     errors.push('mode must be "v2" or "v4"');
   } else if (spec.mode === "v4") {
-    if (spec.priorReliability <= 0 || spec.priorReliability >= 1) {
-      errors.push('priorReliability (μ0) must be in (0, 1) under mode "v4"');
+    const eps = JUDGE_WEIGHT_LOGIT_EPS;
+    const mu0InRange = spec.priorReliability >= eps && spec.priorReliability <= 1 - eps;
+    if (!mu0InRange) {
+      errors.push(`priorReliability (μ0) must be in [${eps}, 1 − ${eps}] under mode "v4"`);
     }
     if (!isFiniteNumber(spec.softCap) || spec.softCap <= 0) {
       errors.push('softCap (T) must be a finite number > 0 under mode "v4"');
@@ -409,14 +398,12 @@ function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string
     }
     const { priorReliability: mu0, softCap, weightExponent } = spec;
     if (
-      mu0 > 0 &&
-      mu0 < 1 &&
+      mu0InRange &&
       isFiniteNumber(softCap) &&
       softCap > 0 &&
       isFiniteNumber(weightExponent) &&
       weightExponent > 0
     ) {
-      // w and ω are monotone in p̂, so the clamped extremes bound every value.
       for (const p of [0, 1]) {
         const { weight, omega } = judgeWeightV4(p, {
           priorReliability: mu0,

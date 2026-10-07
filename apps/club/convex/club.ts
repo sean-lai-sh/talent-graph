@@ -2,6 +2,7 @@ import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
 import {
   adminRead,
+  adminReferrers,
   type ClubRole,
   decidedByPersonId,
   extraAdminEmailsFromEnv,
@@ -21,7 +22,7 @@ import {
 } from "../lib/engine.ts";
 import { toDirectoryMembers } from "../lib/memberDirectory.ts";
 import { listOwnFeedbackRequests, prepareMemberResponse } from "../lib/memberFeedback.ts";
-import type { ClubState, EngineResult } from "../lib/types.ts";
+import type { ClubDecider, ClubState, EngineResult } from "../lib/types.ts";
 import type { DataModel, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { authComponent } from "./auth";
@@ -123,11 +124,6 @@ async function ensureOrg(
   return { orgId, name: clubName, state, view: computeView(state) };
 }
 
-/**
- * The person id behind the signed-in admin's email, or undefined when the
- * admin has no person row (or more than one matches). Recorded as `decidedBy`
- * so a judge who is also the deciding admin earns no credit from the decision.
- */
 async function signedInAdminPersonId(ctx: MutationCtx): Promise<string | undefined> {
   const user = await requireAdmin(ctx);
   const email = typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
@@ -142,13 +138,43 @@ async function signedInAdminPersonId(ctx: MutationCtx): Promise<string | undefin
   return decidedByPersonId(matches.map((row) => row.id));
 }
 
+async function adminReferrersOf(
+  ctx: MutationCtx,
+  state: ClubState,
+  candidateId: string,
+): Promise<string[]> {
+  const referrerIds = new Set(
+    state.referrals.filter((r) => r.candidateId === candidateId).map((r) => r.referrerId),
+  );
+  const referrers = await Promise.all(
+    state.people
+      .filter((p) => referrerIds.has(p.id))
+      .map(async (p) => {
+        const email = p.email?.trim().toLowerCase() ?? "";
+        const accounts =
+          email === ""
+            ? []
+            : await ctx.db
+                .query("clubAccounts")
+                .withIndex("by_email", (q) => q.eq("email", email))
+                .collect();
+        return {
+          personId: p.id,
+          ...(email === "" ? {} : { email }),
+          storedRoles: accounts.map((a) => a.role),
+        };
+      }),
+  );
+  return adminReferrers(referrers, extraAdminEmails());
+}
+
 async function applyEngine(
   ctx: MutationCtx,
-  fn: (state: ClubState) => EngineResult,
+  fn: (state: ClubState) => EngineResult | Promise<EngineResult>,
 ): Promise<EngineResult> {
   const { club, state: before } = await ensureOrgDoc(ctx);
   // `saveState` diffs against `before`, so the transition runs on a copy.
-  const result = fn({ ...before, now: new Date().toISOString() });
+  const result = await fn({ ...before, now: new Date().toISOString() });
   if (!result.error) {
     await saveState(ctx.db, club, before, result.state);
   }
@@ -235,17 +261,20 @@ export const decide = mutation({
   },
   handler: async (ctx, args) => {
     const decidedBy = await signedInAdminPersonId(ctx);
-    return await applyEngine(ctx, (state) =>
-      decideEngine(state, args.personId, args.decision, undefined, decidedBy),
-    );
+    return await applyEngine(ctx, async (state) => {
+      const decider: ClubDecider =
+        decidedBy !== undefined
+          ? { decidedBy }
+          : {
+              unresolvedDecider: {
+                adminReferrers: await adminReferrersOf(ctx, state, args.personId),
+              },
+            };
+      return decideEngine(state, args.personId, args.decision, undefined, decider);
+    });
   },
 });
 
-/**
- * A pre-council call. A yes also creates the caller's engine referral
- * (origin "interview"); a maybe takes no position; a hard no is stored and
- * never scored.
- */
 export const addCall = mutation({
   args: {
     candidateId: v.string(),

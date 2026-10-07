@@ -93,9 +93,7 @@ export const JUDGE_RELIABILITY_V2_0_0: JudgeReliabilitySpec = deepFreeze({
 });
 
 /**
- * r10 weight scale. Same accuracy term as 2.0.0, but a judge starts at
- * μ0 = 0.3 and the signal is weighted by ω = w^2, so a proven judge counts
- * several times a new one. 3.0.0 is skipped: Phase E reserved it.
+ * r10 weight scale: 2.0.0's accuracy term, μ0 = 0.3, signal weighted by ω = w^2.
  */
 export const JUDGE_RELIABILITY_V4_0_0: JudgeReliabilitySpec = deepFreeze({
   ...JUDGE_RELIABILITY_V2_0_0,
@@ -106,12 +104,6 @@ export const JUDGE_RELIABILITY_V4_0_0: JudgeReliabilitySpec = deepFreeze({
   weightExponent: 2,
 });
 
-/**
- * 4.0.0 plus the admission term: a judge's referral earns early credit or debit
- * from the council's first decision on the candidate, weighted by position and
- * centred on the channel's admit rate (SEA-79). The council's Referral Signal
- * is weighted by ω, as under 4.0.0.
- */
 export const JUDGE_RELIABILITY_V4_1_0: JudgeReliabilitySpec = deepFreeze({
   ...JUDGE_RELIABILITY_V4_0_0,
   version: "4.1.0",

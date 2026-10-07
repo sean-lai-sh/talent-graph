@@ -21,16 +21,10 @@ export type ReviewStatus = "new" | "under_review" | "needs_data" | "admitted" | 
 
 export type Decision = "start_review" | "admit" | "deny" | "request_data" | "reopen";
 
-/**
- * How a candidate entered the process. Inbound: a member referred them.
- * Outbound: the recruiting committee selected them. Absent reads as inbound.
- */
 export type ClubChannel = "inbound" | "outbound";
 
-/** Where a referral row came from. Absent reads as `"referral"`. */
 export type ReferralOrigin = "referral" | "interview";
 
-/** "Has this person received the recognition they deserve?" Stored only; no weight reads it. */
 export const REFERRAL_RECOGNITIONS = ["not_yet", "soon", "yes", "not_sure"] as const;
 export type ReferralRecognition = (typeof REFERRAL_RECOGNITIONS)[number];
 
@@ -49,7 +43,6 @@ export interface ClubPerson {
   github?: string;
   website?: string;
   status: PersonStatus;
-  /** Optional so documents written before the pipeline model stay valid. */
   channel?: ClubChannel;
   /** Optional so documents written before the council page stay valid. */
   reviewStatus?: ReviewStatus;
@@ -66,9 +59,7 @@ export interface ClubReferral {
   relationshipDepth: Scale5;
   evidenceType: EvidenceType;
   evidenceText: string;
-  /** `"interview"` for the referral a pre-council call's yes creates. */
   origin?: ReferralOrigin;
-  /** The referrer's answer to the recognition question. Never read by a weight. */
   recognition?: ReferralRecognition;
   createdAt: IsoDate;
   updatedAt: IsoDate;
@@ -76,11 +67,6 @@ export interface ClubReferral {
 
 export type CallOutcome = "yes" | "maybe" | "no";
 
-/**
- * A pre-council call: up to 2 per candidate. A yes also creates an engine
- * referral by the caller (origin "interview"); a maybe takes no position; a
- * hard no is stored and never scored.
- */
 export interface ClubCall {
   id: string;
   candidateId: string;
@@ -174,14 +160,16 @@ export interface ClubSnapshot {
   modelRunIds?: string[];
   /** Spec version per kind of that same pass. Optional for the same reason. */
   specVersions?: ClubSpecVersions;
-  /** Person id of the admin who recorded the decision, when they have a person row. */
   decidedBy?: string;
-  /**
-   * The council-facing Referral Signal without each referrer, at decision time,
-   * on the scale of `values.referralSignal`. Absent on older snapshots.
-   */
+  unresolvedDecider?: ClubUnresolvedDecider;
   signalWithout?: ClubSignalWithout[];
 }
+
+export interface ClubUnresolvedDecider {
+  adminReferrers: string[];
+}
+
+export type ClubDecider = { decidedBy: string } | { unresolvedDecider: ClubUnresolvedDecider };
 
 export interface ClubSignalWithout {
   referrerId: string;
@@ -547,13 +535,11 @@ export interface AddReferralInput {
   recognition?: ReferralRecognition;
 }
 
-/** A call's outcome; a yes carries the ratings of the referral it creates. */
 export interface AddCallInput {
   candidateId: string;
   callerId: string;
   order: 1 | 2;
   outcome: CallOutcome;
-  /** Required when `outcome` is "yes". */
   referral?: Pick<
     AddReferralInput,
     "conviction" | "confidence" | "relationshipDepth" | "evidenceType" | "evidenceText"
@@ -664,7 +650,6 @@ export interface MemberReferralAnswers {
   role: ReferralQ2Role;
   rank: ReferralQ3Rank;
   groupSize: ReferralQ3GroupSize;
-  /** Optional; read as "not_sure". Stored only: no weight reads it. */
   recognition?: ReferralRecognition;
 }
 

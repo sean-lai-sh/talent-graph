@@ -1,15 +1,7 @@
-/**
- * SEA-79 — judge_reliability@4.1.0: position, admission credit and the club's
- * call model.
- *
- * The admission term is pure, so most of these drive `computeAdmission` or
- * `computeJudgeCalibration` directly; the pipeline cases go through the club
- * engine's own transitions.
- */
 import { describe, expect, test } from "bun:test";
 import schema from "../apps/club/convex/schema.ts";
 import { admissionObservations } from "../apps/club/lib/engine/admission.ts";
-import { addCall, addReferral, decide, emptyState } from "../apps/club/lib/engine.ts";
+import { addCall, addPerson, addReferral, decide, emptyState } from "../apps/club/lib/engine.ts";
 import { clubToReferral, reviveState } from "../apps/club/lib/serialize.ts";
 import type { ClubState, ReferralRecognition } from "../apps/club/lib/types.ts";
 import type { Person, Referral } from "../src/domain/types.ts";
@@ -19,6 +11,7 @@ import {
   type Channel,
   type CouncilDecision,
   computeAdmission,
+  positionShare,
   referralPositions,
 } from "../src/judges/admission.ts";
 import { computeJudgeCalibration } from "../src/judges/reliability.ts";
@@ -84,66 +77,112 @@ describe("admission credit", () => {
     expect(res.sumByJudge.get("carol") as number).toBeGreaterThan(0);
   });
 
-  test("ρ = 1 gives 0 early credit; ρ = 0 gives the full credit", () => {
+  function single(outcome: "admitted" | "denied", without: number) {
     const ref = referral("alice", "bob", 1);
-    const run = (without: number) =>
-      admit(
-        [ref],
-        obs([
-          decision({
-            candidateId: "bob",
-            signalWithout: [{ referrerId: "alice", signalWithout: without }],
-          }),
-        ]),
-      ).terms[0];
-    const carried = run(0);
-    expect(carried?.reliance).toBe(1);
-    expect(carried?.credit).toBe(0);
-    const unaided = run(10);
+    return admit(
+      [ref],
+      obs([
+        decision({
+          candidateId: "bob",
+          outcome,
+          signalWithout: [{ referrerId: "alice", signalWithout: without }],
+        }),
+      ]),
+    ).terms[0];
+  }
+
+  test("ρ = 1 gives 0 early credit, admitted or denied; ρ = 0 gives the full credit", () => {
+    for (const outcome of ["admitted", "denied"] as const) {
+      const carried = single(outcome, 0);
+      expect(carried?.reliance).toBe(1);
+      expect(carried?.credit).toBe(0);
+    }
+    const unaided = single("admitted", 10);
     expect(unaided?.reliance).toBe(0);
     expect(unaided?.credit).toBeCloseTo(ADM.kappa, 12);
-    // Half of the signal was hers: half the credit.
-    expect(run(5)?.credit).toBeCloseTo(ADM.kappa / 2, 12);
+    expect(single("admitted", 5)?.credit).toBeCloseTo(ADM.kappa / 2, 12);
   });
 
-  test("a denial's debit does not depend on ρ", () => {
-    const ref = referral("alice", "bob", 1);
-    const debit = (signal: number | null, without: number) =>
-      admit(
+  test("a frozen signal of 0 gives 0 credit, sole advocate or several", () => {
+    for (const outcome of ["admitted", "denied"] as const) {
+      const ref = referral("alice", "bob", 1);
+      const term = admit(
         [ref],
         obs([
           decision({
             candidateId: "bob",
-            outcome: "denied",
-            signal,
-            signalWithout: [{ referrerId: "alice", signalWithout: without }],
+            outcome,
+            signal: 0,
+            signalWithout: [{ referrerId: "alice", signalWithout: 0 }],
           }),
         ]),
       ).terms[0];
-    const base = debit(10, 10);
-    expect(base?.credit as number).toBeLessThan(0);
-    for (const [signal, without] of [
-      [10, 0],
-      [10, 3],
-      [2, 0],
-      [null, 0],
-    ] as const) {
-      const t = debit(signal, without);
-      expect(t?.reliance).toBe(0);
-      expect(t?.credit).toBe(base?.credit as number);
+      expect(term?.credit).toBe(0);
+    }
+    const refs = ["alice", "carol", "dave"].map((from, i) => referral(from, "bob", i + 1));
+    const res = admit(
+      refs,
+      obs([
+        decision({
+          candidateId: "bob",
+          signal: 0,
+          signalWithout: ["alice", "carol", "dave"].map((referrerId) => ({
+            referrerId,
+            signalWithout: 0,
+          })),
+        }),
+      ]),
+    );
+    expect(res.terms).toHaveLength(3);
+    for (const t of res.terms) expect(t.credit).toBe(0);
+    expect(single("admitted", 10)?.credit).toBeCloseTo(ADM.kappa, 12);
+  });
+
+  test("expected early credit is 0 at the base rate for ρ in {0, 0.5, 1}", () => {
+    for (const priorAdmitRate of [ADM.priorAdmitRate, 0.08, 0.3]) {
+      for (const without of [10, 5, 0]) {
+        const yes = referral("alice", "bob", 1);
+        const no = referral("alice", "cid", 1);
+        const signalWithout = [{ referrerId: "alice", signalWithout: without }];
+        const res = computeAdmission(
+          [yes, no],
+          obs([
+            decision({ candidateId: "bob", outcome: "admitted", signalWithout }),
+            decision({ candidateId: "cid", outcome: "denied", signalWithout }),
+          ]),
+          { ...ADM, priorAdmitRate },
+          NOW,
+        );
+        const r = res.admitRate.inbound;
+        const [admitted, denied] = [yes, no].map((x) =>
+          res.terms.find((t) => t.referralId === x.id),
+        );
+        expect(admitted?.reliance).toBe(1 - without / 10);
+        expect(denied?.reliance).toBe(admitted?.reliance as number);
+        expect(Math.abs(denied?.credit as number)).toBeLessThan(ADM.limit);
+        expect(r * (admitted?.credit as number) + (1 - r) * (denied?.credit as number)).toBeCloseTo(
+          0,
+          12,
+        );
+      }
     }
   });
 
+  test("a denial's debit shrinks as ρ grows", () => {
+    const debits = [10, 7, 3, 0].map((without) => single("denied", without)?.credit as number);
+    expect(debits[0]).toBeLessThan(0);
+    for (let i = 1; i < debits.length; i++)
+      expect(debits[i]).toBeGreaterThan(debits[i - 1] as number);
+    expect(debits[3]).toBe(0);
+  });
+
   test("at the base rate, expected admission credit is 0", () => {
-    // The sign itself: r·(+1) + (1 − r)·a(denied) = 0 for any r.
     for (const r of [0.02, 0.08, 0.3, 0.5, 0.9]) {
       expect(r * admissionSign("admitted", r) + (1 - r) * admissionSign("denied", r)).toBeCloseTo(
         0,
         12,
       );
     }
-    // And through the whole term: 150 candidates, 12 admitted (the prior rate),
-    // every one referred first by the same judge and none carried by them.
     const refs: Referral[] = [];
     const decisions: CouncilDecision[] = [];
     for (let i = 0; i < 150; i++) {
@@ -182,25 +221,130 @@ describe("admission credit", () => {
     expect(run(2)).toBeLessThan(0);
   });
 
-  test("only the first council decision counts, and a referral after it takes no credit", () => {
+  function history(judge: string, prefix: string, admitted: number, total = 150) {
+    const refs: Referral[] = [];
+    const decisions: CouncilDecision[] = [];
+    for (let i = 0; i < total; i++) {
+      const c = `${prefix}${i}`;
+      refs.push(referral(judge, c, 1));
+      decisions.push(
+        decision({
+          candidateId: c,
+          outcome: i < admitted ? "admitted" : "denied",
+          signalWithout: [{ referrerId: judge, signalWithout: 10 }],
+        }),
+      );
+    }
+    return { refs, decisions };
+  }
+
+  test("the admit rate comes from history, pulled toward the prior", () => {
+    const { refs, decisions } = history("alice", "c", 75);
+    const res = admit(refs, obs(decisions));
+    const prior = ADM.priorAdmitRate * ADM.priorAdmitWeight;
+    expect(res.admitRate.inbound).toBeCloseTo((75 + prior) / (150 + ADM.priorAdmitWeight), 12);
+    expect(res.admitRate.inbound).toBeGreaterThan(0.25);
+    expect(res.admitRate.outbound).toBeCloseTo(ADM.priorAdmitRate, 12);
+    const denied = res.terms.find((t) => t.decision === "denied");
+    expect(denied?.sign).toBeCloseTo(-res.admitRate.inbound / (1 - res.admitRate.inbound), 12);
+  });
+
+  test("inbound and outbound keep separate admit rates, and a denial uses its candidate's", () => {
+    const inbound = history("alice", "in", 75);
+    const outbound = history("carol", "out", 3);
+    const channels: [string, Channel][] = outbound.decisions.map((d) => [
+      d.candidateId,
+      "outbound",
+    ]);
+    const res = admit(
+      [...inbound.refs, ...outbound.refs],
+      obs([...inbound.decisions, ...outbound.decisions], channels),
+    );
+    const prior = ADM.priorAdmitRate * ADM.priorAdmitWeight;
+    const rIn = (75 + prior) / (150 + ADM.priorAdmitWeight);
+    const rOut = (3 + prior) / (150 + ADM.priorAdmitWeight);
+    expect(res.admitRate.inbound).toBeCloseTo(rIn, 12);
+    expect(res.admitRate.outbound).toBeCloseTo(rOut, 12);
+    const deniedSign = (judge: string) =>
+      res.terms.find((t) => t.judgeId === judge && t.decision === "denied")?.sign;
+    expect(deniedSign("alice")).toBeCloseTo(-rIn / (1 - rIn), 12);
+    expect(deniedSign("carol")).toBeCloseTo(-rOut / (1 - rOut), 12);
+  });
+
+  const PRIOR = ADM.priorAdmitRate * ADM.priorAdmitWeight;
+  const blended = (admitted: number, total: number) =>
+    (admitted + PRIOR) / (total + ADM.priorAdmitWeight);
+
+  test("re-application: earlier referrers carry the denial, the new referrer the admit", () => {
     const early = referral("alice", "bob", 1);
     const late = referral("carol", "bob", 40);
-    const first = decision({
+    const denial = decision({
       candidateId: "bob",
       outcome: "denied",
       at: day(30),
-      signalWithout: [{ referrerId: "alice", signalWithout: 10 }],
+      signalWithout: [{ referrerId: "alice", signalWithout: 0 }],
     });
-    const second = decision({
+    const admission = decision({
       candidateId: "bob",
       outcome: "admitted",
       at: day(60),
-      signalWithout: [],
+      signalWithout: [
+        { referrerId: "alice", signalWithout: 0 },
+        { referrerId: "carol", signalWithout: 0 },
+      ],
     });
-    const res = admit([early, late], obs([second, first]));
-    expect(res.terms.map((t) => [t.judgeId, t.decision])).toEqual([["alice", "denied"]]);
-    // The late referral still takes a position.
+    const res = admit([early, late], obs([admission, denial]));
+    expect(res.terms.map((t) => [t.judgeId, t.decision])).toEqual([
+      ["alice", "denied"],
+      ["carol", "admitted"],
+    ]);
+    const r = blended(1, 2);
+    expect(res.admitRate.inbound).toBeCloseTo(r, 12);
+    expect(res.terms[0]?.sign).toBeCloseTo(-r / (1 - r), 12);
+    expect(res.terms[1]?.sign).toBe(1);
     expect(res.positions.get(late.id)?.position).toBe(2);
+  });
+
+  test("a reopen with no new referral changes nothing and its decision is not counted in r", () => {
+    const ref = referral("alice", "bob", 1);
+    const denial = decision({
+      candidateId: "bob",
+      outcome: "denied",
+      at: day(30),
+      signalWithout: [{ referrerId: "alice", signalWithout: 0 }],
+    });
+    const once = admit([ref], obs([denial]));
+    const readmitted = decision({
+      candidateId: "bob",
+      outcome: "admitted",
+      at: day(60),
+      signalWithout: [{ referrerId: "alice", signalWithout: 0 }],
+    });
+    const res = admit([ref], obs([denial, readmitted]));
+    expect(res.terms).toEqual(once.terms);
+    expect(res.terms.map((t) => [t.judgeId, t.decision])).toEqual([["alice", "denied"]]);
+    expect(res.admitRate.inbound).toBeCloseTo(blended(0, 1), 12);
+  });
+
+  test("r counts a scoring decision once per channel, however many referrals it scores", () => {
+    const both = [referral("alice", "bob", 1), referral("carol", "bob", 2)];
+    const outRefs = [referral("frank", "eve", 1), referral("gina", "eve", 2)];
+    const without = (refs: Referral[]) =>
+      refs.map((r) => ({ referrerId: r.referrerId, signalWithout: 0 }));
+    const res = admit(
+      [...both, ...outRefs],
+      obs(
+        [
+          decision({ candidateId: "bob", outcome: "admitted", signalWithout: without(both) }),
+          decision({ candidateId: "dave", outcome: "denied" }),
+          decision({ candidateId: "eve", outcome: "denied", signalWithout: without(outRefs) }),
+        ],
+        [["eve", "outbound"]],
+      ),
+    );
+    expect(res.terms).toHaveLength(4);
+    expect(res.admitRate.inbound).toBeCloseTo(blended(1, 1), 12);
+    expect(res.admitRate.outbound).toBeCloseTo(blended(0, 1), 12);
   });
 
   test("a decision recorded without signalWithout is unscored, never read as low", () => {
@@ -212,10 +356,29 @@ describe("admission credit", () => {
     expect(res.terms).toEqual([]);
     expect(res.sumByJudge.size).toBe(0);
   });
+
+  test("a referral made at the instant of a decision is scored on that decision", () => {
+    const ref = referral("alice", "bob", 5);
+    const d = decision({
+      candidateId: "bob",
+      at: ref.createdAt,
+      signalWithout: [{ referrerId: "alice", signalWithout: 0 }],
+    });
+    const res = admit([ref], obs([d]));
+    expect(res.terms.map((t) => t.referralId)).toEqual([ref.id]);
+  });
+
+  test("a decision whose only scored referral is recused still counts once in r", () => {
+    const ref = referral("alice", "bob", 1);
+    const d = decision({ candidateId: "bob", outcome: "admitted", decidedBy: "alice" });
+    const res = admit([ref], obs([d]));
+    expect(res.terms).toEqual([]);
+    expect(res.admitRate.inbound).toBeCloseTo(blended(1, 1), 12);
+  });
 });
 
 describe("position", () => {
-  test("share is monotone: an earlier position never earns a larger debit or a smaller credit", () => {
+  test("share is monotone: an earlier position never has a smaller share, so a larger credit on an admit and a larger debit on a denial", () => {
     const judges = Array.from({ length: 12 }, (_, i) => `j${i + 1}`);
     const refs = judges.map((j, i) => referral(j, "bob", i + 1));
     const without = judges.map((j) => ({ referrerId: j, signalWithout: 10 }));
@@ -254,25 +417,22 @@ describe("position", () => {
     expect(pos.get(tieA.id)?.position).toBe(2.5);
     expect(pos.get(tieB.id)?.position).toBe(2.5);
     expect(pos.get(tieA.id)?.share).toBe(pos.get(tieB.id)?.share as number);
-    // The order the rows arrive in decides nothing.
     const flipped = referralPositions([tieB, tieA, first], ADM);
     expect(flipped.get(tieA.id)?.share).toBe(pos.get(tieA.id)?.share as number);
   });
 });
 
-/** A small club: candidate bob, members alice and carol, a recruiter and an outbound candidate. */
 function club(): ClubState {
   const s = emptyState(day(0).toISOString());
-  const row = (id: string, channel?: Channel): ClubState["people"][number] => ({
+  const row = (id: string): ClubState["people"][number] => ({
     id,
     name: id,
     status: "candidate",
     reviewStatus: "new",
     createdAt: s.now,
     updatedAt: s.now,
-    ...(channel ? { channel } : {}),
   });
-  s.people.push(row("alice"), row("carol"), row("bob"), row("rec"), row("dee", "outbound"));
+  s.people.push(row("alice"), row("carol"), row("bob"), row("rec"));
   return s;
 }
 
@@ -295,7 +455,6 @@ function refer(
   return r.state;
 }
 
-/** Calibrate a club state under 4.1.0, as the engine will once the spec is current. */
 function calibrate(s: ClubState, now = NOW) {
   const people = s.people.map((p) => person(p.id));
   return computeJudgeCalibration({
@@ -365,17 +524,151 @@ describe("recognition answer, calls, recruiters", () => {
     expect(pos.get(row?.id as string)?.position).toBe(2);
   });
 
+  test("a yes from a caller who already has a referral stores the call and adds no second referral", () => {
+    const outcomeOf = (s: ClubState) => {
+      const run = calibrate(decide({ ...s, now: day(30).toISOString() }, "bob", "admit").state);
+      return {
+        positions: [...(run.admission?.positions.values() ?? [])],
+        credit: run.admission?.terms.map((t) => [t.judgeId, t.credit]),
+      };
+    };
+    const yesBy = (s: ClubState, callerId: string, order: 1 | 2) =>
+      addCall(s, { candidateId: "bob", callerId, order, outcome: "yes", referral: RATINGS });
+
+    const s = { ...refer(club(), "alice", "bob"), now: day(1).toISOString() };
+    const inbound = yesBy(s, "alice", 1);
+    expect(inbound.error).toBeUndefined();
+    expect(inbound.state.calls).toHaveLength(1);
+    expect(inbound.state.calls[0]).toMatchObject({ callerId: "alice", order: 1, outcome: "yes" });
+    expect(inbound.state.referrals).toHaveLength(s.referrals.length);
+    expect(outcomeOf(inbound.state)).toEqual(outcomeOf(s));
+
+    const first = yesBy(s, "carol", 1);
+    expect(first.error).toBeUndefined();
+    const second = yesBy(first.state, "carol", 2);
+    expect(second.error).toBeUndefined();
+    expect(second.state.calls.map((c) => [c.order, c.outcome])).toEqual([
+      [1, "yes"],
+      [2, "yes"],
+    ]);
+    expect(second.state.referrals.filter((r) => r.referrerId === "carol")).toHaveLength(1);
+    expect(outcomeOf(second.state)).toEqual(outcomeOf(first.state));
+  });
+
   test("a recruiter never gains or loses weight, whether the candidate is admitted or denied", () => {
     for (const verdict of ["admit", "deny"] as const) {
-      const s = club();
-      // The recruiting committee selects dee; the recruiter makes no referral and no call.
-      const decided = decide(s, "dee", verdict).state;
-      const run = calibrate(decided);
+      const selected = addPerson(club(), { name: "Dee", channel: "outbound" });
+      expect(selected.error).toBeUndefined();
+      const dee = selected.state.people.find((p) => p.name === "Dee")?.id as string;
+      let s = { ...selected.state, now: day(1).toISOString() };
+      const yes = addCall(s, {
+        candidateId: dee,
+        callerId: "carol",
+        order: 1,
+        outcome: "yes",
+        referral: RATINGS,
+      });
+      expect(yes.error).toBeUndefined();
+      s = { ...yes.state, now: day(30).toISOString() };
+      const run = calibrate(decide(s, dee, verdict, undefined, { decidedBy: "rec" }).state);
+
+      expect(run.admission?.positions.size).toBe(1);
+      expect([...(run.admission?.positions.values() ?? [])][0]).toMatchObject({
+        judgeId: "carol",
+        position: 1,
+      });
+      expect(run.admission?.terms.map((t) => t.judgeId)).toEqual(["carol"]);
+      const carol = run.admission?.terms[0];
+      expect(carol?.reliance).toBe(1);
+      expect(carol?.credit).toBe(0);
       expect(run.estimates.get("rec")?.weight).toBe(0.3);
       expect(run.estimates.get("rec")?.admissionCredit).toBe(0);
       expect(run.admission?.sumByJudge.has("rec")).toBe(false);
-      expect(run.admission?.terms).toEqual([]);
     }
+  });
+});
+
+describe("member referrals and interview yeses rank on every channel", () => {
+  type Step = { by: string; at: number; as: "referral" | "legacy" | "yes" };
+
+  function council(channel: Channel, steps: Step[], verdict: "admit" | "deny" = "admit") {
+    const added = addPerson(club(), { name: "Dee", channel });
+    expect(added.error).toBeUndefined();
+    const dee = added.state.people.find((p) => p.name === "Dee")?.id as string;
+    let s = added.state;
+    let order: 1 | 2 = 1;
+    for (const step of steps) {
+      s = { ...s, now: day(step.at).toISOString() };
+      const res =
+        step.as === "yes"
+          ? addCall(s, {
+              candidateId: dee,
+              callerId: step.by,
+              order,
+              outcome: "yes",
+              referral: RATINGS,
+            })
+          : addReferral(s, {
+              referrerId: step.by,
+              candidateId: dee,
+              ...RATINGS,
+              ...(step.as === "referral" ? { origin: "referral" as const } : {}),
+            });
+      expect(res.error).toBeUndefined();
+      if (step.as === "yes") order = 2;
+      s = res.state;
+    }
+    s = { ...s, now: day(30).toISOString() };
+    const decided = decide(s, dee, verdict, undefined, { decidedBy: "rec" }).state;
+    const run = calibrate(decided);
+    const positions = [...(run.admission?.positions.values() ?? [])];
+    return {
+      state: decided,
+      positions,
+      position: (judgeId: string) => positions.find((p) => p.judgeId === judgeId),
+      terms: run.admission?.terms ?? [],
+    };
+  }
+
+  test("a member referral before the interview yes takes position 1, the yes position 2, and both earn credit", () => {
+    for (const channel of ["outbound", "inbound"] as const) {
+      for (const as of ["referral", "legacy"] as const) {
+        const r = council(channel, [
+          { by: "alice", at: 1, as },
+          { by: "carol", at: 2, as: "yes" },
+        ]);
+        expect(r.position("alice")).toMatchObject({ position: 1, share: positionShare(1, ADM) });
+        expect(r.position("carol")).toMatchObject({ position: 2, share: positionShare(2, ADM) });
+        expect(r.terms.map((t) => t.judgeId)).toEqual(["alice", "carol"]);
+        for (const t of r.terms) {
+          expect(t.share).toBe(r.position(t.judgeId)?.share as number);
+          expect(t.credit).toBeCloseTo(ADM.kappa * t.share * (1 - t.reliance), 12);
+          expect(t.credit).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+
+  test("an outbound referrer who later says yes keeps one position, and the call adds no second referral", () => {
+    const r = council("outbound", [
+      { by: "alice", at: 1, as: "referral" },
+      { by: "alice", at: 2, as: "yes" },
+    ]);
+    expect(r.state.calls.map((c) => [c.callerId, c.outcome])).toEqual([["alice", "yes"]]);
+    expect(r.state.referrals.filter((x) => x.referrerId === "alice")).toHaveLength(1);
+    expect(r.positions).toHaveLength(1);
+    expect(r.position("alice")?.position).toBe(1);
+    expect(r.terms.map((t) => t.judgeId)).toEqual(["alice"]);
+  });
+
+  test("an outbound yes before a late member referral is position 1, the referral position 2", () => {
+    const r = council("outbound", [
+      { by: "carol", at: 1, as: "yes" },
+      { by: "alice", at: 2, as: "referral" },
+    ]);
+    expect(r.position("carol")?.position).toBe(1);
+    expect(r.position("alice")?.position).toBe(2);
+    expect(r.terms.map((t) => t.judgeId)).toEqual(["carol", "alice"]);
   });
 });
 
@@ -406,7 +699,7 @@ describe("history and old documents", () => {
     let s = club();
     s = refer(s, "alice", "bob");
     s = refer(s, "carol", "bob");
-    const done = decide(s, "bob", "admit", undefined, "rec");
+    const done = decide(s, "bob", "admit", undefined, { decidedBy: "rec" });
     const snap = done.state.snapshots[0];
     expect(snap?.decidedBy).toBe("rec");
     expect(snap?.signalWithout?.map((x) => x.referrerId).sort()).toEqual(["alice", "carol"]);

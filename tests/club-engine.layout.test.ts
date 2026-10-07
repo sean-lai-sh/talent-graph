@@ -25,6 +25,7 @@ const ENGINE_EXPORTS = [
   "addEvaluation",
   "addPerson",
   "addReferral",
+  "anyReferrerDecided",
   "computeView",
   "decide",
   "emptyState",

@@ -81,8 +81,10 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
 
 ## judge_reliability@4.0.0 — r10 weight scale
 
-- **What:** Same accuracy term as 2.0.0 (window, η, τ, λ, buckets unchanged),
-  moved onto the r10 scale. New spec fields `mode "v4"`, `softCap T = 3` and
+- **What:** The accuracy term is the same formula as 2.0.0 (window, η, τ, λ,
+  buckets unchanged), but the prior moves from 1 to 0.3. That shifts the shrunk
+  p̂ itself, so part of the reliability arm's movement below comes from the
+  prior, not only the rescale. The result is moved onto the r10 scale. New spec fields `mode "v4"`, `softCap T = 3` and
   `weightExponent γ = 2`; `priorReliability` becomes `μ0 = 0.3`. After the
   existing shrink toward μ0: `Σ = logit(clamp(p̂, ε, 1−ε)) − logit μ0`,
   `logit w = logit μ0 + T·tanh(Σ/T)`, `ω = w^γ`. The estimate keeps both `w`
@@ -100,31 +102,57 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
 - **Not current:** `CURRENT_SPECS.judge_reliability` stays 2.0.0 until Sean
   decides after reading the drift report.
 - **Drift:** `bun run drift -- --kind judge_reliability --before 2.0.0 --after
-  4.0.0` on the seed: BREAKING overall. Reliability 2.0.0 → 4.0.0 Kendall τ_b
-  0.578, mean |shift| 43.64; bias STABLE; weighted referral signals REVIEW
-  (τ_b 0.746, mean |shift| 29.45, max 67.62). Movement is expected: judges with
-  no data drop from weight 1 to ω 0.09.
+  4.0.0 --max-verdict breaking` on the seed: BREAKING overall across 5 reports.
+  Reliability BREAKING (n 14, Kendall τ_b 0.578, mean |shift| 43.64, max
+  52.50); bias STABLE (τ_b 1.000, no shift); weight BREAKING (n 32, τ_b 0.047,
+  mean |shift| 58.61, max 70.00); omega BREAKING (n 32, τ_b 0.047, mean
+  |shift| 80.27, max 91.00); weighted referral signals REVIEW (n 24, τ_b
+  0.746, mean |shift| 29.45, max 67.62). Under 2.0.0 the weight and omega arms
+  compare against p̂ itself. The weight and omega arms include the 18 judges
+  with no evaluated referrals; reliability and bias skip them. Movement is
+  expected: judges with no data drop from weight 1 to w 0.3 and ω 0.09.
 - **PR:** SEA-78.
 
 ## judge_reliability@4.1.0 — admission credit
 
-- **What:** 4.0.0 plus an admission term, from the council's first decision
-  (admit or deny) on each candidate. New spec fields `admission`
+- **What:** 4.0.0 plus an admission term per referral, from the council's
+  decisions (admit or deny). New spec fields `admission`
   `{ κ_a 0.25, Lᴬ 0.75, α 0.75, φ 0.2, priorAdmitRate 12/150, priorAdmitWeight 150 }`.
-  Position: a candidate's referrals rank by `createdAt`
+  Eligibility: member referrals (origin `referral`, or a legacy row with no
+  origin) and interview yeses (origin `interview`) rank on every channel,
+  inbound and outbound alike. A person with no channel is inbound; the channel
+  only picks the admit rate.
+  Position: a candidate's eligible referrals rank by `createdAt`
   (one per judge; self-referrals and repeats take none; equal times share the
-  average share), `share(k) = max(φ, 1/k^α)`. Per referral,
+  average share), `share(k) = max(φ, 1/k^α)`. On an outbound candidate a
+  member referral made before the interview takes the earlier position and the
+  interviewer's yes the next one, so the candidate's advocacy can be counted
+  twice; that is accepted. A referrer who also interviews keeps the one
+  position their referral holds: the yes call is stored and adds no referral. Per referral,
   `a = +1` if admitted, `−r/(1−r)` if denied (r = the candidate's channel
-  admit rate); `ρ = clip((S − S⁻ᵘ)/S, 0, 1)` if admitted, 0 if denied;
+  admit rate); `ρ = clip((S − S⁻ᵘ)/S, 0, 1)` for an admit and a denial alike,
+  and `ρ = 1` when `S ≤ 0`;
   `ℓᴬ = clip(κ_a · share · a · (1 − ρ), −Lᴬ, Lᴬ)`. `Σ ℓᴬ` is added to Σ before
   the soft cap, so `logit w = logit μ0 + T·tanh((Σ_acc + Σ ℓᴬ)/T)`. No credit
-  for a referral made after the decision, for the person who recorded the
-  decision (recusal), or for a decision recorded before the leave-one-judge-out
-  signal was kept. A later reopen or reversal never changes the decision that
-  counts. r is the observed first-decision admit rate of the channel, with the
-  prior counted as `priorAdmitWeight` decisions at `priorAdmitRate`, so it
-  starts at 12/150 and can never reach 0 or 1. S and S⁻ᵘ are the council's
-  display-rounded signals (the scale the snapshot stores).
+  for the person who recorded the decision (recusal), or for a decision
+  recorded before the leave-one-judge-out signal was kept. r is the channel's
+  observed admit rate over scoring decisions, with the prior counted as
+  `priorAdmitWeight` decisions at `priorAdmitRate`, so it starts at 12/150 and
+  can never reach 0 or 1. A decision counts once in r as soon as an
+  eligible (positioned) referral is scored on it, even when recusal, an
+  unresolved-decider admin skip, a snapshot with no `signalWithout` or a null
+  signal zeroes that referral's term, because the council outcome is real and
+  the better base-rate estimate. S and S⁻ᵘ are the council's display-rounded
+  signals (the scale the snapshot stores).
+- **Decision rule, per referral:** each referral is scored on the first
+  council decision on its candidate at or after the referral was made, using
+  that decision's frozen outcome, S and S⁻ᵘ. A candidate denied, reopened in a
+  later semester, freshly referred and then admitted scores the earlier
+  referrers on the denial and the new referrer on the admit. A referral already
+  scored is never reopened: a later decision or reversal does not change it.
+  A decision counts toward r once if it scores at least one eligible referral,
+  however many it scores; a decision that scores none, such as a re-admit with
+  no new referral, does not count.
 - **Weighted signal:** the council's Referral Signal is weighted by ω, as
   under 4.0.0. There is no shadow mode. The weighted path is mis-scaled until
   SEA-83 lands: the plain top-K mean of `ω·R` lets a new judge's ω 0.09 pull a
@@ -133,11 +161,25 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   deciding, instead of after a 180-day observation window. Centring on the
   channel's admit rate keeps a judge whose candidates are admitted at the
   normal rate at 0.
+- **Centred per referral:** an admit earns `+(1 − ρ)` and a denial
+  `−r·(1 − ρ)/(1 − r)`, both times `κ_a · share`. Expected early credit is 0
+  at the base rate for every referral, whatever its ρ. A sole advocate
+  (ρ = 1) gets 0 either way and is calibrated at settlement.
 - **Admission credit timing:** a referral without a Jev starting snapshot would
   wait for step 4; until it exists the credit applies once the decision stands.
+- **Accepted for now:** three choices stand until the pipeline simulation
+  (PR #116) checks them, before 4.1.0 becomes current.
+  - The admit-rate prior is a blend of 150 pseudo-decisions at 12/150 with
+    the channel's history.
+  - ρ uses the rounded display signals, not the unrounded ones.
+  - Clipping each referral at ±Lᴬ breaks the zero-expectation property only
+    for admit rates r > 0.75 at share 1: at r = 0.9 the expected credit is
+    +0.15. No change for 4.1.0; revisit in the simulation tuning pass.
 - **Not current:** `CURRENT_SPECS.judge_reliability` stays 2.0.0.
 - **Drift:** on the seed, which has no council decisions and so no admission
-  credit. `--before 4.0.0 --after 4.1.0`: STABLE on all five reports (τ_b 1.000,
+  credit; re-run after per-referral centring, after the per-referral decision
+  rule and after member referrals began ranking on outbound candidates,
+  unchanged each time. `--before 4.0.0 --after 4.1.0`: STABLE on all five reports (τ_b 1.000,
   no shift). `--before 2.0.0 --after 4.1.0`: BREAKING overall, the same numbers
   as 2.0.0 → 4.0.0 (reliability τ_b 0.578, mean |shift| 43.64; weighted referral
   signals REVIEW, τ_b 0.746, mean |shift| 29.45, max 67.62). Re-run against

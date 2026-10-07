@@ -53,6 +53,7 @@ import type {
   AddPersonInput,
   AddReferralInput,
   CandidateRow,
+  ClubDecider,
   ClubEvaluation,
   ClubPerson,
   ClubSnapshot,
@@ -121,7 +122,7 @@ function recordSnapshot(
   person: ClubPerson,
   decision: string,
   deps: EngineDeps,
-  decidedBy?: string,
+  decider?: ClubDecider,
 ): ClubView {
   const { view, provenance, signalWithout } = deps.computeWorld(next);
   const dossier = view.people.find((p) => p.id === person.id);
@@ -145,10 +146,14 @@ function recordSnapshot(
     createdAt: next.now,
     modelRunIds: [...prediction.modelRunIds],
     specVersions: { ...provenance.specVersions },
-    // What the council saw without each referrer, so a judge earns no early
-    // credit for an admission their own referral carried.
     signalWithout: signalWithout(person.id),
-    ...(decidedBy === undefined ? {} : { decidedBy }),
+    ...(decider === undefined
+      ? {}
+      : "decidedBy" in decider
+        ? { decidedBy: decider.decidedBy }
+        : {
+            unresolvedDecider: { adminReferrers: [...decider.unresolvedDecider.adminReferrers] },
+          }),
   };
   next.snapshots = [snapshot, ...next.snapshots];
   // Cloned, not shared: the view a caller holds may not be a live handle on
@@ -210,16 +215,23 @@ export function setStatus(
 }
 
 /**
- * Council decision. Review status drives the engine status, never the reverse.
- * `decidedBy` is the person id of the admin who clicked decide, when they have
- * one; that person earns no admission credit from this decision.
+ * For a caller that cannot tell who decided: every referrer of the candidate
+ * is treated as a possible decider, so none of them earns admission credit.
  */
+export function anyReferrerDecided(state: ClubState, personId: string): ClubDecider {
+  const referrers = new Set(
+    state.referrals.filter((r) => r.candidateId === personId).map((r) => r.referrerId),
+  );
+  return { unresolvedDecider: { adminReferrers: [...referrers] } };
+}
+
+/** Council decision. Review status drives the engine status, never the reverse. */
 export function decide(
   state: ClubState,
   personId: string,
   decision: Decision,
   deps: EngineDeps = DEFAULT_DEPS,
-  decidedBy?: string,
+  decider?: ClubDecider,
 ): EngineResult {
   const next = reviveState(state);
   const person = knownPerson(next, personId);
@@ -232,7 +244,7 @@ export function decide(
   person.reviewStatus = target;
   person.status = statusForReview(target);
   person.updatedAt = next.now;
-  return { state: next, view: recordSnapshot(next, person, target, deps, decidedBy) };
+  return { state: next, view: recordSnapshot(next, person, target, deps, decider) };
 }
 
 export function addReferral(state: ClubState, input: AddReferralInput): EngineResult {
@@ -262,13 +274,6 @@ export function addReferral(state: ClubState, input: AddReferralInput): EngineRe
   return ok(next);
 }
 
-/**
- * Record a pre-council call. A yes creates an engine referral by the caller
- * (origin "interview") and so takes the next open position; a maybe takes no
- * position and carries no stake; a hard no is stored and never scored. A
- * candidate has at most two calls, and a second call follows a call that did
- * not stop the candidate.
- */
 export function addCall(state: ClubState, input: AddCallInput): EngineResult {
   const next = reviveState(state);
   for (const id of [input.candidateId, input.callerId]) {
@@ -285,7 +290,10 @@ export function addCall(state: ClubState, input: AddCallInput): EngineResult {
     if (!first) return fail(next, "record call 1 first");
     if (first.outcome === "no") return fail(next, "call 1 was a hard no");
   }
-  if (input.outcome === "yes") {
+  const callerHasReferral = next.referrals.some(
+    (r) => r.referrerId === input.callerId && r.candidateId === input.candidateId,
+  );
+  if (input.outcome === "yes" && !callerHasReferral) {
     if (!input.referral) return fail(next, "a yes needs the caller's referral ratings");
     const referred = addReferral(next, {
       referrerId: input.callerId,

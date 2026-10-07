@@ -412,7 +412,6 @@ describe("example workload", () => {
       call("call-kept", "p-keep", "p-keep"),
     ];
     expect(resetExampleState(state).calls.map((row) => row.id)).toEqual(["call-kept"]);
-    // The Convex reset deletes the same rows.
     const body = read("apps/club/convex/devSeed.ts").split("async function deleteExampleRows")[1];
     expect(body).toContain('.query("clubCalls")');
     expect(body).toContain("isExamplePersonId(row.candidateId) || isExamplePersonId(row.callerId)");

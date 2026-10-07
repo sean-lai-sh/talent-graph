@@ -59,7 +59,6 @@ function referralsAsOf<T extends { createdAt: Date }>(rows: T[], now: Date): T[]
 export interface ClubWorld {
   view: ClubView;
   provenance: ClubProvenance;
-  /** Leave-one-judge-out signals of the same pass; see `ClubPass.signalWithout`. */
   signalWithout: ClubPass["signalWithout"];
 }
 
@@ -98,7 +97,6 @@ export function computeWorld(input: ClubState, specs: LoadedSpecs = loadSpecs())
     comparisons,
     outcomes,
     opportunities,
-    // Only a spec with an admission term (4.1+) reads the council's decisions.
     ...(specs.judge_reliability.admission === undefined
       ? {}
       : { admission: admissionObservations(state) }),

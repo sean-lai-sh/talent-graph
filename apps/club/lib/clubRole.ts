@@ -78,11 +78,6 @@ export function decideClubPage(input: {
   return "defer";
 }
 
-/**
- * The deciding admin's person id from the club rows matching their email.
- * Recusal is best effort: zero or several matches record no `decidedBy`, and
- * say so in the log rather than blocking the decision.
- */
 export function decidedByPersonId(
   matchIds: readonly string[],
   warn: (line: string) => void = console.warn,
@@ -93,4 +88,33 @@ export function decidedByPersonId(
     `club decision: no decidedBy recorded, the signed-in admin's email matches ${found}; recusal is skipped for this decision`,
   );
   return undefined;
+}
+
+export interface ReferrerAccounts {
+  personId: string;
+  email?: string;
+  storedRoles: readonly ClubRole[];
+}
+
+/**
+ * Known gap: a referrer is matched by the email on their person row. An admin
+ * whose person row has no email, or a different one from their account, is
+ * not found here and keeps their admission credit. The fix is that every admin
+ * links to exactly one person (follow-up to SEA-79).
+ */
+export function adminReferrers(
+  referrers: readonly ReferrerAccounts[],
+  extraAdminEmails: readonly string[] = [],
+): string[] {
+  const out: string[] = [];
+  for (const r of referrers) {
+    const email = r.email?.trim().toLowerCase();
+    if (!email) continue;
+    const stored = r.storedRoles.length === 0 ? [null] : r.storedRoles;
+    const admin = stored.some(
+      (role) => resolveRole({ email, stored: role, extraAdminEmails }) === "admin",
+    );
+    if (admin && !out.includes(r.personId)) out.push(r.personId);
+  }
+  return out;
 }

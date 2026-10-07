@@ -77,10 +77,6 @@ export interface ClubPass {
   /** Relative Capability Estimates of the same pass. */
   capability: CapabilityRun;
   provenance: ClubProvenance;
-  /**
-   * The council-facing Referral Signal for `candidateId` without each of its
-   * referrers, in display units (the scale of a snapshot's `referralSignal`).
-   */
   signalWithout: (candidateId: string) => ClubSignalWithout[];
 }
 
@@ -91,7 +87,6 @@ export interface ClubPassInput {
   comparisons: readonly Comparison[];
   outcomes: readonly Outcome[];
   opportunities: readonly Opportunity[];
-  /** Council decisions and channels, read by a calibration spec with an admission term. */
   admission?: AdmissionObservations;
   now: Date;
   specs: LoadedSpecs;
