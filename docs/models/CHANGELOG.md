@@ -118,12 +118,17 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
 - **What:** 4.0.0 plus an admission term per referral, from the council's
   decisions (admit or deny). New spec fields `admission`
   `{ κ_a 0.25, Lᴬ 0.75, α 0.75, φ 0.2, priorAdmitRate 12/150, priorAdmitWeight 150 }`.
-  Eligibility: an outbound candidate ranks only interview rows (an
-  interviewer's yes); an inbound one ranks referral and interview rows. A row
-  with no origin is a referral, and a person with no channel is inbound.
+  Eligibility: member referrals (origin `referral`, or a legacy row with no
+  origin) and interview yeses (origin `interview`) rank on every channel,
+  inbound and outbound alike. A person with no channel is inbound; the channel
+  only picks the admit rate.
   Position: a candidate's eligible referrals rank by `createdAt`
   (one per judge; self-referrals and repeats take none; equal times share the
-  average share), `share(k) = max(φ, 1/k^α)`. Per referral,
+  average share), `share(k) = max(φ, 1/k^α)`. On an outbound candidate a
+  member referral made before the interview takes the earlier position and the
+  interviewer's yes the next one, so the candidate's advocacy can be counted
+  twice; that is accepted. A referrer who also interviews keeps the one
+  position their referral holds: the yes call is stored and adds no referral. Per referral,
   `a = +1` if admitted, `−r/(1−r)` if denied (r = the candidate's channel
   admit rate); `ρ = clip((S − S⁻ᵘ)/S, 0, 1)` for an admit and a denial alike,
   and `ρ = 1` when `S ≤ 0`;
@@ -172,8 +177,9 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
     +0.15. No change for 4.1.0; revisit in the simulation tuning pass.
 - **Not current:** `CURRENT_SPECS.judge_reliability` stays 2.0.0.
 - **Drift:** on the seed, which has no council decisions and so no admission
-  credit; re-run after per-referral centring and again after the per-referral
-  decision rule, unchanged both times. `--before 4.0.0 --after 4.1.0`: STABLE on all five reports (τ_b 1.000,
+  credit; re-run after per-referral centring, after the per-referral decision
+  rule and after member referrals began ranking on outbound candidates,
+  unchanged each time. `--before 4.0.0 --after 4.1.0`: STABLE on all five reports (τ_b 1.000,
   no shift). `--before 2.0.0 --after 4.1.0`: BREAKING overall, the same numbers
   as 2.0.0 → 4.0.0 (reliability τ_b 0.578, mean |shift| 43.64; weighted referral
   signals REVIEW, τ_b 0.746, mean |shift| 29.45, max 67.62). Re-run against
