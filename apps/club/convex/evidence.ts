@@ -101,7 +101,7 @@ export const context = internalQuery({
       .collect();
     const failures = await ctx.db
       .query("claimJudgmentFailures")
-      .withIndex("by_person_and_evidence_key", (q) => q.eq("personId", personId))
+      .withIndex("by_person_evidence_key_and_spec", (q) => q.eq("personId", personId))
       .collect();
     const storageId = person.resumeStorageId
       ? ctx.db.system.normalizeId("_storage", person.resumeStorageId)
@@ -277,8 +277,11 @@ export const storeJudgments = internalMutation({
         .first();
       const byEvidence = await ctx.db
         .query("jevJudgments")
-        .withIndex("by_person_and_evidence_key", (q) =>
-          q.eq("personId", personId).eq("evidenceKey", record.evidenceKey),
+        .withIndex("by_person_evidence_key_and_spec", (q) =>
+          q
+            .eq("personId", personId)
+            .eq("evidenceKey", record.evidenceKey)
+            .eq("specId", record.specId),
         )
         .first();
       const existing = byRecord ?? byEvidence;
@@ -341,7 +344,7 @@ export const recordClaimFailures = internalMutation({
     for (const failure of failures) {
       const existing = await ctx.db
         .query("claimJudgmentFailures")
-        .withIndex("by_person_and_evidence_key", (q) =>
+        .withIndex("by_person_evidence_key_and_spec", (q) =>
           q
             .eq("personId", personId)
             .eq("evidenceKey", failure.evidenceKey)
@@ -680,8 +683,17 @@ async function writeDueSnapshots(
   const intakeAt = new Date(found.intake.intakeAt);
   const now = new Date();
   const kinds = dueSnapshotKinds(intakeAt, now);
-  const claims = judgments.map((judgment) => judgment.claim);
-  const records = judgments.map((judgment) => judgment.record);
+  // One record per evidence key, the first stored: a newer spec's record of the same evidence
+  // is kept for re-scoring (SEA-40) and does not change a snapshot.
+  const firstByKey = new Map<string, ClaimJudgment>();
+  for (const judgment of judgments) {
+    if (!firstByKey.has(judgment.record.evidenceKey)) {
+      firstByKey.set(judgment.record.evidenceKey, judgment);
+    }
+  }
+  const counted = [...firstByKey.values()];
+  const claims = counted.map((judgment) => judgment.claim);
+  const records = counted.map((judgment) => judgment.record);
   const resumeKeys = new Set(found.resumes.at(-1)?.evidenceKeys ?? []);
   const rows: SnapshotRow[] = [];
   const existing = [...found.snapshots];

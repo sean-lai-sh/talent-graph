@@ -836,6 +836,48 @@ describe("failed claim judgments", () => {
   });
 });
 
+describe("a spec bump", () => {
+  test("stores the new spec's records once, a later check calls Jev for nothing, and the snapshots count each evidence key once", async () => {
+    const w = world({ github: null });
+    await w.upload(RESUME_ONE);
+    await w.intake();
+    setSystemTime(day(61));
+    await w.daily();
+    const values = () =>
+      (["s0", "s12"] as const).map((kind) =>
+        numbers(w.snapshots(kind).find((row) => row.id === w.current(kind))),
+      );
+    const counted = values();
+    const OLD_SPEC = "career_evidence@1.2.3:8119ac21";
+    for (const row of w.judgments()) {
+      const record = JSON.parse(String(row.record));
+      const claim = JSON.parse(String(row.claim));
+      const recordId = `${row.recordId}-old`;
+      await w.d.db.patch(row._id, {
+        specId: OLD_SPEC,
+        recordId,
+        record: JSON.stringify({ ...record, id: recordId, specId: OLD_SPEC }),
+        claim: JSON.stringify({ ...claim, recordId }),
+      });
+    }
+    const before = w.judgments().length;
+
+    setSystemTime(day(80));
+    const calls = w.state.jev.claimCalls;
+    await w.check();
+    expect(w.state.jev.claimCalls).toBeGreaterThan(calls);
+    expect(w.judgments().length).toBe(before * 2);
+    expect(values()).toEqual(counted);
+    const rows = w.snapshots();
+
+    const after = w.state.jev.claimCalls;
+    await w.check();
+    expect(w.state.jev.claimCalls).toBe(after);
+    expect(w.judgments().length).toBe(before * 2);
+    expect(w.snapshots()).toEqual(rows);
+  });
+});
+
 describe("1.2 records", () => {
   test("claim lines to snapshot: what the 1.2 path writes passes outputOnlyRollup's checks", async () => {
     for (const text of [RESUME_ONE, RESUME_TWO]) {
