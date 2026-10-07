@@ -44,6 +44,7 @@ import {
   type ReferralSignalSpec,
 } from "../models/spec.ts";
 import { referralStrength } from "../scoring/referralStrength.ts";
+import { type AdmissionObservations, type AdmissionResult, computeAdmission } from "./admission.ts";
 import {
   buildOutcomeCohort,
   labelForPrediction,
@@ -99,6 +100,7 @@ export interface JudgeReliabilityEstimate {
   weight?: number;
   /** ω_u = w_u^γ under mode "v4" (what the signal uses); absent under "v2". */
   omega?: number;
+  admissionCredit?: number;
   /** Running signed error, or null when nothing has been evaluated. */
   rawBias: number | null;
   /** b̂_u after shrinkage toward 0. */
@@ -126,6 +128,7 @@ export interface JudgeCalibrationRun {
     /** Present only under "v4"; absent under "v2" so v2 outputs and run ids are unchanged. */
     reliabilityMode?: "v4";
   };
+  admission?: AdmissionResult;
 }
 
 export interface JudgeCalibrationInput {
@@ -137,6 +140,7 @@ export interface JudgeCalibrationInput {
   spec?: JudgeReliabilitySpec;
   /** Spec under which x_uv is computed; defaults to CURRENT_SPECS.referral_signal. */
   referralSpec?: ReferralSignalSpec;
+  admission?: AdmissionObservations;
 }
 
 /**
@@ -239,6 +243,7 @@ export function estimateJudgeReliability(
   judgeIds: readonly string[],
   predictions: readonly ScoredPrediction[],
   spec: JudgeReliabilitySpec,
+  admissionSums: ReadonlyMap<string, number> = new Map(),
 ): Map<string, JudgeReliabilityEstimate> {
   const eta = spec.learningRate;
   const v4 = spec.mode === "v4" ? v4Params(spec) : null;
@@ -255,10 +260,13 @@ export function estimateJudgeReliability(
     }
   }
 
-  const ids = new Set<string>([...judgeIds, ...acc.keys()]);
+  const ids = new Set<string>([...judgeIds, ...acc.keys(), ...admissionSums.keys()]);
+  const withAdmission = spec.admission !== undefined;
   const out = new Map<string, JudgeReliabilityEstimate>();
   for (const judgeId of [...ids].sort()) {
     const a = acc.get(judgeId);
+    const credit = withAdmission ? (admissionSums.get(judgeId) ?? 0) : 0;
+    const creditField = withAdmission ? { admissionCredit: credit } : {};
     if (!a) {
       out.set(judgeId, {
         judgeId,
@@ -266,7 +274,8 @@ export function estimateJudgeReliability(
         meanSquaredError: null,
         rawReliability: null,
         reliability: spec.priorReliability,
-        ...(v4 ? judgeWeightV4(spec.priorReliability, v4) : {}),
+        ...(v4 ? judgeWeightV4(spec.priorReliability, v4, credit) : {}),
+        ...creditField,
         rawBias: null,
         bias: 0,
         predictionIds: [],
@@ -281,7 +290,8 @@ export function estimateJudgeReliability(
       meanSquaredError: a.e,
       rawReliability: raw,
       reliability,
-      ...(v4 ? judgeWeightV4(reliability, v4) : {}),
+      ...(v4 ? judgeWeightV4(reliability, v4, credit) : {}),
+      ...creditField,
       rawBias: a.b,
       bias: shrink(a.n, a.b, 0, spec.shrinkage),
       predictionIds: a.ids,
@@ -296,10 +306,15 @@ export function computeJudgeCalibration(input: JudgeCalibrationInput): JudgeCali
   const referralSpec = assertSpec(input.referralSpec ?? CURRENT_SPECS.referral_signal);
   const cohort = buildOutcomeCohort(input.outcomes, input.opportunities ?? [], spec, input.now);
   const { predictions, skipped } = scoreReferralPredictions(input.referrals, cohort, referralSpec);
+  const admission =
+    spec.admission !== undefined && input.admission !== undefined
+      ? computeAdmission(input.referrals, input.admission, spec.admission, input.now)
+      : undefined;
   const estimates = estimateJudgeReliability(
     input.people.map((p) => p.id),
     predictions,
     spec,
+    admission?.sumByJudge,
   );
   const withEvidence = [...estimates.values()].filter((e) => e.rawReliability !== null);
   const populationMeanReliability =
@@ -321,6 +336,7 @@ export function computeJudgeCalibration(input: JudgeCalibrationInput): JudgeCali
       applyBiasCorrection: spec.applyBiasCorrection,
       ...(spec.mode === "v4" ? { reliabilityMode: "v4" as const } : {}),
     },
+    ...(admission === undefined ? {} : { admission }),
   };
 }
 

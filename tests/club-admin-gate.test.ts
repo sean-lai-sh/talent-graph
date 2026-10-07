@@ -23,6 +23,7 @@ const ADMIN_MUTATIONS = [
   "setStatus",
   "decide",
   "addReferral",
+  "addCall",
   "requestFeedback",
   "recordFeedback",
   "setReviewConfig",

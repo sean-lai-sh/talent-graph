@@ -36,6 +36,7 @@ import {
 import type { LoadedSpecs } from "../config.ts";
 import { DIMENSIONS } from "../domain/constants.ts";
 import type { Comparison, Opportunity, Outcome, Person, Referral } from "../domain/types.ts";
+import type { AdmissionObservations } from "../judges/admission.ts";
 import { judgeWeightOptions } from "../judges/reliability.ts";
 import { runCapabilityVectors } from "../models/definitions/bradleyTerry.ts";
 import { runJudgeCalibration } from "../models/definitions/judgeReliability.ts";
@@ -50,6 +51,7 @@ export interface Observations {
   comparisons: readonly Comparison[];
   outcomes: readonly Outcome[];
   opportunities: readonly Opportunity[];
+  admission?: AdmissionObservations;
 }
 
 /**
@@ -182,7 +184,7 @@ export function advance(
   now: Date,
   opts: AdvanceOptions = {},
 ): AdvanceResult {
-  const { people, comparisons, outcomes, opportunities } = observations;
+  const { people, comparisons, outcomes, opportunities, admission } = observations;
   const referrals =
     opts.asOf === true ? referralsAsOf(observations.referrals, now) : observations.referrals;
 
@@ -203,6 +205,7 @@ export function advance(
     referrals,
     outcomes,
     opportunities,
+    ...(admission === undefined ? {} : { admission }),
     now,
     spec: specs.judge_reliability,
     referralSpec: specs.referral_signal,

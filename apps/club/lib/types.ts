@@ -21,6 +21,13 @@ export type ReviewStatus = "new" | "under_review" | "needs_data" | "admitted" | 
 
 export type Decision = "start_review" | "admit" | "deny" | "request_data" | "reopen";
 
+export type ClubChannel = "inbound" | "outbound";
+
+export type ReferralOrigin = "referral" | "interview";
+
+export const REFERRAL_RECOGNITIONS = ["not_yet", "soon", "yes", "not_sure"] as const;
+export type ReferralRecognition = (typeof REFERRAL_RECOGNITIONS)[number];
+
 export interface ClubPerson {
   id: string;
   name: string;
@@ -36,6 +43,7 @@ export interface ClubPerson {
   github?: string;
   website?: string;
   status: PersonStatus;
+  channel?: ClubChannel;
   /** Optional so documents written before the council page stay valid. */
   reviewStatus?: ReviewStatus;
   createdAt: IsoDate;
@@ -51,8 +59,21 @@ export interface ClubReferral {
   relationshipDepth: Scale5;
   evidenceType: EvidenceType;
   evidenceText: string;
+  origin?: ReferralOrigin;
+  recognition?: ReferralRecognition;
   createdAt: IsoDate;
   updatedAt: IsoDate;
+}
+
+export type CallOutcome = "yes" | "maybe" | "no";
+
+export interface ClubCall {
+  id: string;
+  candidateId: string;
+  callerId: string;
+  order: 1 | 2;
+  outcome: CallOutcome;
+  createdAt: IsoDate;
 }
 
 export interface ClubComparison {
@@ -139,6 +160,20 @@ export interface ClubSnapshot {
   modelRunIds?: string[];
   /** Spec version per kind of that same pass. Optional for the same reason. */
   specVersions?: ClubSpecVersions;
+  decidedBy?: string;
+  unresolvedDecider?: ClubUnresolvedDecider;
+  signalWithout?: ClubSignalWithout[];
+}
+
+export interface ClubUnresolvedDecider {
+  adminReferrers: string[];
+}
+
+export type ClubDecider = { decidedBy: string } | { unresolvedDecider: ClubUnresolvedDecider };
+
+export interface ClubSignalWithout {
+  referrerId: string;
+  signalWithout: number;
 }
 
 /**
@@ -165,6 +200,7 @@ export interface ReviewConfig {
 export interface ClubState {
   people: ClubPerson[];
   referrals: ClubReferral[];
+  calls: ClubCall[];
   comparisons: ClubComparison[];
   evaluations: ClubEvaluation[];
   outcomes: ClubOutcome[];
@@ -484,6 +520,7 @@ export interface AddPersonInput {
   linkedin?: string;
   resume?: string;
   status?: PersonStatus;
+  channel?: ClubChannel;
 }
 
 export interface AddReferralInput {
@@ -494,6 +531,19 @@ export interface AddReferralInput {
   relationshipDepth: Scale5;
   evidenceType: EvidenceType;
   evidenceText: string;
+  origin?: ReferralOrigin;
+  recognition?: ReferralRecognition;
+}
+
+export interface AddCallInput {
+  candidateId: string;
+  callerId: string;
+  order: 1 | 2;
+  outcome: CallOutcome;
+  referral?: Pick<
+    AddReferralInput,
+    "conviction" | "confidence" | "relationshipDepth" | "evidenceType" | "evidenceText"
+  >;
 }
 
 export interface AddComparisonInput {
@@ -600,6 +650,7 @@ export interface MemberReferralAnswers {
   role: ReferralQ2Role;
   rank: ReferralQ3Rank;
   groupSize: ReferralQ3GroupSize;
+  recognition?: ReferralRecognition;
 }
 
 /** Persistence overrides for ClubBoard. Example uses server actions. */
