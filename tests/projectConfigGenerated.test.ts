@@ -10,6 +10,7 @@ import {
   loadProjectConfig,
   projectConfigPath,
 } from "../src/projectConfig/load.ts";
+import { parseProjectConfig } from "../src/projectConfig/parse.ts";
 import { renderConfigModule } from "../src/projectConfig/render.ts";
 import { hashInputs } from "../src/provenance/hash.ts";
 
@@ -69,5 +70,16 @@ describe("generated config module", () => {
     await writeFile(ws.out, `${await readFile(ws.out, "utf8")}// edited\n`);
     expect(check(ws.config, ws.out).code).toBe(1);
     expect(check(ws.config, join(ws.out, "..", "missing.ts")).code).toBe(1);
+  });
+
+  test("the check fails when config.yml breaks a pinned hash even if the module matches it", async () => {
+    const ws = await workspace();
+    const text = await readFile(ws.config, "utf8");
+    const edited = text.replace(/topN: \d+/, (match) => `topN: ${Number(match.slice(6)) + 1}`);
+    await writeFile(ws.config, edited);
+    await writeFile(ws.out, renderConfigModule(parseProjectConfig(edited)));
+    const result = check(ws.config, ws.out);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("does not match pinned hash");
   });
 });

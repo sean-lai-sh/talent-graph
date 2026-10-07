@@ -1,7 +1,4 @@
-/**
- * Parses and checks config.yml text. Touches no filesystem, so scoring code
- * that runs inside Convex can import it; reading the file lives in load.ts.
- */
+/** No filesystem here. Runtime constants come from generated.ts; this only parses config.yml text. */
 import { parse } from "yaml";
 import {
   COMPANY_STAGES,
