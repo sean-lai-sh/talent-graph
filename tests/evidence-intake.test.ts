@@ -75,7 +75,8 @@ interface JevOptions {
   level?: (text: string) => number;
   delay?: () => Promise<void>;
   // "invariant": a response with no role, rejected the same way every time. "transient": a 503.
-  fail?: (text: string) => "invariant" | "transient" | null;
+  // "no-usage" and "no-model": a response missing that metadata.
+  fail?: (text: string) => "invariant" | "transient" | "no-usage" | "no-model" | null;
 }
 
 function levelBlock(score: number) {
@@ -163,7 +164,14 @@ class FakeJev {
         } else {
           answers = { claim_class: classBlock("output") };
         }
-        return { data: { model, answers, usage }, requestId: "req-claim" };
+        return {
+          data: {
+            model: failure === "no-model" ? undefined : model,
+            answers,
+            usage: failure === "no-usage" ? undefined : usage,
+          },
+          requestId: "req-claim",
+        };
       },
     };
   }
@@ -805,6 +813,29 @@ describe("failed claim judgments", () => {
     const [s0] = w.snapshots("s0");
     expect(Number(s0?.claimCount)).toBe(stored.length);
   });
+
+  for (const failure of ["no-usage", "no-model"] as const) {
+    test(`a response with ${failure} is a recorded failure billed once, and the run still stores the rest`, async () => {
+      const warn = spyOn(console, "warn").mockImplementation(() => {});
+      afterEachOnce(() => warn.mockRestore());
+      const w = world({ github: null });
+      w.state.jev = new FakeJev({ fail: (text) => (flaky(text) ? failure : null) });
+      await w.upload(RESUME_FLAKY);
+      await w.intake();
+      expect(flakyCalls(w.state.jev)).toBe(1);
+      expect(w.d.db.rows("claimJudgmentFailures").length).toBe(1);
+      const stored = w.parsed();
+      expect(stored.length).toBeGreaterThan(0);
+
+      setSystemTime(day(61));
+      await w.daily();
+      setSystemTime(day(80));
+      await w.check();
+      expect(flakyCalls(w.state.jev)).toBe(1);
+      const [s0] = w.snapshots("s0");
+      expect(Number(s0?.claimCount)).toBe(stored.length);
+    });
+  }
 
   test("a spec bump retries a recorded failure, which can then succeed", async () => {
     const w = await brokenRubric();

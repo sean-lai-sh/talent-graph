@@ -206,21 +206,13 @@ export async function judgeClaimsV12(input: {
             questions: wireQuestions(spec, error.request),
           })
           .withResponse();
-        if (typeof data.model !== "string" || data.model.length === 0) {
-          failures.set(error.fingerprint, "claim responded without a model");
-          continue;
+        try {
+          cache.set(error.fingerprint, storedAnswer(error.fingerprint, data, requestId, now()));
+        } catch (invalid) {
+          if (!(invalid instanceof JudgmentInvariantError)) throw invalid;
+          failures.set(error.fingerprint, invalid.message);
+          deterministic.add(error.fingerprint);
         }
-        cache.set(error.fingerprint, {
-          requestFingerprint: error.fingerprint,
-          respondedModel: data.model,
-          requestId: requestId ?? null,
-          usage: {
-            inputTokens: finite(data.usage?.input_tokens, "jev: usage.input_tokens"),
-            outputTokens: finite(data.usage?.output_tokens, "jev: usage.output_tokens"),
-          },
-          answers: data.answers,
-          observedAt: now().toISOString(),
-        });
         continue;
       }
       if (
@@ -340,6 +332,32 @@ export async function judgeClaimsV12(input: {
     });
   }
   return run;
+}
+
+function storedAnswer(
+  fingerprint: string,
+  data: {
+    model?: unknown;
+    usage?: { input_tokens?: unknown; output_tokens?: unknown };
+    answers: unknown;
+  },
+  requestId: string | null | undefined,
+  observedAt: Date,
+): StoredAnswer {
+  if (typeof data.model !== "string" || data.model.length === 0) {
+    throw new JudgmentInvariantError("jev: claim responded without a model");
+  }
+  return {
+    requestFingerprint: fingerprint,
+    respondedModel: data.model,
+    requestId: requestId ?? null,
+    usage: {
+      inputTokens: finite(data.usage?.input_tokens, "jev: usage.input_tokens"),
+      outputTokens: finite(data.usage?.output_tokens, "jev: usage.output_tokens"),
+    },
+    answers: data.answers,
+    observedAt: observedAt.toISOString(),
+  };
 }
 
 function lineFor(claim: ScoredClaimV12, lines: ReadonlyMap<string, JobClaimLine>): JobClaimLine {
