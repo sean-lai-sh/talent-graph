@@ -32,8 +32,14 @@ import {
   resumeEvidence,
   versionDigest,
 } from "../apps/club/lib/longitudinal/evidenceSources.ts";
-import { claimLines, rawResumeLines } from "../apps/club/lib/longitudinal/resumeLines.ts";
+import {
+  claimLines,
+  type LineRole,
+  rawResumeLines,
+  rebuildResumeLines,
+} from "../apps/club/lib/longitudinal/resumeLines.ts";
 import { fetchGitHubArtifacts } from "../apps/club/lib/longitudinal/sources.ts";
+import { preprocessJobClaims } from "../src/longitudinal/claimPreprocess.ts";
 import { OUTPUT_ONLY_ROLLUP_V1_0_0, outputOnlyRollup } from "../src/longitudinal/outputOnly.ts";
 import type { JevJudgmentRecord } from "../src/longitudinal/records.ts";
 import { createDeployment, type FakeDeployment } from "./fixtures/fakeConvex.ts";
@@ -1028,6 +1034,27 @@ describe("resume intake", () => {
     expect(w.d.db.rows("resumeLines").length).toBeGreaterThan(firstLines);
     const keys = w.parsed().map((j) => j.record.evidenceKey);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  test("a bullet under a section heading after a job is not scored as work for that job", () => {
+    const labelled: [string, LineRole][] = [
+      ["Software Engineer Intern", "job_title"],
+      ["Acme Corp", "organization"],
+      ["Jun 2024 - Aug 2024", "dates"],
+      ["Built the billing service used by 40,000 users", "bullet"],
+      ["Projects", "other"],
+      ["Wrote a ray tracer in Rust", "bullet"],
+    ];
+    const rebuilt = rebuildResumeLines(
+      labelled.map(([line]) => line),
+      labelled.map(([, role]) => role),
+    );
+    const claims = preprocessJobClaims(claimLines(rebuilt, "2024-09-01T00:00:00.000Z"), {
+      version: "1.2.0",
+    });
+    const atAcme = claims.filter((claim) => "org" in claim && claim.org === "Acme Corp");
+    expect(atAcme.some((claim) => claim.statement.includes("billing service"))).toBe(true);
+    expect(atAcme.some((claim) => claim.statement.includes("ray tracer"))).toBe(false);
   });
 });
 

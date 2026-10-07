@@ -125,14 +125,12 @@ export function rebuildResumeLines(lines: readonly string[], roles: readonly Lin
       out.push(`- ${line.replace(/^\s*[-*•]\s*/, "")}`);
       return;
     }
-    if (role === "other") {
-      return;
-    }
     if (headerOpen) {
       out.push("");
       headerOpen = false;
       reset();
     }
+    if (role === "other") return;
     if (role === "job_title") pending.title = line;
     else if (role === "organization") pending.org = line;
     else if (role === "dates") pending.dates = splitDates(line).dates ?? line;
