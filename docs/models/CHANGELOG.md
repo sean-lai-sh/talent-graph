@@ -168,8 +168,8 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
     +0.15. No change for 4.1.0; revisit in the simulation tuning pass.
 - **Not current:** `CURRENT_SPECS.judge_reliability` stays 2.0.0.
 - **Drift:** on the seed, which has no council decisions and so no admission
-  credit; re-run after per-referral centring, unchanged. The per-referral
-  decision rule cannot move it either. `--before 4.0.0 --after 4.1.0`: STABLE on all five reports (τ_b 1.000,
+  credit; re-run after per-referral centring and again after the per-referral
+  decision rule, unchanged both times. `--before 4.0.0 --after 4.1.0`: STABLE on all five reports (τ_b 1.000,
   no shift). `--before 2.0.0 --after 4.1.0`: BREAKING overall, the same numbers
   as 2.0.0 → 4.0.0 (reliability τ_b 0.578, mean |shift| 43.64; weighted referral
   signals REVIEW, τ_b 0.746, mean |shift| 29.45, max 67.62). Re-run against
