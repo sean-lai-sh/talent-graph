@@ -361,6 +361,17 @@ describe("admission credit", () => {
     expect(res.terms).toEqual([]);
     expect(res.sumByJudge.size).toBe(0);
   });
+
+  test("a referral made at the instant of a decision is scored on that decision", () => {
+    const ref = referral("alice", "bob", 5);
+    const d = decision({
+      candidateId: "bob",
+      at: ref.createdAt,
+      signalWithout: [{ referrerId: "alice", signalWithout: 0 }],
+    });
+    const res = admit([ref], obs([d]));
+    expect(res.terms.map((t) => t.referralId)).toEqual([ref.id]);
+  });
 });
 
 describe("position", () => {
