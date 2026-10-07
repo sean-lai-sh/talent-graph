@@ -309,6 +309,27 @@ describe("admission credit", () => {
     expect(res.positions.get(late.id)?.position).toBe(2);
   });
 
+  test("a reopen with no new referral changes nothing and its decision is not counted in r", () => {
+    const ref = referral("alice", "bob", 1);
+    const denial = decision({
+      candidateId: "bob",
+      outcome: "denied",
+      at: day(30),
+      signalWithout: [{ referrerId: "alice", signalWithout: 0 }],
+    });
+    const once = admit([ref], obs([denial]));
+    const readmitted = decision({
+      candidateId: "bob",
+      outcome: "admitted",
+      at: day(60),
+      signalWithout: [{ referrerId: "alice", signalWithout: 0 }],
+    });
+    const res = admit([ref], obs([denial, readmitted]));
+    expect(res.terms).toEqual(once.terms);
+    expect(res.terms.map((t) => [t.judgeId, t.decision])).toEqual([["alice", "denied"]]);
+    expect(res.admitRate.inbound).toBeCloseTo(blended(0, 1), 12);
+  });
+
   test("a decision recorded without signalWithout is unscored, never read as low", () => {
     const ref = referral("alice", "bob", 1);
     const res = admit(
