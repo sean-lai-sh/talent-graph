@@ -56,16 +56,6 @@ function item(input: {
   };
 }
 
-export async function fetchGitHubEvidence(
-  username: string,
-  from: Date,
-  cutoff: Date,
-  fetchJson: JsonFetcher = defaultJsonFetcher,
-): Promise<GrokEvidenceItem[]> {
-  const artifacts = await fetchGitHubArtifacts(username, from, cutoff, fetchJson);
-  return artifacts.map((artifact) => artifact.item);
-}
-
 export interface GitHubArtifact {
   item: GrokEvidenceItem;
   // GitHub keeps no history of repository names, so `created` carries the current name.

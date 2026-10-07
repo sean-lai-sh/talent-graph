@@ -13,7 +13,7 @@ import {
 } from "../apps/club/lib/longitudinal/grok.ts";
 import {
   createInMemoryGrokIngestStore,
-  fetchGitHubEvidence,
+  fetchGitHubArtifacts,
   fetchOrcidEvidence,
   ingestGrokEvidenceCallback,
 } from "../apps/club/lib/longitudinal/sources.ts";
@@ -72,7 +72,7 @@ describe("longitudinal source ingestion", () => {
 
   test("GitHub adapter retains only evidence inside the requested window", async () => {
     const calls: string[] = [];
-    const fetched = await fetchGitHubEvidence("avery", day(0), day(90), async (url) => {
+    const fetched = await fetchGitHubArtifacts("avery", day(0), day(90), async (url) => {
       calls.push(url);
       if (url.includes("/repos?")) {
         return [
@@ -116,7 +116,10 @@ describe("longitudinal source ingestion", () => {
       ];
     });
     expect(calls).toHaveLength(2);
-    expect(fetched.map((item) => item.sourceId)).toEqual(["repo:avery/new-work", "event:event-1"]);
+    expect(fetched.map((artifact) => artifact.item.sourceId)).toEqual([
+      "repo:avery/new-work",
+      "event:event-1",
+    ]);
   });
 
   test("ORCID adapter rejects incomplete publication dates", async () => {
