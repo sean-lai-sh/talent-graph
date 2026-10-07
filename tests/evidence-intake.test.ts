@@ -35,6 +35,7 @@ import {
 import {
   claimLines,
   type LineRole,
+  parsesAsResume,
   rawResumeLines,
   rebuildResumeLines,
 } from "../apps/club/lib/longitudinal/resumeLines.ts";
@@ -177,6 +178,14 @@ const RESUME_ONE = [
 const RESUME_TWO = [
   RESUME_ONE,
   "Research Assistant at Lab Z (Jan 2024 - Mar 2024)",
+  "- Designed an ambitious experiment on protein folding",
+].join("\n");
+
+const RESUME_MIXED = [
+  RESUME_ONE,
+  "Research Assistant",
+  "Lab Z",
+  "Jan 2024 - Mar 2024",
   "- Designed an ambitious experiment on protein folding",
 ].join("\n");
 
@@ -1021,6 +1030,19 @@ describe("resume intake", () => {
     expect(version?.normalized).toBe(true);
     expect(version?.rawText).toBe(RESUME_UNPARSED);
     expect(w.parsed().length).toBeGreaterThan(0);
+  });
+
+  test("a mixed-format resume, one job parseable and one not, takes the labelling pass", async () => {
+    expect(parsesAsResume(rawResumeLines(RESUME_TWO))).toBe(true);
+    expect(parsesAsResume(rawResumeLines(RESUME_MIXED))).toBe(false);
+    expect(
+      parsesAsResume(rawResumeLines(["- A bullet before any job", RESUME_ONE].join("\n"))),
+    ).toBe(false);
+    const w = world({ github: null });
+    await w.upload(RESUME_MIXED);
+    await w.intake();
+    expect(w.state.jev.labelCalls).toBeGreaterThan(0);
+    expect(w.d.db.rows("resumeVersions")[0]?.normalized).toBe(true);
   });
 
   test("a new upload adds a version and its lines; earlier ones stay", async () => {

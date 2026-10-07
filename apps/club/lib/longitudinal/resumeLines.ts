@@ -20,8 +20,20 @@ export function rawResumeLines(text: string): string[] {
     .map((line) => (BULLET_GLYPHS.test(line) ? `- ${line.replace(BULLET_GLYPHS, "")}` : line));
 }
 
+// Every run of bullets must sit directly under a parseable header. One parseable
+// job is not enough: a mixed-format resume would hang its other jobs' bullets on it.
 export function parsesAsResume(lines: readonly string[]): boolean {
-  return lines.some((line) => !isBullet(line) && parseHeader(line) !== null);
+  let headers = 0;
+  let previous: string | null = null;
+  for (const line of lines) {
+    if (isBullet(line)) {
+      if (previous === null) return false;
+      continue;
+    }
+    previous = parseHeader(line) === null ? null : line;
+    if (previous !== null) headers += 1;
+  }
+  return headers > 0;
 }
 
 export function claimLines(lines: readonly string[], publishedAt: string): JobClaimLine[] {
