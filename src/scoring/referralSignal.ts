@@ -113,8 +113,19 @@ export interface ReferralSignalOptions {
   pseudoWeight?: number;
 }
 
-function resolvePseudoWeight(spec: ReferralSignalSpec, pseudoWeight: number | undefined) {
+function resolvePseudoWeight(
+  spec: ReferralSignalSpec,
+  pseudoWeight: number | undefined,
+  weighting: EdgeWeighting,
+) {
   if (spec.aggregation === "weight_normalized") {
+    // ω_u is the judge's reliability, so the weighted mean has no meaning
+    // without a judge weighting: identity would silently score n·R/(n + c0).
+    if (!weighting.weighted) {
+      throw new Error(
+        `referral_signal@${spec.version} is for the judge-weighted path only; got the unweighted "${weighting.kind}" weighting`,
+      );
+    }
     if (pseudoWeight === undefined || !(Number.isFinite(pseudoWeight) && pseudoWeight >= 0)) {
       throw new Error(
         `referral_signal@${spec.version} aggregates weight-normalised and needs a finite pseudoWeight ≥ 0 (got ${pseudoWeight})`,
@@ -187,6 +198,11 @@ function signalFromScoredEdges(
     .map((edge): { c: ContributingReferral; eligible: boolean } => {
       const breakdown = edge.breakdown;
       const w = weighting.weigh(edge);
+      if (pseudoWeight !== undefined && w.factors.reliability === undefined) {
+        throw new Error(
+          `referral_signal@${spec.version} weights by judge reliability, but the "${weighting.kind}" weighting reports none`,
+        );
+      }
       return {
         c: {
           referral: edge.referral,
@@ -272,13 +288,14 @@ export function computeReferralSignal(
     return { referral, strength: breakdown.strength, breakdown, dangling: false };
   });
 
+  const weighting = resolveWeighting(opts);
   return signalFromScoredEdges(
     personId,
     edges,
     spec,
     topK,
-    resolveWeighting(opts),
-    resolvePseudoWeight(spec, opts.pseudoWeight),
+    weighting,
+    resolvePseudoWeight(spec, opts.pseudoWeight, weighting),
   );
 }
 
@@ -309,7 +326,7 @@ export function computeSignalsFromGraph(
   const spec = sg.spec;
   const topK = opts.topK ?? spec.topK;
   const weighting = resolveWeighting(opts);
-  const pseudoWeight = resolvePseudoWeight(spec, opts.pseudoWeight);
+  const pseudoWeight = resolvePseudoWeight(spec, opts.pseudoWeight, weighting);
   const out = new Map<string, ReferralSignalResult>();
   for (const personId of sg.graph.nodes.keys()) {
     out.set(

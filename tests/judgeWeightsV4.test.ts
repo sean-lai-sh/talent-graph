@@ -30,6 +30,7 @@ import {
 import { hashInputs } from "../src/provenance/hash.ts";
 import { computeAllReferralSignals, computeReferralSignal } from "../src/scoring/referralSignal.ts";
 import { referralStrength } from "../src/scoring/referralStrength.ts";
+import { type EdgeWeighting, IDENTITY_WEIGHTING } from "../src/scoring/weighting.ts";
 import { generateSeed } from "../src/seed/generate.ts";
 
 const T0 = new Date("2026-01-01T00:00:00.000Z");
@@ -602,5 +603,61 @@ describe("weightNormalizedReferralSpec (SEA-83)", () => {
     expect(got.version).toBe("0.2.0+env");
     expect(got.topK).toBe(3);
     expect(got.aggregation).toBe("weight_normalized");
+  });
+});
+
+describe("referral_signal@0.2.0 is confined to the judge-weighted path (SEA-83)", () => {
+  const NORMALIZED = REFERRAL_SIGNAL_V0_2_0;
+  const C0 = judgePseudoWeight(V4);
+  const refs = [referral("u0", "cand", 4), referral("u1", "cand", 3)];
+  const custom = (factors: Record<string, number>): EdgeWeighting => ({
+    kind: "custom",
+    weighted: true,
+    weigh: (edge) => ({ contribution: edge.strength, eligible: true, factors }),
+  });
+
+  test("the identity weighting is refused", () => {
+    expect(() =>
+      computeReferralSignal("cand", refs, {
+        spec: NORMALIZED,
+        weighting: IDENTITY_WEIGHTING,
+        pseudoWeight: C0,
+      }),
+    ).toThrow(/judge-weighted path only.*"identity"/);
+  });
+
+  test("a run with no judge maps is refused rather than labelled 0.2.0", () => {
+    const data = generateSeed();
+    expect(() =>
+      runReferralSignals(data.people, data.referrals, NOW, {
+        spec: NORMALIZED,
+        pseudoWeight: C0,
+      }),
+    ).toThrow(/judge-weighted path only/);
+  });
+
+  test("a custom weighting that reports no reliability is refused", () => {
+    expect(() =>
+      computeReferralSignal("cand", refs, {
+        spec: NORMALIZED,
+        weighting: custom({ adjusted: 0.5 }),
+        pseudoWeight: C0,
+      }),
+    ).toThrow(/"custom" weighting reports none/);
+  });
+
+  test("the judge-weighted path still scores ΣωR / (Σω + c0)", () => {
+    const om = new Map([
+      ["u0", 0.81],
+      ["u1", 0.25],
+    ]);
+    const got = computeReferralSignal("cand", refs, {
+      spec: NORMALIZED,
+      judgeReliability: om,
+      pseudoWeight: C0,
+    });
+    const [a, b] = refs.map((r) => referralStrength(r, NORMALIZED)) as [number, number];
+    expect(got.judgeWeighted).toBe(true);
+    expect(got.s).toBeCloseTo((0.81 * a + 0.25 * b) / (0.81 + 0.25 + C0), 12);
   });
 });
