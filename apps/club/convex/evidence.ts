@@ -3,7 +3,11 @@ import { v } from "convex/values";
 import { companyWorklist } from "../../../src/longitudinal/companyResearch.ts";
 import { normalizeOrgName } from "../../../src/longitudinal/companySeed.ts";
 import { loadClub } from "../lib/clubStore.ts";
-import { type ClaimJudgment, judgeClaimsV12 } from "../lib/longitudinal/claimJudgmentV12.ts";
+import {
+  type ClaimFailure,
+  type ClaimJudgment,
+  judgeClaimsV12,
+} from "../lib/longitudinal/claimJudgmentV12.ts";
 import {
   classYearCorrection,
   currentSnapshot,
@@ -95,6 +99,10 @@ export const context = internalQuery({
       .query("evidenceSnapshots")
       .withIndex("by_candidate_and_kind", (q) => q.eq("candidateId", personId))
       .collect();
+    const failures = await ctx.db
+      .query("claimJudgmentFailures")
+      .withIndex("by_person_and_evidence_key", (q) => q.eq("personId", personId))
+      .collect();
     const storageId = person.resumeStorageId
       ? ctx.db.system.normalizeId("_storage", person.resumeStorageId)
       : null;
@@ -114,6 +122,14 @@ export const context = internalQuery({
       resumes,
       // Strings: Convex can reorder object keys across the query boundary, changing `inputHash`.
       judgments: judgments.map(storedJudgment),
+      failures: failures.map(
+        (row): ClaimFailure => ({
+          evidenceKey: row.evidenceKey,
+          specId: row.specId,
+          requestFingerprint: row.requestFingerprint,
+          error: row.error,
+        }),
+      ),
       snapshots: snapshots.map((row) => ({
         id: row.id,
         kind: row.kind,
@@ -305,6 +321,41 @@ export const recordResumeKeys = internalMutation({
     if (!version) throw new Error(`recordResumeKeys: no resume version for ${storageId}`);
     if (version.evidenceKeys?.join("\n") === evidenceKeys.join("\n")) return;
     await ctx.db.patch(version._id, { evidenceKeys });
+  },
+});
+
+export const recordClaimFailures = internalMutation({
+  args: {
+    clubId: v.id("clubs"),
+    personId: v.string(),
+    failures: v.array(
+      v.object({
+        evidenceKey: v.string(),
+        specId: v.string(),
+        requestFingerprint: v.string(),
+        error: v.string(),
+      }),
+    ),
+  },
+  handler: async (ctx, { clubId, personId, failures }) => {
+    for (const failure of failures) {
+      const existing = await ctx.db
+        .query("claimJudgmentFailures")
+        .withIndex("by_person_and_evidence_key", (q) =>
+          q
+            .eq("personId", personId)
+            .eq("evidenceKey", failure.evidenceKey)
+            .eq("specId", failure.specId),
+        )
+        .first();
+      if (existing) continue;
+      await ctx.db.insert("claimJudgmentFailures", {
+        clubId,
+        personId,
+        ...failure,
+        failedAt: new Date().toISOString(),
+      });
+    }
   },
 });
 
@@ -584,7 +635,13 @@ async function scoreNewClaims(
   const known: ClaimJudgment[] = [...found.judgments];
   const written: ClaimJudgment[] = [];
   for (const { evidence, storageId } of sources) {
-    const run = await judgeClaimsV12({ personId: found.person.id, evidence, known, client });
+    const run = await judgeClaimsV12({
+      personId: found.person.id,
+      evidence,
+      known,
+      knownFailures: found.failures,
+      client,
+    });
     if (storageId !== null) {
       await ctx.runMutation(internal.evidence.recordResumeKeys, {
         storageId,
@@ -593,6 +650,13 @@ async function scoreNewClaims(
     }
     for (const failure of run.failed) {
       console.warn(`evidence: claim ${failure.claimId} not recorded: ${failure.error}`);
+    }
+    if (run.deterministic.length > 0) {
+      await ctx.runMutation(internal.evidence.recordClaimFailures, {
+        clubId: found.clubId,
+        personId: found.person.id,
+        failures: run.deterministic,
+      });
     }
     if (run.written.length === 0) continue;
     const stored = await ctx.runMutation(internal.evidence.storeJudgments, {

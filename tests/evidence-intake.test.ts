@@ -74,6 +74,8 @@ interface JevOptions {
   model?: string;
   level?: (text: string) => number;
   delay?: () => Promise<void>;
+  // "invariant": a response with no role, rejected the same way every time. "transient": a 503.
+  fail?: (text: string) => "invariant" | "transient" | null;
 }
 
 function levelBlock(score: number) {
@@ -129,6 +131,8 @@ class FakeJev {
         this.claimCalls += 1;
         const text = String(request.state.text);
         this.texts.push(text);
+        const failure = this.options.fail?.(text) ?? null;
+        if (failure === "transient") throw new Error("Jev request failed: 503");
         const score = (this.options.level ?? defaultLevel)(text);
         let answers: unknown;
         if ("selectivity" in request.questions) {
@@ -142,16 +146,19 @@ class FakeJev {
             claim_class: classBlock("output"),
             difficulty: levelBlock(score),
             scale: levelBlock(score),
-            role: {
-              choice: "major_contributor",
-              confidence: 0.9,
-              probabilities: {
-                original_author: 0,
-                major_contributor: 1,
-                maintainer: 0,
-                minor_part: 0,
-              },
-            },
+            role:
+              failure === "invariant"
+                ? undefined
+                : {
+                    choice: "major_contributor",
+                    confidence: 0.9,
+                    probabilities: {
+                      original_author: 0,
+                      major_contributor: 1,
+                      maintainer: 0,
+                      minor_part: 0,
+                    },
+                  },
           };
         } else {
           answers = { claim_class: classBlock("output") };
@@ -763,6 +770,69 @@ describe("class year", () => {
     expect(warn.mock.calls.map(([message]) => String(message))).toContain(
       `evidence: ${PERSON} s0 snapshot ${String(s0?.id)} has no class year`,
     );
+  });
+});
+
+describe("failed claim judgments", () => {
+  const RESUME_FLAKY = [RESUME_ONE, "- Wrote a flaky widget"].join("\n");
+  const flaky = (text: string) => /flaky/.test(text);
+  const flakyCalls = (jev: FakeJev) => jev.texts.filter(flaky).length;
+
+  async function brokenRubric() {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    afterEachOnce(() => warn.mockRestore());
+    const w = world({ github: null });
+    w.state.jev = new FakeJev({ fail: (text) => (flaky(text) ? "invariant" : null) });
+    await w.upload(RESUME_FLAKY);
+    await w.intake();
+    return w;
+  }
+
+  test("a deterministic failure is billed once across two checks under one spec version, and the snapshot is still written", async () => {
+    const w = await brokenRubric();
+    expect(flakyCalls(w.state.jev)).toBe(1);
+    const markers = w.d.db.rows("claimJudgmentFailures");
+    expect(markers.length).toBe(1);
+    const stored = w.parsed();
+    expect(stored.some((j) => /flaky/.test(JSON.stringify(j.record)))).toBe(false);
+
+    setSystemTime(day(61));
+    await w.daily();
+    setSystemTime(day(80));
+    await w.check();
+    expect(flakyCalls(w.state.jev)).toBe(1);
+    expect(w.d.db.rows("claimJudgmentFailures")).toEqual(markers);
+    const [s0] = w.snapshots("s0");
+    expect(Number(s0?.claimCount)).toBe(stored.length);
+  });
+
+  test("a spec bump retries a recorded failure, which can then succeed", async () => {
+    const w = await brokenRubric();
+    const [marker] = w.d.db.rows("claimJudgmentFailures");
+    if (!marker) throw new Error("no failure marker");
+    await w.d.db.patch(marker._id, { specId: "career-evidence@1.2.3:00000000" });
+    const before = w.judgments().length;
+    w.state.jev = new FakeJev();
+
+    await w.check();
+    expect(flakyCalls(w.state.jev)).toBe(1);
+    expect(w.judgments().length).toBe(before + 1);
+  });
+
+  test("a transient failure is not recorded and is retried", async () => {
+    const w = world({ github: null });
+    let outage = true;
+    w.state.jev = new FakeJev({ fail: (text) => (outage && flaky(text) ? "transient" : null) });
+    await w.upload(RESUME_FLAKY);
+    await expect(w.intake()).rejects.toThrow("503");
+    expect(w.d.db.rows("claimJudgmentFailures").length).toBe(0);
+
+    outage = false;
+    const before = flakyCalls(w.state.jev);
+    await w.check();
+    expect(flakyCalls(w.state.jev)).toBe(before + 1);
+    const keys = w.d.db.rows("resumeVersions")[0]?.evidenceKeys as string[] | undefined;
+    expect(w.parsed().length).toBe(keys?.length ?? -1);
   });
 });
 

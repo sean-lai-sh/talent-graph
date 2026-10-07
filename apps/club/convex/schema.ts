@@ -325,6 +325,17 @@ export default defineSchema({
     .index("by_record", ["recordId"])
     .index("by_person", ["personId"])
     .index("by_person_and_evidence_key", ["personId", "evidenceKey"]),
+  // A claim whose judgment failed deterministically under a spec version: not re-billed
+  // while that version is current, retried once the spec (or its rubric hash) changes.
+  claimJudgmentFailures: defineTable({
+    clubId,
+    personId: v.string(),
+    evidenceKey: v.string(),
+    specId: v.string(),
+    requestFingerprint: v.string(),
+    error: v.string(),
+    failedAt: v.string(),
+  }).index("by_person_and_evidence_key", ["personId", "evidenceKey", "specId"]),
   evidenceSnapshots: defineTable({
     clubId,
     id: v.string(),

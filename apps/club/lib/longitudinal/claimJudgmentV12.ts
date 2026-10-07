@@ -79,12 +79,21 @@ export interface ClaimEvidence {
   jobDatesFor?(claim: ScoredClaimV12, line: JobClaimLine): JobDateFields;
 }
 
+export interface ClaimFailure {
+  evidenceKey: string;
+  specId: string;
+  requestFingerprint: string;
+  error: string;
+}
+
 export interface ClaimJudgmentRun {
   written: ClaimJudgment[];
   // The evidence key of every claim the evidence produced: written, skipped or failed.
   keys: string[];
   skipped: number;
   failed: { claimId: string; error: string }[];
+  // The failures a retry under the same spec would repeat (a JudgmentInvariantError).
+  deterministic: ClaimFailure[];
   calls: number;
 }
 
@@ -135,6 +144,7 @@ export async function judgeClaimsV12(input: {
   personId: string;
   evidence: ClaimEvidence;
   known: readonly ClaimJudgment[];
+  knownFailures?: readonly ClaimFailure[];
   client: JevClaimClientV12;
   spec?: CareerEvidenceV12Spec;
   now?: () => Date;
@@ -153,6 +163,12 @@ export async function judgeClaimsV12(input: {
     if (judgment.probe) cache.set(judgment.probe.requestFingerprint, judgment.probe);
   }
   const failures = new Map<string, string>();
+  const deterministic = new Set<string>();
+  for (const failure of input.knownFailures ?? []) {
+    if (failure.specId !== specId) continue;
+    failures.set(failure.requestFingerprint, failure.error);
+    deterministic.add(failure.requestFingerprint);
+  }
   let sequence: { fingerprint: string; probe: boolean }[] = [];
   let lastFingerprint: string | null = null;
 
@@ -214,6 +230,7 @@ export async function judgeClaimsV12(input: {
       ) {
         cache.delete(lastFingerprint);
         failures.set(lastFingerprint, error.message);
+        deterministic.add(lastFingerprint);
         continue;
       }
       throw error;
@@ -230,7 +247,14 @@ export async function judgeClaimsV12(input: {
   const lineById = new Map(evidence.lines.map((line) => [line.id, line]));
   const configHash = claimValueV12ConfigHash(CLAIM_VALUE_V1_2_0);
   const seedHash = companySeedHash();
-  const run: ClaimJudgmentRun = { written: [], keys: [], skipped: 0, failed: [], calls };
+  const run: ClaimJudgmentRun = {
+    written: [],
+    keys: [],
+    skipped: 0,
+    failed: [],
+    deterministic: [],
+    calls,
+  };
   const seen = new Set<string>();
   let probeIndex = -1;
   let scoringIndex = 0;
@@ -250,11 +274,22 @@ export async function judgeClaimsV12(input: {
     const item = evidence.evidenceItemFor(claim, line);
     const evidenceKey = evidenceKeyFor(input.personId, item);
     run.keys.push(evidenceKey);
-    const failure =
-      failures.get(entry.fingerprint) ??
-      (probeFingerprint === undefined ? undefined : failures.get(probeFingerprint));
-    if (failure !== undefined) {
-      run.failed.push({ claimId: claim.id, error: failure });
+    const failedFingerprint = failures.has(entry.fingerprint)
+      ? entry.fingerprint
+      : probeFingerprint !== undefined && failures.has(probeFingerprint)
+        ? probeFingerprint
+        : undefined;
+    if (failedFingerprint !== undefined) {
+      const error = failures.get(failedFingerprint) ?? "";
+      run.failed.push({ claimId: claim.id, error });
+      if (deterministic.has(failedFingerprint)) {
+        run.deterministic.push({
+          evidenceKey,
+          specId,
+          requestFingerprint: failedFingerprint,
+          error,
+        });
+      }
       continue;
     }
     if (knownKeys.has(evidenceKey) || seen.has(evidenceKey)) {
