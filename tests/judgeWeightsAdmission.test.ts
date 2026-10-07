@@ -660,6 +660,16 @@ describe("member referrals and interview yeses rank on every channel", () => {
     expect(r.position("alice")?.position).toBe(1);
     expect(r.terms.map((t) => t.judgeId)).toEqual(["alice"]);
   });
+
+  test("an outbound yes before a late member referral is position 1, the referral position 2", () => {
+    const r = council("outbound", [
+      { by: "carol", at: 1, as: "yes" },
+      { by: "alice", at: 2, as: "referral" },
+    ]);
+    expect(r.position("carol")?.position).toBe(1);
+    expect(r.position("alice")?.position).toBe(2);
+    expect(r.terms.map((t) => t.judgeId)).toEqual(["carol", "alice"]);
+  });
 });
 
 describe("history and old documents", () => {
