@@ -11,7 +11,7 @@ import { type LoadedSpecs, loadSpecs } from "../src/config.ts";
 import {
   type AdmissionObservations,
   type Channel,
-  firstDecisions,
+  scoringDecisions,
 } from "../src/judges/admission.ts";
 import { judgeWeightOptions } from "../src/judges/reliability.ts";
 import { runJudgeCalibration } from "../src/models/definitions/judgeReliability.ts";
@@ -125,7 +125,7 @@ describe("2.0.0 run ids do not move when the club hands over admission observati
 });
 
 describe("decisions recorded at the same instant", () => {
-  test("the first council decision is the one recorded first, not the newest snapshot", () => {
+  test("a referral is scored on the decision recorded first, not the newest snapshot", () => {
     const at = "2026-06-01T00:00:00.000Z";
     const snap = (decision: string): ClubSnapshot => ({
       id: `snap:bob:${decision}:${at}`,
@@ -136,8 +136,9 @@ describe("decisions recorded at the same instant", () => {
       createdAt: at,
     });
     const state: ClubState = { ...emptyState(at), snapshots: [snap("denied"), snap("admitted")] };
-    const first = firstDecisions(admissionObservations(state).decisions, new Date(at));
-    expect(first.get("bob")?.outcome).toBe("admitted");
+    const ref = { id: "r-alice", candidateId: "bob", createdAt: new Date(at) };
+    const scored = scoringDecisions([ref], admissionObservations(state).decisions, new Date(at));
+    expect(scored.get("r-alice")?.outcome).toBe("admitted");
   });
 });
 

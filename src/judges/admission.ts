@@ -113,25 +113,40 @@ export function referralPositions(
   return out;
 }
 
-export function firstDecisions(
+/**
+ * The council decision each referral is scored on: the first one on its
+ * candidate at or after the referral was made. A later decision or reversal
+ * never changes a referral already scored. Decisions at the same instant keep
+ * their input order.
+ */
+export function scoringDecisions(
+  referrals: readonly Pick<Referral, "id" | "candidateId" | "createdAt">[],
   decisions: readonly CouncilDecision[],
   now: Date,
 ): Map<string, CouncilDecision> {
-  const out = new Map<string, CouncilDecision>();
+  const byCandidate = new Map<string, CouncilDecision[]>();
   const live = decisions.filter((d) => d.at.getTime() <= now.getTime());
-  for (const d of [...live].sort((a, b) => a.at.getTime() - b.at.getTime())) {
-    if (!out.has(d.candidateId)) out.set(d.candidateId, d);
+  for (const d of live.sort((a, b) => a.at.getTime() - b.at.getTime())) {
+    const list = byCandidate.get(d.candidateId) ?? [];
+    list.push(d);
+    byCandidate.set(d.candidateId, list);
+  }
+  const out = new Map<string, CouncilDecision>();
+  for (const r of referrals) {
+    const d = byCandidate.get(r.candidateId)?.find((x) => x.at.getTime() >= r.createdAt.getTime());
+    if (d !== undefined) out.set(r.id, d);
   }
   return out;
 }
 
+/** Each decision counts once, however many referrals it scores. */
 export function channelAdmitRates(
-  first: ReadonlyMap<string, CouncilDecision>,
+  scoring: Iterable<CouncilDecision>,
   channels: ReadonlyMap<string, Channel>,
   spec: Pick<AdmissionSpec, "priorAdmitRate" | "priorAdmitWeight">,
 ): Record<Channel, number> {
   const count = { inbound: { admitted: 0, total: 0 }, outbound: { admitted: 0, total: 0 } };
-  for (const d of first.values()) {
+  for (const d of new Set(scoring)) {
     const c = count[channels.get(d.candidateId) ?? DEFAULT_CHANNEL];
     c.total++;
     if (d.outcome === "admitted") c.admitted++;
@@ -159,15 +174,15 @@ export function computeAdmission(
   now: Date,
 ): AdmissionResult {
   const positions = referralPositions(referrals, observations, spec);
-  const first = firstDecisions(observations.decisions, now);
-  const admitRate = channelAdmitRates(first, observations.channels, spec);
+  const positioned = referrals.filter((r) => positions.has(r.id));
+  const scoredOn = scoringDecisions(positioned, observations.decisions, now);
+  const admitRate = channelAdmitRates(scoredOn.values(), observations.channels, spec);
   const terms: AdmissionTerm[] = [];
   const sumByJudge = new Map<string, number>();
   for (const r of [...referrals].sort(byTimeThenId)) {
     const pos = positions.get(r.id);
-    const d = first.get(r.candidateId);
+    const d = scoredOn.get(r.id);
     if (pos === undefined || d === undefined) continue;
-    if (r.createdAt.getTime() > d.at.getTime()) continue;
     if (d.decidedBy === r.referrerId) continue;
     if (d.unresolvedDecider?.adminReferrers.includes(r.referrerId)) continue;
     const without = d.signalWithout?.find((x) => x.referrerId === r.referrerId);
@@ -175,7 +190,7 @@ export function computeAdmission(
     const reliance = relianceOn(d.signal, without.signalWithout);
     // Admission credit for a referral without a Jev starting snapshot waits for
     // step 4 (Jev-snapshot gating), which does not exist yet; until then credit
-    // applies once the first council decision stands.
+    // applies once the referral's scoring decision stands.
     const rate = admitRate[observations.channels.get(r.candidateId) ?? DEFAULT_CHANNEL];
     const sign = admissionSign(d.outcome, rate);
     // `+ 0` turns the −0 of a denial with ρ = 1 into 0.

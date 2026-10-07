@@ -275,23 +275,37 @@ describe("admission credit", () => {
     expect(deniedSign("carol")).toBeCloseTo(-rOut / (1 - rOut), 12);
   });
 
-  test("only the first council decision counts, and a referral after it takes no credit", () => {
+  const PRIOR = ADM.priorAdmitRate * ADM.priorAdmitWeight;
+  const blended = (admitted: number, total: number) =>
+    (admitted + PRIOR) / (total + ADM.priorAdmitWeight);
+
+  test("re-application: earlier referrers carry the denial, the new referrer the admit", () => {
     const early = referral("alice", "bob", 1);
     const late = referral("carol", "bob", 40);
-    const first = decision({
+    const denial = decision({
       candidateId: "bob",
       outcome: "denied",
       at: day(30),
-      signalWithout: [{ referrerId: "alice", signalWithout: 10 }],
+      signalWithout: [{ referrerId: "alice", signalWithout: 0 }],
     });
-    const second = decision({
+    const admission = decision({
       candidateId: "bob",
       outcome: "admitted",
       at: day(60),
-      signalWithout: [],
+      signalWithout: [
+        { referrerId: "alice", signalWithout: 0 },
+        { referrerId: "carol", signalWithout: 0 },
+      ],
     });
-    const res = admit([early, late], obs([second, first]));
-    expect(res.terms.map((t) => [t.judgeId, t.decision])).toEqual([["alice", "denied"]]);
+    const res = admit([early, late], obs([admission, denial]));
+    expect(res.terms.map((t) => [t.judgeId, t.decision])).toEqual([
+      ["alice", "denied"],
+      ["carol", "admitted"],
+    ]);
+    const r = blended(1, 2);
+    expect(res.admitRate.inbound).toBeCloseTo(r, 12);
+    expect(res.terms[0]?.sign).toBeCloseTo(-r / (1 - r), 12);
+    expect(res.terms[1]?.sign).toBe(1);
     expect(res.positions.get(late.id)?.position).toBe(2);
   });
 
