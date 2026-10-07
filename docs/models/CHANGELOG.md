@@ -133,8 +133,12 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   recorded before the leave-one-judge-out signal was kept. r is the channel's
   observed admit rate over scoring decisions, with the prior counted as
   `priorAdmitWeight` decisions at `priorAdmitRate`, so it starts at 12/150 and
-  can never reach 0 or 1. S and S⁻ᵘ are the council's display-rounded signals
-  (the scale the snapshot stores).
+  can never reach 0 or 1. A decision counts once in r as soon as an
+  eligible (positioned) referral is scored on it, even when recusal, an
+  unresolved-decider admin skip, a snapshot with no `signalWithout` or a null
+  signal zeroes that referral's term, because the council outcome is real and
+  the better base-rate estimate. S and S⁻ᵘ are the council's display-rounded
+  signals (the scale the snapshot stores).
 - **Decision rule, per referral:** each referral is scored on the first
   council decision on its candidate at or after the referral was made, using
   that decision's frozen outcome, S and S⁻ᵘ. A candidate denied, reopened in a

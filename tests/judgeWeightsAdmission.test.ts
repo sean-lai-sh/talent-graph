@@ -372,6 +372,14 @@ describe("admission credit", () => {
     const res = admit([ref], obs([d]));
     expect(res.terms.map((t) => t.referralId)).toEqual([ref.id]);
   });
+
+  test("a decision whose only scored referral is recused still counts once in r", () => {
+    const ref = referral("alice", "bob", 1);
+    const d = decision({ candidateId: "bob", outcome: "admitted", decidedBy: "alice" });
+    const res = admit([ref], obs([d]));
+    expect(res.terms).toEqual([]);
+    expect(res.admitRate.inbound).toBeCloseTo(blended(1, 1), 12);
+  });
 });
 
 describe("position", () => {
