@@ -37,7 +37,7 @@ import type { LoadedSpecs } from "../config.ts";
 import { DIMENSIONS } from "../domain/constants.ts";
 import type { Comparison, Opportunity, Outcome, Person, Referral } from "../domain/types.ts";
 import type { AdmissionObservations } from "../judges/admission.ts";
-import { judgeWeightOptions } from "../judges/reliability.ts";
+import { judgeWeightedSignalOptions } from "../judges/reliability.ts";
 import { runCapabilityVectors } from "../models/definitions/bradleyTerry.ts";
 import { runJudgeCalibration } from "../models/definitions/judgeReliability.ts";
 import { runReferralSignals } from "../models/definitions/referralSignal.ts";
@@ -211,12 +211,13 @@ export function advance(
     referralSpec: specs.referral_signal,
   });
 
-  // …then the weights it produced, applied to the same Referral Signal spec.
-  // The calibration run is named as lineage, so the two runs of this kind are
-  // distinguishable by provenance rather than by a version tag.
+  // …then the weights it produced.
   const weighted = runReferralSignals(people, referrals, now, {
-    spec: specs.referral_signal,
-    ...judgeWeightOptions(calibration.outputs),
+    ...judgeWeightedSignalOptions(
+      calibration.outputs,
+      specs.judge_reliability,
+      specs.referral_signal,
+    ),
     judgeRunId: calibration.id,
   });
 
@@ -250,12 +251,15 @@ export function advance(
 function judgeWeightedArm(
   before: RunOfKind<"referral_signal"> | undefined,
   after: RunOfKind<"referral_signal"> | undefined,
+  configuredReferralSpecs: { before: string | undefined; after: string | undefined },
   beforeCalibration: RunOfKind<"judge_reliability">,
   afterCalibration: RunOfKind<"judge_reliability">,
   thresholds: DriftThresholds,
 ): DriftReport[] {
   if (before === undefined || after === undefined) return [];
-  if (before.specVersion !== after.specVersion) return [];
+  const beforeSpec = configuredReferralSpecs.before ?? before.specVersion;
+  const afterSpec = configuredReferralSpecs.after ?? after.specVersion;
+  if (beforeSpec !== afterSpec) return [];
   return [
     judgeWeightedSignalDrift(
       before.outputs,
@@ -303,7 +307,14 @@ function driftReports(
       reports.push(judgeReliabilityDrift(beforeJudges.outputs, afterJudges.outputs, measure, t));
     }
     reports.push(
-      ...judgeWeightedArm(prev.judgeWeighted, next.judgeWeighted, beforeJudges, afterJudges, t),
+      ...judgeWeightedArm(
+        prev.judgeWeighted,
+        next.judgeWeighted,
+        { before: beforeSignals?.specVersion, after: afterSignals?.specVersion },
+        beforeJudges,
+        afterJudges,
+        t,
+      ),
     );
   }
 

@@ -351,10 +351,23 @@ V0 bit-for-bit until evidence says otherwise** (asserted by tests).
   scoring comparisons as forecasts is the natural extension.
 
 ```ts
-import { computeJudgeCalibration, judgeWeightOptions, computeAllReferralSignals } from "talent-graph";
+import {
+  CURRENT_SPECS,
+  computeAllReferralSignals,
+  computeJudgeCalibration,
+  judgeWeightedSignalOptions,
+} from "talent-graph";
 
-const calibration = computeJudgeCalibration({ people, referrals, outcomes, opportunities, now: T });
-const weighted = computeAllReferralSignals(people, referrals, judgeWeightOptions(calibration));
+const { judge_reliability: judgeSpec, referral_signal: referralSpec } = CURRENT_SPECS;
+const calibration = computeJudgeCalibration({
+  people, referrals, outcomes, opportunities, now: T, spec: judgeSpec, referralSpec,
+});
+// The weights and the spec they aggregate under: 0.2.0 + c0 for a "v4" judge spec.
+const weighted = computeAllReferralSignals(
+  people,
+  referrals,
+  judgeWeightedSignalOptions(calibration, judgeSpec, referralSpec),
+);
 ```
 
 `bun run demo` prints the calibrated judges at `T = 2026-12-31` on the seed

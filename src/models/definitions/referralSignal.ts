@@ -62,7 +62,14 @@ export const referralSignalModel = defineModel<
   // so a future scoring option (a `weighting`, which would have to be
   // recorded by its stable `kind`, never by its closures) arrives as a loud
   // error rather than as a silent collision between two different numbers.
-  recordedOptionKeys: ["spec", "topK", "judgeReliability", "judgeBias", "judgeRunId"],
+  recordedOptionKeys: [
+    "spec",
+    "topK",
+    "judgeReliability",
+    "judgeBias",
+    "judgeRunId",
+    "pseudoWeight",
+  ],
   resolveOptions: (spec, opts) => {
     // An id with no weights behind it names an upstream run that never
     // touched a number: nothing to digest, so nothing would enter the hash
@@ -78,6 +85,7 @@ export const referralSignalModel = defineModel<
       parameters: {
         spec,
         topK: opts.topK ?? spec.topK,
+        ...(opts.pseudoWeight === undefined ? {} : { pseudoWeight: opts.pseudoWeight }),
       },
       // The weight maps are a calibration run's output, not a call-site
       // option, so they are recorded once — as a digest of the values

@@ -66,7 +66,7 @@ export interface DriftMover {
  * - `weight`: w_u, the weight admins see. Under mode "v2" there is no
  *   separate w: p̂_u is the weight, so p̂_u is what is compared.
  * - `omega`: the weight the signal is actually multiplied by, as
- *   `reliabilityWeights` hands it over: ω_u under "v4", p̂_u under "v2".
+ *   `judgeWeightedSignalOptions` hands it over: ω_u under "v4", p̂_u under "v2".
  */
 export type JudgeDriftMeasure = "reliability" | "bias" | "weight" | "omega";
 
@@ -321,7 +321,8 @@ export function referralSignalDrift(
 /**
  * The weighted-signal arm of a `judge_reliability` comparison: two
  * judge-weighted Referral Signal runs, one per calibration spec, with the
- * same referral spec on both sides.
+ * same configured referral spec on both sides. The weighted runs' own versions
+ * may differ (0.2.0 under a "v4" calibration, 0.1.0 under "v2").
  *
  * It is a Referral Signal comparison in every respect that matters to the
  * statistics — same signal space, same thresholds, same verdict rules, all

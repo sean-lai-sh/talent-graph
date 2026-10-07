@@ -134,7 +134,7 @@ describe("registry", () => {
   });
 
   test("specVersions and specId", () => {
-    expect(specVersions("referral_signal")).toEqual(["0.1.0"]);
+    expect(specVersions("referral_signal")).toEqual(["0.1.0", "0.2.0"]);
     expect(specId(BRADLEY_TERRY_V1_0_0)).toBe("bradley_terry@1.0.0");
   });
 
