@@ -167,11 +167,13 @@ export function githubVersionsToScore(
     const current = versionDigest(artifact.item.statement);
     let latest = stored.get(sourceId);
     if (latest === undefined) {
-      items.push({ ...artifact.created, sourceId });
-      latest = {
-        publishedAt: artifact.created.publishedAt,
-        versionDigest: versionDigest(artifact.created.statement),
-      };
+      // An artifact unchanged since its creation still carries its creation-time text,
+      // so that text is the first version, dated at creation.
+      const first = Date.parse(artifact.changedAt) > Date.parse(artifact.created.publishedAt)
+        ? artifact.created
+        : { ...artifact.item, publishedAt: artifact.created.publishedAt };
+      items.push({ ...first, sourceId });
+      latest = { publishedAt: first.publishedAt, versionDigest: versionDigest(first.statement) };
       if (latest.versionDigest === current) continue;
     } else if (latest.versionDigest === current) {
       unchanged += 1;

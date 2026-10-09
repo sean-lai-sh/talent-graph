@@ -1323,6 +1323,23 @@ describe("GitHub evidence", () => {
     expect(w.judgments().length).toBe(1);
   });
 
+  test("a description unchanged since creation is scored once, dated at creation", async () => {
+    const w = world();
+    const description = "Zephyrine quantum lamp orchestration";
+    w.state.repos = [repo({ description, updated_at: "2025-01-10T10:00:00Z" })];
+    await w.intake();
+    const github = w.parsed().filter((j) => j.claim.source === "github");
+    expect(github.length).toBe(1);
+    expect(github[0]?.claim.jobDates.startedAt).toBe("2025-01-10");
+    expect(w.state.jev.texts.some((text) => text.includes("Zephyrine"))).toBe(true);
+
+    const calls = w.state.jev.claimCalls;
+    setSystemTime(day(30));
+    await w.check();
+    expect(w.state.jev.claimCalls).toBe(calls);
+    expect(w.judgments().length).toBe(1);
+  });
+
   test("the creation-time claim never contains the description", async () => {
     const description = "Zephyrine quantum lamp orchestration";
     const artifacts = await fetchGitHubArtifacts("alice", new Date(0), day(400), async (url) =>
