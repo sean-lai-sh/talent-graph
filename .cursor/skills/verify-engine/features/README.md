@@ -46,3 +46,15 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Demo judge calibration](./demo-judge-calibration.md) covers V2 labels and the V0 → V2 Referral Signal table.
 - [Demo longitudinal progress](./demo-longitudinal-progress.md) covers per-case checkpoints and reporting-only residual slopes.
 - [Drift](./drift.md) covers same-spec STABLE, usage errors, and an `env` override preview.
+- [Judge weights v4](./judge-weights-v4.md) covers `judge_reliability@4.0.0` through drift: v4 → v4 is STABLE across 5 reports, v2 → v2 across 3, and v2 → v4 is BREAKING with exit 1. It also checks that `demo` still shows v2 is current.
+- [Config module](./config-module.md) covers `check:config`, `check:config-gen` and stale-module detection for the generated config.
+
+## Not user-reachable yet
+
+- **Evidence-only substance (`outputOnlyRollup`, PR #118, SEA-80).** It's merged, but no CLI or screen calls it yet. Its first user path is the club's evidence snapshots (PR #122, SEA-81), verified through verify-club. Until then, its proof is its tests (`tests/outputOnly*.test.ts`), not a demo run. Don't write a scratch script and call it a demo proof.
+
+## Coming with open PRs (add a recipe when each merges)
+
+- **PR #120, SEA-79: `judge_reliability@4.1.0`, admission credit.** Add `jw4.1-same` (4.1.0 → 4.1.0 is STABLE) and a 4.0.0 → 4.1.0 run, recording its verdict. Until #120 merges, `--after 4.1.0` throws from the registry.
+- **PR #123, SEA-83: `referral_signal@0.2.0`, the weight-normalised signal.** Add `rs0.2-same`, plus `--kind referral_signal --before 0.1.0 --after 0.2.0` with its verdict recorded. Re-run `jw2-to-4` afterwards: the weighted-signal arm should move much less than it does today.
+- **The `CURRENT_SPECS` switch to 4.x** is Sean's call. When it happens, `demo`'s V0 → V2 pins change. Update the Cleo `12 → 7` pin in [Demo judge calibration](./demo-judge-calibration.md) and in `jw-not-current` to the new values, and say why in the commit.
