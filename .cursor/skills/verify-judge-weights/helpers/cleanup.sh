@@ -8,7 +8,16 @@ if [[ ! -f "$JW_CURRENT" ]]; then
   exit 0
 fi
 
-jw_read_meta
+# Launch can fail before convex_url exists. Still stop the process we started.
+JW_RUN_ID="$(cat "$JW_CURRENT")"
+JW_RUN_DIR="$JW_RUNS/$JW_RUN_ID"
+JW_EVIDENCE_DIR="$JW_EVIDENCE/$JW_RUN_ID"
+if [[ ! -d "$JW_RUN_DIR" ]]; then
+  rm -f "$JW_CURRENT"
+  echo "verify-judge-weights: current run directory already gone"
+  exit 0
+fi
+
 CONVEX_PID=""
 CONVEX_MARK="convex dev"
 if [[ -f "$JW_RUN_DIR/convex_pid" ]]; then
@@ -18,7 +27,8 @@ if [[ -f "$JW_RUN_DIR/convex_mark" ]]; then
   CONVEX_MARK="$(cat "$JW_RUN_DIR/convex_mark")"
 fi
 
-if [[ -f "$CLUB_SKILL/runs/current" ]]; then
+# Only stop Club when this run launched it. An early Convex failure has no club_run.
+if [[ -f "$JW_RUN_DIR/club_run" && -f "$CLUB_SKILL/runs/current" ]]; then
   "$CLUB_SKILL/helpers/cleanup.sh" || true
 fi
 
