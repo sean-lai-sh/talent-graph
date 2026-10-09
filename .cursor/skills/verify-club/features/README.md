@@ -53,3 +53,18 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Info](./info.md) covers the underlined `info` on `/` and the `/info` note.
 - [Dev seed local backend](./dev-seed.md) covers signing in as an `@example.test` account against a local Convex backend seeded with `bun run seed:dev`. The seed creates member referrers only. `helpers/provision-local-admin.sh` creates the council admin after the loopback check. Doctor refuses this mode when the Convex URL is not local.
 - [Referral ladder](./referral-ladder.md) covers Q1–Q3 and the Ladder comparison step on `/demo/home` and on the signed-in member flow.
+
+## Coming with open PRs (add a recipe when each merges)
+
+These change what the Club does. The design and its rules are in Linear: "Judge weights explained (start here)" and SEA-77. Until a PR merges, its behaviour isn't on `main`, so don't claim it verified.
+
+- **PR #120, SEA-79: admission credit, positions, calls, recognition question.** Recipe `judge-admission.md`: as an admin on the local backend, decide a case, then confirm the stored decision snapshot has `decidedBy` (the deciding admin's person) and a `signalWithout` entry per referrer. Also confirm that an admin who matches no person writes the fail-closed marker. Extend [Referral ladder](./referral-ladder.md) with the recognition question (optional, stored as `not_sure` when blank) once SEA-84 adds its UI.
+- **PR #122, SEA-81: evidence intake and snapshots.** Recipe `evidence-snapshots.md`, against the local backend only. For a seeded candidate with an uploaded resume PDF:
+  - claim lines are extracted;
+  - Jev 1.2 records are stored in `jevJudgments`;
+  - the cron writes an `s0` row in `evidenceSnapshots`;
+  - a cron run twice writes once;
+  - late pre-referral evidence writes a correction row, never an edited row.
+- **PR #123, SEA-83: weight-normalised Referral Signal.** Shows in the Club only after the `CURRENT_SPECS` switch (Sean's call). Then re-check the Referral Signal numbers on [Review board](./review-board.md) and update any pinned values.
+- **Frontend tickets:** SEA-84 (refer an existing person), SEA-87 (cohort pages), SEA-88 (judge weights for admins). Each ticket adds its own recipe. SEA-88's must prove a member's network payload carries no weight fields.
+
