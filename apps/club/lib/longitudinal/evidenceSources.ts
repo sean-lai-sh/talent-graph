@@ -169,9 +169,10 @@ export function githubVersionsToScore(
     if (latest === undefined) {
       // An artifact unchanged since its creation still carries its creation-time text,
       // so that text is the first version, dated at creation.
-      const first = Date.parse(artifact.changedAt) > Date.parse(artifact.created.publishedAt)
-        ? artifact.created
-        : { ...artifact.item, publishedAt: artifact.created.publishedAt };
+      const first =
+        Date.parse(artifact.changedAt) > Date.parse(artifact.created.publishedAt)
+          ? artifact.created
+          : { ...artifact.item, publishedAt: artifact.created.publishedAt };
       items.push({ ...first, sourceId });
       latest = { publishedAt: first.publishedAt, versionDigest: versionDigest(first.statement) };
       if (latest.versionDigest === current) continue;
