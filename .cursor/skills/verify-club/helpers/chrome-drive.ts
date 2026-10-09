@@ -124,6 +124,8 @@ async function ensureChrome(): Promise<ChromeMeta> {
     [
       "--headless=new",
       "--disable-gpu",
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
       "--no-first-run",
       `--remote-debugging-port=${debugPort}`,
       `--user-data-dir=${userData}`,
@@ -242,10 +244,104 @@ function flattenAx(nodes: AxNode[]): string {
   return `${lines.join("\n")}\n`;
 }
 
-const [cmd, arg] = process.argv.slice(2);
+function redact(text: string): string {
+  const secret = process.env.VERIFY_CLUB_REDACT ?? "";
+  let out = text.replace(/"password"\s*:\s*"[^"]*"/g, '"password":"[redacted]"');
+  if (secret.length >= 8) out = out.split(secret).join("[redacted]");
+  return out;
+}
+
+type Captured = { url: string; status: number; mime: string; body: string };
+type Frame = { payload: string };
+
+async function capturePage(wsUrl: string, url: string, outdir: string): Promise<void> {
+  mkdirSync(outdir, { recursive: true });
+  const ws = new WebSocket(wsUrl);
+  await new Promise<void>((ok, err) => {
+    ws.addEventListener("open", () => ok());
+    ws.addEventListener("error", () => err(new Error("cdp socket error")));
+  });
+  let nextId = 1;
+  const pending = new Map<
+    number,
+    { ok: (v: unknown) => void; err: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
+  >();
+  const responses = new Map<string, { url: string; status: number; mime: string }>();
+  const frames: Frame[] = [];
+  let loaded = false;
+  ws.addEventListener("message", (ev) => {
+    const msg = JSON.parse(String(ev.data)) as {
+      id?: number;
+      result?: unknown;
+      error?: { message: string };
+      method?: string;
+      params?: {
+        requestId?: string;
+        response?: { url?: string; status?: number; mimeType?: string; payloadData?: string };
+      };
+    };
+    if (msg.method === "Page.loadEventFired") loaded = true;
+    if (msg.method === "Network.responseReceived" && msg.params?.requestId) {
+      responses.set(msg.params.requestId, {
+        url: msg.params.response?.url ?? "",
+        status: msg.params.response?.status ?? 0,
+        mime: msg.params.response?.mimeType ?? "",
+      });
+    }
+    if (msg.method === "Network.webSocketFrameReceived") {
+      const payload = msg.params?.response?.payloadData ?? "";
+      if (payload) frames.push({ payload: redact(payload).slice(0, 200_000) });
+    }
+    if (msg.id == null) return;
+    const slot = pending.get(msg.id);
+    if (!slot) return;
+    clearTimeout(slot.timer);
+    pending.delete(msg.id);
+    if (msg.error) slot.err(new Error(msg.error.message));
+    else slot.ok(msg.result);
+  });
+  const send = <R>(method: string, params?: Record<string, unknown>) =>
+    new Promise<R>((ok, err) => {
+      const id = nextId++;
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        err(new Error(`cdp timeout: ${method}`));
+      }, 15000);
+      pending.set(id, { ok: (v) => ok(v as R), err, timer });
+      ws.send(JSON.stringify({ id, method, params: params ?? {} }));
+    });
+  try {
+    await send("Network.enable");
+    await send("Page.enable");
+    await send("Page.navigate", { url });
+    for (let i = 0; i < 40 && !loaded; i++) await Bun.sleep(250);
+    await Bun.sleep(3000);
+    const bodies: Captured[] = [];
+    for (const [requestId, info] of responses) {
+      try {
+        const result = await send<{ body: string; base64Encoded?: boolean }>(
+          "Network.getResponseBody",
+          { requestId },
+        );
+        const text = result.base64Encoded
+          ? Buffer.from(result.body, "base64").toString("utf8")
+          : result.body;
+        bodies.push({ ...info, body: redact(text).slice(0, 200_000) });
+      } catch {
+        bodies.push({ ...info, body: "" });
+      }
+    }
+    writeFileSync(resolve(outdir, "bodies.json"), `${JSON.stringify(bodies)}\n`);
+    writeFileSync(resolve(outdir, "frames.json"), `${JSON.stringify(frames)}\n`);
+  } finally {
+    ws.close();
+  }
+}
+
+const [cmd, arg, extra] = process.argv.slice(2);
 if (!cmd) {
   console.error(
-    "usage: chrome-drive.ts goto|screenshot|click-name|type-label|wait-name|text|aria …",
+    "usage: chrome-drive.ts goto|screenshot|click-name|type-label|wait-name|text|aria|links|capture …",
   );
   process.exit(2);
 }
@@ -402,6 +498,27 @@ if (cmd === "goto") {
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, flattenAx(tree.nodes ?? []));
   console.log(`verify-club chrome: aria ${out}`);
+} else if (cmd === "links") {
+  if (!arg) throw new Error("links needs an outfile");
+  const result = await withCdp(meta.ws, (send) =>
+    send<{ result: { value: string[] } }>("Runtime.evaluate", {
+      expression: `(() => {
+        const hrefs = [...document.querySelectorAll("a")]
+          .map((node) => node.href)
+          .filter((href) => href.includes("/admin"));
+        return [...new Set(hrefs)];
+      })()`,
+      returnByValue: true,
+    }),
+  );
+  const out = resolve(arg);
+  mkdirSync(dirname(out), { recursive: true });
+  writeFileSync(out, `${(result.result.value ?? []).join("\n")}\n`);
+  console.log(`verify-club chrome: links ${out}`);
+} else if (cmd === "capture") {
+  if (!arg || !extra) throw new Error("capture needs a url and an outdir");
+  await capturePage(meta.ws, arg, resolve(extra));
+  console.log(`verify-club chrome: capture ${arg}`);
 } else {
   console.error(`unknown command ${cmd}`);
   process.exit(2);
