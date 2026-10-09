@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { redactSecrets, scanJsonText, type WeightHit } from "./scan.ts";
 
-const CLUB_CHROME = join(import.meta.dir, "../../../verify-club/helpers/chrome-drive.ts");
+const CLUB_CHROME = join(import.meta.dir, "../../verify-club/helpers/chrome-drive.ts");
 
 function chrome(args: string[], env: Record<string, string> = {}): void {
   const stable = "/usr/bin/google-chrome-stable";

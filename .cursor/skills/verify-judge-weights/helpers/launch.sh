@@ -151,6 +151,16 @@ else
   fi
 fi
 
+# seed-dev and provision-user call `npx convex`. Some agent images ship a
+# broken npx. A shim on PATH runs the local convex binary instead.
+mkdir -p "$RUN_DIR/bin"
+cat >"$RUN_DIR/bin/npx" <<'EOF'
+#!/bin/bash
+exec "$@"
+EOF
+chmod +x "$RUN_DIR/bin/npx"
+export PATH="$RUN_DIR/bin:$CLUB_DIR/node_modules/.bin:$PATH"
+
 AUTH_SECRET="$(openssl rand -base64 32 | tr -d '\n')"
 umask 077
 cat >"$RUN_DIR/convex.env" <<EOF
@@ -165,13 +175,18 @@ EOF
   ./node_modules/.bin/convex env set --force --from-file "$RUN_DIR/convex.env"
 ) >>"$RUN_DIR/convex.log" 2>&1
 
-(
+if ! (
   cd "$CLUB_DIR"
   unset CONVEX_DEPLOYMENT CONVEX_DEPLOY_KEY CONVEX_SELF_HOSTED_URL CONVEX_SELF_HOSTED_ADMIN_KEY
   export SEED_DEV_PASSWORD="$(cat "$RUN_DIR/password")"
   export ADMIN_PROVISION_SECRET="$(cat "$RUN_DIR/provision-secret")"
   bun scripts/seed-dev.ts
-) >>"$RUN_DIR/seed.log" 2>&1
+) >>"$RUN_DIR/seed.log" 2>&1; then
+  echo "verify-judge-weights: seed failed. last log:" >&2
+  tail -n 30 "$RUN_DIR/seed.log" >&2 || true
+  "$JW_HELPERS/cleanup.sh" || true
+  exit 1
+fi
 
 if [[ "$MODE" == "local" ]]; then
   (
