@@ -888,6 +888,45 @@ describe("class year", () => {
     expect(w.snapshots("s0")).toEqual(rows);
   });
 
+  test("a class year set while a check is in flight does not drop the check's late evidence from s0", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    afterEachOnce(() => warn.mockRestore());
+    const w = await frozenS0();
+    const [original] = w.snapshots("s0");
+
+    setSystemTime(day(65));
+    await w.upload(RESUME_TWO);
+    await w.d.call(
+      "evidence:check",
+      { personId: PERSON },
+      {
+        before: async (name: string) => {
+          if (name === "evidence:writeSnapshots") await setClassYear(w, 2027);
+        },
+      },
+    );
+    const raced = w.snapshots("s0");
+    expect(raced.length).toBe(2);
+    expect(raced[1]?.classYear).toBe(2027);
+    expect(numbers(raced[1])).toEqual(numbers(original));
+    expect(w.intakeRow().retryAfter).toBeDefined();
+    expect(
+      warn.mock.calls.some(([message]) =>
+        String(message).includes(`but the head is now ${String(raced[1]?.id)}`),
+      ),
+    ).toBe(true);
+
+    setSystemTime(day(68));
+    expect(await w.daily()).toBe(1);
+    const rows = w.snapshots("s0");
+    expect(rows.length).toBe(3);
+    expect(rows[2]?.correctsSnapshotId).toBe(String(raced[1]?.id));
+    expect(w.current("s0")).toBe(String(rows[2]?.id));
+    expect(rows[2]?.classYear).toBe(2027);
+    expect(Number(rows[2]?.claimCount)).toBeGreaterThan(Number(original?.claimCount));
+    expect(w.intakeRow().retryAfter).toBeUndefined();
+  });
+
   test("a snapshot written with a null class year warns", async () => {
     const warn = spyOn(console, "warn").mockImplementation(() => {});
     afterEachOnce(() => warn.mockRestore());

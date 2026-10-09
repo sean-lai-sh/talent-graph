@@ -383,6 +383,7 @@ export const writeSnapshots = internalMutation({
   args: { clubId: v.id("clubs"), personId: v.string(), rows: v.array(snapshotRow) },
   handler: async (ctx, { clubId, personId, rows }) => {
     let written = 0;
+    let headMoved = false;
     for (const row of rows) {
       if (row.candidateId !== personId) throw new Error("writeSnapshots: wrong candidate");
       const ofKind = await ctx.db
@@ -393,7 +394,13 @@ export const writeSnapshots = internalMutation({
         .collect();
       const current = currentSnapshot(ofKind, row.kind);
       if (current?.inputHash === row.inputHash && current.classYear === row.classYear) continue;
-      if ((current?.id ?? undefined) !== row.correctsSnapshotId) continue;
+      if ((current?.id ?? undefined) !== row.correctsSnapshotId) {
+        console.warn(
+          `evidence: ${personId} ${row.kind} snapshot ${row.id} was planned against ${row.correctsSnapshotId ?? "no snapshot"} but the head is now ${current?.id ?? "none"}; the check retries after its backoff`,
+        );
+        headMoved = true;
+        continue;
+      }
       await insertSnapshot(ctx, clubId, row);
       written += 1;
     }
@@ -401,7 +408,10 @@ export const writeSnapshots = internalMutation({
       .query("evidenceIntakes")
       .withIndex("by_person", (q) => q.eq("personId", personId))
       .unique();
-    if (intake) {
+    if (intake && headMoved) {
+      // Due now, so the daily cron re-plans against the new head once `beginCheck`'s backoff ends.
+      await ctx.db.patch(intake._id, { nextDueAt: Date.now() });
+    } else if (intake) {
       const all = await ctx.db
         .query("evidenceSnapshots")
         .withIndex("by_candidate_and_kind", (q) => q.eq("candidateId", personId))
