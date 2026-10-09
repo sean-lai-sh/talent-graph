@@ -20,6 +20,7 @@
     "club:build": "doppler run -- bun --cwd apps/club build",
     "drift": "bun run scripts/drift.ts",
     "drift:gate": "bun run scripts/drift-gate.ts",
+    "sim:judges": "bun run scripts/judgeWeightSim/run.ts",
     "club:convex": "doppler run -- bun --cwd apps/club convex:dev"
   },
   "devDependencies": {
