@@ -132,8 +132,12 @@ export interface JudgeCalibration {
   id: string;
   judgeId: string;
   dimension: Dimension | null;
-  /** p̂_u ∈ [0,1] after shrinkage. */
+  /** p̂_u ∈ [0,1] after shrinkage (p̂⁰ under judge_reliability mode "v4"). */
   reliability: number;
+  /** w_u ∈ (0,1), the weight admins see. Mode "v4" only; absent under "v2". */
+  weight?: number;
+  /** ω_u = w_u^γ, the weight the signal uses. Mode "v4" only; absent under "v2". */
+  omega?: number;
   observationCount: number;
   updatedAt: Date;
 }

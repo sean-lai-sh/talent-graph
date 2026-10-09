@@ -10,6 +10,10 @@
  *   Ē_u     ← (1 − η)·Ē_u + η·E_uv          in chronological order of evaluation
  *   p_u      = exp(−τ·Ē_u)
  *   p̂_u      = n/(n+λ)·p_u + λ/(n+λ)·μ_p     shrinkage against instant oracles
+ *   (mode "v4" only, on the r10 scale, μ0 = μ_p:)
+ *   Σ_u      = logit(clamp(p̂_u, ε, 1−ε)) − logit μ0
+ *   logit w_u = logit μ0 + T·tanh(Σ_u / T)         soft-capped, so w_u ∈ (0, 1)
+ *   ω_u      = w_u^γ                               what the signal is weighted by
  *   b_u     ← (1 − η)·b_u + η·(x_uv − truth_uv)   signed bias, shrunk toward 0
  *
  * Observation model: one prediction per (judge, candidate) pair — the earliest
@@ -32,7 +36,13 @@ import type {
   Referral,
 } from "../domain/types.ts";
 import { CURRENT_SPECS } from "../models/registry.ts";
-import { assertSpec, type JudgeReliabilitySpec, type ReferralSignalSpec } from "../models/spec.ts";
+import {
+  assertSpec,
+  type JudgeReliabilitySpec,
+  type JudgeReliabilityV4Params,
+  judgeWeightV4,
+  type ReferralSignalSpec,
+} from "../models/spec.ts";
 import { referralStrength } from "../scoring/referralStrength.ts";
 import {
   buildOutcomeCohort,
@@ -85,6 +95,10 @@ export interface JudgeReliabilityEstimate {
   rawReliability: number | null;
   /** p̂_u after shrinkage; equals the prior when nothing has been evaluated. */
   reliability: number;
+  /** w_u under mode "v4" (what admins see); absent under "v2" so v2 outputs are byte-identical. */
+  weight?: number;
+  /** ω_u = w_u^γ under mode "v4" (what the signal uses); absent under "v2". */
+  omega?: number;
   /** Running signed error, or null when nothing has been evaluated. */
   rawBias: number | null;
   /** b̂_u after shrinkage toward 0. */
@@ -109,6 +123,8 @@ export interface JudgeCalibrationRun {
     evaluatedReferrals: number;
     judgesWithEvidence: number;
     applyBiasCorrection: boolean;
+    /** Present only under "v4"; absent under "v2" so v2 outputs and run ids are unchanged. */
+    reliabilityMode?: "v4";
   };
 }
 
@@ -208,6 +224,16 @@ function shrink(n: number, value: number, prior: number, lambda: number): number
   return (n / (n + lambda)) * value + (lambda / (n + lambda)) * prior;
 }
 
+function v4Params(spec: JudgeReliabilitySpec): JudgeReliabilityV4Params {
+  const { priorReliability, softCap, weightExponent } = spec;
+  if (softCap === undefined || weightExponent === undefined) {
+    throw new Error(
+      `judge_reliability@${spec.version} is mode "v4" without softCap or weightExponent`,
+    );
+  }
+  return { priorReliability, softCap, weightExponent };
+}
+
 /** Fold scored predictions into per-judge reliability and bias estimates. */
 export function estimateJudgeReliability(
   judgeIds: readonly string[],
@@ -215,6 +241,7 @@ export function estimateJudgeReliability(
   spec: JudgeReliabilitySpec,
 ): Map<string, JudgeReliabilityEstimate> {
   const eta = spec.learningRate;
+  const v4 = spec.mode === "v4" ? v4Params(spec) : null;
   const acc = new Map<string, { n: number; e: number; b: number; ids: string[] }>();
   for (const p of predictions) {
     const cur = acc.get(p.judgeId);
@@ -239,6 +266,7 @@ export function estimateJudgeReliability(
         meanSquaredError: null,
         rawReliability: null,
         reliability: spec.priorReliability,
+        ...(v4 ? judgeWeightV4(spec.priorReliability, v4) : {}),
         rawBias: null,
         bias: 0,
         predictionIds: [],
@@ -246,12 +274,14 @@ export function estimateJudgeReliability(
       continue;
     }
     const raw = Math.exp(-spec.errorScale * a.e);
+    const reliability = shrink(a.n, raw, spec.priorReliability, spec.shrinkage);
     out.set(judgeId, {
       judgeId,
       evaluatedCount: a.n,
       meanSquaredError: a.e,
       rawReliability: raw,
-      reliability: shrink(a.n, raw, spec.priorReliability, spec.shrinkage),
+      reliability,
+      ...(v4 ? judgeWeightV4(reliability, v4) : {}),
       rawBias: a.b,
       bias: shrink(a.n, a.b, 0, spec.shrinkage),
       predictionIds: a.ids,
@@ -289,12 +319,13 @@ export function computeJudgeCalibration(input: JudgeCalibrationInput): JudgeCali
       evaluatedReferrals: predictions.length,
       judgesWithEvidence: withEvidence.length,
       applyBiasCorrection: spec.applyBiasCorrection,
+      ...(spec.mode === "v4" ? { reliabilityMode: "v4" as const } : {}),
     },
   };
 }
 
 /**
- * The V2 options to pass to `computeReferralSignal` / `computeAllReferralSignals`:
+ * The options to pass to `computeReferralSignal` / `computeAllReferralSignals`:
  * reliability always, bias only when the spec enables the correction.
  */
 export function judgeWeightOptions(run: JudgeCalibrationRun): {
@@ -307,9 +338,24 @@ export function judgeWeightOptions(run: JudgeCalibrationRun): {
     : { judgeReliability };
 }
 
-/** p̂_u per judge, in the form `computeReferralSignal` accepts. */
+/**
+ * The per-judge weight in the form `computeReferralSignal` accepts: ω_u under
+ * mode "v4", p̂_u exactly (no clamp) under "v2". A "v4" estimate without ω is a
+ * broken run, and throws rather than falling through to full weight.
+ */
 export function reliabilityWeights(run: JudgeCalibrationRun): Map<string, number> {
-  return new Map([...run.estimates.values()].map((e) => [e.judgeId, e.reliability]));
+  const v4 = run.options.reliabilityMode === "v4";
+  return new Map(
+    [...run.estimates.values()].map((e) => {
+      if (!v4) return [e.judgeId, e.reliability];
+      if (e.omega === undefined) {
+        throw new Error(
+          `judge ${e.judgeId} has no omega in a mode "v4" run (${run.options.specVersion})`,
+        );
+      }
+      return [e.judgeId, e.omega];
+    }),
+  );
 }
 
 /** b̂_u per judge, in the form `computeReferralSignal` accepts. */
@@ -317,13 +363,30 @@ export function biasCorrections(run: JudgeCalibrationRun): Map<string, number> {
   return new Map([...run.estimates.values()].map((e) => [e.judgeId, e.bias]));
 }
 
-/** Persistable JudgeCalibration record for an application's store. */
-export function toJudgeCalibration(e: JudgeReliabilityEstimate, updatedAt: Date): JudgeCalibration {
+/**
+ * Persistable JudgeCalibration record for an application's store.
+ * `reliability` stays p̂ (p̂⁰ under "v4"). Under mode "v4" w and ω are required
+ * and a missing one throws, so a broken run never persists as a "v2" record;
+ * under "v2" the record has exactly the keys it always had.
+ */
+export function toJudgeCalibration(
+  e: JudgeReliabilityEstimate,
+  options: JudgeCalibrationRun["options"],
+  updatedAt: Date,
+): JudgeCalibration {
+  const v4 = options.reliabilityMode === "v4";
+  if (v4 && (e.weight === undefined || e.omega === undefined)) {
+    const missing = e.weight === undefined ? "weight" : "omega";
+    throw new Error(
+      `judge ${e.judgeId} has no ${missing} in a mode "v4" run (${options.specVersion})`,
+    );
+  }
   return {
     id: `jc:${e.judgeId}`,
     judgeId: e.judgeId,
     dimension: null,
     reliability: e.reliability,
+    ...(v4 ? { weight: e.weight, omega: e.omega } : {}),
     observationCount: e.evaluatedCount,
     updatedAt: new Date(updatedAt.getTime()),
   };

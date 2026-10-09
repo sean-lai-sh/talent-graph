@@ -14,10 +14,15 @@ import {
 } from "../src/analysis/drift.ts";
 import { loadSpecs } from "../src/config.ts";
 import { computeCapabilityVectors } from "../src/inference/capabilityVector.ts";
-import { computeJudgeCalibration, judgeWeightOptions } from "../src/judges/reliability.ts";
+import {
+  computeJudgeCalibration,
+  judgeWeightOptions,
+  reliabilityWeights,
+} from "../src/judges/reliability.ts";
 import {
   BRADLEY_TERRY_V1_0_0,
   JUDGE_RELIABILITY_V2_0_0,
+  JUDGE_RELIABILITY_V4_0_0,
   REFERRAL_SIGNAL_V0_1_0,
 } from "../src/models/registry.ts";
 import type { ReferralSignalSpec } from "../src/models/spec.ts";
@@ -269,6 +274,124 @@ describe("judgeReliabilityDrift", () => {
     const r = judgeReliabilityDrift(calibration, shorter);
     expect(r.labels).toEqual({ before: "2.0.0", after: "2.1.0" });
     expect(["stable", "review", "breaking"]).toContain(r.verdict);
+  });
+});
+
+describe("judgeReliabilityDrift on w and ω", () => {
+  const T = new Date("2026-12-31T00:00:00.000Z");
+  const calibrate = (spec = JUDGE_RELIABILITY_V2_0_0) =>
+    computeJudgeCalibration({
+      people: data.people,
+      referrals: data.referrals,
+      outcomes: data.outcomes,
+      opportunities: data.opportunities,
+      now: T,
+      spec,
+    });
+  const v2 = calibrate();
+  const v4 = calibrate(JUDGE_RELIABILITY_V4_0_0);
+  const evaluated = (run: typeof v4) =>
+    [...run.estimates.values()].filter((e) => e.evaluatedCount >= 1);
+  const moverOf = (r: ReturnType<typeof judgeReliabilityDrift>, judgeId: string) =>
+    r.largestMovers.find((m) => m.personId === judgeId);
+
+  test("v4 against itself is stable on w and ω", () => {
+    for (const measure of ["weight", "omega"] as const) {
+      const r = judgeReliabilityDrift(v4, v4, measure);
+      expect(r.measure).toBe(measure);
+      expect(r.verdict).toBe("stable");
+      expect(r.maxAbsShift).toBe(0);
+      expect(r.n).toBe(v4.estimates.size);
+      expect(formatDriftReport(r)).toContain(`judge_reliability · ${measure}`);
+    }
+  });
+
+  test("the ω arm compares what reliabilityWeights hands the signal, on each side", () => {
+    const r = judgeReliabilityDrift(v2, v4, "omega");
+    const usedBefore = reliabilityWeights(v2);
+    const usedAfter = reliabilityWeights(v4);
+    expect(r.largestMovers.length).toBeGreaterThan(0);
+    for (const m of r.largestMovers) {
+      expect(m.before).toBeCloseTo((usedBefore.get(m.personId) as number) * 100, 10);
+      expect(m.after).toBeCloseTo((usedAfter.get(m.personId) as number) * 100, 10);
+    }
+    const rel = judgeReliabilityDrift(v2, v4, "reliability");
+    expect(r.maxAbsShift).not.toBeCloseTo(rel.maxAbsShift, 6);
+  });
+
+  test("the w arm reads w under v4, not ω and not p̂", () => {
+    const r = judgeReliabilityDrift(v4, v4, "weight");
+    expect(r.n).toBeGreaterThan(0);
+    const e = evaluated(v4)[0];
+    if (e === undefined || e.weight === undefined || e.omega === undefined) {
+      throw new Error("expected a v4 estimate with w and ω");
+    }
+    expect(e.weight).not.toBeCloseTo(e.omega, 6);
+    const shifted = {
+      ...v4,
+      estimates: new Map(
+        [...v4.estimates].map(([id, x]) => [
+          id,
+          id === e.judgeId ? { ...x, weight: (x.weight as number) / 2 } : x,
+        ]),
+      ),
+    };
+    const moved = judgeReliabilityDrift(v4, shifted, "weight");
+    const mover = moverOf(moved, e.judgeId);
+    expect(mover?.before).toBeCloseTo(e.weight * 100, 10);
+    expect(mover?.after).toBeCloseTo((e.weight / 2) * 100, 10);
+    expect(judgeReliabilityDrift(v4, shifted, "omega").maxAbsShift).toBe(0);
+  });
+
+  test("v2 has no w or ω: read as p̂ (the weight v2 uses), never as low or zero", () => {
+    for (const measure of ["weight", "omega"] as const) {
+      const r = judgeReliabilityDrift(v2, v2, measure);
+      expect(r.n).toBe(v2.estimates.size);
+      expect(r.crossedFraction).toBe(0);
+      expect(r.verdict).toBe("stable");
+      for (const m of r.largestMovers) {
+        expect(m.before).toBeCloseTo(
+          (v2.estimates.get(m.personId)?.reliability as number) * 100,
+          10,
+        );
+        expect(m.before).toBeGreaterThan(0);
+      }
+      const across = judgeReliabilityDrift(v2, v4, measure);
+      expect(across.crossedInsufficiency).toEqual({ gained: [], lost: [] });
+      expect(across.n).toBe(v2.estimates.size);
+    }
+  });
+
+  test("a judge with no evaluated referral counts on w and ω at its prior, never on p̂ or b̂", () => {
+    const noData = [...v4.estimates.values()].find((e) => e.evaluatedCount === 0);
+    if (noData === undefined) throw new Error("expected a seed judge with no evaluated referral");
+    const expected = { weight: 30, omega: 9 } as const;
+    for (const measure of ["weight", "omega"] as const) {
+      const r = judgeReliabilityDrift(v2, v4, measure);
+      expect(r.n).toBe(v4.estimates.size);
+      const mover = moverOf(r, noData.judgeId);
+      expect(mover?.before).toBeCloseTo(100, 10);
+      expect(mover?.after).toBeCloseTo(expected[measure], 10);
+    }
+    for (const measure of ["reliability", "bias"] as const) {
+      const r = judgeReliabilityDrift(v2, v4, measure);
+      expect(r.n).toBe(evaluated(v4).length);
+      expect(moverOf(r, noData.judgeId)).toBeUndefined();
+      expect(r.crossedInsufficiency).toEqual({ gained: [], lost: [] });
+    }
+  });
+
+  test("a v4 run missing w or ω throws instead of reading as 0", () => {
+    const broken = {
+      ...v4,
+      estimates: new Map(
+        [...v4.estimates].map(([id, x]) => {
+          const { omega: _omega, ...rest } = x;
+          return [id, rest];
+        }),
+      ),
+    };
+    expect(() => judgeReliabilityDrift(v4, broken, "omega")).toThrow(/no omega/);
   });
 });
 

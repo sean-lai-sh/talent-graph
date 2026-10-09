@@ -76,8 +76,18 @@ export interface JudgeReliabilitySpec {
   errorScale: number;
   /** λ ≥ 0: evaluated predictions needed before an estimate outweighs the prior. */
   shrinkage: number;
-  /** μ_p ∈ [0, 1]: reliability of a judge with no evaluated predictions. */
+  /** μ_p ∈ [0, 1]: reliability of a judge with no evaluated predictions. Under `mode: "v4"` this is μ0 ∈ [ε, 1 − ε] (ε = JUDGE_WEIGHT_LOGIT_EPS), the range p̂ is clamped to, so a judge with no evidence gets w = μ0. */
   priorReliability: number;
+  /**
+   * How p̂_u becomes the weight the signal uses. "v2" (absent means "v2")
+   * passes p̂_u through unchanged; "v4" maps it through a soft-capped logit
+   * to w_u and weights the signal by ω_u = w_u^γ.
+   */
+  mode?: "v2" | "v4";
+  /** T > 0, "v4" only: soft cap on the logit distance from μ0 in logit w = logit μ0 + T·tanh(Σ/T). */
+  softCap?: number;
+  /** γ > 0, "v4" only: ω_u = w_u^γ. */
+  weightExponent?: number;
   /**
    * Opportunity-count thresholds that bucket people for the expectation
    * E[R_v | O_v]. `[1, 2, 3]` ⇒ buckets {0}, {1}, {2}, {3+}. Empty ⇒ one
@@ -282,6 +292,38 @@ function validateBradleyTerrySpec(spec: BradleyTerrySpec, errors: string[]): voi
   }
 }
 
+/** Keeps logit(p̂) finite when a judge's shrunk reliability is exactly 0 or 1. */
+export const JUDGE_WEIGHT_LOGIT_EPS = 1e-6;
+
+/** The mode "v4" parameters `judgeWeightV4` reads. */
+export type JudgeReliabilityV4Params = Pick<JudgeReliabilitySpec, "priorReliability"> & {
+  softCap: number;
+  weightExponent: number;
+};
+
+function logit(p: number): number {
+  return Math.log(p / (1 - p));
+}
+
+/**
+ * w_u and ω_u from p̂_u on the r10 scale (μ0 = priorReliability):
+ *   Σ = logit(clamp(p̂, ε, 1−ε)) − logit μ0,  logit w = logit μ0 + T·tanh(Σ/T),  ω = w^γ.
+ * No evidence (Σ = 0) returns μ0 exactly, not a logit round trip.
+ */
+export function judgeWeightV4(
+  shrunk: number,
+  spec: JudgeReliabilityV4Params,
+): { weight: number; omega: number } {
+  const mu0 = spec.priorReliability;
+  const eps = JUDGE_WEIGHT_LOGIT_EPS;
+  const sigma = logit(Math.min(1 - eps, Math.max(eps, shrunk))) - logit(mu0);
+  const weight =
+    sigma === 0
+      ? mu0
+      : 1 / (1 + Math.exp(-(logit(mu0) + spec.softCap * Math.tanh(sigma / spec.softCap))));
+  return { weight, omega: weight ** spec.weightExponent };
+}
+
 function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string[]): void {
   if (!isFiniteNumber(spec.observationWindowDays) || spec.observationWindowDays < 0) {
     errors.push("observationWindowDays must be a finite number ≥ 0");
@@ -301,6 +343,44 @@ function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string
     spec.priorReliability > 1
   ) {
     errors.push("priorReliability (μ_p) must be in [0, 1]");
+  }
+  if (spec.mode !== undefined && spec.mode !== "v2" && spec.mode !== "v4") {
+    errors.push('mode must be "v2" or "v4"');
+  } else if (spec.mode === "v4") {
+    const eps = JUDGE_WEIGHT_LOGIT_EPS;
+    const mu0InRange = spec.priorReliability >= eps && spec.priorReliability <= 1 - eps;
+    if (!mu0InRange) {
+      errors.push(`priorReliability (μ0) must be in [${eps}, 1 − ${eps}] under mode "v4"`);
+    }
+    if (!isFiniteNumber(spec.softCap) || spec.softCap <= 0) {
+      errors.push('softCap (T) must be a finite number > 0 under mode "v4"');
+    }
+    if (!isFiniteNumber(spec.weightExponent) || spec.weightExponent <= 0) {
+      errors.push('weightExponent (γ) must be a finite number > 0 under mode "v4"');
+    }
+    const { priorReliability: mu0, softCap, weightExponent } = spec;
+    if (
+      mu0InRange &&
+      isFiniteNumber(softCap) &&
+      softCap > 0 &&
+      isFiniteNumber(weightExponent) &&
+      weightExponent > 0
+    ) {
+      for (const p of [0, 1]) {
+        const { weight, omega } = judgeWeightV4(p, {
+          priorReliability: mu0,
+          softCap,
+          weightExponent,
+        });
+        if (!(weight > 0 && weight < 1 && omega > 0 && omega < 1)) {
+          errors.push(
+            `softCap (T) and weightExponent (γ) must keep w and ω strictly inside (0, 1); p̂ = ${p} gives w = ${weight}, ω = ${omega}`,
+          );
+        }
+      }
+    }
+  } else if (spec.softCap !== undefined || spec.weightExponent !== undefined) {
+    errors.push('softCap and weightExponent apply only under mode "v4"');
   }
   if (!Array.isArray(spec.opportunityBuckets)) {
     errors.push("opportunityBuckets must be an array of thresholds");

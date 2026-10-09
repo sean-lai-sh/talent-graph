@@ -654,7 +654,7 @@ describe("computeJudgeCalibration and the Referral Signal hook", () => {
     const run = computeJudgeCalibration({ people, referrals, outcomes, now: NOW });
     const e = run.estimates.get("bad");
     if (!e) throw new Error("expected estimate");
-    const jc = toJudgeCalibration(e, NOW);
+    const jc = toJudgeCalibration(e, run.options, NOW);
     const jb = toJudgeBias(e, NOW);
     expect(jc).toMatchObject({ judgeId: "bad", observationCount: 2, dimension: null });
     expect(jc.reliability).toBe(e.reliability);
