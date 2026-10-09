@@ -22,6 +22,7 @@ import {
   githubEvidence,
   githubUsername,
   githubVersionsToScore,
+  ongoingJobKeys,
   resumeEvidence,
   storedGitHubVersions,
 } from "../lib/longitudinal/evidenceSources.ts";
@@ -628,7 +629,17 @@ async function scoreNewClaims(
   }
   const newest = found.resumes.at(-1);
   const sources = [
-    ...(newest ? [{ evidence: resumeEvidence(newest.lines), storageId: newest.storageId }] : []),
+    ...(newest
+      ? [
+          {
+            evidence: resumeEvidence(
+              newest.lines,
+              ongoingJobKeys(found.resumes.slice(0, -1).map((version) => version.lines)),
+            ),
+            storageId: newest.storageId,
+          },
+        ]
+      : []),
     ...(versions.items.length > 0
       ? [{ evidence: githubEvidence(versions.items), storageId: null }]
       : []),

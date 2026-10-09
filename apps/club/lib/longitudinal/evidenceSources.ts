@@ -1,4 +1,8 @@
-import type { JobClaimLine, JobDateFields } from "../../../../src/longitudinal/claimPreprocess.ts";
+import {
+  type JobClaimLine,
+  type JobDateFields,
+  preprocessJobClaims,
+} from "../../../../src/longitudinal/claimPreprocess.ts";
 import type { ScoredClaimV12 } from "../../../../src/longitudinal/claimRubricV12.ts";
 import { contentFingerprint } from "../../../../src/longitudinal/provenance.ts";
 import type { GrokEvidenceItem } from "../../../../src/longitudinal/types.ts";
@@ -15,20 +19,68 @@ function claimDigest(claim: ScoredClaimV12, jobDates: JobDateFields): string {
   }).slice(0, 32);
 }
 
-export function resumeEvidence(lines: readonly JobClaimLine[]): ClaimEvidence {
+interface ResumeJob {
+  key: string;
+  endedAt: string | null;
+}
+
+// Each line's job, keyed by organisation, title and start. A founder's funding claim carries
+// the funding date, not the job's range, so it never stands for its job.
+function jobsByLine(lines: readonly JobClaimLine[]): Map<string, ResumeJob> {
+  const jobs = new Map<string, ResumeJob>();
+  for (const claim of preprocessJobClaims(lines, { version: "1.2.0" })) {
+    if (!("claimClass" in claim) || (claim.founder && claim.claimClass === "selection")) continue;
+    const lineId = claim.parentId.split("#")[0] ?? claim.parentId;
+    const key = JSON.stringify([
+      claim.org.trim().toLowerCase(),
+      claim.title.trim().toLowerCase(),
+      claim.startedAt,
+    ]);
+    jobs.set(lineId, { key, endedAt: claim.endedAt });
+  }
+  return jobs;
+}
+
+// The jobs any of these resume versions shows as ongoing (no end date).
+export function ongoingJobKeys(versions: readonly (readonly JobClaimLine[])[]): Set<string> {
+  const keys = new Set<string>();
+  for (const lines of versions) {
+    for (const job of jobsByLine(lines).values()) {
+      if (job.endedAt === null) keys.add(job.key);
+    }
+  }
+  return keys;
+}
+
+// A job first seen as ongoing stays dated at its start once a later version closes it: the
+// roll-up dates an open job at its start and a closed one at its end, so closing the range
+// would move work already counted at the start to the end date. The closed range stays in
+// the stored resume lines.
+export function resumeEvidence(
+  lines: readonly JobClaimLine[],
+  firstSeenOngoing: ReadonlySet<string> = new Set(),
+): ClaimEvidence {
+  const jobs = jobsByLine(lines);
+  const datesFor = (claim: ScoredClaimV12, line: JobClaimLine): JobDateFields => {
+    const job = jobs.get(line.id);
+    if (job === undefined || !firstSeenOngoing.has(job.key)) return claim.jobDates;
+    return { ...claim.jobDates, endedAt: null };
+  };
   return {
     lines,
     source: "resume",
     author: "candidate",
     evidenceTier: "self_reported",
-    evidenceItemFor(claim) {
-      const digest = claimDigest(claim, claim.jobDates);
+    jobDatesFor: datesFor,
+    evidenceItemFor(claim, line) {
+      const jobDates = datesFor(claim, line);
+      const digest = claimDigest(claim, jobDates);
       return {
         source: "resume",
         sourceId: `resume:${digest}`,
         url: "resume",
         publisher: "resume",
-        publishedAt: claim.jobDates.startedAt ?? "undated",
+        publishedAt: jobDates.startedAt ?? "undated",
         quotedText: claim.text,
         contentHash: digest,
         statement: claim.statement,

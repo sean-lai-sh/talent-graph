@@ -29,6 +29,7 @@ import {
 import {
   evidenceKeyParts,
   githubUsername,
+  ongoingJobKeys,
   resumeEvidence,
   versionDigest,
 } from "../apps/club/lib/longitudinal/evidenceSources.ts";
@@ -722,6 +723,123 @@ describe("resume versions", () => {
     const rows = w.snapshots("s0");
     expect(rows.length).toBe(1);
     expect(numbers(rows[0])).toEqual(numbers(alone.snapshots("s0")[0]));
+  });
+});
+
+describe("ongoing roles", () => {
+  const ACME_ONGOING = [
+    "Software Engineer Intern at Acme Corp (Jun 2024 - Present)",
+    "- Built an ambitious payment pipeline serving 10,000 daily users",
+    "- Cut latency in the checkout service by 40 percent",
+  ].join("\n");
+  const ACME_CLOSED = ACME_ONGOING.replace("Jun 2024 - Present", "Jun 2024 - Jun 2025");
+
+  const resumeClaims = (w: ReturnType<typeof world>) =>
+    w.parsed().filter((j) => j.claim.source === "resume" && j.claim.claimClass === "output");
+
+  test("closing an ongoing role on a re-upload after s12 manufactures no movement", async () => {
+    const w = world({ github: null });
+    await w.upload(ACME_ONGOING);
+    await w.intake();
+    setSystemTime(day(61));
+    await w.daily();
+    setSystemTime(day(400));
+    await w.daily();
+    const [s0] = w.snapshots("s0");
+    const [s12] = w.snapshots("s12");
+    expect(Number(s0?.claimCount)).toBeGreaterThan(1);
+    const before = movement(s0, s12);
+
+    setSystemTime(day(410));
+    await w.upload(ACME_CLOSED);
+    await w.check();
+    const s0Head = w.snapshots("s0").find((row) => row.id === w.current("s0"));
+    const s12Head = w.snapshots("s12").find((row) => row.id === w.current("s12"));
+    expect(numbers(s0Head)).toEqual(numbers(s0));
+    expect(numbers(s12Head)).toEqual(numbers(s12));
+    expect(movement(s0Head, s12Head)).toEqual(before);
+    expect(resumeClaims(w).every((j) => j.claim.jobDates.endedAt === null)).toBe(true);
+    expect(w.d.db.rows("resumeLines").some((line) => /Jun 2025/.test(String(line.statement)))).toBe(
+      true,
+    );
+
+    const rows = w.snapshots();
+    const judgments = w.judgments().length;
+    await w.check();
+    await w.check();
+    expect(w.snapshots()).toEqual(rows);
+    expect(w.judgments().length).toBe(judgments);
+  });
+
+  test("a role first seen already closed is dated at its end date", async () => {
+    const w = world({ github: null });
+    await w.upload(RESUME_ONE);
+    await w.intake();
+    setSystemTime(day(61));
+    await w.daily();
+    setSystemTime(day(400));
+    await w.daily();
+    const [s0] = w.snapshots("s0");
+
+    setSystemTime(day(410));
+    await w.upload(RESUME_ONE.replace("Jun 2024 - Aug 2024", "Jun 2024 - Mar 2025"));
+    await w.check();
+    const newest = new Set(w.d.db.rows("resumeVersions").at(-1)?.evidenceKeys as string[]);
+    const outputs = resumeClaims(w).filter((j) => newest.has(j.record.evidenceKey));
+    expect(outputs.length).toBe(2);
+    expect(outputs.every((j) => j.claim.jobDates.endedAt === "2025-03-01")).toBe(true);
+    const s0Head = w.snapshots("s0").find((row) => row.id === w.current("s0"));
+    expect(Number(s0Head?.claimCount)).toBe(Number(s0?.claimCount) - 2);
+  });
+
+  test("a job key match uses organisation, title and start so a different job is not affected", async () => {
+    const lines = (text: string) => claimLines(rawResumeLines(text), "2025-01-01T00:00:00.000Z");
+    const earlier = lines(ACME_ONGOING);
+    const later = lines(
+      [
+        ACME_CLOSED,
+        "Software Engineer at Acme Corp (Jun 2024 - Jun 2025)",
+        "- Built an ambitious title change service",
+        "Software Engineer Intern at Beta Inc (Jun 2024 - Jun 2025)",
+        "- Built an ambitious other company service",
+        "Software Engineer Intern at Acme Corp (Jul 2024 - Jun 2025)",
+        "- Built an ambitious later start service",
+      ].join("\n"),
+    );
+    const run = await judgeClaimsV12({
+      personId: PERSON,
+      evidence: resumeEvidence(later, ongoingJobKeys([earlier])),
+      known: [],
+      client: new FakeJev() as never,
+      now: () => new Date("2025-01-01T00:00:00.000Z"),
+    });
+    // Only the two Acme intern bullets match: a key missing any one field would stick a third.
+    const outputs = run.written.filter((j) => j.claim.claimClass === "output");
+    expect(outputs.length).toBe(5);
+    expect(outputs.filter((j) => j.claim.jobDates.endedAt === null).length).toBe(2);
+    expect(outputs.filter((j) => j.claim.jobDates.endedAt === "2025-06-01").length).toBe(3);
+  });
+
+  test("new bullets under an ongoing role are dated at the role start (SEA-94)", async () => {
+    const w = world({ github: null });
+    await w.upload(ACME_ONGOING);
+    await w.intake();
+    setSystemTime(day(61));
+    await w.daily();
+    setSystemTime(day(400));
+    await w.daily();
+    const [s0] = w.snapshots("s0");
+    const [s12] = w.snapshots("s12");
+
+    setSystemTime(day(410));
+    await w.upload(`${ACME_ONGOING}\n- Shipped an ambitious fraud model in 2025`);
+    await w.check();
+    const s0Head = w.snapshots("s0").find((row) => row.id === w.current("s0"));
+    const s12Head = w.snapshots("s12").find((row) => row.id === w.current("s12"));
+    // The accepted limit: the new bullet lands in s0 as a correction, not as growth by s12.
+    expect(Number(s0Head?.claimCount)).toBe(Number(s0?.claimCount) + 1);
+    expect(Number(s12Head?.claimCount)).toBe(Number(s12?.claimCount) + 1);
+    expect(movement(s0Head, s12Head).claimCount).toBe(movement(s0, s12).claimCount);
   });
 });
 
