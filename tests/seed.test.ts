@@ -64,8 +64,9 @@ describe("generateSeed", () => {
   });
 
   test("every record passes the domain validators", () => {
+    const personIds = new Set(data.people.map((p) => p.id));
     for (const r of data.referrals) {
-      const res = validateReferral(r, data.referrals);
+      const res = validateReferral(r, personIds, data.referrals);
       expect(res).toEqual({ ok: true });
     }
     for (const c of data.comparisons) expect(validateComparison(c)).toEqual({ ok: true });

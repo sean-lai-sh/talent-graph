@@ -16,6 +16,7 @@ import {
 } from "../src/domain/validate.ts";
 
 const T0 = new Date("2026-01-01T00:00:00.000Z");
+const PEOPLE: ReadonlySet<string> = new Set(["p-1", "p-2"]);
 
 function referral(overrides: Partial<Referral> = {}): Referral {
   return {
@@ -97,24 +98,34 @@ describe("constants", () => {
 
 describe("validateReferral", () => {
   test("accepts a well-formed referral", () => {
-    expect(validateReferral(referral())).toEqual({ ok: true });
+    expect(validateReferral(referral(), PEOPLE)).toEqual({ ok: true });
+  });
+
+  test("rejects a referral whose referrer or candidate is not a known person", () => {
+    const res = validateReferral(referral({ referrerId: "ghost", candidateId: "p-404" }), PEOPLE);
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.errors).toEqual([
+      "unknown referrer: ghost",
+      "unknown candidate: p-404",
+    ]);
   });
 
   test("rejects a self-referral", () => {
-    const res = validateReferral(referral({ candidateId: "p-1" }));
+    const res = validateReferral(referral({ candidateId: "p-1" }), PEOPLE);
     expect(res.ok).toBe(false);
     expect(res.ok === false && res.errors.join(" ")).toContain("self-referral");
   });
 
   test("accepts scales at the boundaries", () => {
     expect(
-      validateReferral(referral({ conviction: 1, confidence: 5, relationshipDepth: 1 })).ok,
+      validateReferral(referral({ conviction: 1, confidence: 5, relationshipDepth: 1 }), PEOPLE).ok,
     ).toBe(true);
   });
 
   test("rejects out-of-range and non-integer scales", () => {
     const res = validateReferral(
       referral({ conviction: 6 as never, confidence: 2.5 as never, relationshipDepth: 0 as never }),
+      PEOPLE,
     );
     expect(res.ok).toBe(false);
     expect(res.ok === false && res.errors).toHaveLength(3);
@@ -122,24 +133,24 @@ describe("validateReferral", () => {
 
   test("rejects a duplicate (referrerId, candidateId) pair", () => {
     const existing = [referral({ id: "r-0" })];
-    const res = validateReferral(referral({ id: "r-1" }), existing);
+    const res = validateReferral(referral({ id: "r-1" }), PEOPLE, existing);
     expect(res.ok).toBe(false);
     expect(res.ok === false && res.errors.join(" ")).toContain("duplicate");
   });
 
   test("does not treat the record itself as its own duplicate", () => {
     const r = referral();
-    expect(validateReferral(r, [r])).toEqual({ ok: true });
+    expect(validateReferral(r, PEOPLE, [r])).toEqual({ ok: true });
   });
 
   test("rejects empty evidenceText", () => {
-    const res = validateReferral(referral({ evidenceText: "   " }));
+    const res = validateReferral(referral({ evidenceText: "   " }), PEOPLE);
     expect(res.ok).toBe(false);
     expect(res.ok === false && res.errors.join(" ")).toContain("evidenceText");
   });
 
   test("rejects an unknown evidence type", () => {
-    const res = validateReferral(referral({ evidenceType: "hearsay" as never }));
+    const res = validateReferral(referral({ evidenceType: "hearsay" as never }), PEOPLE);
     expect(res.ok).toBe(false);
   });
 });
