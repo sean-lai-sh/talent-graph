@@ -72,6 +72,7 @@ const clubPersonFields = {
   x: v.optional(v.string()),
   github: v.optional(v.string()),
   website: v.optional(v.string()),
+  classYear: v.optional(v.number()),
   status: personStatus,
   reviewStatus: v.optional(reviewStatus),
   createdAt: v.string(),
@@ -180,6 +181,13 @@ export const clubRole = v.union(v.literal("admin"), v.literal("member"));
 
 const clubId = v.id("clubs");
 
+export const snapshotKind = v.union(
+  v.literal("s0"),
+  v.literal("s12"),
+  v.literal("s24"),
+  v.literal("s36"),
+);
+
 export default defineSchema({
   clubAccounts: defineTable({
     userId: v.string(),
@@ -263,4 +271,93 @@ export default defineSchema({
     body: v.string(),
     receivedAt: v.number(),
   }).index("by_run", ["runId"]),
+  evidenceIntakes: defineTable({
+    clubId,
+    personId: v.string(),
+    intakeAt: v.string(),
+    nextDueAt: v.union(v.number(), v.null()),
+    lastCheckedAt: v.optional(v.number()),
+    attempts: v.optional(v.number()),
+    retryAfter: v.optional(v.number()),
+  })
+    .index("by_person", ["personId"])
+    .index("by_next_due", ["nextDueAt"])
+    .index("by_last_checked", ["lastCheckedAt"]),
+  resumeVersions: defineTable({
+    clubId,
+    personId: v.string(),
+    storageId: v.id("_storage"),
+    uploadedAt: v.string(),
+    extractedAt: v.string(),
+    rawText: v.string(),
+    normalized: v.boolean(),
+    lineCount: v.number(),
+    // Set once the version is scored: the evidence keys of its claims.
+    evidenceKeys: v.optional(v.array(v.string())),
+  })
+    .index("by_person", ["personId"])
+    .index("by_storage", ["storageId"]),
+  resumeLines: defineTable({
+    resumeVersionId: v.id("resumeVersions"),
+    index: v.number(),
+    lineId: v.string(),
+    statement: v.string(),
+    publishedAt: v.string(),
+  }).index("by_version", ["resumeVersionId", "index"]),
+  jevJudgments: defineTable({
+    clubId,
+    personId: v.string(),
+    recordId: v.string(),
+    evidenceKey: v.string(),
+    specId: v.string(),
+    kind: v.literal("claim"),
+    source: v.string(),
+    author: v.union(v.literal("candidate"), v.literal("system")),
+    claimId: v.string(),
+    record: v.string(),
+    claim: v.string(),
+    answer: v.string(),
+    probe: v.union(v.string(), v.null()),
+    configHash: v.string(),
+    companySeedHash: v.string(),
+    writtenAt: v.string(),
+  })
+    .index("by_record", ["recordId"])
+    .index("by_person", ["personId"])
+    .index("by_person_evidence_key_and_spec", ["personId", "evidenceKey", "specId"]),
+  // A claim whose judgment failed deterministically under a spec version: not re-billed
+  // while that version is current, retried once the spec (or its rubric hash) changes.
+  claimJudgmentFailures: defineTable({
+    clubId,
+    personId: v.string(),
+    evidenceKey: v.string(),
+    specId: v.string(),
+    requestFingerprint: v.string(),
+    error: v.string(),
+    failedAt: v.string(),
+  }).index("by_person_evidence_key_and_spec", ["personId", "evidenceKey", "specId"]),
+  evidenceSnapshots: defineTable({
+    clubId,
+    id: v.string(),
+    candidateId: v.string(),
+    kind: snapshotKind,
+    evidenceCutoff: v.string(),
+    computedAt: v.string(),
+    substance: v.number(),
+    selection: v.union(v.number(), v.null()),
+    thin: v.boolean(),
+    claimCount: v.number(),
+    classYear: v.union(v.number(), v.null()),
+    inputHash: v.string(),
+    configHash: v.string(),
+    correctsSnapshotId: v.optional(v.string()),
+  })
+    .index("by_candidate_and_kind", ["candidateId", "kind"])
+    .index("by_domain_id", ["id"]),
+  companyResearchRequests: defineTable({
+    orgKey: v.string(),
+    org: v.string(),
+    runId: v.string(),
+    requestedAt: v.number(),
+  }).index("by_org", ["orgKey", "requestedAt"]),
 });

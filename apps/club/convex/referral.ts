@@ -33,6 +33,7 @@ import {
   REFERRAL_Q3_GROUP_SIZES,
   REFERRAL_Q3_RANKS,
 } from "../lib/types.ts";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
@@ -235,6 +236,8 @@ export const submitReferralSignup = mutation({
 
     await insertSignupRecords(ctx.db, club._id, plan);
     if (upload) await ctx.db.patch(upload._id, { usedAt: Date.now() });
+    // An inbound referral enters the process: score the candidate's evidence before s0 is due.
+    await ctx.scheduler.runAfter(0, internal.evidence.intake, { personId: plan.person.id });
     return { status: "created" as const, token: issued.token, personId: plan.person.id };
   },
 });

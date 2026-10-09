@@ -56,12 +56,21 @@ function item(input: {
   };
 }
 
-export async function fetchGitHubEvidence(
+export interface GitHubArtifact {
+  item: GrokEvidenceItem;
+  // GitHub keeps no history of repository names, so `created` carries the current name.
+  created: GrokEvidenceItem;
+  artifactId: string;
+  // The artifact's own change date, never the fetch time.
+  changedAt: string;
+}
+
+export async function fetchGitHubArtifacts(
   username: string,
   from: Date,
   cutoff: Date,
   fetchJson: JsonFetcher = defaultJsonFetcher,
-): Promise<GrokEvidenceItem[]> {
+): Promise<GitHubArtifact[]> {
   const headers = { Accept: "application/vnd.github+json" };
   const [reposValue, eventsValue] = await Promise.all([
     fetchJson(
@@ -74,7 +83,7 @@ export async function fetchGitHubEvidence(
     ),
   ]);
 
-  const evidence: GrokEvidenceItem[] = [];
+  const evidence: GitHubArtifact[] = [];
   if (Array.isArray(reposValue)) {
     for (const raw of reposValue) {
       const repo = record(raw);
@@ -91,20 +100,44 @@ export async function fetchGitHubEvidence(
       ) {
         continue;
       }
-      const description = string(repo.description) ?? "No repository description.";
-      evidence.push(
-        item({
-          source: "github",
-          sourceId: `repo:${name}`,
-          url,
-          publisher: username,
-          publishedAt: createdAt,
-          quotedText: description,
-          statement: `${username} created the public repository ${name}: ${description}`,
-          proposedEventKind: "open_source_contribution",
-          raw,
-        }),
-      );
+      const description = string(repo.description);
+      const repoId = repo.id;
+      const artifactId =
+        typeof repoId === "number" || typeof repoId === "string"
+          ? `repo:${repoId}`
+          : `repo:${name}`;
+      const updatedAt = string(repo.updated_at);
+      const changedAt = updatedAt && Number.isFinite(Date.parse(updatedAt)) ? updatedAt : createdAt;
+      const created = item({
+        source: "github",
+        sourceId: `repo:${name}`,
+        url,
+        publisher: username,
+        publishedAt: createdAt,
+        quotedText: name,
+        statement: `${username} created the public repository ${name}.`,
+        proposedEventKind: "open_source_contribution",
+        raw: { id: repoId ?? null, full_name: name, html_url: url, created_at: createdAt },
+      });
+      evidence.push({
+        artifactId,
+        changedAt,
+        created,
+        item:
+          description === null
+            ? created
+            : item({
+                source: "github",
+                sourceId: `repo:${name}`,
+                url,
+                publisher: username,
+                publishedAt: createdAt,
+                quotedText: description,
+                statement: `${username} created the public repository ${name}: ${description}`,
+                proposedEventKind: "open_source_contribution",
+                raw,
+              }),
+      });
     }
   }
 
@@ -128,19 +161,23 @@ export async function fetchGitHubEvidence(
       ) {
         continue;
       }
-      evidence.push(
-        item({
-          source: "github",
-          sourceId: `event:${id}`,
-          url: `https://github.com/${repoName}`,
-          publisher: username,
-          publishedAt: createdAt,
-          quotedText: contribution,
-          statement: `${username} ${contribution}.`,
-          proposedEventKind: "open_source_contribution",
-          raw,
-        }),
-      );
+      const contributed = item({
+        source: "github",
+        sourceId: `event:${id}`,
+        url: `https://github.com/${repoName}`,
+        publisher: username,
+        publishedAt: createdAt,
+        quotedText: contribution,
+        statement: `${username} ${contribution}.`,
+        proposedEventKind: "open_source_contribution",
+        raw,
+      });
+      evidence.push({
+        artifactId: `event:${id}`,
+        changedAt: createdAt,
+        created: contributed,
+        item: contributed,
+      });
     }
   }
   return evidence;

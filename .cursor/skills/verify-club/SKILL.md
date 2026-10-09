@@ -177,6 +177,9 @@ All scripts are executable. Run them from any cwd; they resolve the repo root th
 | `helpers/doctor.sh` | Read-only health + identity of the current run |
 | `helpers/cleanup.sh` | Kill what launch started; keep evidence |
 | `helpers/provision-local-admin.sh` | Local-backend only: provision `council.clerk@example.test` as admin after the loopback URL check |
+| `helpers/evidence-proof.sh` | Local-backend only: evidence intake, snapshot cron and correction steps (`features/evidence-snapshots.md`) |
+| `helpers/evidence-signup.ts` | Local-backend only: a seeded member refers a candidate with a generated resume PDF |
+| `helpers/fake-jev.ts` | Loopback stand-in for Jev's `/v1/systemone`, logging each request |
 | `helpers/chrome-drive.ts` | Host Chrome CDP fallback (`goto`, `click-name`, `type-label`, `wait-name`, `aria`, `screenshot`) |
 
 Shared functions live in `helpers/lib.sh` (sourced, not invoked).

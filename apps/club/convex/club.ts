@@ -15,6 +15,7 @@ import {
 import { toDirectoryMembers } from "../lib/memberDirectory.ts";
 import { listOwnFeedbackRequests, prepareMemberResponse } from "../lib/memberFeedback.ts";
 import type { ClubState, EngineResult } from "../lib/types.ts";
+import { internal } from "./_generated/api";
 import type { DataModel, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { authComponent } from "./auth";
@@ -78,7 +79,7 @@ async function loadOrgForSession(ctx: QueryCtx | MutationCtx): Promise<Club | nu
   return adminRead(role, org);
 }
 
-async function requireAdmin(ctx: MutationCtx): Promise<AuthUser> {
+export async function requireAdmin(ctx: MutationCtx): Promise<AuthUser> {
   const user = await authComponent.getAuthUser(ctx);
   if ((await roleForUser(ctx, user)) !== "admin") {
     throw new Error("admin only");
@@ -179,7 +180,13 @@ export const addPerson = mutation({
     status: v.optional(personStatus),
   },
   handler: async (ctx, args) => {
-    return await applyEngine(ctx, (state) => addPersonEngine(state, args));
+    const result = await applyEngine(ctx, (state) => addPersonEngine(state, args));
+    const added = result.error ? undefined : result.state.people.at(-1);
+    // An outbound selection enters the process: score the candidate's evidence before s0 is due.
+    if (added && added.status === "candidate") {
+      await ctx.scheduler.runAfter(0, internal.evidence.intake, { personId: added.id });
+    }
+    return result;
   },
 });
 
