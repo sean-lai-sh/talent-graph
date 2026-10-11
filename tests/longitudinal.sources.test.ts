@@ -122,6 +122,50 @@ describe("longitudinal source ingestion", () => {
     ]);
   });
 
+  test("GitHub adapter reads every repository page and the events feed's three pages", async () => {
+    const calls: string[] = [];
+    const page = (url: string) => Number(new URL(url).searchParams.get("page"));
+    const fetched = await fetchGitHubArtifacts("avery", day(0), day(90), async (url) => {
+      calls.push(url);
+      if (url.includes("/repos?")) {
+        const count = page(url) === 1 ? 100 : page(url) === 2 ? 50 : 0;
+        return Array.from({ length: count }, (_, i) => ({
+          id: page(url) * 1000 + i,
+          full_name: `avery/repo-${page(url)}-${i}`,
+          html_url: `https://github.com/avery/repo-${page(url)}-${i}`,
+          created_at: day(10).toISOString(),
+          fork: false,
+        }));
+      }
+      return Array.from({ length: 100 }, (_, i) => ({
+        id: `event-${page(url)}-${i}`,
+        type: "ReleaseEvent",
+        created_at: day(20).toISOString(),
+        repo: { name: "avery/repo-1-0" },
+      }));
+    });
+    const ids = fetched.map((artifact) => artifact.artifactId);
+    expect(ids.filter((id) => id.startsWith("repo:"))).toHaveLength(150);
+    expect(ids.filter((id) => id.startsWith("event:"))).toHaveLength(300);
+    expect(calls.filter((url) => url.includes("/repos?")).map(page)).toEqual([1, 2]);
+    expect(calls.filter((url) => url.includes("/events/")).map(page)).toEqual([1, 2, 3]);
+  });
+
+  test("GitHub adapter fails closed rather than truncate an account past its repository page limit", async () => {
+    const fetching = fetchGitHubArtifacts("avery", day(0), day(90), async (url) =>
+      url.includes("/repos?")
+        ? Array.from({ length: 100 }, (_, i) => ({
+            id: `${url}-${i}`,
+            full_name: `avery/repo-${i}`,
+            html_url: `https://github.com/avery/repo-${i}`,
+            created_at: day(10).toISOString(),
+            fork: false,
+          }))
+        : [],
+    );
+    await expect(fetching).rejects.toThrow(/more than \d+ public repositories/);
+  });
+
   test("ORCID adapter rejects incomplete publication dates", async () => {
     const fetched = await fetchOrcidEvidence(
       "0000-0000-0000-0001",
