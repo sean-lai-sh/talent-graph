@@ -5,9 +5,15 @@ import type {
   EvidenceClaim,
   GrokEvidencePacket,
   MonitoringPlan,
+  SourceKind,
   SourceProvenance,
 } from "./types.ts";
-import { CAREER_EVENT_KINDS, SOURCE_KINDS } from "./types.ts";
+import {
+  CANDIDATE_AUTHORED_SOURCES,
+  CAREER_EVENT_KINDS,
+  CLAIM_AUTHORS,
+  SOURCE_KINDS,
+} from "./types.ts";
 
 export type LongitudinalValidationResult = { ok: true } | { ok: false; errors: string[] };
 
@@ -101,7 +107,53 @@ export function validateEvidenceClaim(claim: EvidenceClaim): LongitudinalValidat
   }
   const provenance = validateProvenance(claim.provenance);
   if (!provenance.ok) errors.push(...provenance.errors);
+  const author = validateStoredClaimAuthor({
+    author: claim.author,
+    source: claim.provenance.source,
+  });
+  if (!author.ok) errors.push(...author.errors);
   return result(errors);
+}
+
+/**
+ * Whether a claim's author may be stored. An absent `author` defaults to
+ * candidate for sources in `CANDIDATE_AUTHORED_SOURCES` and is refused for any
+ * other source.
+ */
+function validateStoredClaimAuthor(claim: {
+  author?: unknown;
+  source: SourceKind;
+}): LongitudinalValidationResult {
+  if (claim.author === undefined) {
+    return CANDIDATE_AUTHORED_SOURCES.includes(claim.source)
+      ? result([])
+      : result([`author is required for a claim from source "${claim.source}"`]);
+  }
+  if ((CLAIM_AUTHORS as readonly unknown[]).includes(claim.author)) return result([]);
+  return result([
+    `author must be one of ${CLAIM_AUTHORS.join(", ")} (got ${String(claim.author)})`,
+  ]);
+}
+
+/**
+ * Whether a stored claim's author may feed evidence-only substance: the
+ * storage rule, minus referrer and committee.
+ */
+export function validateClaimAuthor(claim: {
+  author?: unknown;
+  source: SourceKind;
+}): LongitudinalValidationResult {
+  const stored = validateStoredClaimAuthor(claim);
+  if (!stored.ok) return stored;
+  if (claim.author === "referrer") {
+    return result([
+      "author must not be referrer: judges never write the evidence they are scored on",
+    ]);
+  }
+  if (claim.author === "committee") {
+    return result(["author must not be committee: committee facts are not accepted yet"]);
+  }
+  return result([]);
 }
 
 export function validateCareerEvent(event: CareerEvent): LongitudinalValidationResult {

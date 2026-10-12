@@ -175,7 +175,12 @@ export function evidenceKeyFor(personId: string, evidence: GrokEvidenceItem): st
  * same request must not hash alike.
  */
 export function recordContent(record: JevJudgmentRecord): string {
-  return JSON.stringify({
+  return JSON.stringify(recordFields(record));
+}
+
+/** The fields `recordContent` covers, as an object for `hashInputs` to key-sort. */
+export function recordFields(record: JevJudgmentRecord): Readonly<Record<string, unknown>> {
+  return {
     id: record.id,
     kind: record.kind,
     personId: record.personId,
@@ -188,7 +193,7 @@ export function recordContent(record: JevJudgmentRecord): string {
     answers: record.answers,
     usage: record.usage,
     observedAt: record.observedAt,
-  });
+  };
 }
 
 /** The cache key for one request: the state and questions sent, under a spec. */

@@ -1,5 +1,4 @@
-import { deepFreeze } from "../models/freeze.ts";
-import { loadProjectConfig } from "../projectConfig/load.ts";
+import { PROJECT_CONFIG } from "../projectConfig/generated.ts";
 import { hashInputs } from "../provenance/hash.ts";
 import type { CompanySeed, SeedCompany, SeedInvestor } from "./companySeedShape.ts";
 
@@ -16,7 +15,7 @@ export {
   type SeedRound,
 } from "./companySeedShape.ts";
 
-export const COMPANY_SEED: CompanySeed = deepFreeze(loadProjectConfig().company_seed);
+export const COMPANY_SEED: CompanySeed = PROJECT_CONFIG.company_seed;
 
 export function companySeedHash(seed: CompanySeed = COMPANY_SEED): string {
   return hashInputs(seed);

@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { parse, stringify } from "yaml";
 import { PINNED_COMPANY_SEED_HASH } from "../src/projectConfig/companySeedPin.ts";
-import { checkConfigText, projectConfigPath } from "../src/projectConfig/load.ts";
+import { projectConfigPath } from "../src/projectConfig/load.ts";
+import { checkConfigText } from "../src/projectConfig/parse.ts";
 import { PINNED_PERSON_ROLLUP_HASH } from "../src/projectConfig/personRollupPin.ts";
 import { hashInputs } from "../src/provenance/hash.ts";
 
