@@ -153,6 +153,11 @@ export async function judgeClaimsV12(input: {
   const now = input.now ?? (() => new Date());
   const specId = careerEvidenceV12SpecId(spec);
   const { evidence } = input;
+  // Referrer and committee claims are a caller bug for evidence-only substance.
+  // Drop them before the rubric so they never reach the scorer.
+  if (evidence.author === "referrer" || evidence.author === "committee") {
+    return { written: [], keys: [], skipped: 0, failed: [], deterministic: [], calls: 0 };
+  }
 
   const cache = new Map<string, StoredAnswer>();
   const knownKeys = new Set<string>();

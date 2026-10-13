@@ -659,6 +659,12 @@ async function scoreNewClaims(
   const known: ClaimJudgment[] = [...found.judgments];
   const written: ClaimJudgment[] = [];
   for (const { evidence, storageId } of sources) {
+    if (evidence.author === "referrer" || evidence.author === "committee") {
+      console.warn(
+        `evidence: ${found.person.id} ${evidence.source} claims are ${evidence.author}-authored and are not scored`,
+      );
+      continue;
+    }
     const run = await judgeClaimsV12({
       personId: found.person.id,
       evidence,

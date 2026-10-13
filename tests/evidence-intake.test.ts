@@ -49,13 +49,30 @@ import { createDeployment, type FakeDeployment } from "./fixtures/fakeConvex.ts"
 const root = join(import.meta.dir, "..");
 
 const realJevClient = await import("../apps/club/lib/longitudinal/jevClient.ts");
+// Captured before mock.module. The module namespace is live, so reading
+// `realJevClient.createJevClient` after the mock would recurse.
+const realCreateJevClient = realJevClient.createJevClient;
 const als = new AsyncLocalStorage<string>();
+// Armed only while an evidence test has installed its fake. Other files share this
+// process, and `mock.module` is process-wide, so a transport-config call (the
+// adapter tests) must still reach the real client.
+let jevArmed = false;
 let jevFactory: () => FakeJev = () => {
   throw new Error("no fake Jev client installed");
 };
 mock.module("../apps/club/lib/longitudinal/jevClient.ts", () => ({
   ...realJevClient,
-  createJevClient: () => jevFactory(),
+  createJevClient: (config?: Parameters<typeof realCreateJevClient>[0]) => {
+    if (
+      config?.apiKey !== undefined ||
+      config?.timeout !== undefined ||
+      config?.retry !== undefined
+    ) {
+      return realCreateJevClient(config);
+    }
+    if (!jevArmed) throw new Error("no fake Jev client installed");
+    return jevFactory();
+  },
 }));
 const realClub = await import("../apps/club/convex/club.ts");
 mock.module("../apps/club/convex/club.ts", () => ({
@@ -239,6 +256,7 @@ function world(options: { github?: string | null; before?: string[] } = {}) {
     storageCount: 0,
     jev: new FakeJev(),
   };
+  jevArmed = true;
   jevFactory = () => state.jev;
   const d: FakeDeployment = createDeployment({
     evidence: evidence as never,
@@ -366,6 +384,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   setSystemTime();
+  jevArmed = false;
   for (const cleanup of cleanups.splice(0)) cleanup();
 });
 
@@ -1095,6 +1114,25 @@ describe("1.2 records", () => {
     expect(w.parsed().length).toBeGreaterThan(1);
     const [s0] = w.snapshots("s0");
     expect(Number(s0?.claimCount)).toBeGreaterThan(0);
+  });
+
+  test("referrer and committee claims never reach the scorer", async () => {
+    const lines = claimLines(rawResumeLines(RESUME_ONE), "2025-01-01T00:00:00.000Z");
+    const base = resumeEvidence(lines);
+    for (const author of ["referrer", "committee"] as const) {
+      const client = new FakeJev();
+      const run = await judgeClaimsV12({
+        personId: PERSON,
+        evidence: { ...base, author },
+        known: [],
+        client: client as never,
+        now: () => new Date("2025-01-01T00:00:00.000Z"),
+      });
+      expect(run.calls).toBe(0);
+      expect(run.written).toHaveLength(0);
+      expect(client.claimCalls).toBe(0);
+      expect(client.labelCalls).toBe(0);
+    }
   });
 
   test("every stored claim has author set, none rely on the default", async () => {
