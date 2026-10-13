@@ -102,7 +102,11 @@ export interface ReferralSignalOptions {
    * weight twice, so it throws.
    */
   weighting?: EdgeWeighting;
-  /** p̂_u per judge id from V2 calibration; missing judges count as 1. */
+  /**
+   * p̂_u or ω_u per judge id. A judge absent from the map counts as 1 on the
+   * plain-mean path, and as μ0^γ from judge_reliability@4.1.0 on the
+   * weight-normalised path.
+   */
   judgeReliability?: ReadonlyMap<string, number>;
   /** b̂_u per judge id from V2 calibration; missing judges count as 0. */
   judgeBias?: ReadonlyMap<string, number>;
@@ -146,7 +150,7 @@ function resolvePseudoWeight(
  * `judgeWeighting(...)` so no existing caller changes; either map being present
  * (even empty) selects the judge path, exactly as before the refactor.
  */
-function resolveWeighting(opts: ReferralSignalOptions): EdgeWeighting {
+function resolveWeighting(opts: ReferralSignalOptions, spec: ReferralSignalSpec): EdgeWeighting {
   const sugar = opts.judgeReliability !== undefined || opts.judgeBias !== undefined;
   if (opts.weighting !== undefined) {
     if (sugar) {
@@ -157,10 +161,14 @@ function resolveWeighting(opts: ReferralSignalOptions): EdgeWeighting {
     return opts.weighting;
   }
   if (!sugar) return IDENTITY_WEIGHTING;
-  const maps: { reliability?: ReadonlyMap<string, number>; bias?: ReadonlyMap<string, number> } =
-    {};
+  const maps: {
+    reliability?: ReadonlyMap<string, number>;
+    bias?: ReadonlyMap<string, number>;
+    scale?: "v4";
+  } = {};
   if (opts.judgeReliability !== undefined) maps.reliability = opts.judgeReliability;
   if (opts.judgeBias !== undefined) maps.bias = opts.judgeBias;
+  if (spec.aggregation === "weight_normalized") maps.scale = "v4";
   return judgeWeighting(maps);
 }
 
@@ -304,7 +312,7 @@ export function computeReferralSignal(
     return { referral, strength: breakdown.strength, breakdown, dangling: false };
   });
 
-  const weighting = resolveWeighting(opts);
+  const weighting = resolveWeighting(opts, spec);
   return signalFromScoredEdges(
     personId,
     edges,
@@ -341,7 +349,7 @@ export function computeSignalsFromGraph(
 ): Map<string, ReferralSignalResult> {
   const spec = sg.spec;
   const topK = opts.topK ?? spec.topK;
-  const weighting = resolveWeighting(opts);
+  const weighting = resolveWeighting(opts, spec);
   const pseudoWeight = resolvePseudoWeight(spec, opts.pseudoWeight, weighting);
   const out = new Map<string, ReferralSignalResult>();
   for (const personId of sg.graph.nodes.keys()) {
