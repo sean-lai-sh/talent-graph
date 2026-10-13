@@ -124,6 +124,9 @@ async function ensureChrome(): Promise<ChromeMeta> {
     [
       "--headless=new",
       "--disable-gpu",
+      // Cloud agent containers have no Chrome user-namespace sandbox and a
+      // tiny /dev/shm. Without these the process exits before the DevTools
+      // port opens. The session is loopback-only. Added in PR #125.
       "--no-sandbox",
       "--disable-dev-shm-usage",
       "--no-first-run",

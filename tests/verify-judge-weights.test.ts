@@ -1,13 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { driveBrowser } from "../.cursor/skills/verify-judge-weights/helpers/browser.ts";
 import {
   checkAdmission,
   checkReferralSignal,
   checkSnapshots,
 } from "../.cursor/skills/verify-judge-weights/helpers/checks.ts";
+import {
+  formatDiscovered,
+  gateQueries,
+} from "../.cursor/skills/verify-judge-weights/helpers/classify.ts";
 import {
   admissionPresent,
   type CheckResult,
@@ -126,11 +130,12 @@ describe("engine checks enable from merged code", () => {
       status: "skipped",
       detail: SKIP_REFERRAL_SIGNAL,
     });
-    expect(formatResult(results[1]!)).toBe("SKIPPED - needs #120 on main");
-    expect(formatResult(results[2]!)).toBe("SKIPPED - needs #122 on main");
-    expect(formatResult(results[3]!)).toBe("SKIPPED - needs #123 on main");
+    expect(formatResult(results[1]!)).toBe("SKIPPED admission-credit - needs #120 on main");
+    expect(formatResult(results[2]!)).toBe("SKIPPED snapshots - needs #122 on main");
+    expect(formatResult(results[3]!)).toBe("SKIPPED referral-signal - needs #123 on main");
     expect(tally(results)).toEqual({ passed: 1, skipped: 3, failed: 0 });
     const report = formatReport(results);
+    expect(report).toContain("SKIPPED admission-credit - needs #120 on main");
     expect(report).toContain("PASS admin-only-weights");
     expect(report).toContain("passed 1\nskipped 3\nfailed 0\n");
     expect(report.match(/PASS /g)?.length).toBe(1);
@@ -180,5 +185,169 @@ describe("engine checks enable from merged code", () => {
       rmSync(empty, { recursive: true, force: true });
       rmSync(full, { recursive: true, force: true });
     }
+  });
+});
+
+const SERVER_DTS = `import { internalQueryGeneric, queryGeneric } from "convex/server";
+export declare const query: typeof queryGeneric;
+export declare const internalQuery: typeof internalQueryGeneric;
+`;
+
+function apiDts(alias: string, spec: string, key: string): string {
+  return `import type * as ${alias} from ${JSON.stringify(spec)};
+import type { ApiFromModules, FilterApi, FunctionReference } from "convex/server";
+
+declare const fullApi: ApiFromModules<{
+  ${JSON.stringify(key)}: typeof ${alias};
+}>;
+
+export declare const api: FilterApi<typeof fullApi, FunctionReference<any, "public">>;
+export declare const internal: FilterApi<typeof fullApi, FunctionReference<any, "internal">>;
+`;
+}
+
+function writeConvex(files: Record<string, string>): string {
+  const root = mkdtempSync(join(tmpdir(), "jw-q-"));
+  for (const [rel, body] of Object.entries(files)) {
+    const path = join(root, "convex", rel);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, body);
+  }
+  return join(root, "convex");
+}
+
+describe("convex query discovery", () => {
+  test("a query in a nested folder is found", () => {
+    const convex = writeConvex({
+      "_generated/server.d.ts": SERVER_DTS,
+      "_generated/api.d.ts": apiDts("reports_hidden", "../reports/hidden.js", "reports/hidden"),
+      "reports/hidden.ts": `import { query } from "../_generated/server";
+export const peek = query({
+  args: {},
+  handler: async () => ({ label: "nested" }),
+});
+`,
+    });
+    try {
+      const gate = gateQueries(convex, { allowlist: [] });
+      expect(gate.failures).toEqual([]);
+      expect(gate.rows.map((row) => `${row.audience} ${row.ref}`)).toEqual([
+        "member reports/hidden:peek",
+      ]);
+    } finally {
+      rmSync(join(convex, ".."), { recursive: true, force: true });
+    }
+  });
+
+  test("a query behind a custom wrapper is found", () => {
+    const convex = writeConvex({
+      "_generated/server.d.ts": SERVER_DTS,
+      "_generated/api.d.ts": apiDts("wrappers", "../wrappers.js", "wrappers"),
+      "wrappers.ts": `import { query } from "./_generated/server";
+
+function adminQuery(definition: Parameters<typeof query>[0]) {
+  const registered = query(definition);
+  return registered;
+}
+
+export const hidden = adminQuery({
+  args: {},
+  handler: async () => ({ ok: true }),
+});
+`,
+    });
+    try {
+      const gate = gateQueries(convex, { allowlist: [] });
+      expect(gate.failures).toEqual([]);
+      expect(gate.rows.map((row) => `${row.audience} ${row.ref}`)).toEqual([
+        "member wrappers:hidden",
+      ]);
+    } finally {
+      rmSync(join(convex, ".."), { recursive: true, force: true });
+    }
+  });
+
+  test("an unclassifiable query fails the run", () => {
+    const convex = writeConvex({
+      "_generated/server.d.ts": SERVER_DTS,
+      "_generated/api.d.ts": apiDts("mystery", "../mystery.js", "mystery"),
+      "mystery.ts": `import { query } from "./_generated/server";
+export const leak = query({
+  args: {},
+  handler: async () => computeView(null),
+});
+function computeView(_state: unknown) {
+  return { w: 1 };
+}
+`,
+    });
+    try {
+      const gate = gateQueries(convex, { allowlist: [] });
+      expect(gate.rows.find((row) => row.ref === "mystery:leak")?.audience).toBe("unclassified");
+      expect(gate.failures.join("\n")).toContain("unclassifiable query mystery:leak");
+      const failed: CheckResult = {
+        id: "admin-only-weights",
+        status: "fail",
+        detail: gate.failures.join("; "),
+      };
+      expect(formatResult(failed)).toContain("mystery:leak");
+      expect(formatResult(failed).startsWith("FAIL admin-only-weights")).toBe(true);
+    } finally {
+      rmSync(join(convex, ".."), { recursive: true, force: true });
+    }
+  });
+
+  test("an admin-only annotation and the allowlist classify a query", () => {
+    const source = `import { query } from "./_generated/server";
+/** verify-judge-weights: admin-only */
+export const marked = query({
+  args: {},
+  handler: async () => ({ ok: true }),
+});
+export const plain = query({
+  args: {},
+  handler: async () => ({ ok: true }),
+});
+`;
+    const convex = writeConvex({
+      "_generated/server.d.ts": SERVER_DTS,
+      "_generated/api.d.ts": apiDts("mod", "../mod.js", "mod"),
+      "mod.ts": source,
+    });
+    try {
+      const annotated = gateQueries(convex, { allowlist: [] });
+      expect(annotated.failures).toEqual([]);
+      expect(annotated.rows.find((row) => row.ref === "mod:marked")?.audience).toBe("admin");
+      expect(annotated.rows.find((row) => row.ref === "mod:plain")?.audience).toBe("member");
+      const listed = gateQueries(convex, { allowlist: ["mod:plain"] });
+      expect(listed.failures).toEqual([]);
+      expect(listed.rows.find((row) => row.ref === "mod:plain")?.audience).toBe("admin");
+    } finally {
+      rmSync(join(convex, ".."), { recursive: true, force: true });
+    }
+  });
+
+  test("this checkout classifies every generated query", () => {
+    const gate = gateQueries(join(repo, "apps/club/convex"));
+    expect(gate.failures).toEqual([]);
+    expect(gate.rows.map((row) => `${row.audience} ${row.ref}`)).toEqual([
+      "member auth:getCurrentUser",
+      "admin club:getBoard",
+      "member club:getMyRole",
+      "admin club:getOrganization",
+      "member club:listMembers",
+      "member club:listMyFeedback",
+      "member club:listPosts",
+      "member comparisonStep:getComparisonStep",
+      "internal grokCompanyResearch:reply",
+      "member referral:lookupReferralContact",
+      "member referral:referralStatus",
+    ]);
+    const lines = formatDiscovered(gate.rows);
+    expect(lines[0]).toBe("queries discovered 11 (member 8, admin 2, internal 1, unclassified 0)");
+    expect(gate.rows.find((row) => row.ref === "club:getBoard")?.argsEmpty).toBe(true);
+    expect(gate.rows.find((row) => row.ref === "comparisonStep:getComparisonStep")?.argsEmpty).toBe(
+      false,
+    );
   });
 });

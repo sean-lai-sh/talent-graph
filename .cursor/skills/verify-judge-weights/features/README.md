@@ -10,7 +10,7 @@ Scoring math that is not one of these four checks stays on `.cursor/skills/verif
 - Run `.cursor/skills/verify-judge-weights/doctor.sh` and require the printed URL.
 - Drive only that URL. Never attach to `:3000`. Never run `convex deploy`.
 - Sign in only as `@example.test` accounts the run created.
-- Checks 2–4 print `SKIPPED - needs #<pr> on main` until their functions exist in the checkout. A skip is not a pass.
+- Checks 2–4 print `SKIPPED <check> - needs #<pr> on main` (for example `SKIPPED admission-credit - needs #120 on main`) until their functions exist in the checkout. A skip is not a pass.
 
 ## Features
 

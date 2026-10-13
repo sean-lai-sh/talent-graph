@@ -4,7 +4,7 @@ A signed-in member never receives judge weights, credit parts, or recognition an
 
 ## Sub-features
 
-- `member-queries` — every public Convex query, called as a member, has no weight key. Weight-returning queries reject the member.
+- `member-queries` — every public Convex query from the generated API, called as a member, has no weight key. Admin-only queries (allowlist or `verify-judge-weights: admin-only`) reject the member. A query that cannot be classified fails the run by name.
 - `member-views` — directory, inbox, lookup, and ladder objects have no weight keys.
 - `member-browser` — Forum, Member List, and Submit Referral, plus the `/members` network capture.
 - `admin-pages` — `/admin` and any other `/admin` link, screenshotted as the admin. A 404 still gets a snapshot.

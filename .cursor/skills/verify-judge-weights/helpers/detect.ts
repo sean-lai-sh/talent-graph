@@ -6,9 +6,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const SKIP_ADMISSION = "SKIPPED - needs #120 on main";
-export const SKIP_SNAPSHOTS = "SKIPPED - needs #122 on main";
-export const SKIP_REFERRAL_SIGNAL = "SKIPPED - needs #123 on main";
+export const SKIP_ADMISSION = "needs #120 on main";
+export const SKIP_SNAPSHOTS = "needs #122 on main";
+export const SKIP_REFERRAL_SIGNAL = "needs #123 on main";
 
 export type CheckId = "admin-only-weights" | "admission-credit" | "snapshots" | "referral-signal";
 
@@ -28,7 +28,7 @@ export function tally(results: readonly CheckResult[]): Tally {
 }
 
 export function formatResult(result: CheckResult): string {
-  if (result.status === "skipped") return result.detail;
+  if (result.status === "skipped") return `SKIPPED ${result.id} - ${result.detail}`;
   if (result.status === "pass") return `PASS ${result.id}`;
   return `FAIL ${result.id}: ${result.detail}`;
 }
