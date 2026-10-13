@@ -103,6 +103,8 @@ Cleanup keeps this directory. `runs/` holds the password and is gitignored. Do n
 
 Stops the Convex process and the Club app this run started, by recorded pid, and only when the command still matches. Restores a preexisting `apps/club/.env.local`. Leaves evidence in place.
 
+Local mode keeps `BETTER_AUTH_SECRET` in `apps/club/.convex/local/default/verify-judge-weights-auth-secret` (gitignored with `.convex/`). Minting a new secret on every launch left the previous JWKS in the anonymous sqlite, and `GET /api/auth/convex/token` then returned an empty HTTP 500. When that secret file is missing and a local database already exists, launch deletes the anonymous sqlite and storage before Convex starts so the new secret encrypts fresh keys.
+
 After a successful proof, leave the servers up so a person can keep looking. Cleanup before a relaunch.
 
 ## Shared Chrome helper
