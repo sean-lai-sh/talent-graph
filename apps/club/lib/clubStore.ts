@@ -98,6 +98,7 @@ export async function loadState(db: Reader, club: Club): Promise<ClubState> {
   const [
     people,
     referrals,
+    calls,
     comparisons,
     evaluations,
     outcomes,
@@ -107,6 +108,7 @@ export async function loadState(db: Reader, club: Club): Promise<ClubState> {
   ] = await Promise.all([
     readRows(db, club._id, "people"),
     readRows(db, club._id, "referrals"),
+    readRows(db, club._id, "calls"),
     readRows(db, club._id, "comparisons"),
     readRows(db, club._id, "evaluations"),
     readRows(db, club._id, "outcomes"),
@@ -117,6 +119,7 @@ export async function loadState(db: Reader, club: Club): Promise<ClubState> {
   return reviveState({
     people,
     referrals,
+    calls,
     comparisons,
     evaluations,
     outcomes,

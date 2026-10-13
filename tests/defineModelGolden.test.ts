@@ -17,11 +17,11 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { judgeWeightOptions } from "../src/judges/reliability.ts";
+import { judgeWeightedSignalOptions } from "../src/judges/reliability.ts";
 import { runCapabilityVectors } from "../src/models/definitions/bradleyTerry.ts";
 import { runJudgeCalibration } from "../src/models/definitions/judgeReliability.ts";
 import { runReferralSignals } from "../src/models/definitions/referralSignal.ts";
-import { getSpec } from "../src/models/registry.ts";
+import { CURRENT_SPECS, getSpec } from "../src/models/registry.ts";
 import { type ModelRun, RUN_ID_FORMAT, type UpstreamRun } from "../src/models/run.ts";
 import { validateSpec } from "../src/models/spec.ts";
 import { hashInputs } from "../src/provenance/hash.ts";
@@ -79,7 +79,11 @@ function seedRuns(): Record<string, ModelRun> {
     now: T,
   });
   const weighted = runReferralSignals(data.people, data.referrals, T, {
-    ...judgeWeightOptions(calibration.outputs),
+    ...judgeWeightedSignalOptions(
+      calibration.outputs,
+      CURRENT_SPECS.judge_reliability,
+      CURRENT_SPECS.referral_signal,
+    ),
     judgeRunId: calibration.id,
   });
   const capability = runCapabilityVectors(data.people, data.comparisons, NOW);

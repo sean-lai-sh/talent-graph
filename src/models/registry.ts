@@ -44,6 +44,16 @@ export const REFERRAL_SIGNAL_V0_1_0: ReferralSignalSpec = deepFreeze({
 });
 
 /**
+ * 0.1.0's strengths and Top-K, aggregated as a weight-normalised mean:
+ * S_v = Σ(ω_u·R_uv) / (Σ ω_u + c0) over the Top-K by ω·R (SEA-83).
+ */
+export const REFERRAL_SIGNAL_V0_2_0: ReferralSignalSpec = deepFreeze({
+  ...REFERRAL_SIGNAL_V0_1_0,
+  version: "0.2.0",
+  aggregation: "weight_normalized",
+});
+
+/**
  * V1 Bradley–Terry as specified in PLAN.md §5. λ = 0.1 is a modest default
  * that keeps single-comparison nodes near 0 on the seed data; it is **not**
  * theoretically optimal and has not been tuned against outcomes.
@@ -94,12 +104,26 @@ export const JUDGE_RELIABILITY_V4_0_0: JudgeReliabilitySpec = deepFreeze({
   weightExponent: 2,
 });
 
+export const JUDGE_RELIABILITY_V4_1_0: JudgeReliabilitySpec = deepFreeze({
+  ...JUDGE_RELIABILITY_V4_0_0,
+  version: "4.1.0",
+  admission: {
+    kappa: 0.25,
+    limit: 0.75,
+    positionExponent: 0.75,
+    positionFloor: 0.2,
+    priorAdmitRate: 12 / 150,
+    priorAdmitWeight: 150,
+  },
+});
+
 /** Every spec version ever shipped. Append only. */
 export const SPEC_HISTORY: readonly ModelSpec[] = deepFreeze([
   REFERRAL_SIGNAL_V0_1_0,
   BRADLEY_TERRY_V1_0_0,
   JUDGE_RELIABILITY_V2_0_0,
   JUDGE_RELIABILITY_V4_0_0,
+  JUDGE_RELIABILITY_V4_1_0,
   CAREER_EVIDENCE_V1_0_0,
   CAREER_EVIDENCE_V1_1_0,
   CAREER_EVIDENCE_V1_2_0,
@@ -107,6 +131,7 @@ export const SPEC_HISTORY: readonly ModelSpec[] = deepFreeze([
   CAREER_EVIDENCE_V1_2_2,
   CAREER_EVIDENCE_V1_2_3,
   CAREER_EVIDENCE_V1_2_4,
+  REFERRAL_SIGNAL_V0_2_0,
 ]);
 
 /** The version used when a caller does not pass a spec explicitly. */

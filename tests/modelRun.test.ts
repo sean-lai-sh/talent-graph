@@ -16,7 +16,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { judgeWeightOptions } from "../src/judges/reliability.ts";
+import { judgeWeightedSignalOptions } from "../src/judges/reliability.ts";
 import { runCapabilityVectors } from "../src/models/definitions/bradleyTerry.ts";
 import { runJudgeCalibration } from "../src/models/definitions/judgeReliability.ts";
 import { runReferralSignals } from "../src/models/definitions/referralSignal.ts";
@@ -286,7 +286,11 @@ describe("runJudgeCalibration", () => {
   test("a weighted Referral Signal run records the calibration it consumed", () => {
     const calibration = runJudgeCalibration(input);
     const weighted = runReferralSignals(data.people, data.referrals, T, {
-      ...judgeWeightOptions(calibration.outputs),
+      ...judgeWeightedSignalOptions(
+        calibration.outputs,
+        JUDGE_RELIABILITY_V2_0_0,
+        REFERRAL_SIGNAL_V0_1_0,
+      ),
       judgeRunId: calibration.id,
     });
     const plain = runReferralSignals(data.people, data.referrals, T);
@@ -322,11 +326,15 @@ describe("runJudgeCalibration", () => {
     expect(early.id).not.toBe(late.id);
 
     const fromEarly = runReferralSignals(data.people, data.referrals, T, {
-      ...judgeWeightOptions(early.outputs),
+      ...judgeWeightedSignalOptions(
+        early.outputs,
+        JUDGE_RELIABILITY_V2_0_0,
+        REFERRAL_SIGNAL_V0_1_0,
+      ),
       judgeRunId: early.id,
     });
     const fromLate = runReferralSignals(data.people, data.referrals, T, {
-      ...judgeWeightOptions(late.outputs),
+      ...judgeWeightedSignalOptions(late.outputs, JUDGE_RELIABILITY_V2_0_0, REFERRAL_SIGNAL_V0_1_0),
       judgeRunId: late.id,
     });
 

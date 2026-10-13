@@ -37,10 +37,12 @@ export { INTERESTING_GAP } from "../../../src/analysis/dashboard.ts";
 export { computeView } from "./engine/computeView.ts";
 export { OWNER_EVALUATOR_ID, OWNER_NAME } from "./engine/shared.ts";
 export {
+  addCall,
   addComparison,
   addEvaluation,
   addPerson,
   addReferral,
+  anyReferrerDecided,
   decide,
   queueBuckets,
   recordFeedback,
@@ -73,6 +75,7 @@ export function emptyState(now: string = wallClockNow()): ClubState {
   return {
     people: [],
     referrals: [],
+    calls: [],
     comparisons: [],
     evaluations: [],
     outcomes: [],
@@ -94,6 +97,7 @@ export function initialState(): ClubState {
   const state: ClubState = {
     people: data.people.map(personToClub),
     referrals: data.referrals.map(referralToClub),
+    calls: [],
     comparisons: data.comparisons.map(comparisonToClub),
     evaluations: data.evaluations.map(evaluationToClub),
     outcomes: data.outcomes.map(outcomeToClub),

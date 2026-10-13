@@ -26,6 +26,12 @@ export interface ReferralSignalSpec {
   evidenceMultiplier: Record<EvidenceType, number>;
   /** Number of strongest incoming referrals averaged into S_v. */
   topK: number;
+  /**
+   * How the Top-K contributions become S_v. Absent is the plain mean.
+   * `"weight_normalized"` is Σ(ω_u·R_uv) / (Σ ω_u + c0), with c0 supplied by
+   * the run as `pseudoWeight`.
+   */
+  aggregation?: "weight_normalized";
 }
 
 /** Parameters of the V1 Bradley–Terry fit. */
@@ -46,6 +52,15 @@ export interface BradleyTerrySpec {
    * the plain fit exactly. An engineering continuity device, not theory.
    */
   anchorStrength: number;
+}
+
+export interface AdmissionSpec {
+  kappa: number;
+  limit: number;
+  positionExponent: number;
+  positionFloor: number;
+  priorAdmitRate: number;
+  priorAdmitWeight: number;
 }
 
 /**
@@ -88,6 +103,7 @@ export interface JudgeReliabilitySpec {
   softCap?: number;
   /** γ > 0, "v4" only: ω_u = w_u^γ. */
   weightExponent?: number;
+  admission?: AdmissionSpec;
   /**
    * Opportunity-count thresholds that bucket people for the expectation
    * E[R_v | O_v]. `[1, 2, 3]` ⇒ buckets {0}, {1}, {2}, {3+}. Empty ⇒ one
@@ -269,6 +285,9 @@ function validateReferralSignalSpec(spec: ReferralSignalSpec, errors: string[]):
   }
 
   if (!isPositiveInteger(spec.topK)) errors.push("topK must be a positive integer");
+  if (spec.aggregation !== undefined && spec.aggregation !== "weight_normalized") {
+    errors.push('aggregation must be absent or "weight_normalized"');
+  }
 }
 
 function validateBradleyTerrySpec(spec: BradleyTerrySpec, errors: string[]): void {
@@ -313,15 +332,34 @@ function logit(p: number): number {
 export function judgeWeightV4(
   shrunk: number,
   spec: JudgeReliabilityV4Params,
+  extraSigma = 0,
 ): { weight: number; omega: number } {
   const mu0 = spec.priorReliability;
   const eps = JUDGE_WEIGHT_LOGIT_EPS;
-  const sigma = logit(Math.min(1 - eps, Math.max(eps, shrunk))) - logit(mu0);
+  const sigma = logit(Math.min(1 - eps, Math.max(eps, shrunk))) - logit(mu0) + extraSigma;
   const weight =
     sigma === 0
       ? mu0
       : 1 / (1 + Math.exp(-(logit(mu0) + spec.softCap * Math.tanh(sigma / spec.softCap))));
   return { weight, omega: weight ** spec.weightExponent };
+}
+
+function validateAdmissionSpec(a: AdmissionSpec, errors: string[]): void {
+  const positive = (v: number) => isFiniteNumber(v) && v > 0;
+  if (!positive(a.kappa)) errors.push("admission.kappa (κ_a) must be a finite number > 0");
+  if (!positive(a.limit)) errors.push("admission.limit (Lᴬ) must be a finite number > 0");
+  if (!isFiniteNumber(a.positionExponent) || a.positionExponent < 0) {
+    errors.push("admission.positionExponent (α) must be a finite number ≥ 0");
+  }
+  if (!isFiniteNumber(a.positionFloor) || a.positionFloor < 0 || a.positionFloor > 1) {
+    errors.push("admission.positionFloor (φ) must be in [0, 1]");
+  }
+  if (!isFiniteNumber(a.priorAdmitRate) || a.priorAdmitRate <= 0 || a.priorAdmitRate >= 1) {
+    errors.push("admission.priorAdmitRate must be in (0, 1)");
+  }
+  if (!positive(a.priorAdmitWeight)) {
+    errors.push("admission.priorAdmitWeight must be a finite number > 0");
+  }
 }
 
 function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string[]): void {
@@ -379,8 +417,13 @@ function validateJudgeReliabilitySpec(spec: JudgeReliabilitySpec, errors: string
         }
       }
     }
-  } else if (spec.softCap !== undefined || spec.weightExponent !== undefined) {
-    errors.push('softCap and weightExponent apply only under mode "v4"');
+    if (spec.admission !== undefined) validateAdmissionSpec(spec.admission, errors);
+  } else if (
+    spec.softCap !== undefined ||
+    spec.weightExponent !== undefined ||
+    spec.admission !== undefined
+  ) {
+    errors.push('softCap, weightExponent and admission apply only under mode "v4"');
   }
   if (!Array.isArray(spec.opportunityBuckets)) {
     errors.push("opportunityBuckets must be an array of thresholds");

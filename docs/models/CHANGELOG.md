@@ -113,6 +113,138 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   expected: judges with no data drop from weight 1 to w 0.3 and ω 0.09.
 - **PR:** SEA-78.
 
+## judge_reliability@4.1.0 — admission credit
+
+- **What:** 4.0.0 plus an admission term per referral, from the council's
+  decisions (admit or deny). New spec fields `admission`
+  `{ κ_a 0.25, Lᴬ 0.75, α 0.75, φ 0.2, priorAdmitRate 12/150, priorAdmitWeight 150 }`.
+  Eligibility: member referrals (origin `referral`, or a legacy row with no
+  origin) and interview yeses (origin `interview`) rank on every channel,
+  inbound and outbound alike. A person with no channel is inbound; the channel
+  only picks the admit rate.
+  Position: a candidate's eligible referrals rank by `createdAt`
+  (one per judge; self-referrals and repeats take none; equal times share the
+  average share), `share(k) = max(φ, 1/k^α)`. On an outbound candidate a
+  member referral made before the interview takes the earlier position and the
+  interviewer's yes the next one, so the candidate's advocacy can be counted
+  twice; that is accepted. A referrer who also interviews keeps the one
+  position their referral holds: the yes call is stored and adds no referral. Per referral,
+  `a = +1` if admitted, `−r/(1−r)` if denied (r = the candidate's channel
+  admit rate); `ρ = clip((S − S⁻ᵘ)/S, 0, 1)` for an admit and a denial alike,
+  and `ρ = 1` when `S ≤ 0`;
+  `ℓᴬ = clip(κ_a · share · a · (1 − ρ), −Lᴬ, Lᴬ)`. `Σ ℓᴬ` is added to Σ before
+  the soft cap, so `logit w = logit μ0 + T·tanh((Σ_acc + Σ ℓᴬ)/T)`. No credit
+  for the person who recorded the decision (recusal), or for a decision
+  recorded before the leave-one-judge-out signal was kept. r is the channel's
+  observed admit rate over scoring decisions, with the prior counted as
+  `priorAdmitWeight` decisions at `priorAdmitRate`, so it starts at 12/150 and
+  can never reach 0 or 1. A decision counts once in r as soon as an
+  eligible (positioned) referral is scored on it, even when recusal, an
+  unresolved-decider admin skip, a snapshot with no `signalWithout` or a null
+  signal zeroes that referral's term, because the council outcome is real and
+  the better base-rate estimate. S and S⁻ᵘ are the council's display-rounded
+  signals (the scale the snapshot stores).
+- **Decision rule, per referral:** each referral is scored on the first
+  council decision on its candidate at or after the referral was made, using
+  that decision's frozen outcome, S and S⁻ᵘ. A candidate denied, reopened in a
+  later semester, freshly referred and then admitted scores the earlier
+  referrers on the denial and the new referrer on the admit. A referral already
+  scored is never reopened: a later decision or reversal does not change it.
+  A decision counts toward r once if it scores at least one eligible referral,
+  however many it scores; a decision that scores none, such as a re-admit with
+  no new referral, does not count.
+- **Weighted signal:** the council's Referral Signal is weighted by ω, as
+  under 4.0.0. There is no shadow mode. The weighted path is mis-scaled until
+  SEA-83 lands: the plain top-K mean of `ω·R` lets a new judge's ω 0.09 pull a
+  candidate's signal down. Don't switch `CURRENT_SPECS` before then.
+- **Why:** Gives a new judge a meaningful weight within weeks of the council
+  deciding, instead of after a 180-day observation window. Centring on the
+  channel's admit rate keeps a judge whose candidates are admitted at the
+  normal rate at 0.
+- **Centred per referral:** an admit earns `+(1 − ρ)` and a denial
+  `−r·(1 − ρ)/(1 − r)`, both times `κ_a · share`. Expected early credit is 0
+  at the base rate for every referral, whatever its ρ. A sole advocate
+  (ρ = 1) gets 0 either way and is calibrated at settlement.
+- **Admission credit timing:** a referral without a Jev starting snapshot would
+  wait for step 4; until it exists the credit applies once the decision stands.
+- **Accepted for now:** three choices stand until the pipeline simulation
+  (PR #116) checks them, before 4.1.0 becomes current.
+  - The admit-rate prior is a blend of 150 pseudo-decisions at 12/150 with
+    the channel's history.
+  - ρ uses the rounded display signals, not the unrounded ones.
+  - Clipping each referral at ±Lᴬ breaks the zero-expectation property only
+    for admit rates r > 0.75 at share 1: at r = 0.9 the expected credit is
+    +0.15. No change for 4.1.0; revisit in the simulation tuning pass.
+- **Not current:** `CURRENT_SPECS.judge_reliability` stays 2.0.0.
+- **Drift:** on the seed, which has no council decisions and so no admission
+  credit; re-run after per-referral centring, after the per-referral decision
+  rule and after member referrals began ranking on outbound candidates,
+  unchanged each time. `--before 4.0.0 --after 4.1.0`: STABLE on all five reports (τ_b 1.000,
+  no shift), including after SEA-83. `--before 2.0.0 --after 4.1.0`, re-run
+  2026-10-13 after the weight-normalised signal: BREAKING overall. Reliability
+  τ_b 0.578, mean |shift| 43.64, max 52.50; bias STABLE; weight τ_b 0.047,
+  mean |shift| 58.61, max 70.00; omega τ_b 0.047, mean |shift| 80.27, max 91.00.
+  Weighted referral signals REVIEW, τ_b 0.804, Spearman ρ 0.935, mean |shift|
+  5.69, p95 15.44, max 19.16. Before SEA-83 that arm was REVIEW, τ_b 0.746,
+  mean |shift| 29.45, max 67.62. 2.0.0 → 4.0.0 gives the same five reports.
+- **PR:** SEA-79.
+
+## referral_signal@0.2.0 — weight-normalised mean for the v4 weighted signal
+
+- **What:** 0.1.0's strengths and Top-K (same weights, multipliers, `topK 5`)
+  with new spec field `aggregation "weight_normalized"`:
+  `S_v = Σ_{TopK} (ω_u · R_uv) / (Σ_{TopK} ω_u + c0)`, Top-K ranked by `ω·R`
+  as before, ineligible edges still taking no slot. `c0` is not a spec field:
+  the run passes it as `pseudoWeight` and records it in its parameters, and
+  `judgeWeightedSignalOptions` derives it from the judge spec as
+  `μ0^γ = priorReliability^weightExponent` (0.3² = 0.09 under 4.x), one new
+  judge's worth of weight. A 0.2.0 spec refuses a run without `pseudoWeight`,
+  and 0.1.0 refuses one with it.
+  `judgeWeightOptions` (weights only) is removed: it handed a v4 run's ω to
+  0.1.0's plain mean. `judgeWeightedSignalOptions(run, judgeSpec, referralSpec)`
+  is the one way from a calibration to signal options.
+- **Where it runs:** only the judge-weighted run of a pass whose judge spec is
+  mode `"v4"` (4.0.0, 4.1.0); the club's leave-one-judge-out signal uses the
+  same options. The V0 baseline, every `"v2"` (2.0.0) weighted run and
+  `CURRENT_SPECS.referral_signal` stay on 0.1.0, so their outputs and run ids
+  are unchanged. Drift's weighted-signal arm now checks that the configured
+  (baseline) referral spec held still, so 2.0.0 → 4.x still reports it.
+- **Why:** Under the plain mean, a new judge's ω 0.09 dragged a candidate's
+  signal down: `mean(0.81R, 0.09R) = 0.45R`. Weight-normalised, a low-weight
+  referral moves the signal only a little toward its R and never toward 0
+  (proven 0.81 alone 90; plus a new judge at R 1: 91). Worked examples, R 1:
+  ω 0.25 → 74; two new judges → 67; ω 0.81 → 90. `c0` is on the scale of the
+  weights; 0.5 (first proposed) would have sunk single referrals to ~33.
+- **Not current:** `CURRENT_SPECS` is unchanged (referral_signal 0.1.0,
+  judge_reliability 2.0.0).
+- **Drift:** on the seed, judge spec held at 4.1.0, weighted plain mean (0.1.0)
+  → weighted 0.2.0: REVIEW, τ_b 0.739, mean |shift| 24.96, max 62.40 (signals
+  rise back toward the referral strengths). Unweighted 0.1.0 → weighted 0.2.0:
+  REVIEW, τ_b 0.775, mean |shift| 10.31, max 26.23. `c0 = 0.09` against
+  `c0 = 0`: single-referral candidates −13.31 on average (−4.72 to −26.23),
+  multi-referral −6.72 (−2.23 to −11.90). On the PR #116 club pipeline (base
+  variant, seeds 1–5; `bun run scripts/judgeWeightSim/c0.ts`), each candidate
+  re-scored with this formula and `c0 = μ0^γ`, the same step shifts
+  single-referral candidates by −25.72 on average (−71.67 to −0.67; n 1793;
+  mean signal 34.71) and two-referral
+  candidates by −16.22 (−52.39 to −0.94; n 1225; mean signal 49.22). Nobody
+  had more than two referrals, so Top-K never filled. `c0 = 0.5` sinks those
+  means to 13.29 and 24.50. `--kind judge_reliability --before
+  2.0.0 --after 4.1.0`: still BREAKING overall on reliability/weight/ω (as
+  before), but weighted referral signals improve from REVIEW τ_b 0.746, mean
+  |shift| 29.45, max 67.62 to REVIEW τ_b 0.804, mean |shift| 5.69, max 19.16;
+  2.0.0 → 4.0.0 gives the same numbers, 4.0.0 → 4.1.0 is STABLE on all five.
+  The three 0.1.0/0.2.0 comparisons above come from one pass under judge
+  4.1.0 scored three ways, not from the CLI. `bun run drift -- --kind
+  referral_signal` with 0.2.0 on either side (and `--v0-vs-v2 --spec 0.2.0`)
+  is refused with exit 2 on purpose: swapping 0.2.0 into the whole pass would
+  hand the V0 baseline a weight-normalised spec with no pseudo-weight, and the
+  V0 baseline stays on 0.1.0 by design, so that report would show no movement.
+  The refusal names the judge_reliability report, whose weighted arm runs
+  0.2.0 with c0 derived from the judge spec. Re-run 2026-10-13; the seed
+  numbers above held. The pipeline deltas are from that same re-run.
+- **PR:** SEA-83.
+
 ## career_evidence@1.0.0 — initial (career-evidence rubric)
 
 - **What:** The rubric levels, question text, event taxonomy and gate

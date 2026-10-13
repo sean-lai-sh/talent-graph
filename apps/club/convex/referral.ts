@@ -32,6 +32,7 @@ import {
   REFERRAL_Q2_ROLES,
   REFERRAL_Q3_GROUP_SIZES,
   REFERRAL_Q3_RANKS,
+  REFERRAL_RECOGNITIONS,
 } from "../lib/types.ts";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -257,6 +258,7 @@ const memberReferralAnswers = v.object({
   role: oneOf(REFERRAL_Q2_ROLES),
   rank: oneOf(REFERRAL_Q3_RANKS),
   groupSize: oneOf(REFERRAL_Q3_GROUP_SIZES),
+  recognition: v.optional(oneOf(REFERRAL_RECOGNITIONS)),
 });
 
 /**

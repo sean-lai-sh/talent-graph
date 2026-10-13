@@ -35,7 +35,7 @@ import type {
   Person,
   Referral,
 } from "../domain/types.ts";
-import { CURRENT_SPECS } from "../models/registry.ts";
+import { CURRENT_SPECS, REFERRAL_SIGNAL_V0_2_0 } from "../models/registry.ts";
 import {
   assertSpec,
   type JudgeReliabilitySpec,
@@ -43,7 +43,9 @@ import {
   judgeWeightV4,
   type ReferralSignalSpec,
 } from "../models/spec.ts";
+import { stableStringify } from "../provenance/hash.ts";
 import { referralStrength } from "../scoring/referralStrength.ts";
+import { type AdmissionObservations, type AdmissionResult, computeAdmission } from "./admission.ts";
 import {
   buildOutcomeCohort,
   labelForPrediction,
@@ -99,6 +101,7 @@ export interface JudgeReliabilityEstimate {
   weight?: number;
   /** ω_u = w_u^γ under mode "v4" (what the signal uses); absent under "v2". */
   omega?: number;
+  admissionCredit?: number;
   /** Running signed error, or null when nothing has been evaluated. */
   rawBias: number | null;
   /** b̂_u after shrinkage toward 0. */
@@ -126,6 +129,7 @@ export interface JudgeCalibrationRun {
     /** Present only under "v4"; absent under "v2" so v2 outputs and run ids are unchanged. */
     reliabilityMode?: "v4";
   };
+  admission?: AdmissionResult;
 }
 
 export interface JudgeCalibrationInput {
@@ -137,6 +141,7 @@ export interface JudgeCalibrationInput {
   spec?: JudgeReliabilitySpec;
   /** Spec under which x_uv is computed; defaults to CURRENT_SPECS.referral_signal. */
   referralSpec?: ReferralSignalSpec;
+  admission?: AdmissionObservations;
 }
 
 /**
@@ -239,6 +244,7 @@ export function estimateJudgeReliability(
   judgeIds: readonly string[],
   predictions: readonly ScoredPrediction[],
   spec: JudgeReliabilitySpec,
+  admissionSums: ReadonlyMap<string, number> = new Map(),
 ): Map<string, JudgeReliabilityEstimate> {
   const eta = spec.learningRate;
   const v4 = spec.mode === "v4" ? v4Params(spec) : null;
@@ -255,10 +261,13 @@ export function estimateJudgeReliability(
     }
   }
 
-  const ids = new Set<string>([...judgeIds, ...acc.keys()]);
+  const ids = new Set<string>([...judgeIds, ...acc.keys(), ...admissionSums.keys()]);
+  const withAdmission = spec.admission !== undefined;
   const out = new Map<string, JudgeReliabilityEstimate>();
   for (const judgeId of [...ids].sort()) {
     const a = acc.get(judgeId);
+    const credit = withAdmission ? (admissionSums.get(judgeId) ?? 0) : 0;
+    const creditField = withAdmission ? { admissionCredit: credit } : {};
     if (!a) {
       out.set(judgeId, {
         judgeId,
@@ -266,7 +275,8 @@ export function estimateJudgeReliability(
         meanSquaredError: null,
         rawReliability: null,
         reliability: spec.priorReliability,
-        ...(v4 ? judgeWeightV4(spec.priorReliability, v4) : {}),
+        ...(v4 ? judgeWeightV4(spec.priorReliability, v4, credit) : {}),
+        ...creditField,
         rawBias: null,
         bias: 0,
         predictionIds: [],
@@ -281,7 +291,8 @@ export function estimateJudgeReliability(
       meanSquaredError: a.e,
       rawReliability: raw,
       reliability,
-      ...(v4 ? judgeWeightV4(reliability, v4) : {}),
+      ...(v4 ? judgeWeightV4(reliability, v4, credit) : {}),
+      ...creditField,
       rawBias: a.b,
       bias: shrink(a.n, a.b, 0, spec.shrinkage),
       predictionIds: a.ids,
@@ -296,10 +307,15 @@ export function computeJudgeCalibration(input: JudgeCalibrationInput): JudgeCali
   const referralSpec = assertSpec(input.referralSpec ?? CURRENT_SPECS.referral_signal);
   const cohort = buildOutcomeCohort(input.outcomes, input.opportunities ?? [], spec, input.now);
   const { predictions, skipped } = scoreReferralPredictions(input.referrals, cohort, referralSpec);
+  const admission =
+    spec.admission !== undefined && input.admission !== undefined
+      ? computeAdmission(input.referrals, input.admission, spec.admission, input.now)
+      : undefined;
   const estimates = estimateJudgeReliability(
     input.people.map((p) => p.id),
     predictions,
     spec,
+    admission?.sumByJudge,
   );
   const withEvidence = [...estimates.values()].filter((e) => e.rawReliability !== null);
   const populationMeanReliability =
@@ -321,21 +337,96 @@ export function computeJudgeCalibration(input: JudgeCalibrationInput): JudgeCali
       applyBiasCorrection: spec.applyBiasCorrection,
       ...(spec.mode === "v4" ? { reliabilityMode: "v4" as const } : {}),
     },
+    ...(admission === undefined ? {} : { admission }),
   };
 }
 
 /**
- * The options to pass to `computeReferralSignal` / `computeAllReferralSignals`:
- * reliability always, bias only when the spec enables the correction.
+ * c0 for the weight-normalised Referral Signal: μ0^γ, one new judge's worth
+ * of weight. Throws unless the spec is mode "v4".
  */
-export function judgeWeightOptions(run: JudgeCalibrationRun): {
+export function judgePseudoWeight(spec: JudgeReliabilitySpec): number {
+  if (spec.mode !== "v4" || spec.weightExponent === undefined) {
+    throw new Error(
+      `judge_reliability@${spec.version} is not mode "v4"; it has no pseudo-weight to derive`,
+    );
+  }
+  return spec.priorReliability ** spec.weightExponent;
+}
+
+/**
+ * The weight-normalised counterpart of a plain-mean Referral Signal spec:
+ * `referral_signal@0.2.0` for 0.1.0, or 0.2.0 tagged `+env` when the given
+ * spec is 0.1.0 with env overrides (src/config.ts), carrying them over. A spec
+ * that already aggregates weight-normalised is returned as it is. Any other
+ * version has no registered weight-normalised counterpart, so it throws.
+ */
+export function weightNormalizedReferralSpec(spec: ReferralSignalSpec): ReferralSignalSpec {
+  if (spec.aggregation === "weight_normalized") return spec;
+  const base = REFERRAL_SIGNAL_V0_2_0;
+  if (spec.version !== "0.1.0" && !spec.version.startsWith("0.1.0+")) {
+    throw new Error(
+      `referral_signal@${spec.version} has no weight-normalised counterpart; only 0.1.0 maps to ${base.version}`,
+    );
+  }
+  const derived: ReferralSignalSpec = {
+    ...spec,
+    version: base.version,
+    aggregation: "weight_normalized",
+  };
+  return stableStringify(derived) === stableStringify(base)
+    ? base
+    : { ...derived, version: `${base.version}+env` };
+}
+
+/**
+ * Everything the judge-weighted Referral Signal run takes from a calibration:
+ * the weights (ω_u or p̂_u, plus `biasCorrections` when the judge spec enables
+ * the correction) and the spec they are aggregated under.
+ *
+ * Under a mode "v4" judge spec that is the weight-normalised counterpart of
+ * `referralSpec` with c0 = `judgePseudoWeight(judgeSpec)`. Under "v2" it is
+ * `referralSpec` unchanged with no pseudo-weight, and a weight-normalised
+ * `referralSpec` throws. Throws when the run's version or mode does not
+ * match `judgeSpec`.
+ */
+export function judgeWeightedSignalOptions(
+  run: JudgeCalibrationRun,
+  judgeSpec: JudgeReliabilitySpec,
+  referralSpec: ReferralSignalSpec,
+): {
+  spec: ReferralSignalSpec;
   judgeReliability: Map<string, number>;
   judgeBias?: Map<string, number>;
+  pseudoWeight?: number;
 } {
+  if (run.options.specVersion !== judgeSpec.version) {
+    throw new Error(
+      `calibration ran under judge_reliability@${run.options.specVersion}, not @${judgeSpec.version}`,
+    );
+  }
+  const runMode = run.options.reliabilityMode === "v4" ? "v4" : "v2";
+  const specMode = judgeSpec.mode === "v4" ? "v4" : "v2";
+  if (runMode !== specMode) {
+    throw new Error(
+      `calibration ran in judge_reliability mode "${runMode}", but judge_reliability@${judgeSpec.version} is mode "${specMode}"`,
+    );
+  }
+  if (specMode === "v2" && referralSpec.aggregation === "weight_normalized") {
+    throw new Error(
+      `judge_reliability@${judgeSpec.version} is mode "v2", which keeps the plain mean and supplies no pseudo-weight, so it cannot run referral_signal@${referralSpec.version}`,
+    );
+  }
   const judgeReliability = reliabilityWeights(run);
-  return run.options.applyBiasCorrection
+  const weights = run.options.applyBiasCorrection
     ? { judgeReliability, judgeBias: biasCorrections(run) }
     : { judgeReliability };
+  if (specMode === "v2") return { spec: referralSpec, ...weights };
+  return {
+    spec: weightNormalizedReferralSpec(referralSpec),
+    ...weights,
+    pseudoWeight: judgePseudoWeight(judgeSpec),
+  };
 }
 
 /**
@@ -343,7 +434,7 @@ export function judgeWeightOptions(run: JudgeCalibrationRun): {
  * mode "v4", p̂_u exactly (no clamp) under "v2". A "v4" estimate without ω is a
  * broken run, and throws rather than falling through to full weight.
  */
-export function reliabilityWeights(run: JudgeCalibrationRun): Map<string, number> {
+function reliabilityWeights(run: JudgeCalibrationRun): Map<string, number> {
   const v4 = run.options.reliabilityMode === "v4";
   return new Map(
     [...run.estimates.values()].map((e) => {
