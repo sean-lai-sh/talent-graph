@@ -1,5 +1,5 @@
 import { isMap, isNode, isScalar, parseDocument, stringify } from "yaml";
-import { ConfigError, parseProjectConfig, parseSeedCompany } from "../projectConfig/load.ts";
+import { ConfigError, parseProjectConfig, parseSeedCompany } from "../projectConfig/parse.ts";
 import { hashInputs } from "../provenance/hash.ts";
 import {
   type DatedClaim,

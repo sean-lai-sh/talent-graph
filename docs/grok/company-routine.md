@@ -83,9 +83,11 @@ bun run scripts/jev-company-worklist.ts --items <items.json>
 doppler run --project talent-graph --config dev -- \
   bun run scripts/jev-company-worklist.ts --research <items.json> --out <proposals.json>
 
-# Merge the proposals into config.yml and update the seed pin.
+# Merge the proposals into config.yml, update the seed pin, and regenerate
+# src/projectConfig/generated.ts (the copy scoring code imports).
 bun run scripts/jev-company-worklist.ts --apply <proposals.json>
 bun run check:config
+bun run check:config-gen
 ```
 
 The research step prints each rejected org with the reason (for example a fact without an https source), each org Grok could not resolve, each worklist org that no returned company names by name or alias (it stays unseeded), and any new investors. New investors are not applied automatically. Add each one to `company_seed.investors` by hand after checking its tier. If a batch fails, the proposals from earlier batches are still written and the step says which batch stopped it.

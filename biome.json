@@ -11,7 +11,8 @@
       "!**/.claude",
       "!apps/club/.next",
       "!apps/club/node_modules",
-      "!apps/club/convex/_generated"
+      "!apps/club/convex/_generated",
+      "!src/projectConfig/generated.ts"
     ]
   },
   "formatter": {
