@@ -223,9 +223,10 @@ even though `registry.ts` is byte-identical. Ship a new version instead.
   REVIEW, τ_b 0.775, mean |shift| 10.31, max 26.23. `c0 = 0.09` against
   `c0 = 0`: single-referral candidates −13.31 on average (−4.72 to −26.23),
   multi-referral −6.72 (−2.23 to −11.90). On the PR #116 club pipeline (base
-  variant, seeds 1–5, each candidate re-scored with this formula and
-  `c0 = μ0^γ`), the same step shifts single-referral candidates by −25.72
-  on average (−71.67 to −0.67; n 1793; mean signal 34.71) and two-referral
+  variant, seeds 1–5; `bun run scripts/judgeWeightSim/c0.ts`), each candidate
+  re-scored with this formula and `c0 = μ0^γ`, the same step shifts
+  single-referral candidates by −25.72 on average (−71.67 to −0.67; n 1793;
+  mean signal 34.71) and two-referral
   candidates by −16.22 (−52.39 to −0.94; n 1225; mean signal 49.22). Nobody
   had more than two referrals, so Top-K never filled. `c0 = 0.5` sinks those
   means to 13.29 and 24.50. `--kind judge_reliability --before
