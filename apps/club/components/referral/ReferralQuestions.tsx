@@ -22,6 +22,8 @@ import {
   q2Role,
   q3Group,
   q3Rank,
+  RECOGNITION_CHOICES,
+  recognitionPrompt,
 } from "../../lib/referralQuestions.ts";
 import type { ReferralQ1Stake } from "../../lib/types.ts";
 import { Button } from "../ui/Button.tsx";
@@ -203,6 +205,18 @@ export function ReferralQuestions({
               onClick={() => onChange({ ...draft, rank: option })}
             >
               {option}
+            </Chip>
+          ))}
+        </ChipRow>
+        <ChipRow legend={recognitionPrompt(name)}>
+          {RECOGNITION_CHOICES.map((option) => (
+            <Chip
+              key={option.value}
+              pressed={draft.recognition === option.value}
+              disabled={locked || busy}
+              onClick={() => onChange({ ...draft, recognition: option.value })}
+            >
+              {option.label}
             </Chip>
           ))}
         </ChipRow>

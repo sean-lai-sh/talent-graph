@@ -94,12 +94,26 @@ export const JUDGE_RELIABILITY_V4_0_0: JudgeReliabilitySpec = deepFreeze({
   weightExponent: 2,
 });
 
+export const JUDGE_RELIABILITY_V4_1_0: JudgeReliabilitySpec = deepFreeze({
+  ...JUDGE_RELIABILITY_V4_0_0,
+  version: "4.1.0",
+  admission: {
+    kappa: 0.25,
+    limit: 0.75,
+    positionExponent: 0.75,
+    positionFloor: 0.2,
+    priorAdmitRate: 12 / 150,
+    priorAdmitWeight: 150,
+  },
+});
+
 /** Every spec version ever shipped. Append only. */
 export const SPEC_HISTORY: readonly ModelSpec[] = deepFreeze([
   REFERRAL_SIGNAL_V0_1_0,
   BRADLEY_TERRY_V1_0_0,
   JUDGE_RELIABILITY_V2_0_0,
   JUDGE_RELIABILITY_V4_0_0,
+  JUDGE_RELIABILITY_V4_1_0,
   CAREER_EVIDENCE_V1_0_0,
   CAREER_EVIDENCE_V1_1_0,
   CAREER_EVIDENCE_V1_2_0,

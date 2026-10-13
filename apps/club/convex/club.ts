@@ -1,8 +1,16 @@
 import type { GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
-import { adminRead, type ClubRole, extraAdminEmailsFromEnv, resolveRole } from "../lib/clubRole.ts";
+import {
+  adminRead,
+  adminReferrers,
+  type ClubRole,
+  decidedByPersonId,
+  extraAdminEmailsFromEnv,
+  resolveRole,
+} from "../lib/clubRole.ts";
 import { type Club, ensureClub, loadClub, loadState, saveState } from "../lib/clubStore.ts";
 import {
+  addCall as addCallEngine,
   addPerson as addPersonEngine,
   addReferral as addReferralEngine,
   computeView,
@@ -14,11 +22,13 @@ import {
 } from "../lib/engine.ts";
 import { toDirectoryMembers } from "../lib/memberDirectory.ts";
 import { listOwnFeedbackRequests, prepareMemberResponse } from "../lib/memberFeedback.ts";
-import type { ClubState, EngineResult } from "../lib/types.ts";
+import type { ClubDecider, ClubState, EngineResult } from "../lib/types.ts";
 import type { DataModel, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { authComponent } from "./auth";
 import {
+  callOutcome,
+  clubChannel,
   comparisonOutcome,
   dimension,
   evidenceType,
@@ -114,13 +124,57 @@ async function ensureOrg(
   return { orgId, name: clubName, state, view: computeView(state) };
 }
 
+async function signedInAdminPersonId(ctx: MutationCtx): Promise<string | undefined> {
+  const user = await requireAdmin(ctx);
+  const email = typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
+  const club = await loadClub(ctx.db);
+  const matches =
+    email === "" || !club
+      ? []
+      : await ctx.db
+          .query("clubPeople")
+          .withIndex("by_club_and_email", (q) => q.eq("clubId", club._id).eq("email", email))
+          .take(2);
+  return decidedByPersonId(matches.map((row) => row.id));
+}
+
+async function adminReferrersOf(
+  ctx: MutationCtx,
+  state: ClubState,
+  candidateId: string,
+): Promise<string[]> {
+  const referrerIds = new Set(
+    state.referrals.filter((r) => r.candidateId === candidateId).map((r) => r.referrerId),
+  );
+  const referrers = await Promise.all(
+    state.people
+      .filter((p) => referrerIds.has(p.id))
+      .map(async (p) => {
+        const email = p.email?.trim().toLowerCase() ?? "";
+        const accounts =
+          email === ""
+            ? []
+            : await ctx.db
+                .query("clubAccounts")
+                .withIndex("by_email", (q) => q.eq("email", email))
+                .collect();
+        return {
+          personId: p.id,
+          ...(email === "" ? {} : { email }),
+          storedRoles: accounts.map((a) => a.role),
+        };
+      }),
+  );
+  return adminReferrers(referrers, extraAdminEmails());
+}
+
 async function applyEngine(
   ctx: MutationCtx,
-  fn: (state: ClubState) => EngineResult,
+  fn: (state: ClubState) => EngineResult | Promise<EngineResult>,
 ): Promise<EngineResult> {
   const { club, state: before } = await ensureOrgDoc(ctx);
   // `saveState` diffs against `before`, so the transition runs on a copy.
-  const result = fn({ ...before, now: new Date().toISOString() });
+  const result = await fn({ ...before, now: new Date().toISOString() });
   if (!result.error) {
     await saveState(ctx.db, club, before, result.state);
   }
@@ -177,6 +231,7 @@ export const addPerson = mutation({
     linkedin: optionalName,
     resume: optionalName,
     status: v.optional(personStatus),
+    channel: v.optional(clubChannel),
   },
   handler: async (ctx, args) => {
     return await applyEngine(ctx, (state) => addPersonEngine(state, args));
@@ -205,7 +260,42 @@ export const decide = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    return await applyEngine(ctx, (state) => decideEngine(state, args.personId, args.decision));
+    const decidedBy = await signedInAdminPersonId(ctx);
+    return await applyEngine(ctx, async (state) => {
+      const decider: ClubDecider =
+        decidedBy !== undefined
+          ? { decidedBy }
+          : {
+              unresolvedDecider: {
+                adminReferrers: await adminReferrersOf(ctx, state, args.personId),
+              },
+            };
+      return decideEngine(state, args.personId, args.decision, undefined, decider);
+    });
+  },
+});
+
+export const addCall = mutation({
+  args: {
+    candidateId: v.string(),
+    callerId: v.string(),
+    order: v.union(v.literal(1), v.literal(2)),
+    outcome: callOutcome,
+    referral: v.optional(
+      v.object({
+        conviction: scale5,
+        confidence: scale5,
+        relationshipDepth: scale5,
+        evidenceType,
+        evidenceText: v.string(),
+      }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const { referral, ...call } = args;
+    return await applyEngine(ctx, (state) =>
+      addCallEngine(state, { ...call, ...(referral ? { referral } : {}) }),
+    );
   },
 });
 

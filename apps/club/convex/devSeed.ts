@@ -204,6 +204,10 @@ async function deleteExampleRows(ctx: MutationCtx, clubId: Id<"clubs">): Promise
     .query("clubReferrals")
     .withIndex("by_club", (q) => q.eq("clubId", clubId))
     .collect();
+  const calls = await db
+    .query("clubCalls")
+    .withIndex("by_club", (q) => q.eq("clubId", clubId))
+    .collect();
   const comparisons = await db
     .query("clubComparisons")
     .withIndex("by_club", (q) => q.eq("clubId", clubId))
@@ -227,6 +231,11 @@ async function deleteExampleRows(ctx: MutationCtx, clubId: Id<"clubs">): Promise
 
   for (const row of referrals) {
     if (isExamplePersonId(row.referrerId) || isExamplePersonId(row.candidateId)) {
+      await db.delete(row._id);
+    }
+  }
+  for (const row of calls) {
+    if (isExamplePersonId(row.candidateId) || isExamplePersonId(row.callerId)) {
       await db.delete(row._id);
     }
   }

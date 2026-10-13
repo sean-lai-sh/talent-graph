@@ -19,7 +19,11 @@ import {
   toJudgeCalibration,
 } from "../src/judges/reliability.ts";
 import * as trackRecord from "../src/judges/trackRecord.ts";
-import { JUDGE_RELIABILITY_V2_0_0 } from "../src/models/registry.ts";
+import {
+  JUDGE_RELIABILITY_V2_0_0,
+  JUDGE_RELIABILITY_V4_0_0,
+  JUDGE_RELIABILITY_V4_1_0,
+} from "../src/models/registry.ts";
 import type { JudgeReliabilitySpec } from "../src/models/spec.ts";
 import { computeAllReferralSignals } from "../src/scoring/referralSignal.ts";
 import { referralStrength } from "../src/scoring/referralStrength.ts";
@@ -468,6 +472,24 @@ describe("estimateJudgeReliability", () => {
     expect(silent?.reliability).toBe(SPEC.priorReliability);
     expect(silent?.rawReliability).toBeNull();
     expect(silent?.bias).toBe(0);
+  });
+
+  test("admission sums move the weight only when the spec has admission credit", () => {
+    const preds = score([referral("good", "hi", 5), referral("good", "lo", 1)], outcomes);
+    const sums = new Map([
+      ["good", 0.5],
+      ["silent", -0.5],
+    ]);
+    const ids = ["good", "silent"];
+    expect(estimateJudgeReliability(ids, preds, JUDGE_RELIABILITY_V4_0_0, sums)).toEqual(
+      estimateJudgeReliability(ids, preds, JUDGE_RELIABILITY_V4_0_0),
+    );
+    const with41 = estimateJudgeReliability(ids, preds, JUDGE_RELIABILITY_V4_1_0, sums);
+    const without41 = estimateJudgeReliability(ids, preds, JUDGE_RELIABILITY_V4_1_0);
+    for (const id of ids) {
+      expect(with41.get(id)?.admissionCredit).toBe(sums.get(id) as number);
+      expect(with41.get(id)?.omega).not.toBe(without41.get(id)?.omega as number);
+    }
   });
 
   test("shrinkage: five wrong calls on five different people move p̂ further than one", () => {

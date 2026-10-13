@@ -100,6 +100,7 @@ function filledDraft(partial: Partial<QuestionDraft> = {}): QuestionDraft {
     role: "Major contributor",
     rank: "Top 20%",
     groupSize: "10 to 30",
+    recognition: null,
     ...partial,
   };
 }
