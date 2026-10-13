@@ -7,6 +7,7 @@ import type { ClubState } from "./types.ts";
 export const CLUB_TABLES = {
   people: "clubPeople",
   referrals: "clubReferrals",
+  calls: "clubCalls",
   comparisons: "clubComparisons",
   evaluations: "clubEvaluations",
   outcomes: "clubOutcomes",

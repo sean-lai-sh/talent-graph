@@ -7,6 +7,7 @@
  */
 
 import type { Opportunity, Outcome, Person, Referral } from "../../domain/types.ts";
+import type { AdmissionObservations } from "../../judges/admission.ts";
 import {
   computeJudgeCalibration,
   type JudgeCalibrationInput,
@@ -23,6 +24,7 @@ export interface JudgeCalibrationObservations {
   referrals: readonly Referral[];
   outcomes: readonly Outcome[];
   opportunities?: readonly Opportunity[];
+  admission?: AdmissionObservations;
 }
 
 /** Everything that is a choice rather than an observation. */
@@ -48,6 +50,7 @@ export const judgeReliabilityModel = defineModel<
     referrals: input.referrals,
     outcomes: input.outcomes,
     opportunities: input.opportunities ?? [],
+    ...(input.admission === undefined ? {} : { admission: input.admission }),
   }),
   // Every option this model accounts for. `runModel` refuses anything else.
   recordedOptionKeys: ["now", "spec", "referralSpec"],
@@ -77,5 +80,8 @@ export function runJudgeCalibration(input: JudgeCalibrationInput): ModelRun<Judg
     ...(input.spec === undefined ? {} : { spec: input.spec }),
     ...(input.referralSpec === undefined ? {} : { referralSpec: input.referralSpec }),
   };
-  return runModel(judgeReliabilityModel, input, opts, input.now);
+  const { admission, ...rest } = input;
+  const read = judgeReliabilityModel.specOf(opts).admission !== undefined;
+  const observations = read && admission !== undefined ? { ...rest, admission } : rest;
+  return runModel(judgeReliabilityModel, observations, opts, input.now);
 }

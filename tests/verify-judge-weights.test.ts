@@ -18,8 +18,6 @@ import {
   formatReport,
   formatResult,
   referralSignalPresent,
-  SKIP_ADMISSION,
-  SKIP_REFERRAL_SIGNAL,
   SKIP_SNAPSHOTS,
   snapshotsPresent,
   tally,
@@ -109,13 +107,13 @@ describe("weight key scan", () => {
 });
 
 describe("engine checks enable from merged code", () => {
-  test("this checkout skips #120 #122 and #123 and skips are not passes", async () => {
+  test("this checkout runs #120 admission credit and #123 referral signal, and still skips #122", async () => {
     process.env.VERIFY_JUDGE_WEIGHTS_ADMISSION = "1";
     process.env.VERIFY_JUDGE_WEIGHTS_SNAPSHOTS = "1";
     process.env.VERIFY_JUDGE_WEIGHTS_REFERRAL_SIGNAL = "1";
-    expect(admissionPresent(repo)).toBe(false);
+    expect(admissionPresent(repo)).toBe(true);
     expect(snapshotsPresent(repo)).toBe(false);
-    expect(referralSignalPresent(repo)).toBe(false);
+    expect(referralSignalPresent(repo)).toBe(true);
 
     const results: CheckResult[] = [
       { id: "admin-only-weights", status: "pass", detail: "clean" },
@@ -123,26 +121,22 @@ describe("engine checks enable from merged code", () => {
       await checkSnapshots(repo),
       await checkReferralSignal(repo),
     ];
-    expect(results[1]).toEqual({
-      id: "admission-credit",
-      status: "skipped",
-      detail: SKIP_ADMISSION,
-    });
+    expect(results[1]?.status).toBe("pass");
+    expect(results[1]?.id).toBe("admission-credit");
     expect(results[2]).toEqual({ id: "snapshots", status: "skipped", detail: SKIP_SNAPSHOTS });
-    expect(results[3]).toEqual({
-      id: "referral-signal",
-      status: "skipped",
-      detail: SKIP_REFERRAL_SIGNAL,
-    });
-    expect(formatResult(results[1]!)).toBe("SKIPPED admission-credit - needs #120 on main");
+    expect(results[3]?.status).toBe("pass");
+    expect(results[3]?.id).toBe("referral-signal");
+    expect(formatResult(results[1]!)).toBe("PASS admission-credit");
     expect(formatResult(results[2]!)).toBe("SKIPPED snapshots - needs #122 on main");
-    expect(formatResult(results[3]!)).toBe("SKIPPED referral-signal - needs #123 on main");
-    expect(tally(results)).toEqual({ passed: 1, skipped: 3, failed: 0 });
+    expect(formatResult(results[3]!)).toBe("PASS referral-signal");
+    expect(tally(results)).toEqual({ passed: 3, skipped: 1, failed: 0 });
     const report = formatReport(results);
-    expect(report).toContain("SKIPPED admission-credit - needs #120 on main");
+    expect(report).toContain("SKIPPED snapshots - needs #122 on main");
     expect(report).toContain("PASS admin-only-weights");
-    expect(report).toContain("passed 1\nskipped 3\nfailed 0\n");
-    expect(report.match(/PASS /g)?.length).toBe(1);
+    expect(report).toContain("PASS admission-credit");
+    expect(report).toContain("PASS referral-signal");
+    expect(report).toContain("passed 3\nskipped 1\nfailed 0\n");
+    expect(report.match(/PASS /g)?.length).toBe(3);
   });
 
   test("markers in the tree turn each check on, env vars do not", () => {

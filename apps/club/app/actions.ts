@@ -2,6 +2,7 @@
 
 import {
   addPerson,
+  anyReferrerDecided,
   decide,
   loadClub,
   recordFeedback,
@@ -41,7 +42,7 @@ export async function actionDecide(
   personId: string,
   decision: Decision,
 ): Promise<EngineResult> {
-  return decide(state, personId, decision);
+  return decide(state, personId, decision, undefined, anyReferrerDecided(state, personId));
 }
 
 export async function actionRequestFeedback(
