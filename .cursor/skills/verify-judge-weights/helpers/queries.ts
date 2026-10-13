@@ -82,14 +82,50 @@ async function callQuery(
   return { ok: false, error: text.slice(0, 240) };
 }
 
-function isRejection(result: CallResult): boolean {
+export function isRejection(result: CallResult): boolean {
   if (!result.ok) return true;
   if (result.value === null || result.value === undefined) return true;
-  if (typeof result.value === "object" && !Array.isArray(result.value)) {
-    const keys = Object.keys(result.value);
-    if (keys.length > 0 && keys.every((key) => key === "ok" || key === "error")) return true;
+  if (typeof result.value !== "object" || Array.isArray(result.value)) return false;
+  const record = result.value as { ok?: unknown; error?: unknown };
+  const keys = Object.keys(record);
+  if (keys.length === 0 || !keys.every((key) => key === "ok" || key === "error")) return false;
+  if (
+    record.ok === true &&
+    (record.error === undefined || record.error === null || record.error === "")
+  ) {
+    return false;
   }
-  return false;
+  return true;
+}
+
+export function probeFailures(
+  query: { ref: string; audience: "member" | "admin" },
+  adminResult: CallResult,
+  memberResult: CallResult,
+): string[] {
+  const failures: string[] = [];
+  if (!adminResult.ok) {
+    failures.push(`${query.ref} admin call failed: ${adminResult.error.slice(0, 240)}`);
+  }
+  if (query.audience === "member" && !memberResult.ok) {
+    failures.push(`${query.ref} member call failed: ${memberResult.error.slice(0, 240)}`);
+  }
+  const adminHits = adminResult.ok ? scanWeightKeys(adminResult.value) : [];
+  const memberHits = memberResult.ok ? scanWeightKeys(memberResult.value) : [];
+  if (query.audience === "admin" && !isRejection(memberResult)) {
+    failures.push(`${query.ref} is admin-only and the member was not rejected`);
+  }
+  if (query.audience === "member" && adminHits.length > 0) {
+    failures.push(
+      `${query.ref} is member-facing but the admin payload has weight keys: ${adminHits.map((hit) => hit.path).join(", ")}`,
+    );
+  }
+  if (memberHits.length > 0) {
+    failures.push(
+      `${query.ref} member payload has weight keys: ${memberHits.map((hit) => hit.path).join(", ")}`,
+    );
+  }
+  return failures;
 }
 
 export type QueryScan = {
@@ -128,26 +164,13 @@ export async function scanMemberQueries(input: {
   for (const query of queries) {
     const args = KNOWN_ARGS[query.ref] ?? {};
     const adminResult = await callQuery(input.convexUrl, adminToken, query.ref, args);
-    const adminHits = adminResult.ok ? scanWeightKeys(adminResult.value) : [];
     const memberResult = await callQuery(input.convexUrl, memberToken, query.ref, args);
     const memberHits = memberResult.ok ? scanWeightKeys(memberResult.value) : [];
     for (const hit of memberHits) {
       hits.push({ path: `${query.ref}.${hit.path}`, key: hit.key });
     }
     const memberRejected = isRejection(memberResult);
-    if (query.audience === "admin" && !memberRejected) {
-      failures.push(`${query.ref} is admin-only and the member was not rejected`);
-    }
-    if (query.audience === "member" && adminHits.length > 0) {
-      failures.push(
-        `${query.ref} is member-facing but the admin payload has weight keys: ${adminHits.map((hit) => hit.path).join(", ")}`,
-      );
-    }
-    if (memberHits.length > 0) {
-      failures.push(
-        `${query.ref} member payload has weight keys: ${memberHits.map((hit) => hit.path).join(", ")}`,
-      );
-    }
+    failures.push(...probeFailures(query, adminResult, memberResult));
     const preview = memberResult.ok
       ? JSON.stringify(memberResult.value).slice(0, 240)
       : `rejected: ${memberResult.error.slice(0, 240)}`;

@@ -165,9 +165,12 @@ function handlerSignals(
   if (!obj) return { weight: false, admin: false, seen: false };
   let handler: ts.Expression | undefined;
   for (const prop of obj.properties) {
-    if (!ts.isPropertyAssignment(prop)) continue;
-    if (propertyNameText(prop.name) !== "handler") continue;
-    handler = prop.initializer;
+    if (ts.isPropertyAssignment(prop) && propertyNameText(prop.name) === "handler") {
+      handler = prop.initializer;
+    }
+    if (ts.isShorthandPropertyAssignment(prop) && prop.name.text === "handler") {
+      handler = prop.name;
+    }
   }
   if (!handler) return { weight: false, admin: false, seen: false };
   const body = resolveHandler(source, handler);
@@ -176,18 +179,18 @@ function handlerSignals(
 }
 
 function resolveHandler(source: ts.SourceFile, expr: ts.Expression): ts.Node | undefined {
-  if (ts.isIdentifier(expr)) {
-    const decl = exportInitializer(source, expr.text);
-    if (!decl) {
-      for (const stmt of source.statements) {
-        if (!ts.isFunctionDeclaration(stmt) || stmt.name?.text !== expr.text) continue;
-        return stmt.body;
+  if (!ts.isIdentifier(expr)) return expr;
+  for (const stmt of source.statements) {
+    if (ts.isFunctionDeclaration(stmt) && stmt.name?.text === expr.text && stmt.body)
+      return stmt.body;
+    if (!ts.isVariableStatement(stmt)) continue;
+    for (const decl of stmt.declarationList.declarations) {
+      if (ts.isIdentifier(decl.name) && decl.name.text === expr.text && decl.initializer) {
+        return decl.initializer;
       }
-      return undefined;
     }
-    return decl;
   }
-  return expr;
+  return undefined;
 }
 
 function signalsOf(node: ts.Node): { weight: boolean; admin: boolean } {

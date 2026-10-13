@@ -25,6 +25,10 @@ import {
   tally,
 } from "../.cursor/skills/verify-judge-weights/helpers/detect.ts";
 import { memberViewHits } from "../.cursor/skills/verify-judge-weights/helpers/member-view.ts";
+import {
+  isRejection,
+  probeFailures,
+} from "../.cursor/skills/verify-judge-weights/helpers/queries.ts";
 import type { executeRun } from "../.cursor/skills/verify-judge-weights/helpers/run.ts";
 import {
   type AssertNoWeightKeys,
@@ -216,6 +220,47 @@ function writeConvex(files: Record<string, string>): string {
   return join(root, "convex");
 }
 
+describe("query probes", () => {
+  test("a failed admin call is not a clean member payload", () => {
+    const failures = probeFailures(
+      { ref: "club:listPosts", audience: "member" },
+      { ok: false, error: "boom" },
+      { ok: true, value: [] },
+    );
+    expect(failures).toEqual(["club:listPosts admin call failed: boom"]);
+  });
+
+  test("a member-facing query fails when the member call throws", () => {
+    const failures = probeFailures(
+      { ref: "club:listPosts", audience: "member" },
+      { ok: true, value: [] },
+      { ok: false, error: "unavailable" },
+    );
+    expect(failures.join("\n")).toContain("club:listPosts member call failed: unavailable");
+  });
+
+  test("an admin-only { ok: true } envelope is not a rejection", () => {
+    expect(isRejection({ ok: true, value: { ok: true } })).toBe(false);
+    expect(isRejection({ ok: true, value: { ok: false, error: "admin only" } })).toBe(true);
+    expect(isRejection({ ok: true, value: null })).toBe(true);
+    const failures = probeFailures(
+      { ref: "club:getBoard", audience: "admin" },
+      { ok: true, value: { view: { w: 1 } } },
+      { ok: true, value: { ok: true } },
+    );
+    expect(failures).toEqual(["club:getBoard is admin-only and the member was not rejected"]);
+  });
+
+  test("a member payload with a nested w fails", () => {
+    const failures = probeFailures(
+      { ref: "club:listPosts", audience: "member" },
+      { ok: true, value: { items: [{ w: 1 }] } },
+      { ok: true, value: { items: [{ w: 1 }] } },
+    );
+    expect(failures.join("\n")).toContain("items[0].w");
+  });
+});
+
 describe("convex query discovery", () => {
   test("a query in a nested folder is found", () => {
     const convex = writeConvex({
@@ -322,6 +367,29 @@ export const plain = query({
       const listed = gateQueries(convex, { allowlist: ["mod:plain"] });
       expect(listed.failures).toEqual([]);
       expect(listed.rows.find((row) => row.ref === "mod:plain")?.audience).toBe("admin");
+    } finally {
+      rmSync(join(convex, ".."), { recursive: true, force: true });
+    }
+  });
+
+  test("a shorthand handler is classified, and a stale allowlist entry fails", () => {
+    const convex = writeConvex({
+      "_generated/server.d.ts": SERVER_DTS,
+      "_generated/api.d.ts": apiDts("mod", "../mod.js", "mod"),
+      "mod.ts": `import { query } from "./_generated/server";
+const handler = async () => ({ ok: true });
+export const peek = query({
+  args: {},
+  handler,
+});
+`,
+    });
+    try {
+      const gate = gateQueries(convex, { allowlist: ["mod:missing"] });
+      expect(gate.rows.find((row) => row.ref === "mod:peek")?.audience).toBe("member");
+      expect(gate.failures.join("\n")).toContain(
+        "admin-only allowlist entry mod:missing is not a public query",
+      );
     } finally {
       rmSync(join(convex, ".."), { recursive: true, force: true });
     }
