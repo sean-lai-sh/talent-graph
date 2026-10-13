@@ -14,11 +14,7 @@ import {
 } from "../src/analysis/drift.ts";
 import { loadSpecs } from "../src/config.ts";
 import { computeCapabilityVectors } from "../src/inference/capabilityVector.ts";
-import {
-  computeJudgeCalibration,
-  judgeWeightOptions,
-  reliabilityWeights,
-} from "../src/judges/reliability.ts";
+import { computeJudgeCalibration, judgeWeightedSignalOptions } from "../src/judges/reliability.ts";
 import {
   BRADLEY_TERRY_V1_0_0,
   JUDGE_RELIABILITY_V2_0_0,
@@ -133,7 +129,7 @@ describe("referralSignalDrift", () => {
     const weighted = computeAllReferralSignals(
       data.people,
       data.referrals,
-      judgeWeightOptions(calibration),
+      judgeWeightedSignalOptions(calibration, JUDGE_RELIABILITY_V2_0_0, REFERRAL_SIGNAL_V0_1_0),
     );
     const r = referralSignalDrift(baseline, weighted);
     expect(r.labels.before).toBe("0.1.0");
@@ -306,10 +302,18 @@ describe("judgeReliabilityDrift on w and ω", () => {
     }
   });
 
-  test("the ω arm compares what reliabilityWeights hands the signal, on each side", () => {
+  test("the ω arm compares the weights the signal is handed, on each side", () => {
     const r = judgeReliabilityDrift(v2, v4, "omega");
-    const usedBefore = reliabilityWeights(v2);
-    const usedAfter = reliabilityWeights(v4);
+    const usedBefore = judgeWeightedSignalOptions(
+      v2,
+      JUDGE_RELIABILITY_V2_0_0,
+      REFERRAL_SIGNAL_V0_1_0,
+    ).judgeReliability;
+    const usedAfter = judgeWeightedSignalOptions(
+      v4,
+      JUDGE_RELIABILITY_V4_0_0,
+      REFERRAL_SIGNAL_V0_1_0,
+    ).judgeReliability;
     expect(r.largestMovers.length).toBeGreaterThan(0);
     for (const m of r.largestMovers) {
       expect(m.before).toBeCloseTo((usedBefore.get(m.personId) as number) * 100, 10);
@@ -461,6 +465,30 @@ describe("scripts/drift.ts CLI", () => {
     const proc = run("--kind", "referral_signal", "--before", "0.1.0", "--after", "env");
     expect(proc.exitCode).toBe(0);
     expect(text(proc.stdout)).toContain("referral_signal (0.1.0 → 0.1.0)");
+  });
+
+  test("referral_signal@0.2.0 on either side is a usage error naming the judge_reliability report", () => {
+    for (const [before, after] of [
+      ["0.1.0", "0.2.0"],
+      ["0.2.0", "0.1.0"],
+    ] as const) {
+      const proc = run("--kind", "referral_signal", "--before", before, "--after", after);
+      expect(proc.exitCode).toBe(2);
+      const err = text(proc.stderr);
+      expect(err).toContain("referral_signal@0.2.0 is weight-normalised");
+      expect(err).toContain(
+        "bun run drift -- --kind judge_reliability --before 2.0.0 --after 4.1.0",
+      );
+      expect(text(proc.stdout)).toBe("");
+    }
+  });
+
+  test("--v0-vs-v2 --spec 0.2.0 is refused the same way", () => {
+    const proc = run("--v0-vs-v2", "--spec", "0.2.0");
+    expect(proc.exitCode).toBe(2);
+    expect(text(proc.stderr)).toContain(
+      "bun run drift -- --kind judge_reliability --before 2.0.0 --after 4.1.0",
+    );
   });
 
   /**

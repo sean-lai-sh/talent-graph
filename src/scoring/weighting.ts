@@ -8,12 +8,15 @@
  * verbatim, as `IDENTITY_WEIGHTING` and `judgeWeighting`, so the arithmetic is
  * unchanged and later phases can add a weighting instead of editing the loop.
  *
- * A weighting is pure, per-edge and spec-free: it reads an already scored edge
- * and returns a number plus the intermediates an explanation needs. It never
+ * A weighting is pure and per-edge: it reads an already scored edge and
+ * returns a number plus the intermediates an explanation needs. It never
  * computes p̂_u — the maps are passed in by the caller (see `src/judges/`), so
- * `src/scoring` still imports nothing from `src/judges`.
+ * `src/scoring` still imports nothing from `src/judges`. The v4 missing-referrer
+ * default is the one value read here, μ0^γ from the registered
+ * judge_reliability@4.1.0 spec.
  */
 
+import { JUDGE_RELIABILITY_V4_1_0 } from "../models/registry.ts";
 import type { ScoredEdge } from "./scoredGraph.ts";
 
 export interface EdgeWeightingResult {
@@ -59,10 +62,25 @@ function clip01(x: number): number {
 }
 
 /**
+ * μ0^γ for a referrer the v4 map does not name. Read from
+ * judge_reliability@4.1.0 (`priorReliability^weightExponent`), not a literal.
+ */
+function v4MissingReliability(): number {
+  const { priorReliability, weightExponent, version } = JUDGE_RELIABILITY_V4_1_0;
+  if (weightExponent === undefined) {
+    throw new Error(
+      `judge_reliability@${version} has no weightExponent; a missing referrer has no v4 weight to derive`,
+    );
+  }
+  return priorReliability ** weightExponent;
+}
+
+/**
  * The V2 judge path, bit for bit: `p̂_u · clip(R_uv − b̂_u, 0, 1)`.
  *
  * A judge absent from a map is not a judge with a weight of 0: it is a judge
- * with no calibration, which is the neutral element (p̂ = 1, b̂ = 0).
+ * with no calibration. On the v2 path that is the neutral element (p̂ = 1,
+ * b̂ = 0). On the v4 path (`scale: "v4"`) it is one new judge's weight, μ0^γ.
  *
  * Validation happens here, per edge, at the same point in the loop as before
  * the refactor: a reliability outside [0, 1] or a non-finite bias throws rather
@@ -74,14 +92,17 @@ function clip01(x: number): number {
 export function judgeWeighting(opts: {
   reliability?: ReadonlyMap<string, number>;
   bias?: ReadonlyMap<string, number>;
+  /** Omit for the v2 path. "v4" defaults a missing referrer to μ0^γ. */
+  scale?: "v4";
 }): EdgeWeighting {
   const { reliability: reliabilityMap, bias: biasMap } = opts;
+  const missingReliability = opts.scale === "v4" ? v4MissingReliability() : 1;
   return {
     kind: "judge_v2",
     weighted: true,
     weigh(edge: ScoredEdge): EdgeWeightingResult {
       const referrerId = edge.referral.referrerId;
-      const reliability = reliabilityMap?.get(referrerId) ?? 1;
+      const reliability = reliabilityMap?.get(referrerId) ?? missingReliability;
       const bias = biasMap?.get(referrerId) ?? 0;
       if (!(reliability >= 0 && reliability <= 1) || !Number.isFinite(bias)) {
         throw new Error(

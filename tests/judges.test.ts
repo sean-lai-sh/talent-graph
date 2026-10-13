@@ -12,8 +12,8 @@ import {
   biasCorrections,
   computeJudgeCalibration,
   estimateJudgeReliability,
-  judgeWeightOptions,
-  reliabilityWeights,
+  type JudgeCalibrationRun,
+  judgeWeightedSignalOptions,
   scoreReferralPredictions,
   toJudgeBias,
   toJudgeCalibration,
@@ -23,6 +23,7 @@ import {
   JUDGE_RELIABILITY_V2_0_0,
   JUDGE_RELIABILITY_V4_0_0,
   JUDGE_RELIABILITY_V4_1_0,
+  REFERRAL_SIGNAL_V0_1_0,
 } from "../src/models/registry.ts";
 import type { JudgeReliabilitySpec } from "../src/models/spec.ts";
 import { computeAllReferralSignals } from "../src/scoring/referralSignal.ts";
@@ -35,6 +36,9 @@ const day = (n: number) => new Date(T0.getTime() + n * DAY);
 /** Well past the 180-day window for anything referred in the first month. */
 const NOW = day(400);
 const SPEC = JUDGE_RELIABILITY_V2_0_0;
+const BIAS_SPEC: JudgeReliabilitySpec = { ...SPEC, applyBiasCorrection: true };
+const weighted = (run: JudgeCalibrationRun) =>
+  judgeWeightedSignalOptions(run, SPEC, REFERRAL_SIGNAL_V0_1_0);
 
 let seq = 0;
 
@@ -577,7 +581,7 @@ describe("computeJudgeCalibration and the Referral Signal hook", () => {
     for (const e of run.estimates.values()) expect(e.reliability).toBe(1);
 
     const v0 = computeAllReferralSignals(people, referrals);
-    const v2 = computeAllReferralSignals(people, referrals, judgeWeightOptions(run));
+    const v2 = computeAllReferralSignals(people, referrals, weighted(run));
     for (const id of v0.keys()) {
       expect(v2.get(id)?.signal).toBe(v0.get(id)?.signal as number);
       expect(v2.get(id)?.contributing.map((c) => c.referral.id)).toEqual(
@@ -590,14 +594,14 @@ describe("computeJudgeCalibration and the Referral Signal hook", () => {
 
   test("with outcomes the unreliable judge's referral contributes less", () => {
     const run = computeJudgeCalibration({ people, referrals, outcomes, now: NOW });
-    const weights = reliabilityWeights(run);
+    const weights = weighted(run).judgeReliability;
     expect(weights.get("good")).toBeGreaterThan(weights.get("bad") as number);
     expect(run.options.evaluatedReferrals).toBe(4);
     expect(run.options.judgesWithEvidence).toBe(2);
     expect(run.populationMeanReliability).not.toBeNull();
 
     const v0 = computeAllReferralSignals(people, referrals);
-    const v2 = computeAllReferralSignals(people, referrals, judgeWeightOptions(run));
+    const v2 = computeAllReferralSignals(people, referrals, weighted(run));
     const contributions = v2.get("v")?.contributing ?? [];
     const fromGood = contributions.find((c) => c.referral.referrerId === "good");
     const fromBad = contributions.find((c) => c.referral.referrerId === "bad");
@@ -614,19 +618,19 @@ describe("computeJudgeCalibration and the Referral Signal hook", () => {
 
   test("bias correction is off by default and lowers an overrating judge when enabled", () => {
     const run = computeJudgeCalibration({ people, referrals, outcomes, now: NOW });
-    expect(judgeWeightOptions(run).judgeBias).toBeUndefined();
+    expect(weighted(run).judgeBias).toBeUndefined();
 
     const withBias = computeJudgeCalibration({
       people,
       referrals,
       outcomes,
       now: NOW,
-      spec: { ...SPEC, applyBiasCorrection: true },
+      spec: BIAS_SPEC,
     });
-    const opts = judgeWeightOptions(withBias);
+    const opts = judgeWeightedSignalOptions(withBias, BIAS_SPEC, REFERRAL_SIGNAL_V0_1_0);
     expect(opts.judgeBias).toBeDefined();
     expect(biasCorrections(withBias).get("bad")).toBeGreaterThan(0);
-    const plain = computeAllReferralSignals(people, referrals, judgeWeightOptions(run));
+    const plain = computeAllReferralSignals(people, referrals, weighted(run));
     const corrected = computeAllReferralSignals(people, referrals, opts);
     const bad = corrected.get("x")?.contributing[0];
     expect(bad?.judge.bias).toBeGreaterThan(0);
@@ -652,7 +656,7 @@ describe("computeJudgeCalibration and the Referral Signal hook", () => {
       now: NOW,
     });
     const v0 = computeAllReferralSignals(ppl, refs, { topK: 1 });
-    const v2 = computeAllReferralSignals(ppl, refs, { topK: 1, ...judgeWeightOptions(run) });
+    const v2 = computeAllReferralSignals(ppl, refs, { topK: 1, ...weighted(run) });
     expect(v0.get("t")?.contributing[0]?.referral.referrerId).toBe("bad");
     expect(v2.get("t")?.contributing[0]?.referral.referrerId).toBe("good");
   });
@@ -747,7 +751,7 @@ describe("seed longitudinal records", () => {
     });
     expect(early.options.evaluatedReferrals).toBe(0);
     const v0 = computeAllReferralSignals(data.people, data.referrals);
-    const v2 = computeAllReferralSignals(data.people, data.referrals, judgeWeightOptions(early));
+    const v2 = computeAllReferralSignals(data.people, data.referrals, weighted(early));
     for (const id of v0.keys()) expect(v2.get(id)?.signal).toBe(v0.get(id)?.signal as number);
   });
 

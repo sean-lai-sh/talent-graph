@@ -22,6 +22,15 @@
  * still construct as sugar. The loop below applies whichever it is given, so a
  * later weighting is added there and not here.
  *
+ * Weight-normalised aggregation (`referral_signal@0.2.0`, SEA-83). A spec with
+ * `aggregation: "weight_normalized"` takes
+ *
+ *   S_v = Σ_{TopK} (ω_u · R_uv) / (Σ_{TopK} ω_u + c0)
+ *
+ * over the same Top-K (ranked by the contribution ω·R), where ω_u is the
+ * weighting's `reliability` factor and c0 is the run's `pseudoWeight`. Every
+ * spec without the field keeps the plain mean.
+ *
  * Since #56 T5 the many-person path reads the shared index rather than
  * re-deriving one of its own: `computeAllReferralSignals` is
  * `scoreReferralGraph(...)` followed by `computeSignalsFromGraph(...)`, so R_uv
@@ -93,10 +102,47 @@ export interface ReferralSignalOptions {
    * weight twice, so it throws.
    */
   weighting?: EdgeWeighting;
-  /** p̂_u per judge id from V2 calibration; missing judges count as 1. */
+  /**
+   * p̂_u or ω_u per judge id. A judge absent from the map counts as 1 on the
+   * plain-mean path, and as μ0^γ from judge_reliability@4.1.0 on the
+   * weight-normalised path.
+   */
   judgeReliability?: ReadonlyMap<string, number>;
   /** b̂_u per judge id from V2 calibration; missing judges count as 0. */
   judgeBias?: ReadonlyMap<string, number>;
+  /**
+   * c0, the pseudo-weight in the denominator of a `"weight_normalized"` spec.
+   * Required by such a spec and refused by any other.
+   */
+  pseudoWeight?: number;
+}
+
+function resolvePseudoWeight(
+  spec: ReferralSignalSpec,
+  pseudoWeight: number | undefined,
+  weighting: EdgeWeighting,
+) {
+  if (spec.aggregation === "weight_normalized") {
+    // ω_u is the judge's reliability, so the weighted mean has no meaning
+    // without a judge weighting: identity would silently score n·R/(n + c0).
+    if (!weighting.weighted) {
+      throw new Error(
+        `referral_signal@${spec.version} is for the judge-weighted path only; got the unweighted "${weighting.kind}" weighting`,
+      );
+    }
+    if (pseudoWeight === undefined || !(Number.isFinite(pseudoWeight) && pseudoWeight >= 0)) {
+      throw new Error(
+        `referral_signal@${spec.version} aggregates weight-normalised and needs a finite pseudoWeight ≥ 0 (got ${pseudoWeight})`,
+      );
+    }
+    return pseudoWeight;
+  }
+  if (pseudoWeight !== undefined) {
+    throw new Error(
+      `pseudoWeight given to referral_signal@${spec.version}, which takes the plain mean and would ignore it`,
+    );
+  }
+  return undefined;
 }
 
 /**
@@ -104,7 +150,7 @@ export interface ReferralSignalOptions {
  * `judgeWeighting(...)` so no existing caller changes; either map being present
  * (even empty) selects the judge path, exactly as before the refactor.
  */
-function resolveWeighting(opts: ReferralSignalOptions): EdgeWeighting {
+function resolveWeighting(opts: ReferralSignalOptions, spec: ReferralSignalSpec): EdgeWeighting {
   const sugar = opts.judgeReliability !== undefined || opts.judgeBias !== undefined;
   if (opts.weighting !== undefined) {
     if (sugar) {
@@ -115,11 +161,31 @@ function resolveWeighting(opts: ReferralSignalOptions): EdgeWeighting {
     return opts.weighting;
   }
   if (!sugar) return IDENTITY_WEIGHTING;
-  const maps: { reliability?: ReadonlyMap<string, number>; bias?: ReadonlyMap<string, number> } =
-    {};
+  const maps: {
+    reliability?: ReadonlyMap<string, number>;
+    bias?: ReadonlyMap<string, number>;
+    scale?: "v4";
+  } = {};
   if (opts.judgeReliability !== undefined) maps.reliability = opts.judgeReliability;
   if (opts.judgeBias !== undefined) maps.bias = opts.judgeBias;
+  if (spec.aggregation === "weight_normalized") maps.scale = "v4";
   return judgeWeighting(maps);
+}
+
+/** Σ_{TopK} ω_u + c0, refused unless finite and positive so S_v is never NaN or ∞. */
+function weightNormalizedDenominator(
+  spec: ReferralSignalSpec,
+  weighting: EdgeWeighting,
+  contributing: readonly ContributingReferral[],
+  pseudoWeight: number,
+): number {
+  const denominator = contributing.reduce((acc, c) => acc + c.judge.reliability, 0) + pseudoWeight;
+  if (!(Number.isFinite(denominator) && denominator > 0)) {
+    throw new Error(
+      `referral_signal@${spec.version} under the "${weighting.kind}" weighting has weight-normalised denominator ${denominator}; Σω + c0 must be finite and > 0`,
+    );
+  }
+  return denominator;
 }
 
 function compareContributing(a: ContributingReferral, b: ContributingReferral): number {
@@ -149,12 +215,18 @@ function signalFromScoredEdges(
   spec: ReferralSignalSpec,
   topK: number,
   weighting: EdgeWeighting,
+  pseudoWeight: number | undefined,
 ): ReferralSignalResult {
   const judgeWeighted = weighting.weighted;
   const weighed = incoming
     .map((edge): { c: ContributingReferral; eligible: boolean } => {
       const breakdown = edge.breakdown;
       const w = weighting.weigh(edge);
+      if (pseudoWeight !== undefined && w.factors.reliability === undefined) {
+        throw new Error(
+          `referral_signal@${spec.version} weights by judge reliability, but the "${weighting.kind}" weighting reports none`,
+        );
+      }
       return {
         c: {
           referral: edge.referral,
@@ -181,10 +253,18 @@ function signalFromScoredEdges(
     .filter((x) => x.eligible)
     .slice(0, topK)
     .map((x) => x.c);
+  const sum = contributing.reduce((acc, c) => acc + c.strength, 0);
+  // Weight-normalised promise (SEA-83), on adjusted R = clip(R − b̂, 0, 1):
+  // while the Top-K has room, adding a referral whose adjusted R is at or
+  // above the signal never lowers it; while every referral fits, neither does
+  // raising ω for such a judge. Once the Top-K is full a heavier entry can
+  // evict a lighter, higher-R one; that is not promised.
   const s =
     contributing.length === 0
       ? 0
-      : contributing.reduce((acc, c) => acc + c.strength, 0) / contributing.length;
+      : pseudoWeight === undefined
+        ? sum / contributing.length
+        : sum / weightNormalizedDenominator(spec, weighting, contributing, pseudoWeight);
 
   const evidenceTypes: EvidenceType[] = [];
   for (const { referral } of scored) {
@@ -232,7 +312,15 @@ export function computeReferralSignal(
     return { referral, strength: breakdown.strength, breakdown, dangling: false };
   });
 
-  return signalFromScoredEdges(personId, edges, spec, topK, resolveWeighting(opts));
+  const weighting = resolveWeighting(opts, spec);
+  return signalFromScoredEdges(
+    personId,
+    edges,
+    spec,
+    topK,
+    weighting,
+    resolvePseudoWeight(spec, opts.pseudoWeight, weighting),
+  );
 }
 
 /**
@@ -261,12 +349,20 @@ export function computeSignalsFromGraph(
 ): Map<string, ReferralSignalResult> {
   const spec = sg.spec;
   const topK = opts.topK ?? spec.topK;
-  const weighting = resolveWeighting(opts);
+  const weighting = resolveWeighting(opts, spec);
+  const pseudoWeight = resolvePseudoWeight(spec, opts.pseudoWeight, weighting);
   const out = new Map<string, ReferralSignalResult>();
   for (const personId of sg.graph.nodes.keys()) {
     out.set(
       personId,
-      signalFromScoredEdges(personId, sg.in.get(personId) ?? [], spec, topK, weighting),
+      signalFromScoredEdges(
+        personId,
+        sg.in.get(personId) ?? [],
+        spec,
+        topK,
+        weighting,
+        pseudoWeight,
+      ),
     );
   }
   return out;

@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { Person, Referral } from "../src/domain/types.ts";
-import { REFERRAL_SIGNAL_V0_1_0 } from "../src/models/registry.ts";
+import {
+  JUDGE_RELIABILITY_V4_1_0,
+  REFERRAL_SIGNAL_V0_1_0,
+  REFERRAL_SIGNAL_V0_2_0,
+} from "../src/models/registry.ts";
 import { computeAllReferralSignals, computeReferralSignal } from "../src/scoring/referralSignal.ts";
 import { referralStrengthBreakdown } from "../src/scoring/referralStrength.ts";
 import type { ScoredEdge } from "../src/scoring/scoredGraph.ts";
@@ -74,6 +78,43 @@ describe("judgeWeighting", () => {
     expect(w.contribution).toBe(edge.strength);
     expect(w.eligible).toBe(true);
     expect(w.factors.reliability).toBe(1);
+  });
+
+  test("a missing referrer is 1 on the v2 path and μ0^γ on the v4 path", () => {
+    const { priorReliability, weightExponent } = JUDGE_RELIABILITY_V4_1_0;
+    if (weightExponent === undefined) {
+      throw new Error("judge_reliability@4.1.0 has no weightExponent");
+    }
+    const mu0Gamma = priorReliability ** weightExponent;
+    expect(mu0Gamma).toBeCloseTo(0.09);
+
+    const edge = edgeOf(referral({ referrerId: "ghost" }));
+    const present = new Map([["known", 0.25]]);
+    const v2 = judgeWeighting({ reliability: present }).weigh(edge);
+    const v4 = judgeWeighting({ reliability: present, scale: "v4" }).weigh(edge);
+    expect(v2.factors.reliability).toBe(1);
+    expect(v2.contribution).toBe(edge.strength);
+    expect(v4.factors.reliability).toBe(mu0Gamma);
+    expect(v4.contribution).toBe(mu0Gamma * edge.strength);
+    expect(v4.eligible).toBe(true);
+    const known = judgeWeighting({ reliability: present, scale: "v4" }).weigh(
+      edgeOf(referral({ referrerId: "known" })),
+    );
+    expect(known.factors.reliability).toBe(0.25);
+
+    const rs = [referral({ referrerId: "ghost" }), referral({ referrerId: "known" })];
+    const plain = computeReferralSignal("v", rs, { judgeReliability: present });
+    const weighted = computeReferralSignal("v", rs, {
+      spec: REFERRAL_SIGNAL_V0_2_0,
+      judgeReliability: present,
+      pseudoWeight: mu0Gamma,
+    });
+    const byId = (res: typeof plain, id: string) =>
+      res.contributing.find((c) => c.referral.referrerId === id);
+    expect(byId(plain, "ghost")?.judge.reliability).toBe(1);
+    expect(byId(plain, "known")?.judge.reliability).toBe(0.25);
+    expect(byId(weighted, "ghost")?.judge.reliability).toBe(mu0Gamma);
+    expect(byId(weighted, "known")?.judge.reliability).toBe(0.25);
   });
 
   test("a zero-reliability judge is ineligible rather than a zero contribution slot", () => {
