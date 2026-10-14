@@ -4,7 +4,7 @@
  * from those enums (length and group size) are the questionnaire's words.
  */
 
-import { EMPTY_OBSERVATION_ERROR } from "./referralErrors.ts";
+import { EMPTY_OBSERVATION_ERROR } from "./memberReferral.ts";
 import type {
   MemberReferralAnswers,
   ReferralQ1Context,

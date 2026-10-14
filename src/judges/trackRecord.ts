@@ -20,10 +20,14 @@
 import { CURRENT_SPECS } from "../models/registry.ts";
 import type { JudgeReliabilitySpec } from "../models/spec.ts";
 import type { JudgeReliabilityEstimate } from "./reliability.ts";
-import type { TrackRecordLabel } from "./trackRecordCopy.ts";
 
-export type { TrackRecordLabel } from "./trackRecordCopy.ts";
-export { TRACK_RECORD_COPY } from "./trackRecordCopy.ts";
+export type TrackRecordLabel =
+  | "not_scored"
+  | "unproven"
+  | "calibrated"
+  | "tends_to_overrate"
+  | "tends_to_underrate"
+  | "often_off";
 
 export interface JudgeTrackRecord {
   label: TrackRecordLabel;
@@ -40,6 +44,15 @@ export const TRACK_RECORD_ORDER: Record<TrackRecordLabel, number> = {
   unproven: 3,
   not_scored: 4,
   often_off: 5,
+};
+
+export const TRACK_RECORD_COPY: Record<TrackRecordLabel, string> = {
+  not_scored: "not scored",
+  unproven: "unproven",
+  calibrated: "calibrated",
+  tends_to_overrate: "tends to overrate",
+  tends_to_underrate: "tends to underrate",
+  often_off: "often off",
 };
 
 /** √Ē at or below this (percentile-fraction units) counts as calibrated. Heuristic. */

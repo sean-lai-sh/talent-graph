@@ -26,11 +26,6 @@ export function cohortAverage(signals: ReadonlyArray<number | null>): number | n
   return Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
 }
 
-/** Round average for a view the scoring engine already produced. */
-export function roundAverageOf(people: ReadonlyArray<{ v2Signal: number | null }>): number | null {
-  return cohortAverage(people.map((person) => person.v2Signal));
-}
-
 /**
  * Line under the dial. Display only — not a merged score.
  * Null signal keeps the product rule: missing evidence is not a score of 0.
@@ -76,14 +71,6 @@ export function fmtDateTime(iso: IsoDate): string {
   const hh = String(d.getUTCHours()).padStart(2, "0");
   const mm = String(d.getUTCMinutes()).padStart(2, "0");
   return `${fmtDate(iso)} ${hh}:${mm}`;
-}
-
-/** Title-case a dimension id for labels. Same words as the engine helper, without importing it. */
-export function dimensionLabel(dimension: string): string {
-  const words = dimension.split("_");
-  return words
-    .map((word, index) => (index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word))
-    .join(" ");
 }
 
 /** Integer signal or the Insufficient Evidence label. Null is never rendered as 0. */

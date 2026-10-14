@@ -426,16 +426,12 @@ describe("demo home ladder", () => {
       expect(trait.anchors.length).toBeLessThanOrEqual(5);
       expect(trait.prompt).toBe(DIMENSION_PROMPTS[trait.dimension]);
     }
-    expect(read("apps/club/app/demo/home/MemberHomePreview.tsx")).toContain(
-      "ReferralSignupPreview",
+    expect(read("apps/club/components/referral/ReferralSignup.tsx")).toContain(
+      'import("./previewLadder.ts")',
     );
-    expect(read("apps/club/app/demo/actions.ts")).toContain("startPreviewFrom");
-    expect(read("apps/club/components/referral/ReferralSignupForm.tsx")).toContain(
-      "actionStartExamplePreview",
-    );
-    expect(read("apps/club/components/referral/ReferralSignupForm.tsx")).not.toContain(
-      "previewLadder",
-    );
+    expect(read("apps/club/app/demo/home/MemberHomePreview.tsx")).not.toContain("ReferralSignup");
+    expect(read("apps/club/app/demo/home/MemberHomePreview.tsx")).not.toContain("previewLadder");
+    expect(read("apps/club/app/demo/DemoReferral.tsx")).not.toContain("previewLadder");
     expect(read("apps/club/components/referral/previewLadder.ts")).not.toContain("convex");
   });
 });

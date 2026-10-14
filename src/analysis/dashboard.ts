@@ -14,7 +14,6 @@ import {
   type PoolConfidence,
 } from "../inference/capabilityVector.ts";
 import { displayReferralSignal, type ReferralSignalResult } from "../scoring/referralSignal.ts";
-import { INTERESTING_GAP } from "./reviewBuckets.ts";
 import { mostUnderRecognized, type UnderRecognition } from "./underRecognition.ts";
 
 export interface DashboardData {
@@ -126,7 +125,7 @@ export function buildDashboard(
 }
 
 /** Gap at or above this is called out in the person report. */
-export { INTERESTING_GAP } from "./reviewBuckets.ts";
+export const INTERESTING_GAP = 25;
 
 /**
  * Plain-text report for one person, in the shape of the MVP prompt §41.

@@ -16,7 +16,7 @@ not a second frontend. Do not add a login wall to `/demo`.
 |---|---|---|
 | `/` | public chips landing; underlined `info` | no seed board |
 | `/info` | public note: login, contact, copy, underlined `home` | no seed board |
-| `/demo` | hidden public admin shell — no sign-in, noindex | in-memory `generateSeed()`, labeled example data |
+| `/demo` | hidden public admin shell — no sign-in, noindex | static fixture scored on the server |
 | `/demo/home` | hidden public member chrome + local forum | in-memory posts, `@example.test` directory |
 | `/example` | redirect to `/demo` | — |
 | `/login` | public door, noindex | email/password `SignInForm`; no create-account |

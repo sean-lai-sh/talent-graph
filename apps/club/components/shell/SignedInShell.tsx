@@ -20,6 +20,7 @@ export function SignedInShell({
   onSelect,
   title,
   notice,
+  keyboardNav = false,
   onSignOut,
   children,
 }: {
@@ -28,7 +29,10 @@ export function SignedInShell({
   activeId: string;
   onSelect: (id: string) => void;
   title: string;
+  /** Public demo label. Omitted, the bar matches the signed-in shell. */
   notice?: ReactNode;
+  /** Arrow keys between nav buttons. Off unless a caller asks. */
+  keyboardNav?: boolean;
   onSignOut?: () => void;
   children: ReactNode;
 }) {
@@ -59,7 +63,11 @@ export function SignedInShell({
 
   return (
     <div className="signed-shell">
-      <nav className="signed-nav" aria-label={navLabel} onKeyDown={onNavKey}>
+      <nav
+        className="signed-nav"
+        aria-label={navLabel}
+        onKeyDown={keyboardNav ? onNavKey : undefined}
+      >
         {items.map((item) => {
           const current = item.id === activeId;
           const count =

@@ -282,7 +282,7 @@ describe("referral signup surface", () => {
     ]);
     expect(chrome).not.toContain("Referral form lands here.");
     expect(home).toContain("ReferralSignupConnected");
-    expect(read("apps/club/components/referral/ReferralSignupForm.tsx")).toContain(
+    expect(read("apps/club/components/referral/ReferralSignup.tsx")).toContain(
       "View current status",
     );
     expect(read("apps/club/app/members/referral/add/page.tsx")).toContain("Under construction");

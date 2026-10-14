@@ -3,13 +3,13 @@
 import { useState } from "react";
 import { DIMENSIONS, SCALE_LABELS } from "../../../../src/domain/constants.ts";
 import type { Dimension, RubricScore, Scale5 } from "../../../../src/domain/types.ts";
+import { dimensionLabel } from "../../../../src/inference/capabilityVector.ts";
 import { FEEDBACK_TONE } from "../../lib/copy.ts";
-import { dimensionLabel } from "../../lib/format.ts";
 import {
   type FeedbackInboxItem,
   type MemberResponseDraft,
   memberResponseFormError,
-} from "../../lib/memberFeedbackForm.ts";
+} from "../../lib/memberFeedback.ts";
 import { Badge } from "../ui/Badge.tsx";
 import { Button } from "../ui/Button.tsx";
 import { EmptyState } from "../ui/EmptyState.tsx";

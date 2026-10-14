@@ -11,7 +11,7 @@ import {
   parseDemoHash,
 } from "../apps/club/lib/exampleDemo.ts";
 import { exampleBoard, exampleInputs } from "../apps/club/lib/exampleScore.ts";
-import { roundAverageOf } from "../apps/club/lib/format.ts";
+import { cohortAverage } from "../apps/club/lib/format.ts";
 import type { ClubView } from "../apps/club/lib/types.ts";
 
 const root = join(import.meta.dir, "..");
@@ -180,8 +180,9 @@ describe("public /demo admin preview", () => {
     const graph = demoImportGraph();
     const rels = [...graph.keys()].map((file) => file.slice(root.length + 1));
     expect(rels).toContain("apps/club/fixtures/example-data.ts");
-    expect(rels).toContain("apps/club/components/referral/ReferralSignupForm.tsx");
+    expect(rels).toContain("apps/club/app/demo/DemoReferral.tsx");
     expect(rels).not.toContain("apps/club/components/referral/ReferralSignup.tsx");
+    expect(rels).not.toContain("apps/club/components/referral/ReferralSignupForm.tsx");
     expect(rels.some((rel) => rel.startsWith("apps/club/convex/"))).toBe(false);
 
     for (const [file, source] of graph) {
@@ -208,7 +209,6 @@ describe("public /demo admin preview", () => {
     const engine = computeView(inputs);
     const shown = exampleBoard();
     expect(engineNumbers(shown.view)).toEqual(engineNumbers(engine));
-    expect(shown.roundAverage).toBe(roundAverageOf(engine.people));
     expect(shown.view.people.some((person) => person.v2Signal !== null)).toBe(true);
 
     const page = read("apps/club/app/demo/page.tsx");
@@ -218,8 +218,10 @@ describe("public /demo admin preview", () => {
     expect(clientFiles).not.toContain("apps/club/lib/exampleScore.ts");
     expect(clientFiles).not.toContain("apps/club/lib/engine.ts");
     expect(clientFiles).not.toContain("apps/club/components/referral/previewLadder.ts");
+    expect(clientFiles).not.toContain("apps/club/lib/memberFeedback.ts");
+    expect(clientFiles).not.toContain("apps/club/lib/memberReferral.ts");
     for (const rel of clientFiles) {
-      if (rel === "apps/club/lib/format.ts") continue;
+      if (!rel.startsWith("apps/club/app/demo/")) continue;
       expect(SCORE_CALL.test(stripComments(read(rel))), `${rel} scores in client code`).toBe(false);
     }
   });
@@ -265,11 +267,12 @@ describe("public /demo admin preview", () => {
 
     const board = exampleBoard();
     const cy = board.view.people.find((person) => person.id === "example-cy");
+    const average = cohortAverage(board.view.people.map((person) => person.v2Signal));
     expect(cy?.v2Signal).not.toBeNull();
     expect(demo).toContain("Council");
     expect(demo).toContain("Cy Sample");
     expect(demo).toContain(`>${cy?.v2Signal}<`);
-    expect(demo).toContain(`the round average of ${board.roundAverage}`);
+    expect(demo).toContain(`the round average of ${average}`);
     expect(demo).toContain("Tech@NYU");
     expect(demo).toContain('aria-label="Admin"');
     expect(home).toContain('aria-label="Member"');

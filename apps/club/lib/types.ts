@@ -508,11 +508,6 @@ export interface EngineResult {
   state: ClubState;
   view: ClubView;
   error?: string;
-  /**
-   * Mean of the view's Referral Signals, rounded. The server that ran the
-   * engine sets this. The client renders it and does not recompute it.
-   */
-  roundAverage?: number | null;
 }
 
 /* ------------------------------------------------------------------ *

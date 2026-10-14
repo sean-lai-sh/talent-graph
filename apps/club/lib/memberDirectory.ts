@@ -3,8 +3,6 @@ export type DirectoryMember = {
   name: string;
   email: string;
   linkedin?: string;
-  /** Set only for the public demo fixture. The signed-in directory leaves this off. */
-  phone?: string;
 };
 
 type DirectorySource = {

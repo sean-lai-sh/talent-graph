@@ -5,8 +5,15 @@
 
 import { EXAMPLE_FORUM, EXAMPLE_PEOPLE } from "../fixtures/example-data.ts";
 import { EXAMPLE_FORUM_BODY, UNKNOWN_VALUE } from "./copy.ts";
-import type { DirectoryMember } from "./memberDirectory.ts";
 import type { ShellPane } from "./shellNav.ts";
+
+export type ExampleMember = {
+  id: string;
+  name: string;
+  email: string;
+  linkedin?: string;
+  phone?: string;
+};
 
 const DEMO_PANES: readonly ShellPane[] = [
   "council",
@@ -39,11 +46,11 @@ export function exampleName(name: string | null | undefined): string {
 }
 
 /** Admitted fixture people, by name. Phone is the fictional number. No score is copied. */
-export function exampleDirectory(): DirectoryMember[] {
+export function exampleDirectory(): ExampleMember[] {
   return EXAMPLE_PEOPLE.filter((person) => person.status === "member")
     .map((member) => {
       const name = exampleName(member.name);
-      const row: DirectoryMember = {
+      const row: ExampleMember = {
         id: member.id,
         name,
         email: member.email,

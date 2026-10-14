@@ -5,8 +5,6 @@ import { useEffect } from "react";
 import { ClubBoard } from "../../components/ClubBoard";
 import { Button } from "../../components/ui/index.ts";
 import { api } from "../../convex/_generated/api";
-import { roundAverageOf } from "../../lib/format.ts";
-import type { EngineResult } from "../../lib/types.ts";
 
 /**
  * Real-org council page. Inputs live in Convex; views come from lib/engine.ts → src/.
@@ -44,16 +42,11 @@ export function PersistedClub({ onSignOut }: { onSignOut?: () => void }) {
     );
   }
 
-  const shown: EngineResult = {
-    ...board,
-    roundAverage: roundAverageOf(board.view.people),
-  };
-
   return (
     <div className="h-full">
       <ClubBoard
-        initial={shown}
-        sync={shown}
+        initial={board}
+        sync={board}
         variant="club"
         clock="wall"
         onSignOut={onSignOut}

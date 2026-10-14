@@ -9,7 +9,6 @@ import {
   EXAMPLE_REFERRALS,
 } from "../fixtures/example-data.ts";
 import { computeView, EXAMPLE_REQUIRED_DIMENSIONS, EXAMPLE_T_END } from "./engine.ts";
-import { roundAverageOf } from "./format.ts";
 import type { ClubState, EngineResult } from "./types.ts";
 
 /** Fixture rows as club inputs. No computed signal is attached here. */
@@ -32,6 +31,5 @@ export function exampleInputs(): ClubState {
 /** One pass of the real scoring engine over `exampleInputs()`. */
 export function exampleBoard(): EngineResult {
   const state = exampleInputs();
-  const view = computeView(state);
-  return { state, view, roundAverage: roundAverageOf(view.people) };
+  return { state, view: computeView(state) };
 }

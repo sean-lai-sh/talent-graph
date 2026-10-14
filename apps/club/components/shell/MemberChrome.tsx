@@ -35,7 +35,9 @@ export function MemberChrome({
   notice,
   pane: paneProp,
   onPaneChange,
-  memberEmpty,
+  retainPanes = false,
+  membersPane,
+  keyboardNav = false,
 }: {
   clubRole?: ClubRole;
   posts: ForumPost[];
@@ -49,11 +51,20 @@ export function MemberChrome({
   referral: ReactNode;
   feedback: ReactNode;
   feedbackCount?: number;
+  /** Public demo label. Omitted on the signed-in shell. */
   notice?: ReactNode;
+  /** Controlled pane for `/demo` hashes. Omitted, the shell keeps its own pane. */
   pane?: ShellPane;
   onPaneChange?: (id: ShellPane) => void;
-  /** Replacement for a blank directory cell. The signed-in list keeps an em dash. */
-  memberEmpty?: string;
+  /**
+   * Public demo keeps every pane mounted so one render includes each screen.
+   * The signed-in shell leaves this off and shows one pane.
+   */
+  retainPanes?: boolean;
+  /** Public demo directory. Omitted, the signed-in list is `MemberList`. */
+  membersPane?: ReactNode;
+  /** Arrow keys move the public demo's nav. Off for the signed-in shell. */
+  keyboardNav?: boolean;
 }) {
   const [uncontrolledPane, setUncontrolledPane] = useState<ShellPane>(
     clubRole === "admin" ? "council" : "forum",
@@ -69,6 +80,37 @@ export function MemberChrome({
     return item;
   });
   const title = pane === "council" ? "Council" : TITLES[pane];
+  const directory = membersPane ?? <MemberList members={members} loading={membersLoading} />;
+
+  const body = retainPanes ? (
+    <>
+      {council ? <div className={pane === "council" ? "h-full" : "hidden"}>{council}</div> : null}
+      <div className={pane === "forum" ? undefined : "hidden"}>
+        <Forum posts={posts} loading={loading} busy={busy} onPost={onPost} />
+      </div>
+      <div className={pane === "referral" ? undefined : "hidden"}>{referral}</div>
+      <div className={pane === "members" ? undefined : "hidden"}>{directory}</div>
+      <div className={pane === "evaluations" ? undefined : "hidden"}>{feedback}</div>
+      <div className={pane === "events" ? "px-6 py-16" : "hidden"}>
+        <EmptyState title="No upcoming events.">Club events will list here.</EmptyState>
+      </div>
+    </>
+  ) : (
+    <>
+      {pane === "council" ? council : null}
+      {pane === "forum" ? (
+        <Forum posts={posts} loading={loading} busy={busy} onPost={onPost} />
+      ) : null}
+      {pane === "referral" ? referral : null}
+      {pane === "members" ? directory : null}
+      {pane === "evaluations" ? feedback : null}
+      {pane === "events" ? (
+        <div className="px-6 py-16">
+          <EmptyState title="No upcoming events.">Club events will list here.</EmptyState>
+        </div>
+      ) : null}
+    </>
+  );
 
   return (
     <SignedInShell
@@ -78,20 +120,10 @@ export function MemberChrome({
       onSelect={(id) => selectPane(id as ShellPane)}
       title={title}
       notice={notice}
+      keyboardNav={keyboardNav}
       onSignOut={onSignOut}
     >
-      {council ? <div className={pane === "council" ? "h-full" : "hidden"}>{council}</div> : null}
-      <div className={pane === "forum" ? undefined : "hidden"}>
-        <Forum posts={posts} loading={loading} busy={busy} onPost={onPost} />
-      </div>
-      <div className={pane === "referral" ? undefined : "hidden"}>{referral}</div>
-      <div className={pane === "members" ? undefined : "hidden"}>
-        <MemberList members={members} loading={membersLoading} empty={memberEmpty} />
-      </div>
-      <div className={pane === "evaluations" ? undefined : "hidden"}>{feedback}</div>
-      <div className={pane === "events" ? "px-6 py-16" : "hidden"}>
-        <EmptyState title="No upcoming events.">Club events will list here.</EmptyState>
-      </div>
+      {body}
     </SignedInShell>
   );
 }

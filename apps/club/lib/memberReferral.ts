@@ -6,7 +6,6 @@
 import type { EvidenceType, Scale5 } from "../../../src/domain/types.ts";
 import { addReferral } from "./engine.ts";
 import { memberEmailIsAmbiguous, resolveMemberPersonId } from "./memberIdentity.ts";
-import { EMPTY_OBSERVATION_ERROR } from "./referralErrors.ts";
 import { type NormalizedContact, parseContact, peopleWithContact } from "./referralSignup.ts";
 import type {
   ClubPerson,
@@ -38,7 +37,7 @@ export const NOT_YOUR_REFERRAL_ERROR = "You have not referred this person.";
 export const NO_CONTACT_ERROR = "This person has no email or phone on file. Ask the council.";
 export const AMBIGUOUS_CONTACT_ERROR =
   "More than one profile has this contact. Ask the council to merge them.";
-export { EMPTY_OBSERVATION_ERROR };
+export const EMPTY_OBSERVATION_ERROR = "Describe one specific thing you saw.";
 
 const HEARD_ONLY: ReferralQ2Role = "I only heard about it";
 

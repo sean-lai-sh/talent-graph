@@ -27,8 +27,7 @@ feedback inside a 48-hour window. It works over a screen share.
   Member List, Evaluations, Upcoming Events). Council scores the static
   fixture in `fixtures/example-data.ts` on the server. The fixture is people,
   referrals, admit/deny decisions, and comparison evidence. Signals on the
-  page, including the round-average line, come from that engine pass. The
-  client renders them. Admit, deny, reopen, and round settings stay in
+  page come from that engine pass. Admit, deny, reopen, and round settings stay in
   memory. Every screen says example data. `robots` noindexes it. It does not
   call Convex queries.
 - `/demo/home` — hidden public preview of the member home (sidebar + forum).
