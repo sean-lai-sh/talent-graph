@@ -1,19 +1,12 @@
 /**
- * Live admin-only gate: every public query, as a member and as an admin.
- * Weight-returning queries must reject the member. Every member response
- * is scanned for weight keys.
+ * Live admin-only gate. Public queries are already classified. Admin-only
+ * queries must reject the member. Every member response is scanned for
+ * weight keys, and a member-facing query whose admin payload has a weight
+ * key fails too.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import type { GatedQuery } from "./classify.ts";
 import { scanWeightKeys, type WeightHit } from "./scan.ts";
-
-export type PublicQuery = {
-  module: string;
-  name: string;
-  ref: string;
-  argsEmpty: boolean;
-};
 
 const KNOWN_ARGS: Record<string, Record<string, unknown>> = {
   "auth:getCurrentUser": {},
@@ -27,44 +20,6 @@ const KNOWN_ARGS: Record<string, Record<string, unknown>> = {
   "referral:referralStatus": { token: "verify-judge-weights" },
   "comparisonStep:getComparisonStep": { personId: "ex-app-edd" },
 };
-
-export function listPublicQueries(repo: string): PublicQuery[] {
-  const dir = join(repo, "apps/club/convex");
-  const found: PublicQuery[] = [];
-  for (const file of readdirSync(dir)) {
-    if (!file.endsWith(".ts") || file.startsWith("_")) continue;
-    const moduleName = file.slice(0, -3);
-    const source = readFileSync(join(dir, file), "utf8");
-    for (const match of source.matchAll(/export const (\w+) = query\(/g)) {
-      const name = match[1] ?? "";
-      const start = match.index ?? 0;
-      const rest = source.slice(start);
-      const next = rest.search(/\nexport /);
-      const body = next < 0 ? rest : rest.slice(0, next);
-      const argsEmpty = /args:\s*\{\s*\}/.test(body);
-      found.push({ module: moduleName, name, ref: `${moduleName}:${name}`, argsEmpty });
-    }
-  }
-  found.sort((a, b) => a.ref.localeCompare(b.ref));
-  return found;
-}
-
-function handlerReturnsWeights(repo: string, query: PublicQuery): boolean {
-  const source = readFileSync(join(repo, "apps/club/convex", `${query.module}.ts`), "utf8");
-  const marker = `export const ${query.name} = query(`;
-  const start = source.indexOf(marker);
-  if (start < 0) return false;
-  const rest = source.slice(start);
-  const next = rest.search(/\nexport /);
-  const body = next < 0 ? rest : rest.slice(0, next);
-  return (
-    body.includes("computeView") ||
-    body.includes("judgeWeight") ||
-    body.includes("admissionCredit") ||
-    body.includes("accuracyCredit") ||
-    body.includes("movementCredit")
-  );
-}
 
 export async function sessionToken(
   appUrl: string,
@@ -127,33 +82,72 @@ async function callQuery(
   return { ok: false, error: text.slice(0, 240) };
 }
 
-function isRejection(result: CallResult): boolean {
+export function isRejection(result: CallResult): boolean {
   if (!result.ok) return true;
   if (result.value === null || result.value === undefined) return true;
-  if (typeof result.value === "object" && !Array.isArray(result.value)) {
-    const keys = Object.keys(result.value);
-    if (keys.length > 0 && keys.every((key) => key === "ok" || key === "error")) return true;
+  if (typeof result.value !== "object" || Array.isArray(result.value)) return false;
+  const record = result.value as { ok?: unknown; error?: unknown };
+  const keys = Object.keys(record);
+  if (keys.length === 0 || !keys.every((key) => key === "ok" || key === "error")) return false;
+  if (
+    record.ok === true &&
+    (record.error === undefined || record.error === null || record.error === "")
+  ) {
+    return false;
   }
-  return false;
+  return true;
+}
+
+export function probeFailures(
+  query: { ref: string; audience: "member" | "admin" },
+  adminResult: CallResult,
+  memberResult: CallResult,
+): string[] {
+  const failures: string[] = [];
+  if (!adminResult.ok) {
+    failures.push(`${query.ref} admin call failed: ${adminResult.error.slice(0, 240)}`);
+  }
+  if (query.audience === "member" && !memberResult.ok) {
+    failures.push(`${query.ref} member call failed: ${memberResult.error.slice(0, 240)}`);
+  }
+  const adminHits = adminResult.ok ? scanWeightKeys(adminResult.value) : [];
+  const memberHits = memberResult.ok ? scanWeightKeys(memberResult.value) : [];
+  if (query.audience === "admin" && !isRejection(memberResult)) {
+    failures.push(`${query.ref} is admin-only and the member was not rejected`);
+  }
+  if (query.audience === "member" && adminHits.length > 0) {
+    failures.push(
+      `${query.ref} is member-facing but the admin payload has weight keys: ${adminHits.map((hit) => hit.path).join(", ")}`,
+    );
+  }
+  if (memberHits.length > 0) {
+    failures.push(
+      `${query.ref} member payload has weight keys: ${memberHits.map((hit) => hit.path).join(", ")}`,
+    );
+  }
+  return failures;
 }
 
 export type QueryScan = {
   ref: string;
-  weightReturning: boolean;
+  audience: "member" | "admin";
   memberRejected: boolean;
   hits: WeightHit[];
   memberPreview: string;
 };
 
 export async function scanMemberQueries(input: {
-  repo: string;
   appUrl: string;
   convexUrl: string;
   email: string;
   password: string;
   adminEmail: string;
+  queries: readonly GatedQuery[];
 }): Promise<{ scans: QueryScan[]; hits: WeightHit[]; failures: string[] }> {
-  const queries = listPublicQueries(input.repo);
+  const queries = input.queries.filter(
+    (query): query is GatedQuery & { audience: "member" | "admin" } =>
+      query.audience === "member" || query.audience === "admin",
+  );
   const failures: string[] = [];
   for (const query of queries) {
     if (!(query.ref in KNOWN_ARGS) && !query.argsEmpty) {
@@ -170,28 +164,19 @@ export async function scanMemberQueries(input: {
   for (const query of queries) {
     const args = KNOWN_ARGS[query.ref] ?? {};
     const adminResult = await callQuery(input.convexUrl, adminToken, query.ref, args);
-    const adminHits = adminResult.ok ? scanWeightKeys(adminResult.value) : [];
-    const weightReturning = handlerReturnsWeights(input.repo, query) || adminHits.length > 0;
     const memberResult = await callQuery(input.convexUrl, memberToken, query.ref, args);
     const memberHits = memberResult.ok ? scanWeightKeys(memberResult.value) : [];
     for (const hit of memberHits) {
       hits.push({ path: `${query.ref}.${hit.path}`, key: hit.key });
     }
     const memberRejected = isRejection(memberResult);
-    if (weightReturning && !memberRejected) {
-      failures.push(`${query.ref} returns weights and the member was not rejected`);
-    }
-    if (memberHits.length > 0) {
-      failures.push(
-        `${query.ref} member payload has weight keys: ${memberHits.map((hit) => hit.path).join(", ")}`,
-      );
-    }
+    failures.push(...probeFailures(query, adminResult, memberResult));
     const preview = memberResult.ok
       ? JSON.stringify(memberResult.value).slice(0, 240)
       : `rejected: ${memberResult.error.slice(0, 240)}`;
     scans.push({
       ref: query.ref,
-      weightReturning,
+      audience: query.audience,
       memberRejected,
       hits: memberHits,
       memberPreview: preview,

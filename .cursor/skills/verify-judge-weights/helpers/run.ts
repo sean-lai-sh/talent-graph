@@ -7,6 +7,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { driveBrowser } from "./browser.ts";
 import { checkAdmission, checkReferralSignal, checkSnapshots } from "./checks.ts";
+import { formatDiscovered, gateQueries } from "./classify.ts";
 import { type CheckResult, formatReport } from "./detect.ts";
 import { scanMemberQueries } from "./queries.ts";
 
@@ -41,45 +42,63 @@ export async function executeRun(): Promise<number> {
   const gateDir = join(evidence, "admin-only");
   mkdirSync(gateDir, { recursive: true });
   try {
-    const gate = await scanMemberQueries({
-      repo,
-      appUrl,
-      convexUrl,
-      email: memberEmail,
-      password,
-      adminEmail,
-    });
-    writeFileSync(join(gateDir, "member-payload-scan.json"), `${JSON.stringify(gate, null, 2)}\n`);
-    if (gate.failures.length > 0) {
+    const classified = gateQueries(join(repo, "apps/club/convex"));
+    for (const line of formatDiscovered(classified.rows)) say(line);
+    say("");
+    if (classified.failures.length > 0) {
+      writeFileSync(
+        join(gateDir, "member-payload-scan.json"),
+        `${JSON.stringify({ discovered: classified.rows, failures: classified.failures }, null, 2)}\n`,
+      );
       results.push({
         id: "admin-only-weights",
         status: "fail",
-        detail: gate.failures.join("; "),
+        detail: classified.failures.join("; "),
       });
     } else {
-      const browser = driveBrowser({
+      const gate = await scanMemberQueries({
         appUrl,
-        evidence,
+        convexUrl,
         email: memberEmail,
-        adminEmail,
         password,
+        adminEmail,
+        queries: classified.rows,
       });
       writeFileSync(
-        join(gateDir, "browser.json"),
-        `${JSON.stringify({ note: browser.note, hits: browser.hits, shots: browser.shots }, null, 2)}\n`,
+        join(gateDir, "member-payload-scan.json"),
+        `${JSON.stringify({ discovered: classified.rows, ...gate }, null, 2)}\n`,
       );
-      if (browser.hits.length > 0) {
+      if (gate.failures.length > 0) {
         results.push({
           id: "admin-only-weights",
           status: "fail",
-          detail: `member network has weight keys: ${browser.hits.map((hit) => hit.path).join(", ")}`,
+          detail: gate.failures.join("; "),
         });
       } else {
-        results.push({
-          id: "admin-only-weights",
-          status: "pass",
-          detail: browser.note,
+        const browser = driveBrowser({
+          appUrl,
+          evidence,
+          email: memberEmail,
+          adminEmail,
+          password,
         });
+        writeFileSync(
+          join(gateDir, "browser.json"),
+          `${JSON.stringify({ note: browser.note, hits: browser.hits, shots: browser.shots }, null, 2)}\n`,
+        );
+        if (browser.hits.length > 0) {
+          results.push({
+            id: "admin-only-weights",
+            status: "fail",
+            detail: `member network has weight keys: ${browser.hits.map((hit) => hit.path).join(", ")}`,
+          });
+        } else {
+          results.push({
+            id: "admin-only-weights",
+            status: "pass",
+            detail: browser.note,
+          });
+        }
       }
     }
   } catch (error) {

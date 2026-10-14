@@ -14,9 +14,9 @@ Write this as instructions for an agent that has never seen the app.
 ## Checks
 
 1. **admin-only-weights** — always on. Must pass on main today.
-2. **admission-credit** — on only when #120's code is in the tree. Otherwise print `SKIPPED - needs #120 on main`.
-3. **snapshots** — on only when #122's code is in the tree. Otherwise print `SKIPPED - needs #122 on main`.
-4. **referral-signal** — on only when #123's code is in the tree. Otherwise print `SKIPPED - needs #123 on main`.
+2. **admission-credit** — on only when #120's code is in the tree. Otherwise print `SKIPPED admission-credit - needs #120 on main`.
+3. **snapshots** — on only when #122's code is in the tree. Otherwise print `SKIPPED snapshots - needs #122 on main`. Against a local Convex backend the line is `PASS snapshots`. Without one, the cron step prints `SKIPPED snapshots/cron-idempotent - needs a local Convex backend` and is not a pass.
+4. **referral-signal** — on only when #123's code is in the tree. Otherwise print `SKIPPED referral-signal - needs #123 on main`.
 
 A skipped line is not a pass. The report's `passed` count includes only `PASS` lines.
 
@@ -58,7 +58,10 @@ If doctor fails, stop. Cleanup, relaunch, doctor again.
 
 Admin-only weights:
 
-- Sign in as the member through Better Auth and call every public Convex `query`. A query is weight-returning when its handler calls `computeView` (or names a credit field) or when the admin payload contains a weight key. Those queries must reject the member (throw, `null`, or an `{ ok, error }` object). Every member payload is scanned.
+- Read every exported Convex query from `apps/club/convex/_generated/api` (the generated `api` and `internal` objects) and from each module export's Convex function metadata (`isConvexFunction` and `isQuery`). That covers nested folders under `apps/club/convex` (skip `_generated`) and custom wrappers (`customQuery`, or a local `adminQuery` / `memberQuery` that returns `query` / `internalQuery`). A text search for `query(` is not the list.
+- Classify each public query as **member** or **admin**. Internal queries are listed and not called. If a public query cannot be classified, the run fails with `unclassifiable query <module:name> (...)`. There is no silent skip.
+- Admin-only is explicit. Add the `module:name` ref to `helpers/admin-only-queries.ts`, or put `verify-judge-weights: admin-only` in a comment on the export. A query that returns weights (`computeView`, `judgeWeight`, or a weight key) or calls `loadOrgForSession` / `requireAdmin` / `adminRead` is admin-only only when it is listed or annotated. Otherwise it is unclassifiable. A query whose handler is visible and does neither is member-facing. `verify-judge-weights: member` is an optional confirmation and does not override a weight or admin-gate signal. An allowlist entry that is not a public query fails the run too.
+- Call every classified public query as the member and as the admin. The admin call has to succeed. A member-facing query's member call has to succeed too; a thrown probe is a failure, not an empty clean payload. Admin-only queries must reject the member (throw, `null`, or an `{ ok: false }` / `{ error }` envelope). `{ ok: true }` is not a rejection. A member-facing query whose admin payload contains a weight key fails. Every member payload is scanned.
 - Build the member view objects (directory, feedback inbox, referral lookup, ladder step, role, post, status) and scan them. `tests/verify-judge-weights.test.ts` also asserts the member view types have no weight keys.
 - In Chrome, as the member: Forum, Member List, Submit Referral. Each step writes an accessibility snapshot and a screenshot. Then reload `/members` and capture HTTP JSON bodies and websocket frames. The capture must see at least one JSON body or frame. Scan those payloads. Do not scan JavaScript or CSS bundles.
 - Sign out, sign in as the admin, open `/admin`, and screenshot it. Follow other `/admin` links on that page. On main, committee UI is not built yet (`ADMIN_HOME` is `/club`). A 404 at `/admin` is honest evidence. It does not fail the check. The payload and network scans decide pass or fail.
@@ -100,7 +103,15 @@ Cleanup keeps this directory. `runs/` holds the password and is gitignored. Do n
 
 Stops the Convex process and the Club app this run started, by recorded pid, and only when the command still matches. Restores a preexisting `apps/club/.env.local`. Leaves evidence in place.
 
+Local mode keeps `BETTER_AUTH_SECRET` in `apps/club/.convex/local/default/verify-judge-weights-auth-secret` (gitignored with `.convex/`). Minting a new secret on every launch left the previous JWKS in the anonymous sqlite, and `GET /api/auth/convex/token` then returned an empty HTTP 500. When that secret file is missing and a local database already exists, launch deletes the anonymous sqlite and storage before Convex starts so the new secret encrypts fresh keys.
+
 After a successful proof, leave the servers up so a person can keep looking. Cleanup before a relaunch.
+
+## Shared Chrome helper
+
+PR #125 (`a0dc6ba`) changed the shared verify-club Chrome launcher at `.cursor/skills/verify-club/helpers/chrome-drive.ts`. It added `--no-sandbox` and `--disable-dev-shm-usage` next to the existing `--headless=new` flags, and it added the `links` and `capture` commands this skill uses for the member network capture and the `/admin` screenshots.
+
+Those two flags are there because a Cloud Agent container has no Chrome user-namespace sandbox and a very small `/dev/shm`. Without them, headless Chrome exits before the DevTools port opens and the browser proof never starts. The session is still loopback-only (`127.0.0.1`). The flags apply to every verify-club Chrome launch, not only this skill, because judge-weights reuses that helper instead of starting a second browser.
 
 ## Isolation
 

@@ -14,7 +14,7 @@ Adding a new judge's referral never lowers a candidate's signal.
 
 ## Driving it with cursor-ide-browser
 
-Preconditions: the markers above are in this checkout. If any marker is missing, print `SKIPPED - needs #123 on main` and stop this feature.
+Preconditions: the markers above are in this checkout. If any marker is missing, print `SKIPPED referral-signal - needs #123 on main` and stop this feature.
 
 - Run `.cursor/skills/verify-judge-weights/run.sh`.
 - Read the `referral-signal` line in `evidence/<run>/run.txt`.

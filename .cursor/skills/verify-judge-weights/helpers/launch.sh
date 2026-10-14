@@ -72,6 +72,32 @@ if [[ "$MODE" == "local" && -f "$ENV_LOCAL" ]]; then
   mv "$ENV_LOCAL" "$RUN_DIR/env.local.aside"
 fi
 
+# Local mode reuses one Better Auth secret for the anonymous backend.
+# A fresh secret cannot decrypt JWKS already in that sqlite, and
+# /api/auth/convex/token then returns an empty HTTP 500. When the secret
+# file is missing and a database is already there, drop the database
+# before Convex starts so the new secret encrypts new keys.
+AUTH_SECRET=""
+if [[ "$MODE" == "local" ]]; then
+  LOCAL_STATE="$CLUB_DIR/.convex/local/default"
+  SECRET_FILE="$LOCAL_STATE/verify-judge-weights-auth-secret"
+  mkdir -p "$LOCAL_STATE"
+  if [[ ! -f "$SECRET_FILE" ]]; then
+    if [[ -f "$LOCAL_STATE/convex_local_backend.sqlite3" ]]; then
+      echo "verify-judge-weights: resetting anonymous local backend so Better Auth JWKS match a new secret" >&2
+      rm -f "$LOCAL_STATE/convex_local_backend.sqlite3" \
+        "$LOCAL_STATE/convex_local_backend.sqlite3-wal" \
+        "$LOCAL_STATE/convex_local_backend.sqlite3-shm"
+      rm -rf "$LOCAL_STATE/convex_local_storage"
+    fi
+    openssl rand -base64 32 | tr -d '\n' >"$SECRET_FILE"
+    chmod 600 "$SECRET_FILE"
+  fi
+  AUTH_SECRET="$(cat "$SECRET_FILE")"
+else
+  AUTH_SECRET="$(openssl rand -base64 32 | tr -d '\n')"
+fi
+
 echo "verify-judge-weights: starting convex ($MODE)" >&2
 if [[ "$MODE" == "local" ]]; then
   nohup bash -c "
@@ -161,7 +187,6 @@ EOF
 chmod +x "$RUN_DIR/bin/npx"
 export PATH="$RUN_DIR/bin:$CLUB_DIR/node_modules/.bin:$PATH"
 
-AUTH_SECRET="$(openssl rand -base64 32 | tr -d '\n')"
 umask 077
 cat >"$RUN_DIR/convex.env" <<EOF
 BETTER_AUTH_SECRET=${AUTH_SECRET}
