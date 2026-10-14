@@ -855,7 +855,7 @@ interface OpenJob {
 
 type JobEvent = { kind: "free"; line: PhysicalLine } | { kind: "job"; job: OpenJob };
 
-interface ParsedHeader {
+export interface ParsedHeader {
   title: string;
   org: string;
   dateText: string | null;
@@ -957,7 +957,8 @@ function headerFrom(
   };
 }
 
-function parseHeader(line: string): ParsedHeader | null {
+/** A job header line (`Title at Org (dates)`, `Title at Org, dates`, `Title at Org: body`), or null. */
+export function parseHeader(line: string): ParsedHeader | null {
   const text = line.trim();
   if (!text || /^\s*[-*•]/.test(text)) return null;
   const paren = /^(.+?)\s+at\s+(.+?)\s*\(([^)]*)\)\s*(?::\s*([\s\S]*))?$/.exec(text);
@@ -981,7 +982,8 @@ function parseHeader(line: string): ParsedHeader | null {
   return null;
 }
 
-function isBullet(text: string): boolean {
+/** A bullet line under a job header: `-`, `*` or `•` followed by text. */
+export function isBullet(text: string): boolean {
   return /^\s*[-*•]\s+\S/.test(text);
 }
 

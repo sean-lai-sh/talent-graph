@@ -42,6 +42,8 @@ export interface ClubPerson {
   x?: string;
   github?: string;
   website?: string;
+  /** Graduation class year, set at intake or by an admin. Recorded on evidence snapshots. */
+  classYear?: number;
   status: PersonStatus;
   channel?: ClubChannel;
   /** Optional so documents written before the council page stay valid. */
