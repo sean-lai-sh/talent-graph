@@ -22,6 +22,7 @@ export function TopBar({
   onReset,
   onConfig,
   onSignOut,
+  requestedPanel,
 }: {
   config: ReviewConfig;
   dirty: boolean;
@@ -36,6 +37,8 @@ export function TopBar({
   onReset: () => void;
   onConfig: (input: SetReviewConfigInput) => void;
   onSignOut?: () => void;
+  /** Opens the account menu on the public demo's settings link. */
+  requestedPanel?: "add" | "settings" | null;
 }) {
   return (
     <header className="app-toolbar">
@@ -91,6 +94,7 @@ export function TopBar({
         onReset={onReset}
         onConfig={onConfig}
         onSignOut={onSignOut}
+        requestedPanel={requestedPanel}
       />
     </header>
   );
@@ -106,6 +110,7 @@ function AccountMenu({
   onReset,
   onConfig,
   onSignOut,
+  requestedPanel,
 }: {
   config: ReviewConfig;
   dirty: boolean;
@@ -116,11 +121,18 @@ function AccountMenu({
   onReset: () => void;
   onConfig: (input: SetReviewConfigInput) => void;
   onSignOut?: () => void;
+  requestedPanel?: "add" | "settings" | null;
 }) {
   const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState<"menu" | "add" | "settings">("menu");
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
+
+  useEffect(() => {
+    if (!requestedPanel) return;
+    setOpen(true);
+    setPanel(requestedPanel);
+  }, [requestedPanel]);
 
   useEffect(() => {
     if (!open) return;

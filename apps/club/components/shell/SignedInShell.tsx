@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { Button } from "../ui/Button.tsx";
 
 export type SignedInNavItem = {
@@ -19,6 +19,7 @@ export function SignedInShell({
   activeId,
   onSelect,
   title,
+  notice,
   onSignOut,
   children,
 }: {
@@ -27,12 +28,38 @@ export function SignedInShell({
   activeId: string;
   onSelect: (id: string) => void;
   title: string;
+  notice?: ReactNode;
   onSignOut?: () => void;
   children: ReactNode;
 }) {
+  const onNavKey = (event: KeyboardEvent<HTMLElement>) => {
+    if (
+      event.key !== "ArrowDown" &&
+      event.key !== "ArrowUp" &&
+      event.key !== "Home" &&
+      event.key !== "End"
+    ) {
+      return;
+    }
+    const buttons = [...event.currentTarget.querySelectorAll("button")];
+    const index = buttons.indexOf(event.target as HTMLButtonElement);
+    if (index < 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const next =
+      event.key === "ArrowDown"
+        ? Math.min(buttons.length - 1, index + 1)
+        : event.key === "ArrowUp"
+          ? Math.max(0, index - 1)
+          : event.key === "Home"
+            ? 0
+            : buttons.length - 1;
+    buttons[next]?.focus();
+  };
+
   return (
     <div className="signed-shell">
-      <nav className="signed-nav" aria-label={navLabel}>
+      <nav className="signed-nav" aria-label={navLabel} onKeyDown={onNavKey}>
         {items.map((item) => {
           const current = item.id === activeId;
           const count =
@@ -56,6 +83,7 @@ export function SignedInShell({
       <div className="signed-stage">
         <header className="signed-bar">
           <h1 className="signed-bar-title">{title}</h1>
+          {notice}
           <div className="flex-1" />
           {onSignOut ? (
             <Button type="button" onClick={onSignOut}>

@@ -22,10 +22,15 @@ feedback inside a 48-hour window. It works over a screen share.
   Underlined `info` opens `/info`. No Sign in on this page.
 - `/info` — same chip; login and contact in a row above the program copy; underlined `home` under it. Contact is `chips@techatnyu.org`. No timer.
   No create-account control.
-- `/demo` — hidden public seed board. No sign-in. Not linked from `/`.
-  Refresh restores the seed club. `robots` noindexes it.
+- `/demo` — hidden public admin preview. No sign-in. Not linked from `/`.
+  The sidebar matches a signed-in admin (Council, Forum, Submit Referral,
+  Member List, Evaluations, Upcoming Events). Council is the seed board:
+  admit, deny, reopen, and round settings stay in memory. Every screen says
+  example data. Directory addresses are `@example.test`. Refresh restores
+  the seed club. `robots` noindexes it. It does not call admin Convex queries.
 - `/demo/home` — hidden public preview of the member home (sidebar + forum).
-  Posts stay in the tab. Live persist is `/members` after sign-in.
+  Same example-data label and `@example.test` directory. Posts stay in the
+  tab. Live persist is `/members` after sign-in.
 - `/example` — redirects to `/demo` so old links still work.
 - `/login` — chips email/password sign-in. No create-account control.
   Unauthenticated `/club` and `/members` redirect here. A signed-in visit

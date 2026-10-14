@@ -32,6 +32,10 @@ export function MemberChrome({
   referral,
   feedback,
   feedbackCount = 0,
+  notice,
+  pane: paneProp,
+  onPaneChange,
+  memberEmpty,
 }: {
   clubRole?: ClubRole;
   posts: ForumPost[];
@@ -45,8 +49,20 @@ export function MemberChrome({
   referral: ReactNode;
   feedback: ReactNode;
   feedbackCount?: number;
+  notice?: ReactNode;
+  pane?: ShellPane;
+  onPaneChange?: (id: ShellPane) => void;
+  /** Replacement for a blank directory cell. The signed-in list keeps an em dash. */
+  memberEmpty?: string;
 }) {
-  const [pane, setPane] = useState<ShellPane>(clubRole === "admin" ? "council" : "forum");
+  const [uncontrolledPane, setUncontrolledPane] = useState<ShellPane>(
+    clubRole === "admin" ? "council" : "forum",
+  );
+  const pane = paneProp ?? uncontrolledPane;
+  const selectPane = (id: ShellPane) => {
+    onPaneChange?.(id);
+    if (paneProp === undefined) setUncontrolledPane(id);
+  };
   const items = navForRole(clubRole).map((item) => {
     if (item.id === "members") return { ...item, count: members.length };
     if (item.id === "evaluations") return { ...item, count: feedbackCount };
@@ -59,22 +75,23 @@ export function MemberChrome({
       navLabel={clubRole === "admin" ? "Admin" : "Member"}
       items={items}
       activeId={pane}
-      onSelect={(id) => setPane(id as ShellPane)}
+      onSelect={(id) => selectPane(id as ShellPane)}
       title={title}
+      notice={notice}
       onSignOut={onSignOut}
     >
-      {pane === "council" ? council : null}
-      {pane === "forum" ? (
+      {council ? <div className={pane === "council" ? "h-full" : "hidden"}>{council}</div> : null}
+      <div className={pane === "forum" ? undefined : "hidden"}>
         <Forum posts={posts} loading={loading} busy={busy} onPost={onPost} />
-      ) : null}
-      {pane === "referral" ? referral : null}
-      {pane === "members" ? <MemberList members={members} loading={membersLoading} /> : null}
-      {pane === "evaluations" ? feedback : null}
-      {pane === "events" ? (
-        <div className="px-6 py-16">
-          <EmptyState title="No upcoming events.">Club events will list here.</EmptyState>
-        </div>
-      ) : null}
+      </div>
+      <div className={pane === "referral" ? undefined : "hidden"}>{referral}</div>
+      <div className={pane === "members" ? undefined : "hidden"}>
+        <MemberList members={members} loading={membersLoading} empty={memberEmpty} />
+      </div>
+      <div className={pane === "evaluations" ? undefined : "hidden"}>{feedback}</div>
+      <div className={pane === "events" ? "px-6 py-16" : "hidden"}>
+        <EmptyState title="No upcoming events.">Club events will list here.</EmptyState>
+      </div>
     </SignedInShell>
   );
 }

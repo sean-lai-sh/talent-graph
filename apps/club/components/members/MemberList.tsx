@@ -7,9 +7,12 @@ import { EmptyState } from "../ui/EmptyState.tsx";
 export function MemberList({
   members,
   loading = false,
+  empty = "—",
 }: {
   members: DirectoryMember[];
   loading?: boolean;
+  /** Shown when a cell has no value. */
+  empty?: string;
 }) {
   return (
     <div className="member-directory">
@@ -36,7 +39,7 @@ export function MemberList({
                       LinkedIn
                     </a>
                   ) : (
-                    "—"
+                    empty
                   )}
                 </td>
                 <td>
