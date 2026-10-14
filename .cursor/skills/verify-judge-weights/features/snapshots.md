@@ -16,7 +16,7 @@ A candidate has a starting snapshot with its thin flag. Running the snapshot cro
 
 ## Driving it with cursor-ide-browser
 
-Preconditions: the markers above are in this checkout. If any marker is missing, print `SKIPPED snapshots - needs #122 on main` and stop this feature.
+Preconditions: the markers above are in this checkout. If any marker is missing, print `SKIPPED snapshots - needs #122 on main` and stop this feature. If the markers are present and this checkout has no local Convex deployment, print `SKIPPED snapshots/cron-idempotent - needs a local Convex backend`. That line is not a pass. A local backend prints `PASS snapshots`.
 
 - Run `.cursor/skills/verify-judge-weights/run.sh`.
 - Read the `snapshots` line in `evidence/<run>/run.txt`.

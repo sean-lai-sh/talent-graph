@@ -15,7 +15,7 @@ Write this as instructions for an agent that has never seen the app.
 
 1. **admin-only-weights** — always on. Must pass on main today.
 2. **admission-credit** — on only when #120's code is in the tree. Otherwise print `SKIPPED admission-credit - needs #120 on main`.
-3. **snapshots** — on only when #122's code is in the tree. Otherwise print `SKIPPED snapshots - needs #122 on main`.
+3. **snapshots** — on only when #122's code is in the tree. Otherwise print `SKIPPED snapshots - needs #122 on main`. Against a local Convex backend the line is `PASS snapshots`. Without one, the cron step prints `SKIPPED snapshots/cron-idempotent - needs a local Convex backend` and is not a pass.
 4. **referral-signal** — on only when #123's code is in the tree. Otherwise print `SKIPPED referral-signal - needs #123 on main`.
 
 A skipped line is not a pass. The report's `passed` count includes only `PASS` lines.

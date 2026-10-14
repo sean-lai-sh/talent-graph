@@ -56,25 +56,54 @@ function item(input: {
   };
 }
 
-export async function fetchGitHubEvidence(
+export interface GitHubArtifact {
+  item: GrokEvidenceItem;
+  // GitHub keeps no history of repository names, so `created` carries the current name.
+  created: GrokEvidenceItem;
+  artifactId: string;
+  // The artifact's own change date, never the fetch time.
+  changedAt: string;
+}
+
+const GITHUB_PAGE_SIZE = 100;
+const GITHUB_REPO_PAGE_LIMIT = 30;
+const GITHUB_EVENT_PAGE_LIMIT = 3;
+
+export async function fetchGitHubArtifacts(
   username: string,
   from: Date,
   cutoff: Date,
   fetchJson: JsonFetcher = defaultJsonFetcher,
-): Promise<GrokEvidenceItem[]> {
+): Promise<GitHubArtifact[]> {
   const headers = { Accept: "application/vnd.github+json" };
-  const [reposValue, eventsValue] = await Promise.all([
-    fetchJson(
-      `https://api.github.com/users/${encodeURIComponent(username)}/repos?type=public&sort=updated&per_page=100`,
-      { headers },
-    ),
-    fetchJson(
-      `https://api.github.com/users/${encodeURIComponent(username)}/events/public?per_page=100`,
-      { headers },
-    ),
+  const user = `https://api.github.com/users/${encodeURIComponent(username)}`;
+  const pages = async (url: string, limit: number) => {
+    const items: unknown[] = [];
+    for (let page = 1; page <= limit; page++) {
+      const value = await fetchJson(`${url}&per_page=${GITHUB_PAGE_SIZE}&page=${page}`, {
+        headers,
+      });
+      if (!Array.isArray(value)) return { items, ended: true };
+      items.push(...value);
+      if (value.length < GITHUB_PAGE_SIZE) return { items, ended: true };
+    }
+    return { items, ended: false };
+  };
+  const [repos, events] = await Promise.all([
+    pages(`${user}/repos?type=public&sort=updated`, GITHUB_REPO_PAGE_LIMIT),
+    // GitHub serves at most 300 public events (3 pages); the 14-day recheck reads them well inside that window.
+    pages(`${user}/events/public?`, GITHUB_EVENT_PAGE_LIMIT),
   ]);
+  const reposValue = repos.items;
+  const eventsValue = events.items;
+  if (!repos.ended) {
+    // A truncated list would freeze a snapshot missing the account's older repositories.
+    throw new Error(
+      `GitHub user ${username} has more than ${GITHUB_REPO_PAGE_LIMIT * GITHUB_PAGE_SIZE} public repositories`,
+    );
+  }
 
-  const evidence: GrokEvidenceItem[] = [];
+  const evidence: GitHubArtifact[] = [];
   if (Array.isArray(reposValue)) {
     for (const raw of reposValue) {
       const repo = record(raw);
@@ -91,20 +120,44 @@ export async function fetchGitHubEvidence(
       ) {
         continue;
       }
-      const description = string(repo.description) ?? "No repository description.";
-      evidence.push(
-        item({
-          source: "github",
-          sourceId: `repo:${name}`,
-          url,
-          publisher: username,
-          publishedAt: createdAt,
-          quotedText: description,
-          statement: `${username} created the public repository ${name}: ${description}`,
-          proposedEventKind: "open_source_contribution",
-          raw,
-        }),
-      );
+      const description = string(repo.description);
+      const repoId = repo.id;
+      const artifactId =
+        typeof repoId === "number" || typeof repoId === "string"
+          ? `repo:${repoId}`
+          : `repo:${name}`;
+      const updatedAt = string(repo.updated_at);
+      const changedAt = updatedAt && Number.isFinite(Date.parse(updatedAt)) ? updatedAt : createdAt;
+      const created = item({
+        source: "github",
+        sourceId: `repo:${name}`,
+        url,
+        publisher: username,
+        publishedAt: createdAt,
+        quotedText: name,
+        statement: `${username} created the public repository ${name}.`,
+        proposedEventKind: "open_source_contribution",
+        raw: { id: repoId ?? null, full_name: name, html_url: url, created_at: createdAt },
+      });
+      evidence.push({
+        artifactId,
+        changedAt,
+        created,
+        item:
+          description === null
+            ? created
+            : item({
+                source: "github",
+                sourceId: `repo:${name}`,
+                url,
+                publisher: username,
+                publishedAt: createdAt,
+                quotedText: description,
+                statement: `${username} created the public repository ${name}: ${description}`,
+                proposedEventKind: "open_source_contribution",
+                raw,
+              }),
+      });
     }
   }
 
@@ -128,19 +181,23 @@ export async function fetchGitHubEvidence(
       ) {
         continue;
       }
-      evidence.push(
-        item({
-          source: "github",
-          sourceId: `event:${id}`,
-          url: `https://github.com/${repoName}`,
-          publisher: username,
-          publishedAt: createdAt,
-          quotedText: contribution,
-          statement: `${username} ${contribution}.`,
-          proposedEventKind: "open_source_contribution",
-          raw,
-        }),
-      );
+      const contributed = item({
+        source: "github",
+        sourceId: `event:${id}`,
+        url: `https://github.com/${repoName}`,
+        publisher: username,
+        publishedAt: createdAt,
+        quotedText: contribution,
+        statement: `${username} ${contribution}.`,
+        proposedEventKind: "open_source_contribution",
+        raw,
+      });
+      evidence.push({
+        artifactId: `event:${id}`,
+        changedAt: createdAt,
+        created: contributed,
+        item: contributed,
+      });
     }
   }
   return evidence;

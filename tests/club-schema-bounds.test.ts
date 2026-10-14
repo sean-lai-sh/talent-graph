@@ -28,6 +28,8 @@ function arrayPaths(node: Node, path: string): string[] {
 const BOUNDED_LISTS: Record<string, string> = {
   "clubs.config.requiredDimensions": "one entry per dimension, at most 7",
   "clubSnapshots.modelRunIds": "one run id per model in a pass",
+  "resumeVersions.evidenceKeys":
+    "one evidence key per claim in that one uploaded resume, written once when it is scored",
   "clubSnapshots.signalWithout": "one entry per referrer of the decided candidate, a handful",
   "clubSnapshots.unresolvedDecider.adminReferrers":
     "a subset of the decided candidate's referrers, a handful",

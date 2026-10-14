@@ -4,7 +4,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Referral } from "../../../../src/domain/types.ts";
 import {
@@ -13,6 +13,7 @@ import {
   referralSignalPresent,
   SKIP_ADMISSION,
   SKIP_REFERRAL_SIGNAL,
+  SKIP_SNAPSHOT_CRON,
   SKIP_SNAPSHOTS,
   snapshotsPresent,
 } from "./detect.ts";
@@ -181,18 +182,21 @@ export async function checkSnapshots(root: string): Promise<CheckResult> {
   if (second !== null)
     return fail("snapshots", "planning the same snapshot twice wrote another row");
 
-  const evidence = readFileSync(join(root, "apps/club/convex/evidence.ts"), "utf8");
-  const table = evidence.match(/\.query\("(evidence\w+)"\)/)?.[1] ?? "evidenceSnapshots";
+  // evidence:daily twice is a live-backend proof. Without a local deployment
+  // that sub-step is skipped and is not a pass.
+  if (!localConvex(root)) return skip("snapshots", SKIP_SNAPSHOT_CRON);
+
+  const table = "evidenceSnapshots";
   const firstDaily = convex(root, ["run", "evidence:daily", "{}"]);
   if (firstDaily.status !== 0) {
     return fail("snapshots", `evidence:daily failed: ${firstDaily.stderr.slice(0, 240)}`);
   }
-  const before = convex(root, ["data", table]);
+  const before = await settled(root, table);
   const secondDaily = convex(root, ["run", "evidence:daily", "{}"]);
   if (secondDaily.status !== 0) {
     return fail("snapshots", `second evidence:daily failed: ${secondDaily.stderr.slice(0, 240)}`);
   }
-  const after = convex(root, ["data", table]);
+  const after = convex(root, ["data", table, "--format", "jsonl"]);
   if (before.status !== 0 || after.status !== 0) {
     return fail("snapshots", `could not read ${table}`);
   }
@@ -200,6 +204,29 @@ export async function checkSnapshots(root: string): Promise<CheckResult> {
     return fail("snapshots", "running the snapshot cron twice changed stored rows");
   }
   return pass("snapshots", `s0 thin; ${table} unchanged across two cron runs`);
+}
+
+function localConvex(root: string): boolean {
+  const path = join(root, "apps/club/.env.local");
+  if (!existsSync(path)) return false;
+  const deployment = readFileSync(path, "utf8").match(/^CONVEX_DEPLOYMENT=(\S+)/m)?.[1] ?? "";
+  return deployment.startsWith("local:") || deployment.startsWith("anonymous:");
+}
+
+async function settled(
+  root: string,
+  table: string,
+): Promise<{ status: number; stdout: string; stderr: string }> {
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  let previous = convex(root, ["data", table, "--format", "jsonl"]);
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const next = convex(root, ["data", table, "--format", "jsonl"]);
+    if (next.status === 0 && next.stdout === previous.stdout) return next;
+    previous = next;
+  }
+  return previous;
 }
 
 export async function checkReferralSignal(root: string): Promise<CheckResult> {

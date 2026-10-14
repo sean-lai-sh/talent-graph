@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { driveBrowser } from "../.cursor/skills/verify-judge-weights/helpers/browser.ts";
@@ -18,6 +26,7 @@ import {
   formatReport,
   formatResult,
   referralSignalPresent,
+  SKIP_SNAPSHOT_CRON,
   SKIP_SNAPSHOTS,
   snapshotsPresent,
   tally,
@@ -67,6 +76,25 @@ function writeMarker(root: string, rel: string, source: string): void {
   writeFileSync(path, source);
 }
 
+function localSnapshotBackend(root: string): boolean {
+  const path = join(root, "apps/club/.env.local");
+  if (!existsSync(path)) return false;
+  const deployment = readFileSync(path, "utf8").match(/^CONVEX_DEPLOYMENT=(\S+)/m)?.[1] ?? "";
+  return deployment.startsWith("local:") || deployment.startsWith("anonymous:");
+}
+
+function linkSnapshotCheckout(root: string): void {
+  for (const rel of [
+    "apps/club/lib/longitudinal/evidenceSnapshots.ts",
+    "apps/club/convex/crons.ts",
+    "apps/club/convex/evidence.ts",
+  ]) {
+    const path = join(root, rel);
+    mkdirSync(join(path, ".."), { recursive: true });
+    symlinkSync(join(repo, rel), path);
+  }
+}
+
 describe("weight key scan", () => {
   test("catches a nested w inside an array of objects", () => {
     const hits = scanWeightKeys({
@@ -107,12 +135,12 @@ describe("weight key scan", () => {
 });
 
 describe("engine checks enable from merged code", () => {
-  test("this checkout runs #120 admission credit and #123 referral signal, and still skips #122", async () => {
+  test("this checkout runs #120 admission credit, #122 snapshots, and #123 referral signal", async () => {
     process.env.VERIFY_JUDGE_WEIGHTS_ADMISSION = "1";
     process.env.VERIFY_JUDGE_WEIGHTS_SNAPSHOTS = "1";
     process.env.VERIFY_JUDGE_WEIGHTS_REFERRAL_SIGNAL = "1";
     expect(admissionPresent(repo)).toBe(true);
-    expect(snapshotsPresent(repo)).toBe(false);
+    expect(snapshotsPresent(repo)).toBe(true);
     expect(referralSignalPresent(repo)).toBe(true);
 
     const results: CheckResult[] = [
@@ -123,20 +151,71 @@ describe("engine checks enable from merged code", () => {
     ];
     expect(results[1]?.status).toBe("pass");
     expect(results[1]?.id).toBe("admission-credit");
-    expect(results[2]).toEqual({ id: "snapshots", status: "skipped", detail: SKIP_SNAPSHOTS });
+    expect(results[2]?.id).toBe("snapshots");
+    expect(results[2]?.detail).not.toBe(SKIP_SNAPSHOTS);
     expect(results[3]?.status).toBe("pass");
     expect(results[3]?.id).toBe("referral-signal");
     expect(formatResult(results[1]!)).toBe("PASS admission-credit");
-    expect(formatResult(results[2]!)).toBe("SKIPPED snapshots - needs #122 on main");
     expect(formatResult(results[3]!)).toBe("PASS referral-signal");
-    expect(tally(results)).toEqual({ passed: 3, skipped: 1, failed: 0 });
     const report = formatReport(results);
-    expect(report).toContain("SKIPPED snapshots - needs #122 on main");
+    expect(report).not.toContain("needs #122 on main");
     expect(report).toContain("PASS admin-only-weights");
     expect(report).toContain("PASS admission-credit");
     expect(report).toContain("PASS referral-signal");
-    expect(report).toContain("passed 3\nskipped 1\nfailed 0\n");
-    expect(report.match(/PASS /g)?.length).toBe(3);
+    expect(report).not.toContain("SKIPPED - needs #122 on main");
+    if (localSnapshotBackend(repo)) {
+      expect(results[2]?.status).toBe("pass");
+      expect(formatResult(results[2]!)).toBe("PASS snapshots");
+      expect(tally(results)).toEqual({ passed: 4, skipped: 0, failed: 0 });
+      expect(report).toContain("PASS snapshots");
+      expect(report).toContain("passed 4\nskipped 0\nfailed 0\n");
+      expect(report.match(/PASS /g)?.length).toBe(4);
+    } else {
+      expect(results[2]).toEqual({
+        id: "snapshots",
+        status: "skipped",
+        detail: SKIP_SNAPSHOT_CRON,
+      });
+      expect(formatResult(results[2]!)).toBe(SKIP_SNAPSHOT_CRON);
+      expect(tally(results)).toEqual({ passed: 3, skipped: 1, failed: 0 });
+      expect(report).toContain(SKIP_SNAPSHOT_CRON);
+      expect(report).not.toContain("PASS snapshots");
+      expect(report).toContain("passed 3\nskipped 1\nfailed 0\n");
+      expect(report.match(/PASS /g)?.length).toBe(3);
+    }
+  });
+
+  test("a non-local deployment skips cron idempotence and does not count it as passed", async () => {
+    const missing = mkdtempSync(join(tmpdir(), "jw-cron-missing-"));
+    const cloud = mkdtempSync(join(tmpdir(), "jw-cron-cloud-"));
+    try {
+      linkSnapshotCheckout(missing);
+      linkSnapshotCheckout(cloud);
+      writeFileSync(join(cloud, "apps/club/.env.local"), "CONVEX_DEPLOYMENT=dev:example-cloud\n");
+      expect(snapshotsPresent(missing)).toBe(true);
+      expect(snapshotsPresent(cloud)).toBe(true);
+      for (const root of [missing, cloud]) {
+        const result = await checkSnapshots(root);
+        expect(result).toEqual({
+          id: "snapshots",
+          status: "skipped",
+          detail: "SKIPPED snapshots/cron-idempotent - needs a local Convex backend",
+        });
+        expect(formatResult(result)).toBe(
+          "SKIPPED snapshots/cron-idempotent - needs a local Convex backend",
+        );
+        expect(tally([result])).toEqual({ passed: 0, skipped: 1, failed: 0 });
+        const report = formatReport([result]);
+        expect(report).toContain(
+          "SKIPPED snapshots/cron-idempotent - needs a local Convex backend",
+        );
+        expect(report).not.toContain("PASS snapshots");
+        expect(report).toContain("passed 0\nskipped 1\nfailed 0\n");
+      }
+    } finally {
+      rmSync(missing, { recursive: true, force: true });
+      rmSync(cloud, { recursive: true, force: true });
+    }
   });
 
   test("markers in the tree turn each check on, env vars do not", () => {
@@ -401,12 +480,14 @@ export const peek = query({
       "member club:listMyFeedback",
       "member club:listPosts",
       "member comparisonStep:getComparisonStep",
+      "internal evidence:context",
+      "internal evidence:recentCompanyResearch",
       "internal grokCompanyResearch:reply",
       "member referral:lookupReferralContact",
       "member referral:referralStatus",
     ]);
     const lines = formatDiscovered(gate.rows);
-    expect(lines[0]).toBe("queries discovered 11 (member 8, admin 2, internal 1, unclassified 0)");
+    expect(lines[0]).toBe("queries discovered 13 (member 8, admin 2, internal 3, unclassified 0)");
     expect(gate.rows.find((row) => row.ref === "club:getBoard")?.argsEmpty).toBe(true);
     expect(gate.rows.find((row) => row.ref === "comparisonStep:getComparisonStep")?.argsEmpty).toBe(
       false,
