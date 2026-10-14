@@ -72,7 +72,15 @@ bun run drift -- --kind bradley_terry --before 1.0.0 --after 1.0.0
 TG_TOP_K_REFERRALS=1 bun run drift -- --kind referral_signal --before 0.1.0 --after env
 ```
 
-Registered versions today: Referral Signal `0.1.0`, Bradley–Terry `1.0.0`, judge reliability `2.0.0`. `env` means the current spec with `TG_*` applied. Judge reliability `4.x` (the r10 judge-weight design, Linear SEA-77) is being added in steps; when a step registers a version, update this line and add a `drift` example for it. Specs live in Linear, not `docs/issues/`.
+Registered versions today: Referral Signal `0.1.0`, Bradley–Terry `1.0.0`, judge reliability `2.0.0` and `4.0.0`. **Current** (what `demo` and the Club use): judge reliability `2.0.0`. `4.0.0` is registered but not current, and is reachable only through drift (see [Judge weights v4](features/judge-weights-v4.md)). `env` means the current spec with `TG_*` applied. More 4.x versions arrive with open PRs (see the feature README); when one registers a version, update this line and add its drift recipe. Specs live in Linear (SEA-77 and "Judge weights explained (start here)"), not `docs/issues/`.
+
+```sh
+bun run drift -- --kind judge_reliability --before 2.0.0 --after 4.0.0   # BREAKING, exit 1 (expected)
+bun run drift -- --kind judge_reliability --before 4.0.0 --after 4.0.0   # STABLE across 5 reports
+bun run check:config-gen                                                  # generated config matches config.yml
+```
+
+**Drift exit codes:** `0` for STABLE or REVIEW, `1` for BREAKING (the drift gate), `2` for usage errors. A BREAKING run that's expected is still exit 1, so read the verdict lines; never treat the exit code alone as pass or fail.
 
 Literal stdout handles (assert these strings, not internal fields):
 
@@ -94,6 +102,9 @@ Literal stdout handles (assert these strings, not internal fields):
 | `Cleo Marsh` V0→V2 line with `12`, `7`, and `-5` | demo tail (seed pin; Club UI shows 7) |
 | `Drift report — referral_signal` | drift stdout |
 | `Verdict: STABLE` | identical specs on the seed |
+| `Drift report — judge_reliability · weight` and `· omega` | judge reliability drift involving `4.0.0` (absent under v2 → v2) |
+| `Overall verdict across 5 reports:` | judge reliability drift involving `4.0.0` |
+| `generated.ts matches` / `is out of date with` | `bun run check:config-gen` |
 | usage on stderr, exit `2` | drift missing flags |
 
 `helpers/demo.sh` and `helpers/drift.sh` **unset** `TG_*` unless `KEEP_TG=1`. For `--after env`, set the override and `KEEP_TG=1`.

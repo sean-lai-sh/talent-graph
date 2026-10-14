@@ -33,5 +33,6 @@ Preconditions:
 - `bun run drift -- --kind …` — the extra `--` is required so bun forwards flags.
 - `--after env` without a `TG_*` change is another same-spec run. The interesting env path sets an override.
 - Drift prints a CHANGELOG-shaped verdict; it does not write the changelog. If that file is dirty after the command, treat it as a regression.
+- **A BREAKING verdict exits `1`** (the drift gate). An expected breaking comparison, like judge reliability 2.0.0 → 4.0.0, is still exit 1. Read the verdict.
 - Unknown `--after 9.9.9` throws from the registry. That is not the usage path (usage is missing flags, exit 2).
 - Helpers unset `TG_*` unless `KEEP_TG=1`. The env recipe must set `KEEP_TG=1`.
