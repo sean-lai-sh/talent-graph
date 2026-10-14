@@ -8,6 +8,8 @@ import { join } from "node:path";
 
 export const SKIP_ADMISSION = "SKIPPED - needs #120 on main";
 export const SKIP_SNAPSHOTS = "SKIPPED - needs #122 on main";
+export const SKIP_SNAPSHOT_CRON =
+  "SKIPPED snapshots/cron-idempotent - needs a local Convex backend";
 export const SKIP_REFERRAL_SIGNAL = "SKIPPED - needs #123 on main";
 
 export type CheckId = "admin-only-weights" | "admission-credit" | "snapshots" | "referral-signal";

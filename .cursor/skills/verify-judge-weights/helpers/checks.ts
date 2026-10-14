@@ -13,6 +13,7 @@ import {
   referralSignalPresent,
   SKIP_ADMISSION,
   SKIP_REFERRAL_SIGNAL,
+  SKIP_SNAPSHOT_CRON,
   SKIP_SNAPSHOTS,
   snapshotsPresent,
 } from "./detect.ts";
@@ -181,11 +182,9 @@ export async function checkSnapshots(root: string): Promise<CheckResult> {
   if (second !== null)
     return fail("snapshots", "planning the same snapshot twice wrote another row");
 
-  // The cron proof needs this checkout's local backend. CI has no deployment,
-  // and a cloud deployment is not this check's target.
-  if (!localConvex(root)) {
-    return pass("snapshots", "s0 thin; planning the same snapshot twice wrote nothing");
-  }
+  // evidence:daily twice is a live-backend proof. Without a local deployment
+  // that sub-step is skipped and is not a pass.
+  if (!localConvex(root)) return skip("snapshots", SKIP_SNAPSHOT_CRON);
 
   const table = "evidenceSnapshots";
   const firstDaily = convex(root, ["run", "evidence:daily", "{}"]);
