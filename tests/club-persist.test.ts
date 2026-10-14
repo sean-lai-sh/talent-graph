@@ -150,7 +150,7 @@ describe("SEA-10 Convex persistence path", () => {
     expect(home).toContain("LandingPage");
     expect(home).not.toContain("loadClub()");
     expect(home).not.toContain("ClubBoard");
-    expect(demo).toContain("loadClub()");
+    expect(demo).toContain("exampleBoard()");
     expect(example).toContain('redirect("/demo")');
     for (const source of [home, demo, example, info]) {
       expect(source).not.toContain("PersistedClub");

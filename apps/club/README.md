@@ -22,10 +22,17 @@ feedback inside a 48-hour window. It works over a screen share.
   Underlined `info` opens `/info`. No Sign in on this page.
 - `/info` — same chip; login and contact in a row above the program copy; underlined `home` under it. Contact is `chips@techatnyu.org`. No timer.
   No create-account control.
-- `/demo` — hidden public seed board. No sign-in. Not linked from `/`.
-  Refresh restores the seed club. `robots` noindexes it.
+- `/demo` — hidden public admin preview. No sign-in. Not linked from `/`.
+  The sidebar matches a signed-in admin (Council, Forum, Submit Referral,
+  Member List, Evaluations, Upcoming Events). Council scores the static
+  fixture in `fixtures/example-data.ts` on the server. The fixture is people,
+  referrals, admit/deny decisions, and comparison evidence. Signals on the
+  page come from that engine pass. Admit, deny, reopen, and round settings stay in
+  memory. Every screen says example data. `robots` noindexes it. It does not
+  call Convex queries.
 - `/demo/home` — hidden public preview of the member home (sidebar + forum).
-  Posts stay in the tab. Live persist is `/members` after sign-in.
+  Same example-data label and the same static fixture. Posts stay in the
+  tab. Live persist is `/members` after sign-in.
 - `/example` — redirects to `/demo` so old links still work.
 - `/login` — chips email/password sign-in. No create-account control.
   Unauthenticated `/club` and `/members` redirect here. A signed-in visit
@@ -45,8 +52,8 @@ feedback inside a 48-hour window. It works over a screen share.
   `/login` (not the seed board, not PersistedClub). Accounts that are not
   marked admin are sent to `/members` on the server, before the council
   shell. Signed-in admins get the Convex-backed
-  page when Convex env is configured. `/demo` stays in-memory `generateSeed()`
-  with no auth. `/example` redirects there. Public signup is disabled;
+  page when Convex env is configured. `/demo` scores `fixtures/example-data.ts`
+  in the server component, with no auth. `/example` redirects there. Public signup is disabled;
   provision owners with `bun run provision-user` (`ACCOUNT_ROLE=member`
   for a non-admin account).
 
@@ -225,9 +232,9 @@ in the build.
    on the detected defaults. Do not set Output Directory.
 5. Skip Environment Variables. Optional `TG_*` keys are in
    [`apps/club/.env.example`](.env.example); they are not required.
-6. Deploy. `/` is the chips landing with sign-in. `/demo` is the hidden seed
-   council page (`/example` redirects there). Refresh on `/demo` restores
-   `generateSeed()`. `/club` persists club inputs in Convex and computes views
+6. Deploy. `/` is the chips landing with sign-in. `/demo` is the hidden
+   council page (`/example` redirects there). Refresh on `/demo` scores the
+   fixture again. `/club` persists club inputs in Convex and computes views
    from `src/`. It does not wall the hidden demo.
 
 ### CLI (from the repository root)

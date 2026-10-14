@@ -1,35 +1,41 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { FeedbackInbox } from "../../../components/feedback/FeedbackInbox.tsx";
+import { useState } from "react";
 import type { ForumPost } from "../../../components/forum/Forum.tsx";
-import { ReferralSignupPreview } from "../../../components/referral/ReferralSignup.tsx";
 import { MemberChrome } from "../../../components/shell/MemberChrome.tsx";
-import { initialState } from "../../../lib/engine.ts";
-import { toDirectoryMembers } from "../../../lib/memberDirectory.ts";
+import { exampleDirectory, exampleForumPost } from "../../../lib/exampleDemo.ts";
+import { DemoEvaluations } from "../DemoEvaluations.tsx";
+import { DemoMemberList } from "../DemoMemberList.tsx";
+import { DemoReferral } from "../DemoReferral.tsx";
+import { ExampleNote } from "../ExampleNote.tsx";
 
-/** Hidden `/demo/home` preview — local posts, seed member directory, no Convex. */
+/** Hidden `/demo/home` preview — local posts, fixture directory, no Convex. */
 export function MemberHomePreview() {
-  const [posts, setPosts] = useState<ForumPost[]>([]);
-  const members = useMemo(() => toDirectoryMembers(initialState().people), []);
+  const members = exampleDirectory();
+  const author = exampleForumPost().authorName;
+  const [posts, setPosts] = useState<ForumPost[]>(() => [exampleForumPost()]);
 
   return (
     <MemberChrome
+      notice={<ExampleNote />}
+      retainPanes
+      keyboardNav
       posts={posts}
       members={members}
+      membersPane={<DemoMemberList />}
       onPost={(body) => {
         setPosts((current) => [
           {
-            id: `preview-${Date.now()}`,
+            id: `preview-${current.length}`,
             body,
-            authorName: "Member",
+            authorName: author,
             createdAt: new Date().toISOString(),
           },
           ...current,
         ]);
       }}
-      referral={<ReferralSignupPreview />}
-      feedback={<FeedbackInbox requests={[]} loading={false} onRespond={async () => null} />}
+      referral={<DemoReferral />}
+      feedback={<DemoEvaluations />}
     />
   );
 }

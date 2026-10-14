@@ -83,7 +83,7 @@ describe("SEA-26 /login door", () => {
     const example = read("apps/club/app/example/page.tsx");
     const info = read("apps/club/app/info/page.tsx");
     expect(home).toContain("LandingPage");
-    expect(demo).toContain("loadClub()");
+    expect(demo).toContain("exampleBoard()");
     expect(example).toContain('redirect("/demo")');
     expect(info).toContain("InfoPage");
     for (const source of [home, demo, example, info]) {

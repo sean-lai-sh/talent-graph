@@ -1054,6 +1054,27 @@ ul.people {
   font-size: 0.95rem;
   font-weight: 550;
 }
+.example-note {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.6rem;
+  margin: 0;
+  border: 1px solid var(--hair-2);
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--t1);
+}
+.example-note-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--t3);
+}
 .signed-main {
   min-width: 0;
   min-height: 0;

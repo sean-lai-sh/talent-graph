@@ -52,7 +52,7 @@ describe("SEA-12 Better Auth gate on /club", () => {
       expect(source).not.toContain("PersistedClub");
       expect(source).not.toContain("@convex-dev/better-auth");
     }
-    expect(demo).toContain("loadClub()");
+    expect(demo).toContain("exampleBoard()");
     expect(existsSync(join(root, "apps/club/middleware.ts"))).toBe(false);
     expect(existsSync(join(root, "apps/club/src/middleware.ts"))).toBe(false);
     expect(existsSync(join(root, "middleware.ts"))).toBe(false);

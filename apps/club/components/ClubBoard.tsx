@@ -74,6 +74,8 @@ export function ClubBoard({
   clock = "example",
   role = "council",
   onSignOut,
+  requestedPanel,
+  hotkeys = true,
 }: {
   initial: EngineResult;
   variant?: "example" | "club";
@@ -83,6 +85,10 @@ export function ClubBoard({
   clock?: "example" | "wall";
   role?: "council";
   onSignOut?: () => void;
+  /** Public demo: open Round settings without a click. Omitted on `/club`. */
+  requestedPanel?: "add" | "settings" | null;
+  /** Off when the public demo covers the board with another pane. Defaults on. */
+  hotkeys?: boolean;
 }) {
   const run: ClubBoardActions = resolveBoardActions(variant, actions);
   const firstId = sortQueue(initial.view.candidates)[0]?.personId ?? null;
@@ -190,6 +196,7 @@ export function ClubBoard({
 
   // J / K and arrows move through the filtered list; Esc leaves present mode. Never animated.
   useEffect(() => {
+    if (!hotkeys) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (
@@ -217,7 +224,7 @@ export function ClubBoard({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [step]);
+  }, [hotkeys, step]);
 
   const clockIso = clock === "wall" ? new Date().toISOString() : view.now;
   const canDecide = role === "council";
@@ -272,6 +279,7 @@ export function ClubBoard({
           onReset={resetToSeed}
           onConfig={onConfig}
           onSignOut={onSignOut}
+          requestedPanel={requestedPanel}
         />
       ) : (
         <div className="app-toolbar text-xs text-muted">
