@@ -26,10 +26,11 @@ feedback inside a 48-hour window. It works over a screen share.
   The sidebar matches a signed-in admin (Council, Forum, Submit Referral,
   Member List, Evaluations, Upcoming Events). Council is the seed board:
   admit, deny, reopen, and round settings stay in memory. Every screen says
-  example data. Directory addresses are `@example.test`. Refresh restores
-  the seed club. `robots` noindexes it. It does not call admin Convex queries.
+  example data. Directory names, ids, and phones come from
+  `fixtures/example-data.ts` (`@example.test`). Refresh restores the seed
+  club. `robots` noindexes it. It does not call Convex queries.
 - `/demo/home` — hidden public preview of the member home (sidebar + forum).
-  Same example-data label and `@example.test` directory. Posts stay in the
+  Same example-data label and the same static fixture. Posts stay in the
   tab. Live persist is `/members` after sign-in.
 - `/example` — redirects to `/demo` so old links still work.
 - `/login` — chips email/password sign-in. No create-account control.

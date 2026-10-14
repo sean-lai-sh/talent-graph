@@ -71,9 +71,9 @@ describe("member directory", () => {
     expect(css).toContain(".forum-compose textarea");
     expect(css).toContain("min-height: 7.5rem");
     expect(club).toContain("export const listMembers");
-    expect(preview).toContain("exampleMembers");
-    expect(readFileSync(join(root, "apps/club/lib/exampleDemo.ts"), "utf8")).toContain(
-      "toDirectoryMembers",
-    );
+    expect(preview).toContain("exampleDirectory");
+    const demo = readFileSync(join(root, "apps/club/lib/exampleDemo.ts"), "utf8");
+    expect(demo).toContain("example-data");
+    expect(demo).not.toContain("toDirectoryMembers");
   });
 });

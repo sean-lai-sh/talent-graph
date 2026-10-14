@@ -1,19 +1,12 @@
 /**
- * Public `/demo` display data. Built from the in-memory seed only.
- * Never calls Convex. Never attaches a phone, a judge weight, or a referrer.
+ * Public `/demo` display helpers. Member rows come from the static fixture.
+ * Never calls Convex. Never attaches a judge weight or a referrer.
  */
 
+import { EXAMPLE_FORUM, EXAMPLE_MEMBERS } from "../fixtures/example-data.ts";
 import { EXAMPLE_FORUM_BODY, UNKNOWN_VALUE } from "./copy.ts";
-import { type DirectoryMember, directoryEmail, toDirectoryMembers } from "./memberDirectory.ts";
+import type { DirectoryMember } from "./memberDirectory.ts";
 import type { ShellPane } from "./shellNav.ts";
-
-type NamedPerson = {
-  id: string;
-  name: string;
-  status: string;
-  email?: string;
-  linkedin?: string;
-};
 
 const DEMO_PANES: readonly ShellPane[] = [
   "council",
@@ -40,38 +33,22 @@ export function demoHashFor(pane: ShellPane): string {
   return pane === "council" ? "" : `#${pane}`;
 }
 
-/** Local part of the directory address, always at @example.test. */
-export function exampleEmail(name: string): string {
-  const base = directoryEmail(name);
-  const local = base.split("@")[0]?.trim() || "member";
-  return `${local}@example.test`;
-}
-
 export function exampleName(name: string | null | undefined): string {
   const trimmed = name?.trim() ?? "";
   return trimmed.length > 0 ? trimmed : UNKNOWN_VALUE;
 }
 
-/**
- * Admitted people, as the member list shows them: name, LinkedIn, email.
- * Emails are rewritten to @example.test. LinkedIn points at example.test,
- * never a linkedin.com profile that could belong to a real person.
- */
-export function exampleMembers(people: readonly NamedPerson[]): DirectoryMember[] {
-  return toDirectoryMembers(people).map((member) => {
+/** Fixture members, in file order. Names, not ids. Phone is the fictional number. */
+export function exampleDirectory(): DirectoryMember[] {
+  return EXAMPLE_MEMBERS.map((member) => {
     const name = exampleName(member.name);
     const row: DirectoryMember = {
       id: member.id,
       name,
-      email: exampleEmail(name === UNKNOWN_VALUE ? "member" : name),
+      email: member.email,
+      phone: member.phone,
     };
-    if (member.linkedin?.trim() && name !== UNKNOWN_VALUE) {
-      const slug = name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, ".")
-        .replace(/^\.|\.$/g, "");
-      row.linkedin = `https://example.test/in/${slug || "member"}`;
-    }
+    if (member.linkedin?.trim() && name !== UNKNOWN_VALUE) row.linkedin = member.linkedin.trim();
     return row;
   });
 }
@@ -83,11 +60,12 @@ export type ExamplePost = {
   createdAt: string;
 };
 
-export function exampleForumSeed(authorName: string): ExamplePost {
+export function exampleForumPost(): ExamplePost {
+  const author = EXAMPLE_MEMBERS.find((member) => member.id === EXAMPLE_FORUM.authorId);
   return {
-    id: "example-post",
+    id: EXAMPLE_FORUM.id,
     body: EXAMPLE_FORUM_BODY,
-    authorName: exampleName(authorName),
-    createdAt: "2026-01-15T15:00:00.000Z",
+    authorName: exampleName(author?.name),
+    createdAt: EXAMPLE_FORUM.createdAt,
   };
 }

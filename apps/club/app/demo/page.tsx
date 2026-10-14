@@ -11,7 +11,8 @@ export const metadata: Metadata = {
 
 /**
  * Hidden public admin preview. Not linked from the landing.
- * Seed data only; refresh restores generateSeed(). No admin Convex query.
+ * Council board is the in-memory seed (refresh restores generateSeed()).
+ * Directory rows are the static fixture. No Convex query of any kind.
  */
 export default function HiddenDemoBoard() {
   const initial = loadClub();

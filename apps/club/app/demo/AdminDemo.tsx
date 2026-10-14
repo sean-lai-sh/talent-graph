@@ -1,33 +1,33 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { ClubBoard } from "../../components/ClubBoard.tsx";
 import { FeedbackInbox } from "../../components/feedback/FeedbackInbox.tsx";
 import type { ForumPost } from "../../components/forum/Forum.tsx";
-import { ReferralSignupPreview } from "../../components/referral/ReferralSignup.tsx";
+import { ReferralSignupPreview } from "../../components/referral/ReferralSignupForm.tsx";
 import { ExampleNote } from "../../components/shell/ExampleNote.tsx";
 import { MemberChrome } from "../../components/shell/MemberChrome.tsx";
 import { UNKNOWN_VALUE } from "../../lib/copy.ts";
 import {
   type DemoRoute,
   demoHashFor,
-  exampleForumSeed,
-  exampleMembers,
-  exampleName,
+  exampleDirectory,
+  exampleForumPost,
   parseDemoHash,
 } from "../../lib/exampleDemo.ts";
 import type { ShellPane } from "../../lib/shellNav.ts";
 import type { EngineResult } from "../../lib/types.ts";
 
 /**
- * Public admin preview. Same sidebar an admin sees, filled from the seed.
- * No Convex client and no admin query.
+ * Public admin preview. Same sidebar an admin sees.
+ * The council board is the in-memory seed. Directory, phones, and the forum
+ * note come from the static fixture. No Convex client and no Convex query.
  */
 export function AdminDemo({ initial }: { initial: EngineResult }) {
   const [route, setRoute] = useState<DemoRoute>({ pane: "council", settings: false });
-  const members = useMemo(() => exampleMembers(initial.state.people), [initial]);
-  const author = exampleName(members[0]?.name);
-  const [posts, setPosts] = useState<ForumPost[]>(() => [exampleForumSeed(author)]);
+  const members = exampleDirectory();
+  const author = exampleForumPost().authorName;
+  const [posts, setPosts] = useState<ForumPost[]>(() => [exampleForumPost()]);
 
   useEffect(() => {
     const apply = () => setRoute(parseDemoHash(window.location.hash));

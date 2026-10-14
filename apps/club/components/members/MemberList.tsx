@@ -3,7 +3,7 @@
 import { contactHref, type DirectoryMember } from "../../lib/memberDirectory.ts";
 import { EmptyState } from "../ui/EmptyState.tsx";
 
-/** Simple directory table: name, LinkedIn, email. */
+/** Simple directory table: name, LinkedIn, email. Phone only when a row carries one. */
 export function MemberList({
   members,
   loading = false,
@@ -14,6 +14,7 @@ export function MemberList({
   /** Shown when a cell has no value. */
   empty?: string;
 }) {
+  const showPhone = members.some((member) => member.phone !== undefined);
   return (
     <div className="member-directory">
       {loading ? <p className="text-sm text-muted">Loading members…</p> : null}
@@ -27,6 +28,7 @@ export function MemberList({
               <th scope="col">Name</th>
               <th scope="col">LinkedIn</th>
               <th scope="col">Email</th>
+              {showPhone ? <th scope="col">Phone</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -45,6 +47,7 @@ export function MemberList({
                 <td>
                   <a href={`mailto:${member.email}`}>{member.email}</a>
                 </td>
+                {showPhone ? <td>{member.phone?.trim() ? member.phone : empty}</td> : null}
               </tr>
             ))}
           </tbody>

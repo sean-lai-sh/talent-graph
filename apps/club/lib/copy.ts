@@ -56,7 +56,8 @@ export const FEEDBACK_TONE: Record<FeedbackState, Tone> = {
 export const EXAMPLE_DATA_LABEL = "Example data";
 
 /** Sits beside the label. Addresses are @example.test; nothing here is a live club. */
-export const EXAMPLE_DATA_NOTE = "Made-up names and @example.test addresses. Not a real club.";
+export const EXAMPLE_DATA_NOTE =
+  "Made-up names, phones, and @example.test addresses. Not a real club.";
 
 /** Shown wherever a demo field has no value. Never an id, never a blank that looks filled in. */
 export const UNKNOWN_VALUE = "Unknown";

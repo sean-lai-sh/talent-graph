@@ -429,7 +429,7 @@ describe("demo home ladder", () => {
     expect(read("apps/club/app/demo/home/MemberHomePreview.tsx")).toContain(
       "ReferralSignupPreview",
     );
-    expect(read("apps/club/components/referral/ReferralSignup.tsx")).toContain(
+    expect(read("apps/club/components/referral/ReferralSignupForm.tsx")).toContain(
       'import("./previewLadder.ts")',
     );
     expect(read("apps/club/components/referral/previewLadder.ts")).not.toContain("convex");
