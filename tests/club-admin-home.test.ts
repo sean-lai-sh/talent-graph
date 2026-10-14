@@ -69,7 +69,7 @@ describe("member home + admin board", () => {
     expect(page).toContain("robots: { index: false, follow: false }");
     expect(page).not.toContain("auth-server");
     expect(page).not.toContain("hasClubSession");
-    expect(demo).toContain("loadClub()");
+    expect(demo).toContain("exampleBoard()");
     expect(demo).not.toContain("MemberHome");
   });
 });

@@ -1,13 +1,7 @@
-import { REVIEW_BUCKET_COPY, type ReviewBucket } from "../../../../src/analysis/reviewQueue.ts";
+import { REVIEW_BUCKET_COPY, type ReviewBucket } from "../../../../src/analysis/reviewBuckets.ts";
 import { PRODUCT_LANGUAGE } from "../../../../src/domain/constants.ts";
 import { informativeComparisons } from "../../lib/comparisonRecord.ts";
-import {
-  cohortAverage,
-  rankAmong,
-  rankShort,
-  signalBand,
-  signalContext,
-} from "../../lib/format.ts";
+import { rankAmong, rankShort, signalBand, signalContext } from "../../lib/format.ts";
 import type { PersonView } from "../../lib/types.ts";
 import { Num } from "../ui/Num.tsx";
 
@@ -22,10 +16,6 @@ const WATCH: readonly ReviewBucket[] = [
 
 const DIAL_R = 86;
 const DIAL_C = 2 * Math.PI * DIAL_R;
-
-function signalsOf(people: PersonView[]): Array<number | null> {
-  return people.map((p) => p.v2Signal);
-}
 
 function ScoreDial({ signal, average }: { signal: number | null; average: number | null }) {
   const measured = signal !== null;
@@ -139,17 +129,17 @@ function Breakdown({ person, onCompare }: { person: PersonView; onCompare: () =>
  */
 export function ChannelSummary({
   person,
-  people,
+  roundAverage,
   onCompare,
 }: {
   person: PersonView;
-  people: PersonView[];
+  /** Mean of engine Referral Signals. The server computed this. */
+  roundAverage: number | null;
   onCompare: () => void;
 }) {
-  const average = cohortAverage(signalsOf(people));
   return (
     <div className="board-score">
-      <ScoreDial signal={person.v2Signal} average={average} />
+      <ScoreDial signal={person.v2Signal} average={roundAverage} />
       <Breakdown person={person} onCompare={onCompare} />
     </div>
   );

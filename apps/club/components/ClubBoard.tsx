@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { REVIEW_BUCKET_ORDER } from "../../../src/analysis/reviewQueue.ts";
+import { REVIEW_BUCKET_ORDER } from "../../../src/analysis/reviewBuckets.ts";
 import { describeActionError } from "../lib/actionError.ts";
 import { resolveBoardActions } from "../lib/clubActions.ts";
 import { underConsideration } from "../lib/review.ts";
@@ -94,6 +94,7 @@ export function ClubBoard({
   const firstId = sortQueue(initial.view.candidates)[0]?.personId ?? null;
   const [state, setState] = useState<ClubState>(initial.state);
   const [view, setView] = useState<ClubView>(initial.view);
+  const [roundAverage, setRoundAverage] = useState<number | null>(initial.roundAverage ?? null);
   const [error, setError] = useState<string | null>(initial.error ?? null);
   const [selectedId, setSelectedId] = useState<string | null>(firstId);
   const [present, setPresent] = useState(false);
@@ -108,6 +109,7 @@ export function ClubBoard({
     setState(result.state);
     setView(result.view);
     setError(result.error ?? null);
+    if (result.roundAverage !== undefined) setRoundAverage(result.roundAverage);
     stateRef.current = result.state;
   };
 
@@ -118,6 +120,7 @@ export function ClubBoard({
     setState(sync.state);
     setView(sync.view);
     setError(sync.error ?? null);
+    if (sync.roundAverage !== undefined) setRoundAverage(sync.roundAverage);
   }
   useEffect(() => {
     stateRef.current = state;
@@ -320,7 +323,7 @@ export function ClubBoard({
           <CaseView
             key={selected.id}
             person={selected}
-            people={view.people}
+            roundAverage={roundAverage}
             members={view.members}
             config={view.config}
             clock={clockIso}

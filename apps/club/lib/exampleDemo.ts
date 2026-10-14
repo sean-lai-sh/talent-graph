@@ -3,7 +3,7 @@
  * Never calls Convex. Never attaches a judge weight or a referrer.
  */
 
-import { EXAMPLE_FORUM, EXAMPLE_MEMBERS } from "../fixtures/example-data.ts";
+import { EXAMPLE_FORUM, EXAMPLE_PEOPLE } from "../fixtures/example-data.ts";
 import { EXAMPLE_FORUM_BODY, UNKNOWN_VALUE } from "./copy.ts";
 import type { DirectoryMember } from "./memberDirectory.ts";
 import type { ShellPane } from "./shellNav.ts";
@@ -38,19 +38,21 @@ export function exampleName(name: string | null | undefined): string {
   return trimmed.length > 0 ? trimmed : UNKNOWN_VALUE;
 }
 
-/** Fixture members, in file order. Names, not ids. Phone is the fictional number. */
+/** Admitted fixture people, by name. Phone is the fictional number. No score is copied. */
 export function exampleDirectory(): DirectoryMember[] {
-  return EXAMPLE_MEMBERS.map((member) => {
-    const name = exampleName(member.name);
-    const row: DirectoryMember = {
-      id: member.id,
-      name,
-      email: member.email,
-      phone: member.phone,
-    };
-    if (member.linkedin?.trim() && name !== UNKNOWN_VALUE) row.linkedin = member.linkedin.trim();
-    return row;
-  });
+  return EXAMPLE_PEOPLE.filter((person) => person.status === "member")
+    .map((member) => {
+      const name = exampleName(member.name);
+      const row: DirectoryMember = {
+        id: member.id,
+        name,
+        email: member.email,
+        phone: member.phone,
+      };
+      if (member.linkedin?.trim() && name !== UNKNOWN_VALUE) row.linkedin = member.linkedin.trim();
+      return row;
+    })
+    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
 export type ExamplePost = {
@@ -61,7 +63,7 @@ export type ExamplePost = {
 };
 
 export function exampleForumPost(): ExamplePost {
-  const author = EXAMPLE_MEMBERS.find((member) => member.id === EXAMPLE_FORUM.authorId);
+  const author = EXAMPLE_PEOPLE.find((member) => member.id === EXAMPLE_FORUM.authorId);
   return {
     id: EXAMPLE_FORUM.id,
     body: EXAMPLE_FORUM_BODY,

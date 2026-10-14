@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { TRACK_RECORD_COPY } from "../../../../src/judges/trackRecord.ts";
+import { TRACK_RECORD_COPY } from "../../../../src/judges/trackRecordCopy.ts";
 import { TRACK_RECORD_TONE } from "../../lib/copy.ts";
 import { FEEDBACK_WINDOW_HOURS } from "../../lib/review.ts";
 import type { MemberOption, PersonView, RequestFeedbackInput } from "../../lib/types.ts";

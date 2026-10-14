@@ -17,11 +17,12 @@ import {
 } from "../../lib/exampleDemo.ts";
 import type { ShellPane } from "../../lib/shellNav.ts";
 import type { EngineResult } from "../../lib/types.ts";
+import { actionExampleReset } from "./actions.ts";
 
 /**
  * Public admin preview. Same sidebar an admin sees.
- * The council board is the in-memory seed. Directory, phones, and the forum
- * note come from the static fixture. No Convex client and no Convex query.
+ * The council board is the engine view of the static fixture. Directory,
+ * phones, and the forum note come from those same inputs. No Convex query.
  */
 export function AdminDemo({ initial }: { initial: EngineResult }) {
   const [route, setRoute] = useState<DemoRoute>({ pane: "council", settings: false });
@@ -70,6 +71,7 @@ export function AdminDemo({ initial }: { initial: EngineResult }) {
       council={
         <ClubBoard
           initial={initial}
+          actions={{ reset: actionExampleReset }}
           hotkeys={route.pane === "council"}
           requestedPanel={route.settings ? "settings" : null}
         />

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { DIMENSIONS } from "../../../../src/domain/constants.ts";
 import type { Dimension } from "../../../../src/domain/types.ts";
-import { dimensionLabel } from "../../../../src/inference/capabilityVector.ts";
+import { dimensionLabel } from "../../lib/format.ts";
 import type { ReviewConfig, SetReviewConfigInput } from "../../lib/types.ts";
 import { Button } from "../ui/Button.tsx";
 

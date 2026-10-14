@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import type { Dimension } from "../../../../src/domain/types.ts";
+import { actionPlaceExamplePreview, actionStartExamplePreview } from "../../app/demo/actions.ts";
 import type { LadderPlacement, LadderStepView } from "../../lib/ladderPlacement.ts";
 import {
   emptyQuestionDraft,
@@ -23,7 +24,6 @@ import {
 import type { MemberReferralAnswers } from "../../lib/types.ts";
 import { Button, buttonClass, EmptyState, Field, Input } from "../ui/index.ts";
 import { LadderStep } from "./LadderStep.tsx";
-import type { PreviewBundle } from "./previewLadder.ts";
 import { ReferralQuestions } from "./ReferralQuestions.tsx";
 
 type Created = { personId: string; token: string; name: string; contact: string };
@@ -469,25 +469,26 @@ function ResumePicker({
 
 export function ReferralSignupPreview() {
   const router = useRouter();
-  const preview = useRef<PreviewBundle | null>(null);
+  const applicantName = useRef("");
+  const steps = useRef<{ dimension: Dimension; placement: LadderPlacement }[]>([]);
   return (
     <ReferralSignup
       onExists={() => router.push("/members/referral/add")}
       saveAnswers={async () => ({ ok: true })}
-      loadComparison={async (personId, applicantName) => {
-        const { startPreview } = await import("./previewLadder.ts");
-        const started = startPreview(personId, applicantName);
-        if ("error" in started) return started;
-        preview.current = started;
-        return started.view;
+      loadComparison={async (personId, name) => {
+        applicantName.current = name;
+        steps.current = [];
+        return actionStartExamplePreview(personId, name);
       }}
-      submitPlacement={async (_personId, dimension, placement) => {
-        const { placePreview } = await import("./previewLadder.ts");
-        const bundle = preview.current;
-        if (!bundle) return { error: "Start the comparison step first." };
-        const result = placePreview(bundle, dimension, placement);
-        if (!result.ok) return { error: result.error };
-        preview.current = result.bundle;
+      submitPlacement={async (personId, dimension, placement) => {
+        const next = [...steps.current, { dimension, placement }];
+        const result = await actionPlaceExamplePreview({
+          personId,
+          name: applicantName.current,
+          steps: next,
+        });
+        if ("error" in result) return result;
+        steps.current = next;
         return { ok: true };
       }}
       lookup={async (raw) => {

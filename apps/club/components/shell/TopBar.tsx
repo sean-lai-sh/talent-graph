@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { OWNER_NAME } from "../../lib/engine.ts";
+import { OWNER_NAME } from "../../lib/engine/shared.ts";
 import type { AddPersonInput, ReviewConfig, SetReviewConfigInput } from "../../lib/types.ts";
 import { AddPersonForm } from "../forms/AddPersonForm.tsx";
 import { Avatar } from "../ui/Avatar.tsx";

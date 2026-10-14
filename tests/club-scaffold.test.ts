@@ -27,7 +27,7 @@ describe("SEA-9 Convex + Better Auth scaffold", () => {
     expect(info).not.toContain("auth-server");
     expect(info).not.toContain("ConvexClientProvider");
     expect(info).not.toContain("@convex-dev/better-auth");
-    expect(demo).toContain("loadClub()");
+    expect(demo).toContain("exampleBoard()");
     expect(demo).toContain("robots");
     expect(demo).not.toContain("auth-client");
     expect(demo).not.toContain("auth-server");

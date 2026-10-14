@@ -53,7 +53,15 @@ function withReferral(state: ClubState, referrerId: string, candidateId: string)
 }
 
 export function startPreview(applicantId: string, name: string): PreviewBundle | { error: string } {
-  const seed = initialState();
+  return startPreviewFrom(initialState(), applicantId, name);
+}
+
+/** Same ladder as `startPreview`, over an explicit club instead of the generated seed. */
+export function startPreviewFrom(
+  seed: ClubState,
+  applicantId: string,
+  name: string,
+): PreviewBundle | { error: string } {
   const referrerId = referrerWithMost(seed);
   if (!referrerId) return { error: "The example seed has no referrer." };
   const now = seed.now;

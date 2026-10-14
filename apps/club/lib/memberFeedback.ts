@@ -4,40 +4,27 @@
  * `recordFeedback` transition — the same evaluation the council records.
  */
 
-import type { Dimension, RubricScore, Scale5 } from "../../../src/domain/types.ts";
 import { recordFeedback } from "./engine.ts";
 import { hoursLabel } from "./format.ts";
+import type { FeedbackInboxItem, MemberResponseDraft } from "./memberFeedbackForm.ts";
 import { resolveMemberPersonId } from "./memberIdentity.ts";
 import { feedbackState, hoursUntil } from "./review.ts";
 import { reviveState } from "./serialize.ts";
 import type { ClubState, IsoDate } from "./types.ts";
 
-export const OBSERVATION_REQUIRED = "Write what you observed.";
+export {
+  type FeedbackInboxItem,
+  type MemberResponseDraft,
+  memberResponseFormError,
+  OBSERVATION_REQUIRED,
+} from "./memberFeedbackForm.ts";
+
 export const NOT_YOUR_REQUEST = "That request is not yours.";
 export const REQUEST_CLOSED = "That request is already closed.";
-
-export type FeedbackInboxItem = {
-  id: string;
-  candidateId: string;
-  candidateName: string;
-  note: string;
-  requestedAt: IsoDate;
-  dueAt: IsoDate;
-  state: "pending" | "overdue";
-  dueLabel: string;
-};
 
 export type FeedbackOrg = {
   key: string;
   state: ClubState;
-};
-
-export type MemberResponseDraft = {
-  requestId: string;
-  dimension: Dimension;
-  score: RubricScore | null;
-  confidence: Scale5 | null;
-  evidenceText: string;
 };
 
 export type MemberResponsePlan = { key: string; state: ClubState } | { key: null; error: string };
@@ -76,12 +63,6 @@ export function listOwnFeedbackRequests(input: {
       a.id.localeCompare(b.id),
   );
   return items;
-}
-
-/** Empty observation copy for the form. The mutation repeats the check. */
-export function memberResponseFormError(evidenceText: string): string | null {
-  if (evidenceText.trim() === "") return OBSERVATION_REQUIRED;
-  return null;
 }
 
 /**

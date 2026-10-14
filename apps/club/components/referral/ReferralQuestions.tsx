@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { EMPTY_OBSERVATION_ERROR } from "../../lib/memberReferral.ts";
+import { EMPTY_OBSERVATION_ERROR } from "../../lib/referralErrors.ts";
 import {
   Q1_CONTEXTS,
   Q1_LENGTH,

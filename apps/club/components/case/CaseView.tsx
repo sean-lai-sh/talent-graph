@@ -57,7 +57,7 @@ function ResumeMark() {
 
 export function CaseView({
   person,
-  people,
+  roundAverage,
   members,
   config,
   clock,
@@ -70,7 +70,7 @@ export function CaseView({
   onBack,
 }: {
   person: PersonView;
-  people: PersonView[];
+  roundAverage: number | null;
   members: MemberOption[];
   config: ReviewConfig;
   clock: IsoDate;
@@ -137,7 +137,11 @@ export function CaseView({
       </header>
 
       <div className="board">
-        <ChannelSummary person={person} people={people} onCompare={() => setComparing(true)} />
+        <ChannelSummary
+          person={person}
+          roundAverage={roundAverage}
+          onCompare={() => setComparing(true)}
+        />
         <Reviews
           person={person}
           clock={clock}

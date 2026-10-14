@@ -10,6 +10,7 @@ import {
   resetClub,
   setReviewConfig,
 } from "../lib/engine.ts";
+import { roundAverageOf } from "../lib/format.ts";
 import type {
   AddPersonInput,
   ClubState,
@@ -22,19 +23,23 @@ import type {
 
 /** In-memory example. Nothing persists; the whole state rides along with each call. */
 
+function withRoundAverage(result: EngineResult): EngineResult {
+  return { ...result, roundAverage: roundAverageOf(result.view.people) };
+}
+
 export async function actionLoad(): Promise<EngineResult> {
-  return loadClub();
+  return withRoundAverage(loadClub());
 }
 
 export async function actionReset(): Promise<EngineResult> {
-  return resetClub();
+  return withRoundAverage(resetClub());
 }
 
 export async function actionAddPerson(
   state: ClubState,
   input: AddPersonInput,
 ): Promise<EngineResult> {
-  return addPerson(state, input);
+  return withRoundAverage(addPerson(state, input));
 }
 
 export async function actionDecide(
@@ -42,26 +47,28 @@ export async function actionDecide(
   personId: string,
   decision: Decision,
 ): Promise<EngineResult> {
-  return decide(state, personId, decision, undefined, anyReferrerDecided(state, personId));
+  return withRoundAverage(
+    decide(state, personId, decision, undefined, anyReferrerDecided(state, personId)),
+  );
 }
 
 export async function actionRequestFeedback(
   state: ClubState,
   input: RequestFeedbackInput,
 ): Promise<EngineResult> {
-  return requestFeedback(state, input);
+  return withRoundAverage(requestFeedback(state, input));
 }
 
 export async function actionRecordFeedback(
   state: ClubState,
   input: RecordFeedbackInput,
 ): Promise<EngineResult> {
-  return recordFeedback(state, input);
+  return withRoundAverage(recordFeedback(state, input));
 }
 
 export async function actionSetReviewConfig(
   state: ClubState,
   input: SetReviewConfigInput,
 ): Promise<EngineResult> {
-  return setReviewConfig(state, input);
+  return withRoundAverage(setReviewConfig(state, input));
 }

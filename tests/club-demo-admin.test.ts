@@ -1,14 +1,18 @@
 import { describe, expect, mock, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { EXAMPLE_MEMBERS } from "../apps/club/fixtures/example-data.ts";
+import { EXAMPLE_PEOPLE } from "../apps/club/fixtures/example-data.ts";
 import { EXAMPLE_DATA_LABEL, UNKNOWN_VALUE } from "../apps/club/lib/copy.ts";
+import { computeView } from "../apps/club/lib/engine.ts";
 import {
   exampleDirectory,
   exampleForumPost,
   exampleName,
   parseDemoHash,
 } from "../apps/club/lib/exampleDemo.ts";
+import { exampleBoard, exampleInputs } from "../apps/club/lib/exampleScore.ts";
+import { roundAverageOf } from "../apps/club/lib/format.ts";
+import type { ClubView } from "../apps/club/lib/types.ts";
 
 const root = join(import.meta.dir, "..");
 
@@ -76,6 +80,48 @@ const QUERY_CALL =
 
 const DEMO_ENTRIES = ["apps/club/app/demo/page.tsx", "apps/club/app/demo/home/page.tsx"];
 
+const CLIENT_ENTRIES = [
+  "apps/club/app/demo/AdminDemo.tsx",
+  "apps/club/app/demo/home/MemberHomePreview.tsx",
+];
+
+const SCORE_CALL =
+  /\b(?:computeView|generateSeed|runClubPass|computeCapabilityVectors|computeAllReferralSignals|advance|cohortAverage|roundAverageOf)\s*\(/;
+
+/** Client modules reachable from `/demo`, stopping at a server-action boundary. */
+function clientDemoFiles(): string[] {
+  const files: string[] = [];
+  const seen = new Set<string>();
+  const queue = CLIENT_ENTRIES.map((rel) => join(root, rel));
+  while (queue.length > 0) {
+    const file = queue.pop();
+    if (!file || seen.has(file)) continue;
+    seen.add(file);
+    const source = readFileSync(file, "utf8");
+    if (/^\s*["']use server["']/.test(source)) continue;
+    files.push(file);
+    for (const item of importSpecs(source)) {
+      if (item.typeOnly) continue;
+      if (!item.spec.startsWith(".") && !item.spec.startsWith("@/")) continue;
+      const next = resolveLocal(file, item.spec);
+      if (!next) throw new Error(`unresolved ${item.spec} from ${file}`);
+      if (!seen.has(next)) queue.push(next);
+    }
+  }
+  return files;
+}
+
+function engineNumbers(view: ClubView) {
+  return view.people.map((person) => ({
+    id: person.id,
+    v0Signal: person.v0Signal,
+    v2Signal: person.v2Signal,
+    strongest: person.strongest,
+    referrals: person.referrals.map((row) => [row.referralId, row.strength, row.multiplier]),
+    dimensions: person.dimensions.map((row) => [row.dimension, row.state, row.percentile]),
+  }));
+}
+
 function demoImportGraph(): Map<string, string> {
   const reached = new Map<string, string>();
   const queue = DEMO_ENTRIES.map((rel) => join(root, rel));
@@ -103,7 +149,12 @@ describe("public /demo admin preview", () => {
     expect(source).not.toContain("initialState");
     expect(source).not.toContain("generateSeed");
     const rows = exampleDirectory();
-    expect(rows.map((row) => row.id)).toEqual(EXAMPLE_MEMBERS.map((member) => member.id));
+    const members = EXAMPLE_PEOPLE.filter((person) => person.status === "member");
+    expect(rows.map((row) => row.id)).toEqual(
+      [...members]
+        .sort((left, right) => left.name.localeCompare(right.name))
+        .map((person) => person.id),
+    );
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
       expect(row.id.startsWith("example-")).toBe(true);
@@ -139,6 +190,37 @@ describe("public /demo admin preview", () => {
         expect(CONVEX_SPEC.test(item.spec), `${rel} imports ${item.spec}`).toBe(false);
       }
       expect(QUERY_CALL.test(source), `${rel} calls a Convex query`).toBe(false);
+    }
+  });
+
+  test("demo numbers are the scoring engine's output for the fixture", () => {
+    const fixture = stripComments(read("apps/club/fixtures/example-data.ts"));
+    expect(fixture).not.toMatch(/\bweight\b/);
+    expect(fixture).not.toMatch(/\bv2Signal\b/);
+    expect(fixture).not.toMatch(/\bpercentile\b/);
+    expect(fixture).not.toMatch(/\bscore\b/);
+    const inputs = exampleInputs();
+    expect(inputs.evaluations).toEqual([]);
+    expect(inputs.outcomes).toEqual([]);
+    expect(inputs.comparisons.every((row) => row.weight === undefined)).toBe(true);
+    expect(inputs.people.every((person) => !("v2Signal" in person))).toBe(true);
+
+    const engine = computeView(inputs);
+    const shown = exampleBoard();
+    expect(engineNumbers(shown.view)).toEqual(engineNumbers(engine));
+    expect(shown.roundAverage).toBe(roundAverageOf(engine.people));
+    expect(shown.view.people.some((person) => person.v2Signal !== null)).toBe(true);
+
+    const page = read("apps/club/app/demo/page.tsx");
+    expect(page).toContain("exampleBoard()");
+    expect(read("apps/club/lib/exampleScore.ts")).toContain("computeView(state)");
+    const clientFiles = clientDemoFiles().map((file) => file.slice(root.length + 1));
+    expect(clientFiles).not.toContain("apps/club/lib/exampleScore.ts");
+    expect(clientFiles).not.toContain("apps/club/lib/engine.ts");
+    expect(clientFiles).not.toContain("apps/club/components/referral/previewLadder.ts");
+    for (const rel of clientFiles) {
+      if (rel === "apps/club/lib/format.ts") continue;
+      expect(SCORE_CALL.test(stripComments(read(rel))), `${rel} scores in client code`).toBe(false);
     }
   });
 
@@ -181,11 +263,17 @@ describe("public /demo admin preview", () => {
       expect(html).toContain("Email or phone");
     }
 
+    const board = exampleBoard();
+    const cy = board.view.people.find((person) => person.id === "example-cy");
+    expect(cy?.v2Signal).not.toBeNull();
     expect(demo).toContain("Council");
-    expect(demo).toContain("Cleo Marsh");
+    expect(demo).toContain("Cy Sample");
+    expect(demo).toContain(`>${cy?.v2Signal}<`);
+    expect(demo).toContain(`the round average of ${board.roundAverage}`);
+    expect(demo).toContain("Tech@NYU");
     expect(demo).toContain('aria-label="Admin"');
     expect(home).toContain('aria-label="Member"');
-    expect(home).not.toContain("Cleo Marsh");
+    expect(home).not.toContain(`>${cy?.v2Signal}<`);
   });
 
   test("server admin gates are unchanged", () => {

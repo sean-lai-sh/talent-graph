@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { DIMENSIONS, SCALE_LABELS } from "../../../../src/domain/constants.ts";
 import type { Dimension, RubricScore, Scale5 } from "../../../../src/domain/types.ts";
-import { dimensionLabel } from "../../../../src/inference/capabilityVector.ts";
+import { dimensionLabel } from "../../lib/format.ts";
 import type {
   FeedbackView,
   MemberOption,
